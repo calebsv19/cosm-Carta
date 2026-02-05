@@ -91,6 +91,7 @@ Outcome: Usability improvements and route playback.
 - Drag endpoints and improve interaction.
 - Playback mode with time proxy.
 - UI polish and debug overlays.
+Status: Completed (2026-02-05)
 
 ### Phase 5: Additional Map Layers
 Outcome: Buildings, water, parks, landuse.

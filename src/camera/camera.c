@@ -23,10 +23,13 @@ void camera_init(Camera *camera) {
     MercatorMeters center = mercator_from_latlon((LatLon){47.664005, -122.303765});
     camera->x = (float)center.x;
     camera->y = (float)center.y;
+    camera->x_target = camera->x;
+    camera->y_target = camera->y;
     camera->zoom = 14.0f;
+    camera->zoom_target = camera->zoom;
 }
 
-void camera_handle_input(Camera *camera, const InputState *input, int screen_w, int screen_h, float dt) {
+void camera_handle_input(Camera *camera, const InputState *input, int screen_w, int screen_h, float dt, bool allow_mouse_pan) {
     (void)dt;
     if (!camera || !input) {
         return;
@@ -37,16 +40,23 @@ void camera_handle_input(Camera *camera, const InputState *input, int screen_w, 
         float world_y = 0.0f;
         camera_screen_to_world(camera, (float)input->mouse_x, (float)input->mouse_y, screen_w, screen_h, &world_x, &world_y);
 
-        float zoom = camera->zoom + 0.25f * (float)input->mouse_wheel_y;
-        camera->zoom = clampf(zoom, 10.0f, 18.0f);
+        float zoom = camera->zoom_target + 0.25f * (float)input->mouse_wheel_y;
+        camera->zoom_target = clampf(zoom, 10.0f, 18.0f);
 
+        float temp_zoom = camera->zoom;
+        float temp_x = camera->x;
+        float temp_y = camera->y;
+        camera->zoom = camera->zoom_target;
         float ppm = camera_pixels_per_meter(camera);
         if (ppm > 0.0f) {
             float dx = (float)input->mouse_x - (float)screen_w * 0.5f;
             float dy = (float)input->mouse_y - (float)screen_h * 0.5f;
-            camera->x = world_x - dx / ppm;
-            camera->y = world_y + dy / ppm;
+            camera->x_target = world_x - dx / ppm;
+            camera->y_target = world_y + dy / ppm;
         }
+        camera->zoom = temp_zoom;
+        camera->x = temp_x;
+        camera->y = temp_y;
     }
 
     float ppm = camera_pixels_per_meter(camera);
@@ -58,27 +68,34 @@ void camera_handle_input(Camera *camera, const InputState *input, int screen_w, 
     float pan_step = (pan_speed_pixels / ppm) * dt;
 
     if (input->pan_left) {
-        camera->x -= pan_step;
+        camera->x_target -= pan_step;
     }
     if (input->pan_right) {
-        camera->x += pan_step;
+        camera->x_target += pan_step;
     }
     if (input->pan_up) {
-        camera->y += pan_step;
+        camera->y_target += pan_step;
     }
     if (input->pan_down) {
-        camera->y -= pan_step;
+        camera->y_target -= pan_step;
     }
 
-    if (input->mouse_buttons & SDL_BUTTON_LMASK) {
-        camera->x -= (float)input->mouse_dx / ppm;
-        camera->y += (float)input->mouse_dy / ppm;
+    if (allow_mouse_pan && (input->mouse_buttons & SDL_BUTTON_LMASK)) {
+        camera->x_target -= (float)input->mouse_dx / ppm;
+        camera->y_target += (float)input->mouse_dy / ppm;
     }
 }
 
 void camera_update(Camera *camera, float dt) {
-    (void)camera;
-    (void)dt;
+    if (!camera) {
+        return;
+    }
+
+    const float response = 16.0f;
+    float alpha = 1.0f - expf(-response * dt);
+    camera->zoom += (camera->zoom_target - camera->zoom) * alpha;
+    camera->x += (camera->x_target - camera->x) * alpha;
+    camera->y += (camera->y_target - camera->y) * alpha;
 }
 
 float camera_pixels_per_meter(const Camera *camera) {

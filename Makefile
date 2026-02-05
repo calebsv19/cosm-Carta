@@ -2,14 +2,20 @@ CC := cc
 
 SDL_CFLAGS := $(shell sdl2-config --cflags 2>/dev/null)
 SDL_LIBS := $(shell sdl2-config --libs 2>/dev/null)
+SDL_TTF_CFLAGS := $(shell pkg-config --cflags SDL2_ttf 2>/dev/null)
+SDL_TTF_LIBS := $(shell pkg-config --libs SDL2_ttf 2>/dev/null)
 
 ifeq ($(SDL_LIBS),)
 SDL_CFLAGS :=
 SDL_LIBS := -lSDL2
 endif
 
-CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g $(SDL_CFLAGS)
-LDLIBS := $(SDL_LIBS)
+ifeq ($(SDL_TTF_LIBS),)
+SDL_TTF_LIBS := -lSDL2_ttf
+endif
+
+CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g $(SDL_CFLAGS) $(SDL_TTF_CFLAGS)
+LDLIBS := $(SDL_LIBS) $(SDL_TTF_LIBS)
 TOOL_LDLIBS := -lm
 
 SRCS := $(shell find src -name '*.c')

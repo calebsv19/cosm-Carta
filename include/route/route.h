@@ -11,13 +11,17 @@
 typedef struct RouteState {
     RouteGraph graph;
     RoutePath path;
+    RoutePath drive_path;
+    RoutePath walk_path;
     bool loaded;
     bool fastest;
     RouteTravelMode mode;
+    bool has_transfer;
     bool has_start;
     bool has_goal;
     uint32_t start_node;
     uint32_t goal_node;
+    uint32_t transfer_node;
 } RouteState;
 
 // Initializes routing state.

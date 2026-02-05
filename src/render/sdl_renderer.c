@@ -9,6 +9,7 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
     if (!renderer->sdl) {
         return false;
     }
+    SDL_SetRenderDrawBlendMode(renderer->sdl, SDL_BLENDMODE_BLEND);
 
     renderer->width = width;
     renderer->height = height;

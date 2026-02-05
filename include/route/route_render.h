@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Renders a computed route path with optional start/end markers.
-void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGraph *graph, const RoutePath *path, bool has_start, uint32_t start_node, bool has_goal, uint32_t goal_node);
+// Renders computed route paths with optional start/end markers.
+void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGraph *graph, const RoutePath *path, const RoutePath *drive_path, const RoutePath *walk_path, bool has_start, uint32_t start_node, bool has_goal, uint32_t goal_node, bool has_transfer, uint32_t transfer_node);
 
 #endif

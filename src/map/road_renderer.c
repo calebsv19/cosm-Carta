@@ -1,6 +1,7 @@
 #include "map/road_renderer.h"
 
 #include "map/tile_math.h"
+#include "map/zoom_fade.h"
 
 #include <SDL.h>
 #include <stdbool.h>
@@ -15,85 +16,30 @@ typedef struct RoadStyle {
     float width;
 } RoadStyle;
 
-// Groups zoom ranges for visibility and render mode selection.
-typedef enum ZoomTier {
-    ZOOM_TIER_FAR = 0,
-    ZOOM_TIER_MID = 1,
-    ZOOM_TIER_NEAR = 2,
-    ZOOM_TIER_CLOSE = 3,
-    ZOOM_TIER_PATH = 4
-} ZoomTier;
-
-#define ZOOM_TIER_FAR_MAX 10.5f
-#define ZOOM_TIER_MID_MAX 12.0f
-#define ZOOM_TIER_NEAR_MAX 13.0f
-#define ZOOM_TIER_CLOSE_MAX 14.0f
 #define ROAD_QUAD_MIN_ZOOM 14.5f
 #define ROAD_QUAD_MIN_WIDTH 2.5f
 
-static ZoomTier zoom_tier_for(float zoom) {
-    if (zoom <= ZOOM_TIER_FAR_MAX) {
-        return ZOOM_TIER_FAR;
-    }
-    if (zoom <= ZOOM_TIER_MID_MAX) {
-        return ZOOM_TIER_MID;
-    }
-    if (zoom <= ZOOM_TIER_NEAR_MAX) {
-        return ZOOM_TIER_NEAR;
-    }
-    if (zoom <= ZOOM_TIER_CLOSE_MAX) {
-        return ZOOM_TIER_CLOSE;
-    }
-    return ZOOM_TIER_PATH;
-}
-
 const char *road_renderer_zoom_tier_label(float zoom) {
-    switch (zoom_tier_for(zoom)) {
-        case ZOOM_TIER_FAR:
-            return "far";
-        case ZOOM_TIER_MID:
-            return "mid";
-        case ZOOM_TIER_NEAR:
-            return "near";
-        case ZOOM_TIER_CLOSE:
-            return "close";
-        case ZOOM_TIER_PATH:
-            return "path";
-        default:
-            return "path";
-    }
+    return zoom_tier_label(zoom_tier_for(zoom));
 }
 
-static bool road_class_visible(RoadClass road_class, ZoomTier tier) {
-    switch (tier) {
-        case ZOOM_TIER_FAR:
-            return road_class == ROAD_CLASS_MOTORWAY ||
-                   road_class == ROAD_CLASS_TRUNK;
-        case ZOOM_TIER_MID:
-            return road_class == ROAD_CLASS_MOTORWAY ||
-                   road_class == ROAD_CLASS_TRUNK ||
-                   road_class == ROAD_CLASS_PRIMARY ||
-                   road_class == ROAD_CLASS_SECONDARY ||
-                   road_class == ROAD_CLASS_TERTIARY;
-        case ZOOM_TIER_NEAR:
-            return road_class == ROAD_CLASS_MOTORWAY ||
-                   road_class == ROAD_CLASS_TRUNK ||
-                   road_class == ROAD_CLASS_PRIMARY ||
-                   road_class == ROAD_CLASS_SECONDARY ||
-                   road_class == ROAD_CLASS_TERTIARY ||
-                   road_class == ROAD_CLASS_RESIDENTIAL;
-        case ZOOM_TIER_CLOSE:
-            return road_class == ROAD_CLASS_MOTORWAY ||
-                   road_class == ROAD_CLASS_TRUNK ||
-                   road_class == ROAD_CLASS_PRIMARY ||
-                   road_class == ROAD_CLASS_SECONDARY ||
-                   road_class == ROAD_CLASS_TERTIARY ||
-                   road_class == ROAD_CLASS_RESIDENTIAL ||
-                   road_class == ROAD_CLASS_SERVICE ||
-                   road_class == ROAD_CLASS_FOOTWAY;
-        case ZOOM_TIER_PATH:
+static ZoomTier road_class_min_tier(RoadClass road_class) {
+    switch (road_class) {
+        case ROAD_CLASS_MOTORWAY:
+        case ROAD_CLASS_TRUNK:
+            return ZOOM_TIER_FAR;
+        case ROAD_CLASS_PRIMARY:
+        case ROAD_CLASS_SECONDARY:
+        case ROAD_CLASS_TERTIARY:
+            return ZOOM_TIER_MID;
+        case ROAD_CLASS_RESIDENTIAL:
+            return ZOOM_TIER_NEAR;
+        case ROAD_CLASS_SERVICE:
+        case ROAD_CLASS_FOOTWAY:
+            return ZOOM_TIER_CLOSE;
+        case ROAD_CLASS_PATH:
         default:
-            return true;
+            return ZOOM_TIER_PATH;
     }
 }
 
@@ -274,11 +220,18 @@ void road_renderer_draw_tile(Renderer *renderer, const Camera *camera, const Mft
             continue;
         }
 
-        if (!road_class_visible(polyline->road_class, tier)) {
+        ZoomTier min_tier = road_class_min_tier(polyline->road_class);
+        RoadStyle style = road_style_for_class(polyline->road_class, camera->zoom, tier);
+        float fade = zoom_tier_fade_in_alpha(camera->zoom, min_tier);
+        float alpha = (float)style.a * fade;
+        if (alpha > 255.0f) {
+            alpha = 255.0f;
+        }
+        int alpha_i = (int)lroundf(alpha);
+        if (alpha_i <= 0) {
             continue;
         }
-
-        RoadStyle style = road_style_for_class(polyline->road_class, camera->zoom, tier);
+        style.a = (uint8_t)alpha_i;
         SDL_SetRenderDrawColor(renderer->sdl, style.r, style.g, style.b, style.a);
 
         SDL_FPoint stack_points[256];

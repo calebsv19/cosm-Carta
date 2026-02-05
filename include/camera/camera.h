@@ -7,14 +7,17 @@
 typedef struct Camera {
     float x;
     float y;
+    float x_target;
+    float y_target;
     float zoom;
+    float zoom_target;
 } Camera;
 
 // Initializes the camera to a default position.
 void camera_init(Camera *camera);
 
 // Updates the camera state based on input and elapsed time.
-void camera_handle_input(Camera *camera, const InputState *input, int screen_w, int screen_h, float dt);
+void camera_handle_input(Camera *camera, const InputState *input, int screen_w, int screen_h, float dt, bool allow_mouse_pan);
 
 // Advances camera simulation logic.
 void camera_update(Camera *camera, float dt);

@@ -14,8 +14,10 @@
 #include "route/route.h"
 #include "route/route_render.h"
 #include "ui/debug_overlay.h"
+#include "ui/font.h"
 
 #include <SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -105,6 +107,9 @@ static void app_center_camera_on_region(Camera *camera, const RegionInfo *region
     camera->x = (float)((min_m.x + max_m.x) * 0.5);
     camera->y = (float)((min_m.y + max_m.y) * 0.5);
     camera->zoom = app_zoom_for_bounds(camera, region, screen_w, screen_h, 1.15f);
+    camera->x_target = camera->x;
+    camera->y_target = camera->y;
+    camera->zoom_target = camera->zoom;
 }
 
 static void app_draw_region_bounds(AppState *app) {
@@ -255,6 +260,22 @@ static void app_update_hover(AppState *app) {
     }
 }
 
+static bool app_mouse_over_node(const AppState *app, uint32_t node, float radius) {
+    if (!app || !app->route.loaded || node >= app->route.graph.node_count) {
+        return false;
+    }
+
+    float sx = 0.0f;
+    float sy = 0.0f;
+    camera_world_to_screen(&app->camera,
+                           (float)app->route.graph.node_x[node],
+                           (float)app->route.graph.node_y[node],
+                           app->width, app->height, &sx, &sy);
+    float dx = (float)app->input.mouse_x - sx;
+    float dy = (float)app->input.mouse_y - sy;
+    return (dx * dx + dy * dy) <= radius * radius;
+}
+
 static void app_draw_hover_marker(AppState *app) {
     if (!app || !app->has_hover || !app->route.loaded || app->hover_node >= app->route.graph.node_count) {
         return;
@@ -323,6 +344,55 @@ static void app_draw_header_bar(AppState *app) {
         SDL_SetRenderDrawColor(app->renderer.sdl, 60, 200, 130, 220);
         SDL_RenderFillRectF(app->renderer.sdl, &right);
     }
+
+    SDL_Color label_color = {225, 230, 240, 255};
+    int text_h = ui_font_line_height(1.0f);
+    if (text_h > 0) {
+        int car_w = ui_measure_text_width("CAR", 1.0f);
+        int walk_w = ui_measure_text_width("WALK", 1.0f);
+        int car_x = (int)(left.x + (left.w - car_w) * 0.5f);
+        int walk_x = (int)(right.x + (right.w - walk_w) * 0.5f);
+        int label_y = (int)(button.y + (button.h - (float)text_h) * 0.5f);
+        ui_draw_text(app->renderer.sdl, car_x, label_y, "CAR", label_color, 1.0f);
+        ui_draw_text(app->renderer.sdl, walk_x, label_y, "WALK", label_color, 1.0f);
+    }
+
+    float cursor_x = button.x + button.w + 12.0f;
+    char speed_text[32];
+    snprintf(speed_text, sizeof(speed_text), "Speed: %.1fx", app->playback_speed);
+    char distance_text[48];
+    float km = 0.0f;
+    float minutes = 0.0f;
+    if (app->route.path.count > 1) {
+        km = app->route.path.total_length_m / 1000.0f;
+        minutes = app->route.path.total_time_s / 60.0f;
+    }
+    snprintf(distance_text, sizeof(distance_text), "Route: %.2f km | %.1f min", km, minutes);
+
+    SDL_Color badge_fill = {30, 35, 46, 230};
+    SDL_Color badge_outline = {80, 90, 110, 220};
+    float pad_x = 8.0f;
+    float pad_y = 3.0f;
+    int speed_w = ui_measure_text_width(speed_text, 1.0f);
+    int distance_w = ui_measure_text_width(distance_text, 1.0f);
+    float box_h = (float)text_h + pad_y * 2.0f;
+    float box_y = (kHeaderHeight - box_h) * 0.5f;
+    float speed_box_w = (float)speed_w + pad_x * 2.0f;
+    SDL_FRect speed_box = {cursor_x, box_y, speed_box_w, box_h};
+    SDL_SetRenderDrawColor(app->renderer.sdl, badge_fill.r, badge_fill.g, badge_fill.b, badge_fill.a);
+    SDL_RenderFillRectF(app->renderer.sdl, &speed_box);
+    SDL_SetRenderDrawColor(app->renderer.sdl, badge_outline.r, badge_outline.g, badge_outline.b, badge_outline.a);
+    SDL_RenderDrawRectF(app->renderer.sdl, &speed_box);
+    ui_draw_text(app->renderer.sdl, (int)(speed_box.x + pad_x), (int)(speed_box.y + (box_h - text_h) * 0.5f), speed_text, label_color, 1.0f);
+    cursor_x += speed_box_w + 10.0f;
+
+    float distance_box_w = (float)distance_w + pad_x * 2.0f;
+    SDL_FRect distance_box = {cursor_x, box_y, distance_box_w, box_h};
+    SDL_SetRenderDrawColor(app->renderer.sdl, badge_fill.r, badge_fill.g, badge_fill.b, badge_fill.a);
+    SDL_RenderFillRectF(app->renderer.sdl, &distance_box);
+    SDL_SetRenderDrawColor(app->renderer.sdl, badge_outline.r, badge_outline.g, badge_outline.b, badge_outline.a);
+    SDL_RenderDrawRectF(app->renderer.sdl, &distance_box);
+    ui_draw_text(app->renderer.sdl, (int)(distance_box.x + pad_x), (int)(distance_box.y + (box_h - text_h) * 0.5f), distance_text, label_color, 1.0f);
 }
 
 static void app_playback_reset(AppState *app) {
@@ -452,7 +522,7 @@ static bool app_recompute_route(AppState *app) {
 }
 
 static float app_next_playback_speed(float current, int direction) {
-    static const float kSpeeds[] = {0.5f, 1.0f, 2.0f, 4.0f};
+    static const float kSpeeds[] = {1.0f, 2.0f, 4.0f, 6.0f, 8.0f, 12.0f, 16.0f};
     size_t count = sizeof(kSpeeds) / sizeof(kSpeeds[0]);
     size_t idx = 0;
     for (size_t i = 0; i < count; ++i) {
@@ -501,6 +571,12 @@ static bool app_init(AppState *app) {
         return false;
     }
 
+    if (TTF_Init() != 0) {
+        log_error("TTF_Init failed: %s", TTF_GetError());
+        return false;
+    }
+    ui_font_set("assets/fonts/Montserrat-Regular.ttf", 10);
+
     app->region_index = 0;
     const RegionInfo *info = region_get(app->region_index);
     if (!info) {
@@ -541,6 +617,11 @@ static bool app_init(AppState *app) {
 static void app_shutdown(AppState *app) {
     if (!app) {
         return;
+    }
+
+    if (TTF_WasInit()) {
+        ui_font_shutdown();
+        TTF_Quit();
     }
 
     renderer_shutdown(&app->renderer);
@@ -624,7 +705,25 @@ int app_run(void) {
         float dt = (float)(now - last_time);
         last_time = now;
 
-        camera_handle_input(&app.camera, &app.input, app.width, app.height, dt);
+        if (!app.dragging_start && !app.dragging_goal && app.input.left_click_pressed) {
+            bool over_start = app.route.has_start && app_mouse_over_node(&app, app.route.start_node, 7.0f);
+            bool over_goal = app.route.has_goal && app_mouse_over_node(&app, app.route.goal_node, 7.0f);
+            if (over_goal && !over_start) {
+                app.dragging_goal = true;
+            } else if (over_start) {
+                app.dragging_start = true;
+            }
+        }
+        if (!app.dragging_goal && app.input.right_click_pressed && app.route.has_goal &&
+            app_mouse_over_node(&app, app.route.goal_node, 7.0f)) {
+            app.dragging_goal = true;
+        }
+
+        bool over_start = app.route.has_start && app_mouse_over_node(&app, app.route.start_node, 7.0f);
+        bool over_goal = app.route.has_goal && app_mouse_over_node(&app, app.route.goal_node, 7.0f);
+        bool allow_mouse_pan = !(app.dragging_start || app.dragging_goal) &&
+            !((app.input.mouse_buttons & SDL_BUTTON_LMASK) && (over_start || over_goal));
+        camera_handle_input(&app.camera, &app.input, app.width, app.height, dt, allow_mouse_pan);
         camera_update(&app.camera, dt);
         debug_overlay_update(&app.overlay, dt);
 
@@ -710,6 +809,12 @@ int app_run(void) {
                     app_recompute_route(&app);
                 }
             }
+            if (app.dragging_goal) {
+                app.dragging_goal = false;
+                if (app.route.has_start && app.route.has_goal) {
+                    app_recompute_route(&app);
+                }
+            }
         }
         if (app.input.right_click_released) {
             if (app.dragging_goal) {
@@ -726,9 +831,10 @@ int app_run(void) {
         renderer_clear(&app.renderer, 20, 20, 28, 255);
         uint32_t visible_tiles = app_draw_visible_tiles(&app);
         app_draw_region_bounds(&app);
-        route_render_draw(&app.renderer, &app.camera, &app.route.graph, &app.route.path,
+        route_render_draw(&app.renderer, &app.camera, &app.route.graph, &app.route.path, &app.route.drive_path, &app.route.walk_path,
             app.route.has_start, app.route.start_node,
-            app.route.has_goal, app.route.goal_node);
+            app.route.has_goal, app.route.goal_node,
+            app.route.has_transfer, app.route.transfer_node);
         app_draw_hover_marker(&app);
         app_draw_playback_marker(&app);
         app_draw_route_panel(&app);
@@ -748,8 +854,15 @@ int app_run(void) {
             if (app.route.path.count > 1) {
                 float km = app.route.path.total_length_m / 1000.0f;
                 float minutes = app.route.path.total_time_s / 60.0f;
-                snprintf(title, sizeof(title), "MapForge | %s | %s | %s | %s | %.2f km | %.1f min | %.1fx | FPS: %.1f | Tiles: %u | Cache: %u/%u",
-                         app.region.name, mode, profile, tier, km, minutes, app.playback_speed, app.overlay.fps, app.overlay.visible_tiles, app.overlay.cached_tiles, app.overlay.cache_capacity);
+                if (app.route.drive_path.count > 1 && app.route.walk_path.count > 1) {
+                    float drive_minutes = app.route.drive_path.total_time_s / 60.0f;
+                    float walk_minutes = app.route.walk_path.total_time_s / 60.0f;
+                    snprintf(title, sizeof(title), "MapForge | %s | %s | %s | %s | %.2f km | drive %.1f min + walk %.1f min | %.1fx | FPS: %.1f | Tiles: %u | Cache: %u/%u",
+                             app.region.name, mode, profile, tier, km, drive_minutes, walk_minutes, app.playback_speed, app.overlay.fps, app.overlay.visible_tiles, app.overlay.cached_tiles, app.overlay.cache_capacity);
+                } else {
+                    snprintf(title, sizeof(title), "MapForge | %s | %s | %s | %s | %.2f km | %.1f min | %.1fx | FPS: %.1f | Tiles: %u | Cache: %u/%u",
+                             app.region.name, mode, profile, tier, km, minutes, app.playback_speed, app.overlay.fps, app.overlay.visible_tiles, app.overlay.cached_tiles, app.overlay.cache_capacity);
+                }
             } else {
                 const char *graph_status = app.route.loaded ? "graph ok" : "graph missing";
                 snprintf(title, sizeof(title), "MapForge | %s | %s | %s | %s | %s | %.1fx | FPS: %.1f | Tiles: %u | Cache: %u/%u",
