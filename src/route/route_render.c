@@ -1,0 +1,122 @@
+#include "route/route_render.h"
+
+#include <SDL.h>
+
+typedef struct RouteStyle {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    uint8_t a;
+    int width;
+    int outline_width;
+} RouteStyle;
+
+static RouteStyle route_style(void) {
+    RouteStyle style = {40, 170, 255, 255, 6, 10};
+    return style;
+}
+
+static void draw_marker(SDL_Renderer *sdl, float x, float y, uint8_t r, uint8_t g, uint8_t b) {
+    SDL_SetRenderDrawColor(sdl, r, g, b, 255);
+    SDL_FRect rect = {x - 4.0f, y - 4.0f, 8.0f, 8.0f};
+    SDL_RenderFillRectF(sdl, &rect);
+}
+
+static SDL_Vertex *build_route_vertices(const SDL_FPoint *points, int count, float width, SDL_Color color, int *out_vertex_count) {
+    if (!points || count < 2 || width <= 0.0f || !out_vertex_count) {
+        return NULL;
+    }
+
+    int quad_count = count - 1;
+    int vertex_count = quad_count * 6;
+    SDL_Vertex *verts = (SDL_Vertex *)SDL_malloc(sizeof(SDL_Vertex) * (size_t)vertex_count);
+    if (!verts) {
+        return NULL;
+    }
+
+    float half = width * 0.5f;
+    int v = 0;
+    for (int i = 0; i < quad_count; ++i) {
+        SDL_FPoint a = points[i];
+        SDL_FPoint b = points[i + 1];
+        float dx = b.x - a.x;
+        float dy = b.y - a.y;
+        float len = SDL_sqrtf(dx * dx + dy * dy);
+        if (len <= 0.0001f) {
+            continue;
+        }
+
+        float nx = -dy / len;
+        float ny = dx / len;
+
+        SDL_FPoint a0 = {a.x + nx * half, a.y + ny * half};
+        SDL_FPoint a1 = {a.x - nx * half, a.y - ny * half};
+        SDL_FPoint b0 = {b.x + nx * half, b.y + ny * half};
+        SDL_FPoint b1 = {b.x - nx * half, b.y - ny * half};
+
+        verts[v++] = (SDL_Vertex){a0, color, {0.0f, 0.0f}};
+        verts[v++] = (SDL_Vertex){b0, color, {0.0f, 0.0f}};
+        verts[v++] = (SDL_Vertex){b1, color, {0.0f, 0.0f}};
+        verts[v++] = (SDL_Vertex){a0, color, {0.0f, 0.0f}};
+        verts[v++] = (SDL_Vertex){b1, color, {0.0f, 0.0f}};
+        verts[v++] = (SDL_Vertex){a1, color, {0.0f, 0.0f}};
+    }
+
+    *out_vertex_count = v;
+    return verts;
+}
+
+void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGraph *graph, const RoutePath *path, bool has_start, uint32_t start_node, bool has_goal, uint32_t goal_node) {
+    if (!renderer || !renderer->sdl || !camera || !graph) {
+        return;
+    }
+
+    if (path && path->count >= 2) {
+        RouteStyle style = route_style();
+
+        SDL_FPoint *points = (SDL_FPoint *)SDL_malloc(sizeof(SDL_FPoint) * (size_t)path->count);
+        if (points) {
+            for (uint32_t i = 0; i < path->count; ++i) {
+                uint32_t node = path->nodes[i];
+                float sx = 0.0f;
+                float sy = 0.0f;
+                camera_world_to_screen(camera, (float)graph->node_x[node], (float)graph->node_y[node], renderer->width, renderer->height, &sx, &sy);
+                points[i].x = sx;
+                points[i].y = sy;
+            }
+
+            SDL_Color outline = {10, 60, 120, 255};
+            SDL_Color core = {style.r, style.g, style.b, style.a};
+
+            int outline_count = 0;
+            SDL_Vertex *outline_verts = build_route_vertices(points, (int)path->count, (float)style.outline_width, outline, &outline_count);
+            if (outline_verts && outline_count > 0) {
+                SDL_RenderGeometry(renderer->sdl, NULL, outline_verts, outline_count, NULL, 0);
+                SDL_free(outline_verts);
+            }
+
+            int core_count = 0;
+            SDL_Vertex *core_verts = build_route_vertices(points, (int)path->count, (float)style.width, core, &core_count);
+            if (core_verts && core_count > 0) {
+                SDL_RenderGeometry(renderer->sdl, NULL, core_verts, core_count, NULL, 0);
+                SDL_free(core_verts);
+            }
+
+            SDL_free(points);
+        }
+    }
+
+    if (has_start && start_node < graph->node_count) {
+        float sx = 0.0f;
+        float sy = 0.0f;
+        camera_world_to_screen(camera, (float)graph->node_x[start_node], (float)graph->node_y[start_node], renderer->width, renderer->height, &sx, &sy);
+        draw_marker(renderer->sdl, sx, sy, 80, 220, 120);
+    }
+
+    if (has_goal && goal_node < graph->node_count) {
+        float sx = 0.0f;
+        float sy = 0.0f;
+        camera_world_to_screen(camera, (float)graph->node_x[goal_node], (float)graph->node_y[goal_node], renderer->width, renderer->height, &sx, &sy);
+        draw_marker(renderer->sdl, sx, sy, 230, 80, 90);
+    }
+}

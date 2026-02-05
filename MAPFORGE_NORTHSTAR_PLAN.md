@@ -61,6 +61,7 @@ Outcome: Bootable app with basic rendering loop.
 - Camera pan/zoom controls.
 - Renderer abstraction with SDL backend.
 - Debug overlay (FPS, dt).
+Status: Completed (2026-02-04)
 
 ### Phase 1: Minimal Map Viewer (Roads Only)
 Outcome: Real-time map viewing with road tiles.
@@ -68,12 +69,14 @@ Outcome: Real-time map viewing with road tiles.
 - Tile cache with LRU eviction.
 - MFT loader and polyline renderer.
 - Zoom-based line widths and class styling.
+Status: Completed (2026-02-04)
 
 ### Phase 2: OSM Region Pack Toolchain (Roads)
 Outcome: Build Seattle region pack from OSM extract.
 - OSM importer for highway ways.
 - Tile slicing and MFT output.
 - Makefile target for region build.
+Status: Completed (2026-02-04)
 
 ### Phase 3: Routing v1
 Outcome: A/B endpoints and local routing.
@@ -81,6 +84,7 @@ Outcome: A/B endpoints and local routing.
 - Runtime A* with shortest and fastest profiles.
 - Snap endpoints + route polyline rendering.
 - Route stats panel.
+Status: Completed (2026-02-05)
 
 ### Phase 4: UX Enhancements & Playback
 Outcome: Usability improvements and route playback.
