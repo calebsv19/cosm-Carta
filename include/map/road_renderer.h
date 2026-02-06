@@ -8,7 +8,11 @@
 #include <stdbool.h>
 
 // Renders road polylines from a decoded MFT tile.
-void road_renderer_draw_tile(Renderer *renderer, const Camera *camera, const MftTile *tile, bool single_line);
+void road_renderer_draw_tile(Renderer *renderer,
+                             const Camera *camera,
+                             const MftTile *tile,
+                             bool single_line,
+                             float zoom_bias);
 
 // Returns a short label for the current zoom tier.
 const char *road_renderer_zoom_tier_label(float zoom);

@@ -32,6 +32,12 @@ void tile_manager_shutdown(TileManager *manager);
 // Fetches a tile by coordinate, loading it if necessary.
 const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord);
 
+// Returns a cached tile without loading from disk.
+const MftTile *tile_manager_peek_tile(const TileManager *manager, TileCoord coord);
+
+// Inserts a loaded tile into the cache (takes ownership of *tile).
+bool tile_manager_put_tile(TileManager *manager, TileCoord coord, MftTile *tile);
+
 // Returns number of cached tiles.
 uint32_t tile_manager_count(const TileManager *manager);
 

@@ -14,8 +14,8 @@ ifeq ($(SDL_TTF_LIBS),)
 SDL_TTF_LIBS := -lSDL2_ttf
 endif
 
-CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g $(SDL_CFLAGS) $(SDL_TTF_CFLAGS)
-LDLIBS := $(SDL_LIBS) $(SDL_TTF_LIBS)
+CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g -pthread $(SDL_CFLAGS) $(SDL_TTF_CFLAGS)
+LDLIBS := $(SDL_LIBS) $(SDL_TTF_LIBS) -pthread
 TOOL_LDLIBS := -lm
 
 SRCS := $(shell find src -name '*.c')

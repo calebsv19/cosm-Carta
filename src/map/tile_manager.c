@@ -68,6 +68,21 @@ static TileEntry *tile_manager_find(TileManager *manager, TileCoord coord) {
     return NULL;
 }
 
+const MftTile *tile_manager_peek_tile(const TileManager *manager, TileCoord coord) {
+    if (!manager || !manager->entries) {
+        return NULL;
+    }
+
+    for (uint32_t i = 0; i < manager->capacity; ++i) {
+        const TileEntry *entry = &manager->entries[i];
+        if (entry->occupied && tile_coord_equals(entry->coord, coord)) {
+            return &entry->tile;
+        }
+    }
+
+    return NULL;
+}
+
 static TileEntry *tile_manager_pick_slot(TileManager *manager) {
     if (!manager) {
         return NULL;
@@ -101,6 +116,14 @@ const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord) {
         return &entry->tile;
     }
 
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%u/%u/%u.mft", manager->base_dir, coord.z, coord.x, coord.y);
+    FILE *probe = fopen(path, "rb");
+    if (!probe) {
+        return NULL;
+    }
+    fclose(probe);
+
     entry = tile_manager_pick_slot(manager);
     if (!entry) {
         return NULL;
@@ -113,11 +136,9 @@ const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord) {
         }
     }
 
-    char path[512];
-    snprintf(path, sizeof(path), "%s/%u/%u/%u.mft", manager->base_dir, coord.z, coord.x, coord.y);
-
     MftTile tile;
     if (!mft_load_tile(path, &tile)) {
+        log_error("Failed to load tile: %s", path);
         return NULL;
     }
 
@@ -128,6 +149,39 @@ const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord) {
     manager->count += 1;
 
     return &entry->tile;
+}
+
+bool tile_manager_put_tile(TileManager *manager, TileCoord coord, MftTile *tile) {
+    if (!manager || !tile) {
+        return false;
+    }
+
+    TileEntry *entry = tile_manager_find(manager, coord);
+    if (entry) {
+        mft_free_tile(tile);
+        return false;
+    }
+
+    entry = tile_manager_pick_slot(manager);
+    if (!entry) {
+        mft_free_tile(tile);
+        return false;
+    }
+
+    if (entry->occupied) {
+        tile_entry_reset(entry);
+        if (manager->count > 0) {
+            manager->count -= 1;
+        }
+    }
+
+    entry->coord = coord;
+    entry->tile = *tile;
+    entry->occupied = true;
+    entry->last_used = manager->tick++;
+    manager->count += 1;
+    memset(tile, 0, sizeof(*tile));
+    return true;
 }
 
 uint32_t tile_manager_count(const TileManager *manager) {

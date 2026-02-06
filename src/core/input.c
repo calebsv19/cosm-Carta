@@ -21,6 +21,9 @@ void input_init(InputState *input) {
     input->toggle_region_pressed = false;
     input->toggle_profile_pressed = false;
     input->toggle_playback_pressed = false;
+    input->toggle_landuse_pressed = false;
+    input->toggle_building_fill_pressed = false;
+    input->toggle_polygon_outline_pressed = false;
     input->playback_step_forward = false;
     input->playback_step_back = false;
     input->playback_speed_up = false;
@@ -46,6 +49,9 @@ void input_begin_frame(InputState *input) {
     input->toggle_region_pressed = false;
     input->toggle_profile_pressed = false;
     input->toggle_playback_pressed = false;
+    input->toggle_landuse_pressed = false;
+    input->toggle_building_fill_pressed = false;
+    input->toggle_polygon_outline_pressed = false;
     input->playback_step_forward = false;
     input->playback_step_back = false;
     input->playback_speed_up = false;
@@ -88,6 +94,12 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
                 input->toggle_region_pressed = true;
             } else if (event->key.keysym.sym == SDLK_F4) {
                 input->toggle_profile_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_F5) {
+                input->toggle_landuse_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_F6) {
+                input->toggle_building_fill_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_F7) {
+                input->toggle_polygon_outline_pressed = true;
             } else if (event->key.keysym.sym == SDLK_SPACE) {
                 input->toggle_playback_pressed = true;
             } else if (event->key.keysym.sym == SDLK_PERIOD) {

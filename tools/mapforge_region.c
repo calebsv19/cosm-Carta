@@ -44,12 +44,22 @@ typedef struct TilePolyline {
     uint16_t *points;
 } TilePolyline;
 
+// Stores a temporary polygon (quantized points) for a tile.
+typedef struct TilePolygon {
+    PolygonClass polygon_class;
+    uint32_t point_count;
+    uint16_t *points;
+} TilePolygon;
+
 // Stores all polylines assigned to a tile.
 typedef struct TileOutput {
     TileCoord coord;
     TilePolyline *polylines;
     uint32_t polyline_count;
     uint32_t polyline_capacity;
+    TilePolygon *polygons;
+    uint32_t polygon_count;
+    uint32_t polygon_capacity;
 } TileOutput;
 
 // Stores aggregated output for a region build.
@@ -298,6 +308,44 @@ static RoadClass road_class_from_highway(const char *value) {
     return ROAD_CLASS_RESIDENTIAL;
 }
 
+// Maps OSM tags to polygon classes.
+static bool polygon_class_from_tags(const char *building,
+                                    const char *landuse,
+                                    const char *natural,
+                                    const char *leisure,
+                                    const char *waterway,
+                                    PolygonClass *out_class) {
+    if (!out_class) {
+        return false;
+    }
+
+    if (building && building[0] != '\0') {
+        *out_class = POLYGON_CLASS_BUILDING;
+        return true;
+    }
+
+    if ((natural && strcmp(natural, "water") == 0) ||
+        (waterway && strcmp(waterway, "riverbank") == 0)) {
+        *out_class = POLYGON_CLASS_WATER;
+        return true;
+    }
+
+    if ((leisure && (strcmp(leisure, "park") == 0 || strcmp(leisure, "garden") == 0 ||
+                     strcmp(leisure, "recreation_ground") == 0)) ||
+        (landuse && (strcmp(landuse, "grass") == 0 || strcmp(landuse, "meadow") == 0 ||
+                     strcmp(landuse, "recreation_ground") == 0 || strcmp(landuse, "village_green") == 0))) {
+        *out_class = POLYGON_CLASS_PARK;
+        return true;
+    }
+
+    if (landuse && landuse[0] != '\0') {
+        *out_class = POLYGON_CLASS_LANDUSE;
+        return true;
+    }
+
+    return false;
+}
+
 // Finds or creates a tile output container for a tile coordinate.
 static TileOutput *build_context_get_tile(BuildContext *ctx, TileCoord coord) {
     if (!ctx) {
@@ -354,6 +402,33 @@ static bool tile_output_add_polyline(TileOutput *tile, RoadClass road_class, con
     return true;
 }
 
+// Adds a polygon to the tile output container.
+static bool tile_output_add_polygon(TileOutput *tile, PolygonClass polygon_class, const uint16_t *points, uint32_t point_count) {
+    if (!tile || !points || point_count < 3) {
+        return false;
+    }
+
+    if (tile->polygon_count == tile->polygon_capacity) {
+        uint32_t next = tile->polygon_capacity == 0 ? 8 : tile->polygon_capacity * 2;
+        TilePolygon *next_polygons = (TilePolygon *)realloc(tile->polygons, next * sizeof(TilePolygon));
+        if (!next_polygons) {
+            return false;
+        }
+        tile->polygons = next_polygons;
+        tile->polygon_capacity = next;
+    }
+
+    TilePolygon *polygon = &tile->polygons[tile->polygon_count++];
+    polygon->polygon_class = polygon_class;
+    polygon->point_count = point_count;
+    polygon->points = (uint16_t *)malloc(point_count * 2 * sizeof(uint16_t));
+    if (!polygon->points) {
+        return false;
+    }
+    memcpy(polygon->points, points, point_count * 2 * sizeof(uint16_t));
+    return true;
+}
+
 // Quantizes a tile-local coordinate to the 0..4096 grid.
 static uint16_t quantize_tile_coord(double value) {
     long rounded = lround(value * TILE_EXTENT);
@@ -363,6 +438,144 @@ static uint16_t quantize_tile_coord(double value) {
         rounded = (long)TILE_EXTENT;
     }
     return (uint16_t)rounded;
+}
+
+// Returns whether a point is inside a clipping edge.
+static bool polygon_point_inside(MercatorMeters point, int edge, double min_x, double max_x, double min_y, double max_y) {
+    switch (edge) {
+        case 0:
+            return point.x >= min_x;
+        case 1:
+            return point.x <= max_x;
+        case 2:
+            return point.y <= max_y;
+        case 3:
+            return point.y >= min_y;
+        default:
+            return true;
+    }
+}
+
+// Returns the intersection of a segment with a clipping edge.
+static MercatorMeters polygon_edge_intersection(MercatorMeters a,
+                                                MercatorMeters b,
+                                                int edge,
+                                                double min_x,
+                                                double max_x,
+                                                double min_y,
+                                                double max_y) {
+    MercatorMeters out = a;
+    double t = 0.0;
+    double denom = 0.0;
+
+    switch (edge) {
+        case 0:
+            denom = b.x - a.x;
+            t = fabs(denom) > 1e-9 ? (min_x - a.x) / denom : 0.0;
+            out.x = min_x;
+            out.y = a.y + (b.y - a.y) * t;
+            break;
+        case 1:
+            denom = b.x - a.x;
+            t = fabs(denom) > 1e-9 ? (max_x - a.x) / denom : 0.0;
+            out.x = max_x;
+            out.y = a.y + (b.y - a.y) * t;
+            break;
+        case 2:
+            denom = b.y - a.y;
+            t = fabs(denom) > 1e-9 ? (max_y - a.y) / denom : 0.0;
+            out.y = max_y;
+            out.x = a.x + (b.x - a.x) * t;
+            break;
+        case 3:
+            denom = b.y - a.y;
+            t = fabs(denom) > 1e-9 ? (min_y - a.y) / denom : 0.0;
+            out.y = min_y;
+            out.x = a.x + (b.x - a.x) * t;
+            break;
+        default:
+            break;
+    }
+
+    return out;
+}
+
+// Clips a polygon to a rectangle and returns the clipped points.
+static bool clip_polygon_to_rect(const MercatorMeters *points,
+                                 size_t count,
+                                 double min_x,
+                                 double max_x,
+                                 double min_y,
+                                 double max_y,
+                                 MercatorMeters **out_points,
+                                 size_t *out_count) {
+    if (!points || count < 3 || !out_points || !out_count) {
+        return false;
+    }
+
+    size_t capacity = count * 2 + 4;
+    MercatorMeters *scratch_a = (MercatorMeters *)malloc(capacity * sizeof(MercatorMeters));
+    MercatorMeters *scratch_b = (MercatorMeters *)malloc(capacity * sizeof(MercatorMeters));
+    if (!scratch_a || !scratch_b) {
+        free(scratch_a);
+        free(scratch_b);
+        return false;
+    }
+
+    memcpy(scratch_a, points, count * sizeof(MercatorMeters));
+    size_t input_count = count;
+
+    for (int edge = 0; edge < 4; ++edge) {
+        if (input_count < 3) {
+            break;
+        }
+
+        size_t output_count = 0;
+        MercatorMeters prev = scratch_a[input_count - 1];
+        bool prev_inside = polygon_point_inside(prev, edge, min_x, max_x, min_y, max_y);
+
+        for (size_t i = 0; i < input_count; ++i) {
+            MercatorMeters curr = scratch_a[i];
+            bool curr_inside = polygon_point_inside(curr, edge, min_x, max_x, min_y, max_y);
+
+            if (curr_inside) {
+                if (!prev_inside) {
+                    scratch_b[output_count++] = polygon_edge_intersection(prev, curr, edge, min_x, max_x, min_y, max_y);
+                }
+                scratch_b[output_count++] = curr;
+            } else if (prev_inside) {
+                scratch_b[output_count++] = polygon_edge_intersection(prev, curr, edge, min_x, max_x, min_y, max_y);
+            }
+
+            prev = curr;
+            prev_inside = curr_inside;
+        }
+
+        MercatorMeters *swap = scratch_a;
+        scratch_a = scratch_b;
+        scratch_b = swap;
+        input_count = output_count;
+    }
+
+    if (input_count < 3) {
+        free(scratch_a);
+        free(scratch_b);
+        return false;
+    }
+
+    *out_points = (MercatorMeters *)malloc(input_count * sizeof(MercatorMeters));
+    if (!*out_points) {
+        free(scratch_a);
+        free(scratch_b);
+        return false;
+    }
+
+    memcpy(*out_points, scratch_a, input_count * sizeof(MercatorMeters));
+    *out_count = input_count;
+
+    free(scratch_a);
+    free(scratch_b);
+    return true;
 }
 
 // Adds a way polyline to tile outputs for a single zoom.
@@ -456,6 +669,99 @@ static bool add_way_to_tiles(BuildContext *ctx, const MercatorMeters *points, si
     return true;
 }
 
+// Adds a polygon to tile outputs for a single zoom.
+static bool add_polygon_to_tiles(BuildContext *ctx, const MercatorMeters *points, size_t count, PolygonClass polygon_class, uint16_t z) {
+    if (!ctx || !points || count < 3) {
+        return false;
+    }
+
+    double min_x = points[0].x;
+    double max_x = points[0].x;
+    double min_y = points[0].y;
+    double max_y = points[0].y;
+    for (size_t i = 1; i < count; ++i) {
+        if (points[i].x < min_x) {
+            min_x = points[i].x;
+        }
+        if (points[i].x > max_x) {
+            max_x = points[i].x;
+        }
+        if (points[i].y < min_y) {
+            min_y = points[i].y;
+        }
+        if (points[i].y > max_y) {
+            max_y = points[i].y;
+        }
+    }
+
+    TileCoord top_left = tile_from_meters(z, (MercatorMeters){min_x, max_y});
+    TileCoord bottom_right = tile_from_meters(z, (MercatorMeters){max_x, min_y});
+
+    double tile_size = tile_size_meters(z);
+
+    for (uint32_t ty = top_left.y; ty <= bottom_right.y; ++ty) {
+        for (uint32_t tx = top_left.x; tx <= bottom_right.x; ++tx) {
+            TileCoord coord = {z, tx, ty};
+            MercatorMeters origin = tile_origin_meters(coord);
+            double tile_min_x = origin.x;
+            double tile_max_x = origin.x + tile_size;
+            double tile_max_y = origin.y;
+            double tile_min_y = origin.y - tile_size;
+
+            MercatorMeters *clipped = NULL;
+            size_t clipped_count = 0;
+            if (!clip_polygon_to_rect(points, count, tile_min_x, tile_max_x, tile_min_y, tile_max_y, &clipped, &clipped_count)) {
+                continue;
+            }
+
+            uint16_t *quantized = (uint16_t *)malloc(clipped_count * 2 * sizeof(uint16_t));
+            if (!quantized) {
+                free(clipped);
+                continue;
+            }
+
+            for (size_t i = 0; i < clipped_count; ++i) {
+                double u = (clipped[i].x - tile_min_x) / tile_size;
+                double v = (tile_max_y - clipped[i].y) / tile_size;
+                quantized[i * 2] = quantize_tile_coord(u);
+                quantized[i * 2 + 1] = quantize_tile_coord(v);
+            }
+
+            TileOutput *output = build_context_get_tile(ctx, coord);
+            if (output) {
+                tile_output_add_polygon(output, polygon_class, quantized, (uint32_t)clipped_count);
+            }
+
+            free(quantized);
+            free(clipped);
+        }
+    }
+
+    return true;
+}
+
+// Ensures tiles exist for the full region bounds at each zoom.
+static void ensure_tiles_for_bounds(BuildContext *ctx, const BuildOptions *options) {
+    if (!ctx || !options || !ctx->has_bounds) {
+        return;
+    }
+
+    MercatorMeters min_m = mercator_from_latlon((LatLon){ctx->min_lat, ctx->min_lon});
+    MercatorMeters max_m = mercator_from_latlon((LatLon){ctx->max_lat, ctx->max_lon});
+
+    for (uint16_t z = options->min_z; z <= options->max_z; ++z) {
+        TileCoord top_left = tile_from_meters(z, (MercatorMeters){min_m.x, max_m.y});
+        TileCoord bottom_right = tile_from_meters(z, (MercatorMeters){max_m.x, min_m.y});
+
+        for (uint32_t y = top_left.y; y <= bottom_right.y; ++y) {
+            for (uint32_t x = top_left.x; x <= bottom_right.x; ++x) {
+                TileCoord coord = {z, x, y};
+                build_context_get_tile(ctx, coord);
+            }
+        }
+    }
+}
+
 // Sorts tile outputs by z/x/y for stable output ordering.
 static int tile_coord_compare(const void *a, const void *b) {
     const TileOutput *left = (const TileOutput *)a;
@@ -487,9 +793,12 @@ static bool ensure_dir(const char *path) {
 }
 
 // Builds the output path for a tile and creates parent directories.
-static bool ensure_tile_path(const char *base_dir, TileCoord coord, char *out_path, size_t out_size) {
+static bool ensure_tile_path(const char *base_dir, TileCoord coord, const char *suffix, char *out_path, size_t out_size) {
     if (!base_dir || !out_path || out_size == 0) {
         return false;
+    }
+    if (!suffix) {
+        suffix = "mft";
     }
 
     char tiles_dir[512];
@@ -510,18 +819,24 @@ static bool ensure_tile_path(const char *base_dir, TileCoord coord, char *out_pa
         return false;
     }
 
-    snprintf(out_path, out_size, "%s/%u.mft", x_dir, coord.y);
+    snprintf(out_path, out_size, "%s/%u.%s", x_dir, coord.y, suffix);
     return true;
 }
 
-// Writes an MFT tile file to disk.
-static bool write_tile_file(const char *base_dir, const TileOutput *tile) {
-    if (!base_dir || !tile) {
+static bool road_class_is_artery(RoadClass road_class) {
+    return road_class == ROAD_CLASS_MOTORWAY ||
+        road_class == ROAD_CLASS_TRUNK ||
+        road_class == ROAD_CLASS_PRIMARY ||
+        road_class == ROAD_CLASS_SECONDARY;
+}
+
+static bool write_tile_file_roads(const char *base_dir, const TileOutput *tile, const char *suffix, bool want_artery) {
+    if (!base_dir || !tile || !suffix) {
         return false;
     }
 
     char path[512];
-    if (!ensure_tile_path(base_dir, tile->coord, path, sizeof(path))) {
+    if (!ensure_tile_path(base_dir, tile->coord, suffix, path, sizeof(path))) {
         return false;
     }
 
@@ -530,12 +845,20 @@ static bool write_tile_file(const char *base_dir, const TileOutput *tile) {
         return false;
     }
 
+    uint32_t polyline_count = 0;
+    for (uint32_t i = 0; i < tile->polyline_count; ++i) {
+        bool is_artery = road_class_is_artery(tile->polylines[i].road_class);
+        if (is_artery == want_artery) {
+            polyline_count += 1;
+        }
+    }
+
     const char magic[4] = {'M', 'F', 'T', '1'};
-    uint16_t version = 1;
+    uint16_t version = 2;
     uint16_t z = tile->coord.z;
     uint32_t x = tile->coord.x;
     uint32_t y = tile->coord.y;
-    uint32_t polyline_count = tile->polyline_count;
+    uint32_t polygon_count = 0;
 
     fwrite(magic, sizeof(magic), 1, file);
     fwrite(&version, sizeof(uint16_t), 1, file);
@@ -546,6 +869,10 @@ static bool write_tile_file(const char *base_dir, const TileOutput *tile) {
 
     for (uint32_t i = 0; i < tile->polyline_count; ++i) {
         const TilePolyline *polyline = &tile->polylines[i];
+        bool is_artery = road_class_is_artery(polyline->road_class);
+        if (is_artery != want_artery) {
+            continue;
+        }
         uint8_t road_class = (uint8_t)polyline->road_class;
         fwrite(&road_class, sizeof(uint8_t), 1, file);
         fwrite(&polyline->point_count, sizeof(uint32_t), 1, file);
@@ -553,10 +880,86 @@ static bool write_tile_file(const char *base_dir, const TileOutput *tile) {
 
     for (uint32_t i = 0; i < tile->polyline_count; ++i) {
         const TilePolyline *polyline = &tile->polylines[i];
+        bool is_artery = road_class_is_artery(polyline->road_class);
+        if (is_artery != want_artery) {
+            continue;
+        }
         fwrite(polyline->points, sizeof(uint16_t), polyline->point_count * 2, file);
     }
 
+    fwrite(&polygon_count, sizeof(uint32_t), 1, file);
     fclose(file);
+    return true;
+}
+
+static bool write_tile_file_polygons(const char *base_dir, const TileOutput *tile, const char *suffix) {
+    if (!base_dir || !tile || !suffix) {
+        return false;
+    }
+
+    char path[512];
+    if (!ensure_tile_path(base_dir, tile->coord, suffix, path, sizeof(path))) {
+        return false;
+    }
+
+    FILE *file = fopen(path, "wb");
+    if (!file) {
+        return false;
+    }
+
+    const char magic[4] = {'M', 'F', 'T', '1'};
+    uint16_t version = 2;
+    uint16_t z = tile->coord.z;
+    uint32_t x = tile->coord.x;
+    uint32_t y = tile->coord.y;
+    uint32_t polyline_count = 0;
+    uint32_t polygon_count = tile->polygon_count;
+
+    fwrite(magic, sizeof(magic), 1, file);
+    fwrite(&version, sizeof(uint16_t), 1, file);
+    fwrite(&z, sizeof(uint16_t), 1, file);
+    fwrite(&x, sizeof(uint32_t), 1, file);
+    fwrite(&y, sizeof(uint32_t), 1, file);
+    fwrite(&polyline_count, sizeof(uint32_t), 1, file);
+
+    fwrite(&polygon_count, sizeof(uint32_t), 1, file);
+    for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+        const TilePolygon *polygon = &tile->polygons[i];
+        uint8_t polygon_class = (uint8_t)polygon->polygon_class;
+        uint16_t ring_count = 1;
+        fwrite(&polygon_class, sizeof(uint8_t), 1, file);
+        fwrite(&ring_count, sizeof(uint16_t), 1, file);
+    }
+
+    for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+        const TilePolygon *polygon = &tile->polygons[i];
+        fwrite(&polygon->point_count, sizeof(uint32_t), 1, file);
+    }
+
+    for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+        const TilePolygon *polygon = &tile->polygons[i];
+        fwrite(polygon->points, sizeof(uint16_t), polygon->point_count * 2, file);
+    }
+
+    fclose(file);
+    return true;
+}
+
+// Writes split MFT tile files to disk.
+static bool write_tile_file(const char *base_dir, const TileOutput *tile) {
+    if (!base_dir || !tile) {
+        return false;
+    }
+
+    if (!write_tile_file_roads(base_dir, tile, "artery.mft", true)) {
+        return false;
+    }
+    if (!write_tile_file_roads(base_dir, tile, "local.mft", false)) {
+        return false;
+    }
+    if (!write_tile_file_polygons(base_dir, tile, "poly.mft")) {
+        return false;
+    }
     return true;
 }
 
@@ -614,6 +1017,10 @@ static void build_context_free(BuildContext *ctx) {
             free(tile->polylines[p].points);
         }
         free(tile->polylines);
+        for (uint32_t p = 0; p < tile->polygon_count; ++p) {
+            free(tile->polygons[p].points);
+        }
+        free(tile->polygons);
     }
 
     free(ctx->tiles);
@@ -692,6 +1099,11 @@ static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
     way_nodes_init(&way_nodes);
     bool in_way = false;
     char highway_tag[64] = {0};
+    char building_tag[64] = {0};
+    char landuse_tag[64] = {0};
+    char natural_tag[64] = {0};
+    char leisure_tag[64] = {0};
+    char waterway_tag[64] = {0};
 
     while (fgets(line, sizeof(line), file)) {
         if (strstr(line, "<bounds") != NULL) {
@@ -718,6 +1130,11 @@ static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
         if (strstr(line, "<way ") != NULL) {
             in_way = true;
             highway_tag[0] = '\0';
+            building_tag[0] = '\0';
+            landuse_tag[0] = '\0';
+            natural_tag[0] = '\0';
+            leisure_tag[0] = '\0';
+            waterway_tag[0] = '\0';
             way_nodes_clear(&way_nodes);
             continue;
         }
@@ -739,6 +1156,16 @@ static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
                     xml_attr(line, "v", val_buf, sizeof(val_buf))) {
                     if (strcmp(key_buf, "highway") == 0) {
                         snprintf(highway_tag, sizeof(highway_tag), "%s", val_buf);
+                    } else if (strcmp(key_buf, "building") == 0) {
+                        snprintf(building_tag, sizeof(building_tag), "%s", val_buf);
+                    } else if (strcmp(key_buf, "landuse") == 0) {
+                        snprintf(landuse_tag, sizeof(landuse_tag), "%s", val_buf);
+                    } else if (strcmp(key_buf, "natural") == 0) {
+                        snprintf(natural_tag, sizeof(natural_tag), "%s", val_buf);
+                    } else if (strcmp(key_buf, "leisure") == 0) {
+                        snprintf(leisure_tag, sizeof(leisure_tag), "%s", val_buf);
+                    } else if (strcmp(key_buf, "waterway") == 0) {
+                        snprintf(waterway_tag, sizeof(waterway_tag), "%s", val_buf);
                     }
                 }
                 continue;
@@ -763,6 +1190,35 @@ static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
                         if (count >= 2) {
                             for (uint16_t z = options->min_z; z <= options->max_z; ++z) {
                                 add_way_to_tiles(ctx, points, count, road_class, z);
+                            }
+                        }
+
+                        free(points);
+                    }
+                }
+
+                PolygonClass polygon_class;
+                if (polygon_class_from_tags(building_tag, landuse_tag, natural_tag, leisure_tag, waterway_tag, &polygon_class) &&
+                    way_nodes.count >= 4 && way_nodes.items[0] == way_nodes.items[way_nodes.count - 1]) {
+                    MercatorMeters *points = (MercatorMeters *)malloc(way_nodes.count * sizeof(MercatorMeters));
+                    if (points) {
+                        size_t count = 0;
+                        for (size_t i = 0; i < way_nodes.count; ++i) {
+                            double lat = 0.0;
+                            double lon = 0.0;
+                            if (!node_map_get(&nodes, way_nodes.items[i], &lat, &lon)) {
+                                continue;
+                            }
+                            build_context_update_bounds(ctx, lat, lon);
+                            points[count++] = mercator_from_latlon((LatLon){lat, lon});
+                        }
+
+                        if (count >= 4) {
+                            if (points[0].x == points[count - 1].x && points[0].y == points[count - 1].y) {
+                                count -= 1;
+                            }
+                            for (uint16_t z = options->min_z; z <= options->max_z; ++z) {
+                                add_polygon_to_tiles(ctx, points, count, polygon_class, z);
                             }
                         }
 
@@ -835,6 +1291,8 @@ int main(int argc, char **argv) {
         build_context_free(&ctx);
         return 1;
     }
+
+    ensure_tiles_for_bounds(&ctx, &options);
 
     if (ctx.tile_count == 0) {
         log_info("No tiles produced.");

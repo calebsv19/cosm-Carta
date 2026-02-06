@@ -205,12 +205,20 @@ static bool road_use_quad_strip(RoadClass road_class, float width, float zoom, b
     return width >= ROAD_QUAD_MIN_WIDTH;
 }
 
-void road_renderer_draw_tile(Renderer *renderer, const Camera *camera, const MftTile *tile, bool single_line) {
+void road_renderer_draw_tile(Renderer *renderer,
+                             const Camera *camera,
+                             const MftTile *tile,
+                             bool single_line,
+                             float zoom_bias) {
     if (!renderer || !renderer->sdl || !camera || !tile || tile->polyline_count == 0) {
         return;
     }
 
-    ZoomTier tier = zoom_tier_for(camera->zoom);
+    float effective_zoom = camera->zoom - zoom_bias;
+    if (effective_zoom < 0.0f) {
+        effective_zoom = 0.0f;
+    }
+    ZoomTier tier = zoom_tier_for(effective_zoom);
     double tile_size = tile_size_meters(tile->coord.z);
     MercatorMeters origin = tile_origin_meters(tile->coord);
 
@@ -221,8 +229,8 @@ void road_renderer_draw_tile(Renderer *renderer, const Camera *camera, const Mft
         }
 
         ZoomTier min_tier = road_class_min_tier(polyline->road_class);
-        RoadStyle style = road_style_for_class(polyline->road_class, camera->zoom, tier);
-        float fade = zoom_tier_fade_in_alpha(camera->zoom, min_tier);
+        RoadStyle style = road_style_for_class(polyline->road_class, effective_zoom, tier);
+        float fade = zoom_tier_fade_in_alpha(effective_zoom, min_tier);
         float alpha = (float)style.a * fade;
         if (alpha > 255.0f) {
             alpha = 255.0f;
