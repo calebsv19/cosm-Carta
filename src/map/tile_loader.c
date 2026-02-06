@@ -1,6 +1,7 @@
 #include "map/tile_loader.h"
 
 #include "core/log.h"
+#include "map/polygon_cache.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,8 +65,16 @@ static const char *tile_loader_suffix(TileLayerKind kind) {
             return "artery.mft";
         case TILE_LAYER_ROAD_LOCAL:
             return "local.mft";
-        case TILE_LAYER_POLYGON:
-            return "poly.mft";
+        case TILE_LAYER_CONTOUR:
+            return "contour.mft";
+        case TILE_LAYER_POLY_WATER:
+            return "water.mft";
+        case TILE_LAYER_POLY_PARK:
+            return "park.mft";
+        case TILE_LAYER_POLY_LANDUSE:
+            return "landuse.mft";
+        case TILE_LAYER_POLY_BUILDING:
+            return "building.mft";
         default:
             return "mft";
     }
@@ -111,31 +120,31 @@ static void *tile_loader_thread(void *userdata) {
             continue;
         }
 
-        if (!tile_loader_tile_exists(loader->base_dir, request.coord, request.kind)) {
-            continue;
-        }
-
         TileResult result = {0};
         result.coord = request.coord;
         result.kind = request.kind;
         result.request_id = request.request_id;
-        if (tile_loader_load_tile(loader->base_dir, request.coord, request.kind, &result.tile)) {
+        if (!tile_loader_tile_exists(loader->base_dir, request.coord, request.kind)) {
+            result.ok = false;
+        } else if (tile_loader_load_tile(loader->base_dir, request.coord, request.kind, &result.tile)) {
             result.ok = true;
         } else {
             log_error("Failed to load tile: %s/%u/%u/%u.%s", loader->base_dir,
                 request.coord.z, request.coord.x, request.coord.y, tile_loader_suffix(request.kind));
+            result.ok = false;
         }
 
-        if (!result.ok) {
-            mft_free_tile(&result.tile);
-            continue;
+        if (result.ok && request.kind == TILE_LAYER_POLY_BUILDING) {
+            polygon_cache_build(&result.tile);
         }
 
         pthread_mutex_lock(&loader->mutex);
         bool pushed = tile_loader_result_push(loader, &result);
         pthread_mutex_unlock(&loader->mutex);
         if (!pushed) {
-            mft_free_tile(&result.tile);
+            if (result.ok) {
+                mft_free_tile(&result.tile);
+            }
         }
     }
 

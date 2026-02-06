@@ -78,6 +78,7 @@ typedef struct BuildContext {
 typedef struct BuildOptions {
     const char *region;
     const char *osm_path;
+    const char *dem_path;
     const char *out_dir;
     uint16_t min_z;
     uint16_t max_z;
@@ -892,7 +893,43 @@ static bool write_tile_file_roads(const char *base_dir, const TileOutput *tile, 
     return true;
 }
 
-static bool write_tile_file_polygons(const char *base_dir, const TileOutput *tile, const char *suffix) {
+// Writes an empty split MFT tile payload for a layer placeholder.
+static bool write_empty_tile_file(const char *base_dir, TileCoord coord, const char *suffix) {
+    if (!base_dir || !suffix) {
+        return false;
+    }
+
+    char path[512];
+    if (!ensure_tile_path(base_dir, coord, suffix, path, sizeof(path))) {
+        return false;
+    }
+
+    FILE *file = fopen(path, "wb");
+    if (!file) {
+        return false;
+    }
+
+    const char magic[4] = {'M', 'F', 'T', '1'};
+    uint16_t version = 2;
+    uint16_t z = coord.z;
+    uint32_t x = coord.x;
+    uint32_t y = coord.y;
+    uint32_t polyline_count = 0;
+    uint32_t polygon_count = 0;
+
+    fwrite(magic, sizeof(magic), 1, file);
+    fwrite(&version, sizeof(uint16_t), 1, file);
+    fwrite(&z, sizeof(uint16_t), 1, file);
+    fwrite(&x, sizeof(uint32_t), 1, file);
+    fwrite(&y, sizeof(uint32_t), 1, file);
+    fwrite(&polyline_count, sizeof(uint32_t), 1, file);
+    fwrite(&polygon_count, sizeof(uint32_t), 1, file);
+
+    fclose(file);
+    return true;
+}
+
+static bool write_tile_file_polygons(const char *base_dir, const TileOutput *tile, const char *suffix, PolygonClass polygon_class) {
     if (!base_dir || !tile || !suffix) {
         return false;
     }
@@ -913,7 +950,12 @@ static bool write_tile_file_polygons(const char *base_dir, const TileOutput *til
     uint32_t x = tile->coord.x;
     uint32_t y = tile->coord.y;
     uint32_t polyline_count = 0;
-    uint32_t polygon_count = tile->polygon_count;
+    uint32_t polygon_count = 0;
+    for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+        if (tile->polygons[i].polygon_class == polygon_class) {
+            polygon_count += 1;
+        }
+    }
 
     fwrite(magic, sizeof(magic), 1, file);
     fwrite(&version, sizeof(uint16_t), 1, file);
@@ -925,6 +967,9 @@ static bool write_tile_file_polygons(const char *base_dir, const TileOutput *til
     fwrite(&polygon_count, sizeof(uint32_t), 1, file);
     for (uint32_t i = 0; i < tile->polygon_count; ++i) {
         const TilePolygon *polygon = &tile->polygons[i];
+        if (polygon->polygon_class != polygon_class) {
+            continue;
+        }
         uint8_t polygon_class = (uint8_t)polygon->polygon_class;
         uint16_t ring_count = 1;
         fwrite(&polygon_class, sizeof(uint8_t), 1, file);
@@ -933,11 +978,17 @@ static bool write_tile_file_polygons(const char *base_dir, const TileOutput *til
 
     for (uint32_t i = 0; i < tile->polygon_count; ++i) {
         const TilePolygon *polygon = &tile->polygons[i];
+        if (polygon->polygon_class != polygon_class) {
+            continue;
+        }
         fwrite(&polygon->point_count, sizeof(uint32_t), 1, file);
     }
 
     for (uint32_t i = 0; i < tile->polygon_count; ++i) {
         const TilePolygon *polygon = &tile->polygons[i];
+        if (polygon->polygon_class != polygon_class) {
+            continue;
+        }
         fwrite(polygon->points, sizeof(uint16_t), polygon->point_count * 2, file);
     }
 
@@ -957,7 +1008,19 @@ static bool write_tile_file(const char *base_dir, const TileOutput *tile) {
     if (!write_tile_file_roads(base_dir, tile, "local.mft", false)) {
         return false;
     }
-    if (!write_tile_file_polygons(base_dir, tile, "poly.mft")) {
+    if (!write_tile_file_polygons(base_dir, tile, "water.mft", POLYGON_CLASS_WATER)) {
+        return false;
+    }
+    if (!write_tile_file_polygons(base_dir, tile, "park.mft", POLYGON_CLASS_PARK)) {
+        return false;
+    }
+    if (!write_tile_file_polygons(base_dir, tile, "landuse.mft", POLYGON_CLASS_LANDUSE)) {
+        return false;
+    }
+    if (!write_tile_file_polygons(base_dir, tile, "building.mft", POLYGON_CLASS_BUILDING)) {
+        return false;
+    }
+    if (!write_empty_tile_file(base_dir, tile->coord, "contour.mft")) {
         return false;
     }
     return true;
@@ -986,7 +1049,12 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
 
     fprintf(file, "{\n");
     fprintf(file, "    \"region\": \"%s\",\n", options->region);
-    fprintf(file, "    \"source\": \"%s\",\n", options->osm_path);
+    fprintf(file, "    \"city_source\": \"%s\",\n", options->osm_path);
+    if (options->dem_path && options->dem_path[0] != '\0') {
+        fprintf(file, "    \"terrain_source\": \"%s\",\n", options->dem_path);
+    } else {
+        fprintf(file, "    \"terrain_source\": null,\n");
+    }
     fprintf(file, "    \"created_utc\": \"%s\",\n", timestamp);
     fprintf(file, "    \"bounds\": {\n");
     fprintf(file, "        \"min_lat\": %.8f,\n", ctx->min_lat);
@@ -998,6 +1066,12 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
     fprintf(file, "        \"min_z\": %u,\n", options->min_z);
     fprintf(file, "        \"max_z\": %u,\n", options->max_z);
     fprintf(file, "        \"extent\": %u\n", (unsigned)TILE_EXTENT);
+    fprintf(file, "    },\n");
+    fprintf(file, "    \"contours\": {\n");
+    fprintf(file, "        \"enabled\": %s,\n", (options->dem_path && options->dem_path[0] != '\0') ? "true" : "false");
+    fprintf(file, "        \"phase\": \"A_scaffold\",\n");
+    fprintf(file, "        \"interval_m\": 10,\n");
+    fprintf(file, "        \"major_every\": 5\n");
     fprintf(file, "    }\n");
     fprintf(file, "}\n");
 
@@ -1240,7 +1314,7 @@ static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
 
 // Prints CLI usage to stdout.
 static void usage(void) {
-    printf("mapforge_region --region <name> --osm <file.osm> --out <dir> [--min-z N] [--max-z N]\n");
+    printf("mapforge_region --region <name> --osm <file.osm> [--dem <file.dem>] --out <dir> [--min-z N] [--max-z N]\n");
 }
 
 // Parses CLI arguments into build options.
@@ -1258,6 +1332,8 @@ static bool parse_args(int argc, char **argv, BuildOptions *options) {
             options->region = argv[++i];
         } else if (strcmp(argv[i], "--osm") == 0 && i + 1 < argc) {
             options->osm_path = argv[++i];
+        } else if (strcmp(argv[i], "--dem") == 0 && i + 1 < argc) {
+            options->dem_path = argv[++i];
         } else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
             options->out_dir = argv[++i];
         } else if (strcmp(argv[i], "--min-z") == 0 && i + 1 < argc) {

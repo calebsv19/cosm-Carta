@@ -37,6 +37,7 @@ typedef struct InputState {
     bool left_click_released;
     bool right_click_released;
     bool enter_pressed;
+    bool copy_overlay_pressed;
 } InputState;
 
 // Initializes an input state container.

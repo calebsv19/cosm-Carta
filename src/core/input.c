@@ -34,6 +34,7 @@ void input_init(InputState *input) {
     input->left_click_released = false;
     input->right_click_released = false;
     input->enter_pressed = false;
+    input->copy_overlay_pressed = false;
 }
 
 void input_begin_frame(InputState *input) {
@@ -62,6 +63,7 @@ void input_begin_frame(InputState *input) {
     input->left_click_released = false;
     input->right_click_released = false;
     input->enter_pressed = false;
+    input->copy_overlay_pressed = false;
 }
 
 void input_handle_event(InputState *input, const SDL_Event *event) {
@@ -112,6 +114,9 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
                 input->playback_speed_down = true;
             } else if (event->key.keysym.sym == SDLK_RETURN || event->key.keysym.sym == SDLK_KP_ENTER) {
                 input->enter_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_c &&
+                       (event->key.keysym.mod & KMOD_GUI) != 0) {
+                input->copy_overlay_pressed = true;
             } else if (event->key.keysym.sym == SDLK_LSHIFT || event->key.keysym.sym == SDLK_RSHIFT) {
                 input->shift_down = true;
             } else if (event->key.keysym.sym == SDLK_a || event->key.keysym.sym == SDLK_LEFT) {

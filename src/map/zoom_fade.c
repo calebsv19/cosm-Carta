@@ -9,11 +9,11 @@ typedef struct ZoomTierInfo {
     bool has_upper;
 } ZoomTierInfo;
 
-#define ZOOM_TIER_FAR_MAX 10.5f
-#define ZOOM_TIER_MID_MAX 12.0f
-#define ZOOM_TIER_NEAR_MAX 13.0f
-#define ZOOM_TIER_CLOSE_MAX 14.0f
-#define ZOOM_TIER_PATH_MAX 16.0f
+#define ZOOM_TIER_FAR_MAX 9.5f
+#define ZOOM_TIER_MID_MAX 11.0f
+#define ZOOM_TIER_NEAR_MAX 12.0f
+#define ZOOM_TIER_CLOSE_MAX 13.5f
+#define ZOOM_TIER_PATH_MAX 15.0f
 
 static const ZoomTierInfo kZoomTiers[] = {
     [ZOOM_TIER_FAR] = {0.0f, ZOOM_TIER_FAR_MAX, false, true},

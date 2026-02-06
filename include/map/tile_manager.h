@@ -44,4 +44,7 @@ uint32_t tile_manager_count(const TileManager *manager);
 // Returns cache capacity.
 uint32_t tile_manager_capacity(const TileManager *manager);
 
+// Ensures the cache can hold at least the requested capacity.
+bool tile_manager_ensure_capacity(TileManager *manager, uint32_t capacity);
+
 #endif

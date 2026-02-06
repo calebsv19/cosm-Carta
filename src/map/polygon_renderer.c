@@ -1,6 +1,6 @@
 #include "map/polygon_renderer.h"
 
-#include "map/polygon_triangulator.h"
+#include "map/polygon_cache.h"
 #include "map/tile_math.h"
 #include "map/zoom_fade.h"
 
@@ -10,7 +10,6 @@
 #include <stdlib.h>
 
 #define TILE_EXTENT 4096.0f
-#define POLYGON_MAX_FILL_POINTS 512u
 #define POLYGON_MAX_OUTLINE_POINTS 2048u
 
 typedef struct PolygonStyle {
@@ -30,7 +29,7 @@ static ZoomTier polygon_class_min_tier(PolygonClass polygon_class) {
             return ZOOM_TIER_NEAR;
         case POLYGON_CLASS_BUILDING:
         default:
-            return ZOOM_TIER_PATH;
+            return ZOOM_TIER_CLOSE;
     }
 }
 
@@ -95,75 +94,6 @@ static void draw_polygon_outline(SDL_Renderer *sdl, const SDL_FPoint *points, in
     SDL_RenderDrawLineF(sdl, points[count - 1].x, points[count - 1].y, points[0].x, points[0].y);
 }
 
-static bool polygon_cache_init(MftTile *tile) {
-    if (!tile || tile->polygon_ring_total == 0) {
-        return false;
-    }
-    if (tile->polygon_tri_cached) {
-        return true;
-    }
-
-    tile->polygon_tri_ring_offsets = (uint32_t *)calloc(tile->polygon_ring_total, sizeof(uint32_t));
-    tile->polygon_tri_ring_counts = (uint32_t *)calloc(tile->polygon_ring_total, sizeof(uint32_t));
-    if (!tile->polygon_tri_ring_offsets || !tile->polygon_tri_ring_counts) {
-        return false;
-    }
-
-    uint32_t indices_capacity = 0;
-    uint32_t indices_count = 0;
-    uint32_t *indices = NULL;
-
-    for (uint32_t i = 0; i < tile->polygon_count; ++i) {
-        const MftPolygon *polygon = &tile->polygons[i];
-        uint32_t point_offset = polygon->point_offset;
-        for (uint16_t r = 0; r < polygon->ring_count; ++r) {
-            uint32_t ring_count = tile->polygon_rings[polygon->ring_offset + r];
-            uint32_t ring_idx = polygon->ring_offset + r;
-            tile->polygon_tri_ring_offsets[ring_idx] = indices_count;
-            tile->polygon_tri_ring_counts[ring_idx] = 0;
-
-            if (ring_count >= 3 && ring_count <= POLYGON_MAX_FILL_POINTS) {
-                uint32_t max_indices = (ring_count - 2) * 3;
-                int *ring_indices = (int *)malloc(sizeof(int) * max_indices);
-                if (ring_indices) {
-                    int ring_index_count = 0;
-                    const uint16_t *ring_points = &tile->polygon_points[point_offset * 2];
-                    if (polygon_triangulate(ring_points, ring_count, POLYGON_TRIANGULATION_EAR_CLIP,
-                            ring_indices, &ring_index_count, (int)max_indices)) {
-                        uint32_t needed = indices_count + (uint32_t)ring_index_count;
-                        if (needed > indices_capacity) {
-                            uint32_t next_capacity = indices_capacity == 0 ? needed : indices_capacity;
-                            while (next_capacity < needed) {
-                                next_capacity = next_capacity * 2u;
-                            }
-                            uint32_t *next = (uint32_t *)realloc(indices, next_capacity * sizeof(uint32_t));
-                            if (next) {
-                                indices = next;
-                                indices_capacity = next_capacity;
-                            }
-                        }
-
-                        if (indices && needed <= indices_capacity) {
-                            for (int k = 0; k < ring_index_count; ++k) {
-                                indices[indices_count++] = (uint32_t)ring_indices[k];
-                            }
-                            tile->polygon_tri_ring_counts[ring_idx] = (uint32_t)ring_index_count;
-                        }
-                    }
-                    free(ring_indices);
-                }
-            }
-
-            point_offset += ring_count;
-        }
-    }
-
-    tile->polygon_tri_indices = indices;
-    tile->polygon_tri_index_total = indices_count;
-    tile->polygon_tri_cached = true;
-    return true;
-}
-
 static bool polygon_get_cached_indices(const MftTile *tile,
                                        uint32_t ring_index,
                                        const uint32_t **out_indices,
@@ -223,10 +153,6 @@ void polygon_renderer_draw_tile(Renderer *renderer,
     double tile_size = tile_size_meters(tile->coord.z);
     MercatorMeters origin = tile_origin_meters(tile->coord);
 
-    if (!tile->polygon_tri_cached) {
-        polygon_cache_init(tile);
-    }
-
     for (uint32_t i = 0; i < tile->polygon_count; ++i) {
         const MftPolygon *polygon = &tile->polygons[i];
         if (polygon->ring_count == 0) {
@@ -236,7 +162,7 @@ void polygon_renderer_draw_tile(Renderer *renderer,
         ZoomTier min_tier = polygon_class_min_tier(polygon->polygon_class);
         float fade = zoom_tier_fade_in_alpha(camera->zoom, min_tier);
         if (polygon->polygon_class == POLYGON_CLASS_BUILDING) {
-            float start = zoom_tier_min_zoom(ZOOM_TIER_PATH) + 0.8f + building_zoom_bias;
+            float start = zoom_tier_min_zoom(ZOOM_TIER_CLOSE) + 0.9f + building_zoom_bias;
             float end = start + 0.6f;
             float building_fade = (camera->zoom - start) / (end - start);
             if (building_fade < 0.0f) {
@@ -313,10 +239,13 @@ void polygon_renderer_draw_tile(Renderer *renderer,
         if (polygon_outline_only) {
             draw_fill = false;
         }
+        if (polygon->polygon_class == POLYGON_CLASS_WATER) {
+            draw_fill = false;
+        }
         if (polygon->polygon_class == POLYGON_CLASS_BUILDING && !building_fill_enabled) {
             draw_fill = false;
         }
-            if (ring_count > POLYGON_MAX_FILL_POINTS) {
+            if (ring_count > POLYGON_CACHE_MAX_FILL_POINTS) {
                 draw_fill = false;
             }
             if (draw_fill) {

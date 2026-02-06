@@ -57,7 +57,7 @@ route: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out data/regions/$(REGION)
 
 region: tools
-	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) --out data/regions/$(REGION) --min-z $(MIN_Z) --max-z $(MAX_Z)
+	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out data/regions/$(REGION) --min-z $(MIN_Z) --max-z $(MAX_Z)
 
 clean:
 	rm -rf build

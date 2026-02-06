@@ -191,3 +191,26 @@ uint32_t tile_manager_count(const TileManager *manager) {
 uint32_t tile_manager_capacity(const TileManager *manager) {
     return manager ? manager->capacity : 0;
 }
+
+bool tile_manager_ensure_capacity(TileManager *manager, uint32_t capacity) {
+    if (!manager || capacity == 0) {
+        return false;
+    }
+    if (capacity <= manager->capacity) {
+        return true;
+    }
+
+    TileEntry *entries = (TileEntry *)calloc(capacity, sizeof(TileEntry));
+    if (!entries) {
+        return false;
+    }
+
+    for (uint32_t i = 0; i < manager->capacity; ++i) {
+        entries[i] = manager->entries[i];
+    }
+
+    free(manager->entries);
+    manager->entries = entries;
+    manager->capacity = capacity;
+    return true;
+}

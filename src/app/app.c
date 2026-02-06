@@ -25,11 +25,14 @@
 #include <stdlib.h>
 
 static const float kHeaderHeight = 34.0f;
-static const uint32_t kTileLoadBudget = 4;
 static const uint32_t kTileIntegrateBudget = 8;
 static const float kTileNoDataTimeout = 1.5f;
-static const float kLocalRoadZoomStart = 13.0f;
-static const float kPolygonZoomStart = 14.5f;
+static const float kLocalRoadZoomStart = 10.0f;
+static const float kContourZoomStart = 12.2f;
+static const float kWaterZoomStart = 12.8f;
+static const float kParkZoomStart = 13.0f;
+static const float kLanduseZoomStart = 13.4f;
+static const float kBuildingZoomStart = 13.0f;
 
 typedef struct TileQueueItem {
     TileCoord coord;
@@ -43,11 +46,24 @@ typedef struct TileQueue {
     uint32_t capacity;
 } TileQueue;
 
-typedef enum TileLoadStage {
-    TILE_STAGE_ARTERY = 0,
-    TILE_STAGE_LOCAL = 1,
-    TILE_STAGE_POLYGON = 2
-} TileLoadStage;
+typedef struct LayerSpec {
+    TileLayerKind kind;
+    const char *label;
+    float zoom_start;
+    bool enabled;
+    bool is_polygon;
+} LayerSpec;
+
+static const LayerSpec kLayerOrder[] = {
+    {TILE_LAYER_ROAD_ARTERY, "artery", 0.0f, true, false},
+    {TILE_LAYER_ROAD_LOCAL, "local", kLocalRoadZoomStart, true, false},
+    {TILE_LAYER_CONTOUR, "contour", kContourZoomStart, true, false},
+    {TILE_LAYER_POLY_WATER, "water", kWaterZoomStart, true, true},
+    {TILE_LAYER_POLY_PARK, "park", kParkZoomStart, true, true},
+    {TILE_LAYER_POLY_LANDUSE, "landuse", kLanduseZoomStart, true, true},
+    {TILE_LAYER_POLY_BUILDING, "building", kBuildingZoomStart, true, true}
+};
+static const size_t kLayerOrderCount = sizeof(kLayerOrder) / sizeof(kLayerOrder[0]);
 
 // Owns core application state for the main loop.
 typedef struct AppState {
@@ -56,9 +72,7 @@ typedef struct AppState {
     Camera camera;
     InputState input;
     DebugOverlay overlay;
-    TileManager tile_manager_artery;
-    TileManager tile_manager_local;
-    TileManager tile_manager_poly;
+    TileManager tile_managers[TILE_LAYER_COUNT];
     TileLoader tile_loader;
     bool single_line;
     RegionInfo region;
@@ -77,9 +91,10 @@ typedef struct AppState {
     float road_zoom_bias;
     bool polygon_outline_only;
     uint32_t tile_request_id;
-    TileQueue queue_artery;
-    TileQueue queue_local;
-    TileQueue queue_poly;
+    TileQueue tile_queues[TILE_LAYER_COUNT];
+    uint32_t layer_expected[TILE_LAYER_COUNT];
+    uint32_t layer_done[TILE_LAYER_COUNT];
+    uint32_t layer_inflight[TILE_LAYER_COUNT];
     TileCoord queue_top_left;
     TileCoord queue_bottom_right;
     uint16_t queue_zoom;
@@ -91,7 +106,11 @@ typedef struct AppState {
     uint32_t loading_expected;
     uint32_t loading_done;
     float loading_no_data_time;
-    TileLoadStage loading_stage;
+    size_t loading_layer_index;
+    uint32_t visible_tile_count;
+    TileLayerKind active_layer_kind;
+    uint32_t active_layer_expected;
+    bool active_layer_valid;
     int width;
     int height;
 } AppState;
@@ -108,6 +127,32 @@ static uint16_t app_zoom_to_tile_level(float zoom) {
         level = (int)kRegionMaxZoom;
     }
     return (uint16_t)level;
+}
+
+static uint32_t app_tile_load_budget(uint32_t expected) {
+    if (expected <= 8) {
+        return expected;
+    }
+    if (expected <= 32) {
+        return 16;
+    }
+    if (expected <= 128) {
+        return 32;
+    }
+    if (expected <= 256) {
+        return 48;
+    }
+    return 64;
+}
+
+static uint32_t app_tile_integrate_budget(uint32_t expected) {
+    if (expected <= 32) {
+        return 32;
+    }
+    if (expected <= 128) {
+        return 48;
+    }
+    return 64;
 }
 
 static float clampf(float value, float min_value, float max_value) {
@@ -177,18 +222,18 @@ static float app_building_zoom_bias_for_region(const RegionInfo *region) {
     }
 
     double span = width > height ? width : height;
-    double base = 20000.0;
+    double base = 30000.0;
     double ratio = span / base;
     if (ratio < 1.0) {
         ratio = 1.0;
     }
 
-    float bias = (float)log2(ratio);
+    float bias = (float)log2(ratio) * 0.6f;
     if (bias < 0.0f) {
         bias = 0.0f;
     }
-    if (bias > 2.5f) {
-        bias = 2.5f;
+    if (bias > 1.5f) {
+        bias = 1.5f;
     }
     return bias;
 }
@@ -222,6 +267,35 @@ static float app_road_zoom_bias_for_region(const RegionInfo *region) {
         bias = 2.0f;
     }
     return bias;
+}
+
+static float app_layer_zoom_start(const AppState *app, TileLayerKind kind) {
+    float base = 0.0f;
+    switch (kind) {
+        case TILE_LAYER_ROAD_LOCAL:
+            base = kLocalRoadZoomStart;
+            break;
+        case TILE_LAYER_CONTOUR:
+            base = kContourZoomStart;
+            break;
+        case TILE_LAYER_POLY_WATER:
+            base = kWaterZoomStart;
+            break;
+        case TILE_LAYER_POLY_PARK:
+            base = kParkZoomStart;
+            break;
+        case TILE_LAYER_POLY_LANDUSE:
+            base = kLanduseZoomStart;
+            break;
+        case TILE_LAYER_POLY_BUILDING:
+            base = kBuildingZoomStart + (app ? app->building_zoom_bias : 0.0f);
+            break;
+        case TILE_LAYER_ROAD_ARTERY:
+        default:
+            base = 0.0f;
+            break;
+    }
+    return base;
 }
 
 static void app_draw_region_bounds(AppState *app) {
@@ -325,14 +399,16 @@ static void app_clear_tile_queue(AppState *app) {
     if (!app) {
         return;
     }
-    free(app->queue_artery.items);
-    free(app->queue_local.items);
-    free(app->queue_poly.items);
-    memset(&app->queue_artery, 0, sizeof(app->queue_artery));
-    memset(&app->queue_local, 0, sizeof(app->queue_local));
-    memset(&app->queue_poly, 0, sizeof(app->queue_poly));
+    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+        free(app->tile_queues[i].items);
+        memset(&app->tile_queues[i], 0, sizeof(app->tile_queues[i]));
+        app->layer_expected[i] = 0;
+        app->layer_done[i] = 0;
+        app->layer_inflight[i] = 0;
+    }
     app->queue_valid = false;
-    app->loading_stage = TILE_STAGE_ARTERY;
+    app->loading_layer_index = 0;
+    app->active_layer_valid = false;
 }
 
 static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, TileLayerKind kind,
@@ -371,13 +447,7 @@ static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, Til
         for (uint32_t x = top_left.x; x <= bottom_right.x; ++x) {
             TileCoord coord = {z, x, y};
             const MftTile *tile = NULL;
-            if (kind == TILE_LAYER_ROAD_ARTERY) {
-                tile = tile_manager_peek_tile(&app->tile_manager_artery, coord);
-            } else if (kind == TILE_LAYER_ROAD_LOCAL) {
-                tile = tile_manager_peek_tile(&app->tile_manager_local, coord);
-            } else {
-                tile = tile_manager_peek_tile(&app->tile_manager_poly, coord);
-            }
+    tile = tile_manager_peek_tile(&app->tile_managers[kind], coord);
             if (tile) {
                 continue;
             }
@@ -394,6 +464,9 @@ static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, Til
 
     queue->count = count;
     queue->index = 0;
+    app->layer_expected[kind] = count;
+    app->layer_done[kind] = 0;
+    app->layer_inflight[kind] = 0;
 }
 
 static void app_process_tile_queue(AppState *app, TileQueue *queue, TileLayerKind kind, uint32_t budget) {
@@ -409,6 +482,7 @@ static void app_process_tile_queue(AppState *app, TileQueue *queue, TileLayerKin
             queue->index -= 1;
             break;
         }
+        app->layer_inflight[kind] += 1;
     }
 }
 
@@ -423,26 +497,25 @@ static void app_drain_tile_results(AppState *app, uint32_t budget) {
             break;
         }
 
-        if (!result.ok) {
-            mft_free_tile(&result.tile);
-            continue;
-        }
-
         if (result.request_id != app->tile_request_id) {
-            mft_free_tile(&result.tile);
+            if (result.ok) {
+                mft_free_tile(&result.tile);
+            }
             continue;
         }
 
-        TileManager *target = NULL;
-        if (result.kind == TILE_LAYER_ROAD_ARTERY) {
-            target = &app->tile_manager_artery;
-        } else if (result.kind == TILE_LAYER_ROAD_LOCAL) {
-            target = &app->tile_manager_local;
-        } else {
-            target = &app->tile_manager_poly;
+        if (app->layer_inflight[result.kind] > 0) {
+            app->layer_inflight[result.kind] -= 1;
+        }
+        if (app->layer_done[result.kind] < app->layer_expected[result.kind]) {
+            app->layer_done[result.kind] += 1;
         }
 
-        if (!tile_manager_put_tile(target, result.coord, &result.tile)) {
+        if (!result.ok) {
+            continue;
+        }
+
+        if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, &result.tile)) {
             mft_free_tile(&result.tile);
         }
     }
@@ -468,6 +541,7 @@ static void app_update_tile_queue(AppState *app) {
     app->visible_top_left = top_left;
     app->visible_bottom_right = bottom_right;
     app->visible_valid = true;
+    app->visible_tile_count = (bottom_right.x - top_left.x + 1) * (bottom_right.y - top_left.y + 1);
 
     bool bounds_changed = !app->queue_valid ||
         app->queue_zoom != z ||
@@ -476,43 +550,51 @@ static void app_update_tile_queue(AppState *app) {
 
     if (bounds_changed) {
         app->tile_request_id += 1;
-        app_rebuild_tile_queue_for_kind(app, &app->queue_artery, TILE_LAYER_ROAD_ARTERY, z, top_left, bottom_right);
-        app_rebuild_tile_queue_for_kind(app, &app->queue_local, TILE_LAYER_ROAD_LOCAL, z, top_left, bottom_right);
-        app_rebuild_tile_queue_for_kind(app, &app->queue_poly, TILE_LAYER_POLYGON, z, top_left, bottom_right);
+        for (size_t i = 0; i < kLayerOrderCount; ++i) {
+            TileLayerKind kind = kLayerOrder[i].kind;
+            app_rebuild_tile_queue_for_kind(app, &app->tile_queues[kind], kind, z, top_left, bottom_right);
+        }
+        uint32_t buffer = app->visible_tile_count / 2;
+        if (buffer < 16) {
+            buffer = 16;
+        }
+        uint32_t target_capacity = app->visible_tile_count + buffer;
+        for (size_t i = 0; i < kLayerOrderCount; ++i) {
+            const LayerSpec *spec = &kLayerOrder[i];
+            if (!spec->enabled || app->camera.zoom < spec->zoom_start) {
+                continue;
+            }
+            tile_manager_ensure_capacity(&app->tile_managers[spec->kind], target_capacity);
+        }
         app->queue_top_left = top_left;
         app->queue_bottom_right = bottom_right;
         app->queue_zoom = z;
         app->queue_valid = true;
-        app->loading_stage = TILE_STAGE_ARTERY;
+        app->loading_layer_index = 0;
     }
 
     if (!app->queue_valid) {
         return;
     }
 
-    bool allow_local = app->camera.zoom >= kLocalRoadZoomStart;
-    bool allow_poly = app->camera.zoom >= kPolygonZoomStart;
-
-    if (!allow_local) {
-        app->loading_stage = TILE_STAGE_ARTERY;
-    } else if (!allow_poly && app->loading_stage == TILE_STAGE_POLYGON) {
-        app->loading_stage = TILE_STAGE_LOCAL;
-    }
-
-    if (app->loading_stage == TILE_STAGE_ARTERY) {
-        app_process_tile_queue(app, &app->queue_artery, TILE_LAYER_ROAD_ARTERY, kTileLoadBudget);
-        if (app->queue_artery.index >= app->queue_artery.count && allow_local) {
-            app->loading_stage = TILE_STAGE_LOCAL;
+    app->active_layer_valid = false;
+    for (size_t i = 0; i < kLayerOrderCount; ++i) {
+        const LayerSpec *spec = &kLayerOrder[i];
+        if (!spec->enabled || app->camera.zoom < app_layer_zoom_start(app, spec->kind)) {
+            continue;
         }
-    }
-    if (app->loading_stage == TILE_STAGE_LOCAL) {
-        app_process_tile_queue(app, &app->queue_local, TILE_LAYER_ROAD_LOCAL, kTileLoadBudget);
-        if (app->queue_local.index >= app->queue_local.count && allow_poly) {
-            app->loading_stage = TILE_STAGE_POLYGON;
+        if (app->layer_done[spec->kind] >= app->layer_expected[spec->kind] &&
+            app->layer_inflight[spec->kind] == 0) {
+            continue;
         }
-    }
-    if (app->loading_stage == TILE_STAGE_POLYGON && allow_poly) {
-        app_process_tile_queue(app, &app->queue_poly, TILE_LAYER_POLYGON, kTileLoadBudget);
+        TileQueue *queue = &app->tile_queues[spec->kind];
+        uint32_t expected = app->layer_expected[spec->kind];
+        uint32_t budget = app_tile_load_budget(expected);
+        app_process_tile_queue(app, queue, spec->kind, budget);
+        app->active_layer_valid = true;
+        app->active_layer_kind = spec->kind;
+        app->active_layer_expected = expected;
+        break;
     }
 }
 
@@ -524,37 +606,59 @@ static uint32_t app_draw_visible_tiles(AppState *app) {
     uint32_t visible = 0;
     uint32_t expected = 0;
     uint32_t done = 0;
-    TileQueue *active_queue = NULL;
-    if (app->loading_stage == TILE_STAGE_ARTERY) {
-        active_queue = &app->queue_artery;
-    } else if (app->loading_stage == TILE_STAGE_LOCAL) {
-        active_queue = &app->queue_local;
-    } else {
-        active_queue = &app->queue_poly;
+    for (size_t i = 0; i < kLayerOrderCount; ++i) {
+        const LayerSpec *spec = &kLayerOrder[i];
+        if (!spec->enabled || app->camera.zoom < app_layer_zoom_start(app, spec->kind)) {
+            continue;
+        }
+        expected += app->layer_expected[spec->kind];
+        done += app->layer_done[spec->kind];
     }
 
-    if (active_queue) {
-        expected = active_queue->count;
-        done = active_queue->index;
-    }
-    bool allow_local = app->camera.zoom >= kLocalRoadZoomStart;
-    bool allow_poly = app->camera.zoom >= kPolygonZoomStart;
     for (uint32_t y = app->visible_top_left.y; y <= app->visible_bottom_right.y; ++y) {
         for (uint32_t x = app->visible_top_left.x; x <= app->visible_bottom_right.x; ++x) {
             TileCoord coord = {app->visible_zoom, x, y};
-            const MftTile *artery = tile_manager_peek_tile(&app->tile_manager_artery, coord);
-            const MftTile *local = allow_local ? tile_manager_peek_tile(&app->tile_manager_local, coord) : NULL;
-            const MftTile *poly = allow_poly ? tile_manager_peek_tile(&app->tile_manager_poly, coord) : NULL;
-            if (poly) {
-                polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)poly, app->show_landuse,
+            const MftTile *water = (app->camera.zoom >= app_layer_zoom_start(app, TILE_LAYER_POLY_WATER))
+                ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_POLY_WATER], coord) : NULL;
+            const MftTile *park = (app->camera.zoom >= app_layer_zoom_start(app, TILE_LAYER_POLY_PARK))
+                ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_POLY_PARK], coord) : NULL;
+            const MftTile *landuse = (app->camera.zoom >= app_layer_zoom_start(app, TILE_LAYER_POLY_LANDUSE))
+                ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_POLY_LANDUSE], coord) : NULL;
+            const MftTile *building = (app->camera.zoom >= app_layer_zoom_start(app, TILE_LAYER_POLY_BUILDING))
+                ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_POLY_BUILDING], coord) : NULL;
+            if (water) {
+                polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)water, app->show_landuse,
                     app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
             }
+            if (park) {
+                polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)park, app->show_landuse,
+                    app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+            }
+            if (landuse) {
+                polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)landuse, app->show_landuse,
+                    app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+            }
+            if (building) {
+                polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)building, app->show_landuse,
+                    app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+            }
+
+            const MftTile *local = (app->camera.zoom >= app_layer_zoom_start(app, TILE_LAYER_ROAD_LOCAL))
+                ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_ROAD_LOCAL], coord) : NULL;
+            const MftTile *contour = (app->camera.zoom >= app_layer_zoom_start(app, TILE_LAYER_CONTOUR))
+                ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_CONTOUR], coord) : NULL;
+            const MftTile *artery = tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_ROAD_ARTERY], coord);
             if (local) {
                 road_renderer_draw_tile(&app->renderer, &app->camera, local, app->single_line, app->road_zoom_bias);
                 visible += 1;
             }
             if (artery) {
                 road_renderer_draw_tile(&app->renderer, &app->camera, artery, app->single_line, app->road_zoom_bias);
+                visible += 1;
+            }
+            if (contour) {
+                // Phase A placeholder: contours are loaded/rendered through the polyline path.
+                road_renderer_draw_tile(&app->renderer, &app->camera, contour, true, 0.0f);
                 visible += 1;
             }
         }
@@ -749,6 +853,7 @@ static void app_draw_header_bar(AppState *app) {
     char speed_text[32];
     snprintf(speed_text, sizeof(speed_text), "Speed: %.1fx", app->playback_speed);
     char distance_text[48];
+    char zoom_text[24];
     float km = 0.0f;
     float minutes = 0.0f;
     if (app->route.path.count > 1) {
@@ -756,6 +861,7 @@ static void app_draw_header_bar(AppState *app) {
         minutes = app->route.path.total_time_s / 60.0f;
     }
     snprintf(distance_text, sizeof(distance_text), "Route: %.2f km | %.1f min", km, minutes);
+    snprintf(zoom_text, sizeof(zoom_text), "Zoom: %.2f", app->camera.zoom);
 
     SDL_Color badge_fill = {30, 35, 46, 230};
     SDL_Color badge_outline = {80, 90, 110, 220};
@@ -763,6 +869,7 @@ static void app_draw_header_bar(AppState *app) {
     float pad_y = 3.0f;
     int speed_w = ui_measure_text_width(speed_text, 1.0f);
     int distance_w = ui_measure_text_width(distance_text, 1.0f);
+    int zoom_w = ui_measure_text_width(zoom_text, 1.0f);
     float box_h = (float)text_h + pad_y * 2.0f;
     float box_y = (kHeaderHeight - box_h) * 0.5f;
     float speed_box_w = (float)speed_w + pad_x * 2.0f;
@@ -783,54 +890,173 @@ static void app_draw_header_bar(AppState *app) {
     ui_draw_text(app->renderer.sdl, (int)(distance_box.x + pad_x), (int)(distance_box.y + (box_h - text_h) * 0.5f), distance_text, label_color, 1.0f);
 
     cursor_x += distance_box_w + 10.0f;
+    float zoom_box_w = (float)zoom_w + pad_x * 2.0f;
+    SDL_FRect zoom_box = {cursor_x, box_y, zoom_box_w, box_h};
+    SDL_SetRenderDrawColor(app->renderer.sdl, badge_fill.r, badge_fill.g, badge_fill.b, badge_fill.a);
+    SDL_RenderFillRectF(app->renderer.sdl, &zoom_box);
+    SDL_SetRenderDrawColor(app->renderer.sdl, badge_outline.r, badge_outline.g, badge_outline.b, badge_outline.a);
+    SDL_RenderDrawRectF(app->renderer.sdl, &zoom_box);
+    ui_draw_text(app->renderer.sdl, (int)(zoom_box.x + pad_x), (int)(zoom_box.y + (box_h - text_h) * 0.5f), zoom_text, label_color, 1.0f);
+    cursor_x += zoom_box_w + 10.0f;
 
     bool show_loading = app->loading_expected > 0 && app->loading_done < app->loading_expected;
     if (show_loading) {
         bool no_tiles = app->loading_done == 0 && app->loading_no_data_time >= kTileNoDataTimeout;
-        const char *stage_label = "tiles";
-        if (app->loading_stage == TILE_STAGE_ARTERY) {
-            stage_label = "artery";
-        } else if (app->loading_stage == TILE_STAGE_LOCAL) {
-            stage_label = "local";
-        } else if (app->loading_stage == TILE_STAGE_POLYGON) {
-            stage_label = "buildings";
-        }
-
-        char loading_text[48];
-        if (no_tiles) {
-            snprintf(loading_text, sizeof(loading_text), "No tiles");
-        } else {
-            snprintf(loading_text, sizeof(loading_text), "%s %u/%u", stage_label, app->loading_done, app->loading_expected);
-        }
-
-        int loading_w = ui_measure_text_width(loading_text, 1.0f);
-        float bar_w = 70.0f;
+        float bar_w = 62.0f;
         float bar_h = 6.0f;
-        float loading_box_w = bar_w + 8.0f + (float)loading_w + pad_x * 2.0f;
-        SDL_FRect loading_box = {cursor_x, box_y, loading_box_w, box_h};
-        SDL_SetRenderDrawColor(app->renderer.sdl, badge_fill.r, badge_fill.g, badge_fill.b, badge_fill.a);
-        SDL_RenderFillRectF(app->renderer.sdl, &loading_box);
-        SDL_SetRenderDrawColor(app->renderer.sdl, badge_outline.r, badge_outline.g, badge_outline.b, badge_outline.a);
-        SDL_RenderDrawRectF(app->renderer.sdl, &loading_box);
-
-        float bar_x = loading_box.x + pad_x;
-        float bar_y = loading_box.y + (loading_box.h - bar_h) * 0.5f;
-        SDL_FRect bar_bg = {bar_x, bar_y, bar_w, bar_h};
-        SDL_SetRenderDrawColor(app->renderer.sdl, 40, 48, 62, 220);
-        SDL_RenderFillRectF(app->renderer.sdl, &bar_bg);
-
-        if (!no_tiles) {
-            float progress = (app->loading_expected > 0) ? (float)app->loading_done / (float)app->loading_expected : 0.0f;
-            progress = clampf(progress, 0.0f, 1.0f);
-            SDL_FRect bar_fg = {bar_bg.x, bar_bg.y, bar_bg.w * progress, bar_bg.h};
-            SDL_SetRenderDrawColor(app->renderer.sdl, 100, 170, 255, 220);
-            SDL_RenderFillRectF(app->renderer.sdl, &bar_fg);
+        float text_gap = 8.0f;
+        float bar_pad = pad_x;
+        for (size_t i = 0; i < kLayerOrderCount; ++i) {
+            const LayerSpec *spec = &kLayerOrder[i];
+        if (!spec->enabled || app->camera.zoom < app_layer_zoom_start(app, spec->kind)) {
+            continue;
         }
+            uint32_t expected = app->layer_expected[spec->kind];
+            uint32_t done = app->layer_done[spec->kind];
+            uint32_t inflight = app->layer_inflight[spec->kind];
+            if (expected == 0) {
+                continue;
+            }
+            if (done >= expected && inflight == 0 && !no_tiles) {
+                continue;
+            }
 
-        float text_x = bar_x + bar_w + 8.0f;
-        float text_y = loading_box.y + (loading_box.h - (float)text_h) * 0.5f;
-        ui_draw_text(app->renderer.sdl, (int)text_x, (int)text_y, loading_text, label_color, 1.0f);
+            char loading_text[48];
+            if (no_tiles) {
+                snprintf(loading_text, sizeof(loading_text), "No tiles");
+            } else {
+                snprintf(loading_text, sizeof(loading_text), "%s %u/%u", spec->label, done, expected);
+            }
+
+            int loading_w = ui_measure_text_width(loading_text, 1.0f);
+            float loading_box_w = bar_w + text_gap + (float)loading_w + bar_pad * 2.0f;
+            SDL_FRect loading_box = {cursor_x, box_y, loading_box_w, box_h};
+            SDL_SetRenderDrawColor(app->renderer.sdl, badge_fill.r, badge_fill.g, badge_fill.b, badge_fill.a);
+            SDL_RenderFillRectF(app->renderer.sdl, &loading_box);
+            SDL_SetRenderDrawColor(app->renderer.sdl, badge_outline.r, badge_outline.g, badge_outline.b, badge_outline.a);
+            SDL_RenderDrawRectF(app->renderer.sdl, &loading_box);
+
+            float bar_x = loading_box.x + bar_pad;
+            float bar_y = loading_box.y + (loading_box.h - bar_h) * 0.5f;
+            SDL_FRect bar_bg = {bar_x, bar_y, bar_w, bar_h};
+            SDL_SetRenderDrawColor(app->renderer.sdl, 40, 48, 62, 220);
+            SDL_RenderFillRectF(app->renderer.sdl, &bar_bg);
+
+            if (!no_tiles) {
+                float progress = (expected > 0) ? (float)done / (float)expected : 0.0f;
+                progress = clampf(progress, 0.0f, 1.0f);
+                SDL_FRect bar_fg = {bar_bg.x, bar_bg.y, bar_bg.w * progress, bar_bg.h};
+                SDL_SetRenderDrawColor(app->renderer.sdl, 100, 170, 255, 220);
+                SDL_RenderFillRectF(app->renderer.sdl, &bar_fg);
+            }
+
+            float text_x = bar_x + bar_w + text_gap;
+            float text_y = loading_box.y + (loading_box.h - (float)text_h) * 0.5f;
+            ui_draw_text(app->renderer.sdl, (int)text_x, (int)text_y, loading_text, label_color, 1.0f);
+            cursor_x += loading_box_w + 8.0f;
+        }
     }
+}
+
+static const char *app_layer_label(TileLayerKind kind) {
+    for (size_t i = 0; i < kLayerOrderCount; ++i) {
+        if (kLayerOrder[i].kind == kind) {
+            return kLayerOrder[i].label;
+        }
+    }
+    return "layer";
+}
+
+static void app_draw_layer_debug(AppState *app) {
+    if (!app || !app->overlay.enabled) {
+        return;
+    }
+
+    SDL_Color color = {220, 230, 245, 255};
+    int line_h = ui_font_line_height(1.0f);
+    if (line_h <= 0) {
+        return;
+    }
+
+    int x = 10;
+    int y = (int)kHeaderHeight + 6;
+    char line[128];
+
+    snprintf(line, sizeof(line), "Visible tiles: %u", app->visible_tile_count);
+    ui_draw_text(app->renderer.sdl, x, y, line, color, 1.0f);
+    y += line_h + 2;
+
+    if (app->active_layer_valid) {
+        snprintf(line, sizeof(line), "Active layer: %s", app_layer_label(app->active_layer_kind));
+    } else {
+        snprintf(line, sizeof(line), "Active layer: none");
+    }
+    ui_draw_text(app->renderer.sdl, x, y, line, color, 1.0f);
+    y += line_h + 4;
+
+    for (size_t i = 0; i < kLayerOrderCount; ++i) {
+        TileLayerKind kind = kLayerOrder[i].kind;
+        float start = app_layer_zoom_start(app, kind);
+        snprintf(line, sizeof(line), "%s z>=%.2f exp %u done %u in %u",
+                 app_layer_label(kind),
+                 start,
+                 app->layer_expected[kind],
+                 app->layer_done[kind],
+                 app->layer_inflight[kind]);
+        ui_draw_text(app->renderer.sdl, x, y, line, color, 1.0f);
+        y += line_h + 2;
+    }
+}
+
+static void app_copy_overlay_text(AppState *app) {
+    if (!app) {
+        return;
+    }
+
+    char buffer[2048];
+    size_t offset = 0;
+    int written = snprintf(buffer + offset, sizeof(buffer) - offset,
+                           "Region: %s\nZoom: %.2f\nVisible tiles: %u\n",
+                           app->region.name,
+                           app->camera.zoom,
+                           app->visible_tile_count);
+    if (written < 0) {
+        return;
+    }
+    offset += (size_t)written;
+
+    if (app->active_layer_valid) {
+        written = snprintf(buffer + offset, sizeof(buffer) - offset,
+                           "Active layer: %s\n",
+                           app_layer_label(app->active_layer_kind));
+    } else {
+        written = snprintf(buffer + offset, sizeof(buffer) - offset, "Active layer: none\n");
+    }
+    if (written < 0) {
+        return;
+    }
+    offset += (size_t)written;
+
+    for (size_t i = 0; i < kLayerOrderCount; ++i) {
+        TileLayerKind kind = kLayerOrder[i].kind;
+        float start = app_layer_zoom_start(app, kind);
+        written = snprintf(buffer + offset, sizeof(buffer) - offset,
+                           "%s z>=%.2f exp %u done %u in %u\n",
+                           app_layer_label(kind),
+                           start,
+                           app->layer_expected[kind],
+                           app->layer_done[kind],
+                           app->layer_inflight[kind]);
+        if (written < 0) {
+            return;
+        }
+        offset += (size_t)written;
+        if (offset >= sizeof(buffer)) {
+            break;
+        }
+    }
+
+    SDL_SetClipboardText(buffer);
 }
 
 static void app_playback_reset(AppState *app) {
@@ -1025,11 +1251,11 @@ static bool app_init(AppState *app) {
     app->region = *info;
     region_load_meta(info, &app->region);
 
-    if (!tile_manager_init(&app->tile_manager_artery, 128, app->region.tiles_dir) ||
-        !tile_manager_init(&app->tile_manager_local, 128, app->region.tiles_dir) ||
-        !tile_manager_init(&app->tile_manager_poly, 128, app->region.tiles_dir)) {
-        log_error("tile_manager_init failed");
-        return false;
+    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+        if (!tile_manager_init(&app->tile_managers[i], 128, app->region.tiles_dir)) {
+            log_error("tile_manager_init failed");
+            return false;
+        }
     }
     if (!tile_loader_init(&app->tile_loader, app->region.tiles_dir)) {
         log_error("tile_loader_init failed");
@@ -1060,15 +1286,15 @@ static bool app_init(AppState *app) {
     app->road_zoom_bias = app_road_zoom_bias_for_region(&app->region);
     app->polygon_outline_only = false;
     app->tile_request_id = 1;
-    memset(&app->queue_artery, 0, sizeof(app->queue_artery));
-    memset(&app->queue_local, 0, sizeof(app->queue_local));
-    memset(&app->queue_poly, 0, sizeof(app->queue_poly));
+    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+        memset(&app->tile_queues[i], 0, sizeof(app->tile_queues[i]));
+    }
     app->queue_valid = false;
     app->visible_valid = false;
     app->loading_expected = 0;
     app->loading_done = 0;
     app->loading_no_data_time = 0.0f;
-    app->loading_stage = TILE_STAGE_ARTERY;
+    app->loading_layer_index = 0;
 
     return true;
 }
@@ -1084,9 +1310,9 @@ static void app_shutdown(AppState *app) {
     }
 
     renderer_shutdown(&app->renderer);
-    tile_manager_shutdown(&app->tile_manager_artery);
-    tile_manager_shutdown(&app->tile_manager_local);
-    tile_manager_shutdown(&app->tile_manager_poly);
+    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+        tile_manager_shutdown(&app->tile_managers[i]);
+    }
     tile_loader_shutdown(&app->tile_loader);
     route_state_shutdown(&app->route);
     app_clear_tile_queue(app);
@@ -1128,12 +1354,10 @@ int app_run(void) {
             if (info) {
                 app.region = *info;
                 region_load_meta(info, &app.region);
-                tile_manager_shutdown(&app.tile_manager_artery);
-                tile_manager_shutdown(&app.tile_manager_local);
-                tile_manager_shutdown(&app.tile_manager_poly);
-                tile_manager_init(&app.tile_manager_artery, 128, app.region.tiles_dir);
-                tile_manager_init(&app.tile_manager_local, 128, app.region.tiles_dir);
-                tile_manager_init(&app.tile_manager_poly, 128, app.region.tiles_dir);
+                for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+                    tile_manager_shutdown(&app.tile_managers[i]);
+                    tile_manager_init(&app.tile_managers[i], 128, app.region.tiles_dir);
+                }
                 tile_loader_shutdown(&app.tile_loader);
                 tile_loader_init(&app.tile_loader, app.region.tiles_dir);
                 app_clear_tile_queue(&app);
@@ -1215,7 +1439,13 @@ int app_run(void) {
 
         app_update_hover(&app);
         app_update_tile_queue(&app);
-        app_drain_tile_results(&app, kTileIntegrateBudget);
+        uint32_t integrate_budget = app.active_layer_valid
+            ? app_tile_integrate_budget(app.active_layer_expected)
+            : kTileIntegrateBudget;
+        app_drain_tile_results(&app, integrate_budget);
+        if (app.input.copy_overlay_pressed) {
+            app_copy_overlay_text(&app);
+        }
 
         bool consumed_click = false;
         if (app.input.left_click_pressed && app_header_button_hit(&app, app.input.mouse_x, app.input.mouse_y)) {
@@ -1332,16 +1562,19 @@ int app_run(void) {
         app_draw_playback_marker(&app);
         app_draw_route_panel(&app);
         app_draw_header_bar(&app);
+        app_draw_layer_debug(&app);
         debug_overlay_render(&app.overlay, &app.renderer);
         renderer_end_frame(&app.renderer);
 
         app.overlay.visible_tiles = visible_tiles;
-        app.overlay.cached_tiles = tile_manager_count(&app.tile_manager_artery) +
-            tile_manager_count(&app.tile_manager_local) +
-            tile_manager_count(&app.tile_manager_poly);
-        app.overlay.cache_capacity = tile_manager_capacity(&app.tile_manager_artery) +
-            tile_manager_capacity(&app.tile_manager_local) +
-            tile_manager_capacity(&app.tile_manager_poly);
+        uint32_t cached_total = 0;
+        uint32_t capacity_total = 0;
+        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+            cached_total += tile_manager_count(&app.tile_managers[i]);
+            capacity_total += tile_manager_capacity(&app.tile_managers[i]);
+        }
+        app.overlay.cached_tiles = cached_total;
+        app.overlay.cache_capacity = capacity_total;
 
         if (app.overlay.enabled) {
             char title[128];
