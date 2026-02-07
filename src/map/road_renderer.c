@@ -1,5 +1,6 @@
 #include "map/road_renderer.h"
 
+#include "map/layer_policy.h"
 #include "map/tile_math.h"
 #include "map/zoom_fade.h"
 
@@ -19,8 +20,21 @@ typedef struct RoadStyle {
 #define ROAD_QUAD_MIN_ZOOM 14.5f
 #define ROAD_QUAD_MIN_WIDTH 2.5f
 
+static RoadRenderStats g_road_stats;
+
 const char *road_renderer_zoom_tier_label(float zoom) {
     return zoom_tier_label(zoom_tier_for(zoom));
+}
+
+void road_renderer_stats_reset(void) {
+    SDL_memset(&g_road_stats, 0, sizeof(g_road_stats));
+}
+
+void road_renderer_stats_get(RoadRenderStats *out_stats) {
+    if (!out_stats) {
+        return;
+    }
+    *out_stats = g_road_stats;
 }
 
 static ZoomTier road_class_min_tier(RoadClass road_class) {
@@ -96,12 +110,12 @@ static RoadStyle road_style_for_class(RoadClass road_class, float zoom, ZoomTier
     }
 }
 
-static void draw_polyline(SDL_Renderer *sdl, const SDL_FPoint *points, int count, int width, bool single_line) {
+static void draw_polyline(Renderer *renderer, const SDL_FPoint *points, int count, int width, bool single_line) {
     if (count < 2) {
         return;
     }
 
-    SDL_RenderDrawLinesF(sdl, points, count);
+    renderer_draw_lines(renderer, points, count);
 
     if (width <= 1 || single_line) {
         return;
@@ -119,7 +133,7 @@ static void draw_polyline(SDL_Renderer *sdl, const SDL_FPoint *points, int count
             shifted[i].y += (float)offset;
         }
 
-        SDL_RenderDrawLinesF(sdl, shifted, count);
+        renderer_draw_lines(renderer, shifted, count);
 
         for (int i = 0; i < count; ++i) {
             shifted[i] = points[i];
@@ -127,7 +141,7 @@ static void draw_polyline(SDL_Renderer *sdl, const SDL_FPoint *points, int count
             shifted[i].y -= (float)offset;
         }
 
-        SDL_RenderDrawLinesF(sdl, shifted, count);
+        renderer_draw_lines(renderer, shifted, count);
         SDL_free(shifted);
     }
 }
@@ -176,8 +190,8 @@ static SDL_Vertex *build_strip_vertices(const SDL_FPoint *points, int count, flo
     return verts;
 }
 
-static void draw_quad_strip(SDL_Renderer *sdl, const SDL_FPoint *points, int count, float width, SDL_Color color) {
-    if (!sdl || count < 2) {
+static void draw_quad_strip(Renderer *renderer, const SDL_FPoint *points, int count, float width, SDL_Color color) {
+    if (!renderer || count < 2) {
         return;
     }
 
@@ -188,12 +202,15 @@ static void draw_quad_strip(SDL_Renderer *sdl, const SDL_FPoint *points, int cou
         return;
     }
 
-    SDL_RenderGeometry(sdl, NULL, verts, vertex_count, NULL, 0);
+    renderer_draw_geometry(renderer, verts, vertex_count, NULL, 0);
     SDL_free(verts);
 }
 
-static bool road_use_quad_strip(RoadClass road_class, float width, float zoom, bool single_line) {
+static bool road_use_quad_strip(const Renderer *renderer, RoadClass road_class, float width, float zoom, bool single_line) {
     if (single_line) {
+        return false;
+    }
+    if (renderer && renderer->backend == RENDERER_BACKEND_VULKAN) {
         return false;
     }
     if (road_class == ROAD_CLASS_FOOTWAY || road_class == ROAD_CLASS_PATH) {
@@ -205,12 +222,61 @@ static bool road_use_quad_strip(RoadClass road_class, float width, float zoom, b
     return width >= ROAD_QUAD_MIN_WIDTH;
 }
 
+static bool road_class_allowed_under_pressure(const Renderer *renderer, RoadClass road_class) {
+    if (!renderer || renderer->backend != RENDERER_BACKEND_VULKAN || renderer->vk_line_budget == 0u) {
+        return true;
+    }
+    if (road_class <= ROAD_CLASS_SERVICE) {
+        return true;
+    }
+
+    float usage = (float)renderer->vk_lines_drawn / (float)renderer->vk_line_budget;
+    if (road_class == ROAD_CLASS_FOOTWAY) {
+        return usage < 0.97f;
+    }
+    if (road_class == ROAD_CLASS_PATH) {
+        return usage < 0.90f;
+    }
+    return usage < 0.95f;
+}
+
+static int road_class_index(RoadClass road_class) {
+    if (road_class < ROAD_CLASS_MOTORWAY || road_class > ROAD_CLASS_PATH) {
+        return -1;
+    }
+    return (int)road_class;
+}
+
+static int road_pass_for_class(RoadClass road_class) {
+    switch (road_class) {
+        case ROAD_CLASS_MOTORWAY:
+            return 0;
+        case ROAD_CLASS_TRUNK:
+            return 1;
+        case ROAD_CLASS_PRIMARY:
+            return 2;
+        case ROAD_CLASS_SECONDARY:
+            return 3;
+        case ROAD_CLASS_TERTIARY:
+            return 4;
+        case ROAD_CLASS_RESIDENTIAL:
+            return 5;
+        case ROAD_CLASS_SERVICE:
+            return 6;
+        case ROAD_CLASS_FOOTWAY:
+            return 7;
+        case ROAD_CLASS_PATH:
+        default:
+            return 8;
+    }
+}
+
 void road_renderer_draw_tile(Renderer *renderer,
                              const Camera *camera,
                              const MftTile *tile,
                              bool single_line,
                              float zoom_bias) {
-    if (!renderer || !renderer->sdl || !camera || !tile || tile->polyline_count == 0) {
+    if (!renderer || !camera || !tile || tile->polyline_count == 0) {
         return;
     }
 
@@ -222,70 +288,152 @@ void road_renderer_draw_tile(Renderer *renderer,
     double tile_size = tile_size_meters(tile->coord.z);
     MercatorMeters origin = tile_origin_meters(tile->coord);
 
-    for (uint32_t i = 0; i < tile->polyline_count; ++i) {
-        const MftPolyline *polyline = &tile->polylines[i];
-        if (polyline->point_count < 2) {
-            continue;
-        }
-
-        ZoomTier min_tier = road_class_min_tier(polyline->road_class);
-        RoadStyle style = road_style_for_class(polyline->road_class, effective_zoom, tier);
-        float fade = zoom_tier_fade_in_alpha(effective_zoom, min_tier);
-        float alpha = (float)style.a * fade;
-        if (alpha > 255.0f) {
-            alpha = 255.0f;
-        }
-        int alpha_i = (int)lroundf(alpha);
-        if (alpha_i <= 0) {
-            continue;
-        }
-        style.a = (uint8_t)alpha_i;
-        SDL_SetRenderDrawColor(renderer->sdl, style.r, style.g, style.b, style.a);
-
-        SDL_FPoint stack_points[256];
-        SDL_FPoint *points = stack_points;
-        bool heap_points = false;
-
-        if (polyline->point_count > 256) {
-            points = (SDL_FPoint *)SDL_malloc(sizeof(SDL_FPoint) * (size_t)polyline->point_count);
-            if (!points) {
+    int pass_count = (renderer->backend == RENDERER_BACKEND_VULKAN) ? 9 : 1;
+    for (int pass = 0; pass < pass_count; ++pass) {
+        for (uint32_t i = 0; i < tile->polyline_count; ++i) {
+            const MftPolyline *polyline = &tile->polylines[i];
+            if (polyline->point_count < 2) {
                 continue;
             }
-            heap_points = true;
-        }
-
-        for (uint32_t p = 0; p < polyline->point_count; ++p) {
-            uint32_t idx = (polyline->point_offset + p) * 2;
-            float qx = (float)tile->points[idx + 0];
-            float qy = (float)tile->points[idx + 1];
-
-            float ux = qx / TILE_EXTENT;
-            float uy = qy / TILE_EXTENT;
-
-            float world_x = (float)(origin.x + ux * tile_size);
-            float world_y = (float)(origin.y - uy * tile_size);
-
-            float sx = 0.0f;
-            float sy = 0.0f;
-            camera_world_to_screen(camera, world_x, world_y, renderer->width, renderer->height, &sx, &sy);
-
-            points[p].x = sx;
-            points[p].y = sy;
-        }
-
-        if (road_use_quad_strip(polyline->road_class, style.width, camera->zoom, single_line)) {
-            SDL_Color color = {style.r, style.g, style.b, style.a};
-            draw_quad_strip(renderer->sdl, points, (int)polyline->point_count, style.width, color);
-        } else {
-            int width = (int)(style.width + 0.5f);
-            if (width < 1) {
-                width = 1;
+            if (renderer->backend == RENDERER_BACKEND_VULKAN &&
+                road_pass_for_class(polyline->road_class) != pass) {
+                continue;
             }
-            draw_polyline(renderer->sdl, points, (int)polyline->point_count, width, single_line);
-        }
+            if (renderer->backend == RENDERER_BACKEND_VULKAN &&
+                !layer_policy_vk_road_class_allowed(polyline->road_class, effective_zoom)) {
+                int cls = road_class_index(polyline->road_class);
+                if (cls >= 0) {
+                    g_road_stats.filtered_by_class[cls] += 1;
+                }
+                continue;
+            }
+            if (!road_class_allowed_under_pressure(renderer, polyline->road_class)) {
+                int cls = road_class_index(polyline->road_class);
+                if (cls >= 0) {
+                    g_road_stats.filtered_by_class[cls] += 1;
+                }
+                continue;
+            }
+            uint32_t sample_step = 1;
+            if (renderer->backend == RENDERER_BACKEND_VULKAN) {
+                sample_step = layer_policy_vk_sample_step(polyline->road_class, effective_zoom);
+                if (effective_zoom >= 14.0f && polyline->road_class <= ROAD_CLASS_SERVICE) {
+                    sample_step = 1;
+                }
+            }
 
-        if (heap_points) {
-            SDL_free(points);
+            ZoomTier min_tier = road_class_min_tier(polyline->road_class);
+            RoadStyle style = road_style_for_class(polyline->road_class, effective_zoom, tier);
+            float fade = zoom_tier_fade_in_alpha(effective_zoom, min_tier);
+            float alpha = (float)style.a * fade;
+            if (alpha > 255.0f) {
+                alpha = 255.0f;
+            }
+            int alpha_i = (int)lroundf(alpha);
+            if (alpha_i <= 0) {
+                continue;
+            }
+            style.a = (uint8_t)alpha_i;
+            renderer_set_draw_color(renderer, style.r, style.g, style.b, style.a);
+
+            uint32_t sampled_count = 1 + ((polyline->point_count - 1) / sample_step);
+            if (((polyline->point_count - 1) % sample_step) != 0) {
+                sampled_count += 1;
+            }
+            if (sampled_count < 2) {
+                sampled_count = 2;
+            }
+
+            SDL_FPoint stack_points[256];
+            SDL_FPoint *points = stack_points;
+            bool heap_points = false;
+
+            if (sampled_count > 256) {
+                points = (SDL_FPoint *)SDL_malloc(sizeof(SDL_FPoint) * (size_t)sampled_count);
+                if (!points) {
+                    continue;
+                }
+                heap_points = true;
+            }
+
+            uint32_t out_count = 0;
+            float min_point_px = 0.0f;
+            if (renderer->backend == RENDERER_BACKEND_VULKAN) {
+                min_point_px = layer_policy_vk_min_point_spacing_px(effective_zoom);
+                if (effective_zoom >= 14.0f && polyline->road_class <= ROAD_CLASS_SERVICE) {
+                    min_point_px = 0.0f;
+                }
+            }
+            float min_point_px2 = min_point_px * min_point_px;
+            for (uint32_t p = 0; p < polyline->point_count; p += sample_step) {
+                uint32_t idx = (polyline->point_offset + p) * 2;
+                float qx = (float)tile->points[idx + 0];
+                float qy = (float)tile->points[idx + 1];
+
+                float ux = qx / TILE_EXTENT;
+                float uy = qy / TILE_EXTENT;
+
+                float world_x = (float)(origin.x + ux * tile_size);
+                float world_y = (float)(origin.y - uy * tile_size);
+
+                float sx = 0.0f;
+                float sy = 0.0f;
+                camera_world_to_screen(camera, world_x, world_y, renderer->width, renderer->height, &sx, &sy);
+
+                bool is_last_sample = (p + sample_step >= polyline->point_count);
+                if (out_count > 0 && !is_last_sample && min_point_px2 > 0.0f) {
+                    float dx = sx - points[out_count - 1].x;
+                    float dy = sy - points[out_count - 1].y;
+                    if ((dx * dx + dy * dy) < min_point_px2) {
+                        continue;
+                    }
+                }
+                points[out_count].x = sx;
+                points[out_count].y = sy;
+                out_count += 1;
+            }
+
+            uint32_t last_index = polyline->point_count - 1;
+            if (last_index % sample_step != 0 && out_count < sampled_count) {
+                uint32_t idx = (polyline->point_offset + last_index) * 2;
+                float qx = (float)tile->points[idx + 0];
+                float qy = (float)tile->points[idx + 1];
+                float ux = qx / TILE_EXTENT;
+                float uy = qy / TILE_EXTENT;
+                float world_x = (float)(origin.x + ux * tile_size);
+                float world_y = (float)(origin.y - uy * tile_size);
+                float sx = 0.0f;
+                float sy = 0.0f;
+                camera_world_to_screen(camera, world_x, world_y, renderer->width, renderer->height, &sx, &sy);
+                points[out_count].x = sx;
+                points[out_count].y = sy;
+                out_count += 1;
+            }
+            if (out_count < 2) {
+                out_count = 2;
+            }
+
+            if (road_use_quad_strip(renderer, polyline->road_class, style.width, camera->zoom, single_line)) {
+                SDL_Color color = {style.r, style.g, style.b, style.a};
+                draw_quad_strip(renderer, points, (int)out_count, style.width, color);
+            } else {
+                int width = (int)(style.width + 0.5f);
+                if (renderer->backend == RENDERER_BACKEND_VULKAN) {
+                    width = 1;
+                }
+                if (width < 1) {
+                    width = 1;
+                }
+                draw_polyline(renderer, points, (int)out_count, width, single_line);
+            }
+            int cls = road_class_index(polyline->road_class);
+            if (cls >= 0) {
+                g_road_stats.drawn_by_class[cls] += 1;
+            }
+
+            if (heap_points) {
+                SDL_free(points);
+            }
         }
     }
 }

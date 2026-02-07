@@ -98,6 +98,7 @@ Outcome: Buildings, water, parks, landuse.
 - Extend MFT to polygons.
 - Polygon renderer and style system.
 - Layer toggles or zoom gating.
+Status: Completed (2026-02-07)
 
 ### Phase 6: Elevation Modes
 Outcome: Elevation-aware routing.

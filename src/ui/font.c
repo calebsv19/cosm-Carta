@@ -4,6 +4,11 @@
 #include <math.h>
 #include <string.h>
 
+#if defined(MAPFORGE_HAVE_VK)
+#include <vulkan/vulkan.h>
+#include "vk_renderer.h"
+#endif
+
 typedef struct {
     int size;
     TTF_Font *font;
@@ -16,6 +21,12 @@ typedef struct {
     int width;
     int height;
     SDL_Texture *texture;
+#if defined(MAPFORGE_HAVE_VK)
+    VkRendererTexture vk_texture;
+    bool has_vk_texture;
+    void *vk_owner;
+#endif
+    bool use_vulkan;
     uint32_t stamp;
     bool in_use;
 } TextCacheEntry;
@@ -26,7 +37,6 @@ static FontCacheEntry g_cache[12];
 static int g_cache_count = 0;
 static TextCacheEntry g_text_cache[128];
 static uint32_t g_text_cache_stamp = 0;
-
 static void clear_font_cache(void) {
     for (int i = 0; i < g_cache_count; ++i) {
         if (g_cache[i].font) {
@@ -37,13 +47,23 @@ static void clear_font_cache(void) {
     g_cache_count = 0;
 }
 
-static void text_cache_clear(SDL_Renderer *renderer) {
-    (void)renderer;
+static void text_cache_clear(Renderer *renderer) {
     for (size_t i = 0; i < (sizeof(g_text_cache) / sizeof(g_text_cache[0])); ++i) {
         if (g_text_cache[i].in_use) {
             if (g_text_cache[i].texture) {
                 SDL_DestroyTexture(g_text_cache[i].texture);
             }
+#if defined(MAPFORGE_HAVE_VK)
+            if (g_text_cache[i].has_vk_texture) {
+                if (renderer &&
+                    renderer->backend == RENDERER_BACKEND_VULKAN &&
+                    renderer->vk &&
+                    renderer->vk == g_text_cache[i].vk_owner) {
+                    VkRenderer *vk = (VkRenderer *)renderer->vk;
+                    vk_renderer_queue_texture_destroy(vk, &g_text_cache[i].vk_texture);
+                }
+            }
+#endif
             g_text_cache[i] = (TextCacheEntry){0};
         }
     }
@@ -100,12 +120,12 @@ bool ui_font_set(const char *path, int base_point_size) {
     return true;
 }
 
-void ui_font_shutdown(void) {
+void ui_font_shutdown(Renderer *renderer) {
     clear_font_cache();
-    text_cache_clear(NULL);
+    text_cache_clear(renderer);
 }
 
-void ui_font_invalidate_cache(SDL_Renderer *renderer) {
+void ui_font_invalidate_cache(Renderer *renderer) {
     text_cache_clear(renderer);
 }
 
@@ -136,11 +156,15 @@ static TTF_Font *get_font_for_scale(float scale) {
     return font;
 }
 
-static bool render_text(SDL_Renderer *renderer,
+static bool render_text(Renderer *renderer,
                         TTF_Font *font,
                         const char *text,
                         SDL_Color color,
                         SDL_Texture **out_texture,
+#if defined(MAPFORGE_HAVE_VK)
+                        VkRendererTexture *out_vk_texture,
+#endif
+                        bool *out_use_vulkan,
                         int *out_w,
                         int *out_h) {
     if (!renderer || !font || !text || !out_texture) {
@@ -152,17 +176,37 @@ static bool render_text(SDL_Renderer *renderer,
     }
     if (out_w) *out_w = surface->w;
     if (out_h) *out_h = surface->h;
-    SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surface);
+    *out_texture = NULL;
+#if defined(MAPFORGE_HAVE_VK)
+    if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk && renderer->vk_cmd != 0) {
+        VkRenderer *vk = (VkRenderer *)renderer->vk;
+        if (out_vk_texture) {
+            VkResult vk_result = vk_renderer_upload_sdl_surface(vk, surface, out_vk_texture);
+            SDL_FreeSurface(surface);
+            if (vk_result != VK_SUCCESS) {
+                return false;
+            }
+            if (out_use_vulkan) {
+                *out_use_vulkan = true;
+            }
+            return true;
+        }
+    }
+#endif
+    SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer->sdl, surface);
     SDL_FreeSurface(surface);
     if (!tex) {
         return false;
     }
     SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
     *out_texture = tex;
+    if (out_use_vulkan) {
+        *out_use_vulkan = false;
+    }
     return true;
 }
 
-void ui_draw_text(SDL_Renderer *renderer, int x, int y, const char *text, SDL_Color color, float scale) {
+void ui_draw_text(Renderer *renderer, int x, int y, const char *text, SDL_Color color, float scale) {
     if (!renderer || !text) {
         return;
     }
@@ -173,12 +217,31 @@ void ui_draw_text(SDL_Renderer *renderer, int x, int y, const char *text, SDL_Co
     if (strlen(text) >= sizeof(g_text_cache[0].text)) {
         int w = 0, h = 0;
         SDL_Texture *tex = NULL;
-        if (!render_text(renderer, font, text, color, &tex, &w, &h)) {
+        bool use_vulkan = false;
+#if defined(MAPFORGE_HAVE_VK)
+        VkRendererTexture vk_texture = {0};
+        if (!render_text(renderer, font, text, color, &tex, &vk_texture, &use_vulkan, &w, &h)) {
             return;
         }
         SDL_Rect dst = {x, y, w, h};
-        SDL_RenderCopy(renderer, tex, NULL, &dst);
-        SDL_DestroyTexture(tex);
+        if (use_vulkan) {
+            VkRenderer *vk = (VkRenderer *)renderer->vk;
+            vk_renderer_draw_texture(vk, &vk_texture, NULL, &dst);
+            vk_renderer_queue_texture_destroy(vk, &vk_texture);
+        } else if (tex && renderer->sdl) {
+            SDL_RenderCopy(renderer->sdl, tex, NULL, &dst);
+            SDL_DestroyTexture(tex);
+        }
+#else
+        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h)) {
+            return;
+        }
+        SDL_Rect dst = {x, y, w, h};
+        if (tex && renderer->sdl) {
+            SDL_RenderCopy(renderer->sdl, tex, NULL, &dst);
+            SDL_DestroyTexture(tex);
+        }
+#endif
         return;
     }
 
@@ -191,26 +254,58 @@ void ui_draw_text(SDL_Renderer *renderer, int x, int y, const char *text, SDL_Co
         if (entry->in_use && entry->texture) {
             SDL_DestroyTexture(entry->texture);
         }
+#if defined(MAPFORGE_HAVE_VK)
+        if (entry->in_use && entry->has_vk_texture &&
+            renderer->backend == RENDERER_BACKEND_VULKAN &&
+            renderer->vk &&
+            renderer->vk == entry->vk_owner) {
+            vk_renderer_queue_texture_destroy((VkRenderer *)renderer->vk, &entry->vk_texture);
+        }
+#endif
         SDL_Texture *tex = NULL;
+        bool use_vulkan = false;
         int w = 0, h = 0;
-        if (!render_text(renderer, font, text, color, &tex, &w, &h)) {
+#if defined(MAPFORGE_HAVE_VK)
+        VkRendererTexture vk_texture = {0};
+        if (!render_text(renderer, font, text, color, &tex, &vk_texture, &use_vulkan, &w, &h)) {
             return;
         }
+#else
+        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h)) {
+            return;
+        }
+#endif
         *entry = (TextCacheEntry){
             .color = color,
             .scale = scale,
             .width = w,
             .height = h,
             .texture = tex,
+            .use_vulkan = use_vulkan,
             .stamp = ++g_text_cache_stamp,
             .in_use = true
         };
+#if defined(MAPFORGE_HAVE_VK)
+        entry->vk_texture = vk_texture;
+        entry->has_vk_texture = use_vulkan;
+        entry->vk_owner = use_vulkan ? renderer->vk : NULL;
+#endif
         strncpy(entry->text, text, sizeof(entry->text) - 1);
         entry->text[sizeof(entry->text) - 1] = '\0';
     }
     entry->stamp = ++g_text_cache_stamp;
     SDL_Rect dst = {x, y, entry->width, entry->height};
-    SDL_RenderCopy(renderer, entry->texture, NULL, &dst);
+#if defined(MAPFORGE_HAVE_VK)
+    if (entry->use_vulkan && entry->has_vk_texture && renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+        vk_renderer_draw_texture((VkRenderer *)renderer->vk, &entry->vk_texture, NULL, &dst);
+    } else if (entry->texture && renderer->sdl) {
+        SDL_RenderCopy(renderer->sdl, entry->texture, NULL, &dst);
+    }
+#else
+    if (entry->texture && renderer->sdl) {
+        SDL_RenderCopy(renderer->sdl, entry->texture, NULL, &dst);
+    }
+#endif
 }
 
 int ui_measure_text_width(const char *text, float scale) {
@@ -229,7 +324,7 @@ int ui_measure_text_width(const char *text, float scale) {
     return w;
 }
 
-void ui_draw_text_clipped(SDL_Renderer *renderer,
+void ui_draw_text_clipped(Renderer *renderer,
                           int x,
                           int y,
                           const char *text,
@@ -246,14 +341,35 @@ void ui_draw_text_clipped(SDL_Renderer *renderer,
     if (strlen(text) >= sizeof(g_text_cache[0].text)) {
         int w = 0, h = 0;
         SDL_Texture *tex = NULL;
-        if (!render_text(renderer, font, text, color, &tex, &w, &h)) {
+        bool use_vulkan = false;
+#if defined(MAPFORGE_HAVE_VK)
+        VkRendererTexture vk_texture = {0};
+        if (!render_text(renderer, font, text, color, &tex, &vk_texture, &use_vulkan, &w, &h)) {
             return;
         }
+#else
+        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h)) {
+            return;
+        }
+#endif
         int clip_w = w < max_width ? w : max_width;
         SDL_Rect src = {0, 0, clip_w, h};
         SDL_Rect dst = {x, y, clip_w, h};
-        SDL_RenderCopy(renderer, tex, &src, &dst);
-        SDL_DestroyTexture(tex);
+#if defined(MAPFORGE_HAVE_VK)
+        if (use_vulkan && renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+            VkRenderer *vk = (VkRenderer *)renderer->vk;
+            vk_renderer_draw_texture(vk, &vk_texture, &src, &dst);
+            vk_renderer_queue_texture_destroy(vk, &vk_texture);
+        } else if (tex && renderer->sdl) {
+            SDL_RenderCopy(renderer->sdl, tex, &src, &dst);
+            SDL_DestroyTexture(tex);
+        }
+#else
+        if (tex && renderer->sdl) {
+            SDL_RenderCopy(renderer->sdl, tex, &src, &dst);
+            SDL_DestroyTexture(tex);
+        }
+#endif
         return;
     }
 
@@ -266,20 +382,42 @@ void ui_draw_text_clipped(SDL_Renderer *renderer,
         if (entry->in_use && entry->texture) {
             SDL_DestroyTexture(entry->texture);
         }
+#if defined(MAPFORGE_HAVE_VK)
+        if (entry->in_use && entry->has_vk_texture &&
+            renderer->backend == RENDERER_BACKEND_VULKAN &&
+            renderer->vk &&
+            renderer->vk == entry->vk_owner) {
+            vk_renderer_queue_texture_destroy((VkRenderer *)renderer->vk, &entry->vk_texture);
+        }
+#endif
         SDL_Texture *tex = NULL;
+        bool use_vulkan = false;
         int w = 0, h = 0;
-        if (!render_text(renderer, font, text, color, &tex, &w, &h)) {
+#if defined(MAPFORGE_HAVE_VK)
+        VkRendererTexture vk_texture = {0};
+        if (!render_text(renderer, font, text, color, &tex, &vk_texture, &use_vulkan, &w, &h)) {
             return;
         }
+#else
+        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h)) {
+            return;
+        }
+#endif
         *entry = (TextCacheEntry){
             .color = color,
             .scale = scale,
             .width = w,
             .height = h,
             .texture = tex,
+            .use_vulkan = use_vulkan,
             .stamp = ++g_text_cache_stamp,
             .in_use = true
         };
+#if defined(MAPFORGE_HAVE_VK)
+        entry->vk_texture = vk_texture;
+        entry->has_vk_texture = use_vulkan;
+        entry->vk_owner = use_vulkan ? renderer->vk : NULL;
+#endif
         strncpy(entry->text, text, sizeof(entry->text) - 1);
         entry->text[sizeof(entry->text) - 1] = '\0';
     }
@@ -287,7 +425,17 @@ void ui_draw_text_clipped(SDL_Renderer *renderer,
     int clip_w = entry->width < max_width ? entry->width : max_width;
     SDL_Rect src = {0, 0, clip_w, entry->height};
     SDL_Rect dst = {x, y, clip_w, entry->height};
-    SDL_RenderCopy(renderer, entry->texture, &src, &dst);
+#if defined(MAPFORGE_HAVE_VK)
+    if (entry->use_vulkan && entry->has_vk_texture && renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+        vk_renderer_draw_texture((VkRenderer *)renderer->vk, &entry->vk_texture, &src, &dst);
+    } else if (entry->texture && renderer->sdl) {
+        SDL_RenderCopy(renderer->sdl, entry->texture, &src, &dst);
+    }
+#else
+    if (entry->texture && renderer->sdl) {
+        SDL_RenderCopy(renderer->sdl, entry->texture, &src, &dst);
+    }
+#endif
 }
 
 int ui_font_line_height(float scale) {

@@ -21,10 +21,10 @@ static RouteStyle route_style_walk(void) {
     return style;
 }
 
-static void draw_marker(SDL_Renderer *sdl, float x, float y, uint8_t r, uint8_t g, uint8_t b) {
-    SDL_SetRenderDrawColor(sdl, r, g, b, 255);
+static void draw_marker(Renderer *renderer, float x, float y, uint8_t r, uint8_t g, uint8_t b) {
+    renderer_set_draw_color(renderer, r, g, b, 255);
     SDL_FRect rect = {x - 4.0f, y - 4.0f, 8.0f, 8.0f};
-    SDL_RenderFillRectF(sdl, &rect);
+    renderer_fill_rect(renderer, &rect);
 }
 
 static SDL_Vertex *build_route_vertices(const SDL_FPoint *points, int count, float width, SDL_Color color, int *out_vertex_count) {
@@ -72,7 +72,7 @@ static SDL_Vertex *build_route_vertices(const SDL_FPoint *points, int count, flo
 }
 
 static void draw_route_path(Renderer *renderer, const Camera *camera, const RouteGraph *graph, const RoutePath *path, RouteStyle style) {
-    if (!renderer || !renderer->sdl || !camera || !graph || !path || path->count < 2) {
+    if (!renderer || !camera || !graph || !path || path->count < 2) {
         return;
     }
 
@@ -93,17 +93,26 @@ static void draw_route_path(Renderer *renderer, const Camera *camera, const Rout
     SDL_Color outline = {10, 60, 120, 255};
     SDL_Color core = {style.r, style.g, style.b, style.a};
 
+    if (renderer->backend == RENDERER_BACKEND_VULKAN) {
+        renderer_set_draw_color(renderer, core.r, core.g, core.b, core.a);
+        for (uint32_t i = 0; i + 1 < path->count; ++i) {
+            renderer_draw_line(renderer, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
+        }
+        SDL_free(points);
+        return;
+    }
+
     int outline_count = 0;
     SDL_Vertex *outline_verts = build_route_vertices(points, (int)path->count, (float)style.outline_width, outline, &outline_count);
     if (outline_verts && outline_count > 0) {
-        SDL_RenderGeometry(renderer->sdl, NULL, outline_verts, outline_count, NULL, 0);
+        renderer_draw_geometry(renderer, outline_verts, outline_count, NULL, 0);
         SDL_free(outline_verts);
     }
 
     int core_count = 0;
     SDL_Vertex *core_verts = build_route_vertices(points, (int)path->count, (float)style.width, core, &core_count);
     if (core_verts && core_count > 0) {
-        SDL_RenderGeometry(renderer->sdl, NULL, core_verts, core_count, NULL, 0);
+        renderer_draw_geometry(renderer, core_verts, core_count, NULL, 0);
         SDL_free(core_verts);
     }
 
@@ -111,7 +120,7 @@ static void draw_route_path(Renderer *renderer, const Camera *camera, const Rout
 }
 
 void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGraph *graph, const RoutePath *path, const RoutePath *drive_path, const RoutePath *walk_path, bool has_start, uint32_t start_node, bool has_goal, uint32_t goal_node, bool has_transfer, uint32_t transfer_node) {
-    if (!renderer || !renderer->sdl || !camera || !graph) {
+    if (!renderer || !camera || !graph) {
         return;
     }
 
@@ -131,20 +140,20 @@ void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGrap
         float sx = 0.0f;
         float sy = 0.0f;
         camera_world_to_screen(camera, (float)graph->node_x[start_node], (float)graph->node_y[start_node], renderer->width, renderer->height, &sx, &sy);
-        draw_marker(renderer->sdl, sx, sy, 80, 220, 120);
+        draw_marker(renderer, sx, sy, 80, 220, 120);
     }
 
     if (has_goal && goal_node < graph->node_count) {
         float sx = 0.0f;
         float sy = 0.0f;
         camera_world_to_screen(camera, (float)graph->node_x[goal_node], (float)graph->node_y[goal_node], renderer->width, renderer->height, &sx, &sy);
-        draw_marker(renderer->sdl, sx, sy, 230, 80, 90);
+        draw_marker(renderer, sx, sy, 230, 80, 90);
     }
 
     if (has_transfer && transfer_node < graph->node_count) {
         float sx = 0.0f;
         float sy = 0.0f;
         camera_world_to_screen(camera, (float)graph->node_x[transfer_node], (float)graph->node_y[transfer_node], renderer->width, renderer->height, &sx, &sy);
-        draw_marker(renderer->sdl, sx, sy, 250, 200, 70);
+        draw_marker(renderer, sx, sy, 250, 200, 70);
     }
 }

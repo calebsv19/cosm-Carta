@@ -124,14 +124,17 @@ static void *tile_loader_thread(void *userdata) {
         result.coord = request.coord;
         result.kind = request.kind;
         result.request_id = request.request_id;
+        bool existed = false;
         if (!tile_loader_tile_exists(loader->base_dir, request.coord, request.kind)) {
             result.ok = false;
         } else if (tile_loader_load_tile(loader->base_dir, request.coord, request.kind, &result.tile)) {
             result.ok = true;
+            existed = true;
         } else {
             log_error("Failed to load tile: %s/%u/%u/%u.%s", loader->base_dir,
                 request.coord.z, request.coord.x, request.coord.y, tile_loader_suffix(request.kind));
             result.ok = false;
+            existed = true;
         }
 
         if (result.ok && request.kind == TILE_LAYER_POLY_BUILDING) {
@@ -139,7 +142,19 @@ static void *tile_loader_thread(void *userdata) {
         }
 
         pthread_mutex_lock(&loader->mutex);
+        if (!existed) {
+            loader->missing_count += 1;
+        } else if (result.ok) {
+            loader->load_ok_count += 1;
+        } else {
+            loader->load_fail_count += 1;
+        }
         bool pushed = tile_loader_result_push(loader, &result);
+        if (pushed) {
+            loader->produced_count += 1;
+        } else {
+            loader->result_drop_count += 1;
+        }
         pthread_mutex_unlock(&loader->mutex);
         if (!pushed) {
             if (result.ok) {
@@ -221,7 +236,10 @@ bool tile_loader_enqueue(TileLoader *loader, TileCoord coord, TileLayerKind kind
     pthread_mutex_lock(&loader->mutex);
     ok = tile_loader_request_push(loader, &request);
     if (ok) {
+        loader->enqueued_count += 1;
         pthread_cond_signal(&loader->cond);
+    } else {
+        loader->enqueue_drop_count += 1;
     }
     pthread_mutex_unlock(&loader->mutex);
     return ok;
@@ -237,4 +255,24 @@ bool tile_loader_pop_result(TileLoader *loader, TileResult *out_result) {
     ok = tile_loader_result_pop(loader, out_result);
     pthread_mutex_unlock(&loader->mutex);
     return ok;
+}
+
+void tile_loader_get_stats(TileLoader *loader, TileLoaderStats *out_stats) {
+    if (!loader || !out_stats) {
+        return;
+    }
+
+    pthread_mutex_lock(&loader->mutex);
+    out_stats->req_count = loader->req_count;
+    out_stats->res_count = loader->res_count;
+    out_stats->req_capacity = loader->req_capacity;
+    out_stats->res_capacity = loader->res_capacity;
+    out_stats->enqueued_count = loader->enqueued_count;
+    out_stats->enqueue_drop_count = loader->enqueue_drop_count;
+    out_stats->produced_count = loader->produced_count;
+    out_stats->result_drop_count = loader->result_drop_count;
+    out_stats->missing_count = loader->missing_count;
+    out_stats->load_ok_count = loader->load_ok_count;
+    out_stats->load_fail_count = loader->load_fail_count;
+    pthread_mutex_unlock(&loader->mutex);
 }

@@ -1,6 +1,7 @@
 #include "map/polygon_renderer.h"
 
 #include "map/polygon_cache.h"
+#include "map/layer_policy.h"
 #include "map/tile_math.h"
 #include "map/zoom_fade.h"
 
@@ -19,6 +20,16 @@ typedef struct PolygonStyle {
     uint8_t a;
     bool outline;
 } PolygonStyle;
+
+static float clampf_local(float value, float min_value, float max_value) {
+    if (value < min_value) {
+        return min_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
 
 static ZoomTier polygon_class_min_tier(PolygonClass polygon_class) {
     switch (polygon_class) {
@@ -43,7 +54,7 @@ static PolygonStyle polygon_style_for_class(PolygonClass polygon_class) {
             return (PolygonStyle){170, 180, 150, 160, false};
         case POLYGON_CLASS_BUILDING:
         default:
-            return (PolygonStyle){170, 170, 170, 210, true};
+            return (PolygonStyle){138, 138, 138, 190, true};
     }
 }
 
@@ -85,13 +96,75 @@ static bool polygon_ring_is_convex(const uint16_t *points, uint32_t count) {
     return true;
 }
 
-static void draw_polygon_outline(SDL_Renderer *sdl, const SDL_FPoint *points, int count) {
-    if (!sdl || !points || count < 2) {
+static void draw_polygon_outline(Renderer *renderer, const SDL_FPoint *points, int count) {
+    if (!renderer || !points || count < 2) {
         return;
     }
 
-    SDL_RenderDrawLinesF(sdl, points, count);
-    SDL_RenderDrawLineF(sdl, points[count - 1].x, points[count - 1].y, points[0].x, points[0].y);
+    renderer_draw_lines(renderer, points, count);
+    renderer_draw_line(renderer, points[count - 1].x, points[count - 1].y, points[0].x, points[0].y);
+}
+
+static bool polygon_allow_under_vk_pressure(const Renderer *renderer, PolygonClass polygon_class, float zoom) {
+    if (!renderer || renderer->backend != RENDERER_BACKEND_VULKAN || renderer->vk_line_budget == 0u) {
+        return true;
+    }
+
+    float usage = (float)renderer->vk_lines_drawn / (float)renderer->vk_line_budget;
+    if (polygon_class == POLYGON_CLASS_BUILDING) {
+        if (zoom < 15.0f) {
+            return false;
+        }
+        return usage < 0.75f;
+    }
+    if (polygon_class == POLYGON_CLASS_LANDUSE) {
+        return usage < 0.82f;
+    }
+    if (polygon_class == POLYGON_CLASS_PARK) {
+        return usage < 0.90f;
+    }
+    if (polygon_class == POLYGON_CLASS_WATER) {
+        return usage < 0.94f;
+    }
+    return true;
+}
+
+static int polygon_compact_outline_points(SDL_FPoint *points, int count, int step) {
+    if (!points || count < 3 || step <= 1) {
+        return count;
+    }
+
+    int write = 1;
+    for (int i = step; i < count - 1; i += step) {
+        points[write++] = points[i];
+    }
+    points[write++] = points[count - 1];
+    if (write < 3) {
+        return 3;
+    }
+    return write;
+}
+
+static int polygon_vk_outline_step(PolygonClass polygon_class, float zoom) {
+    if (polygon_class == POLYGON_CLASS_BUILDING) {
+        if (zoom < 15.5f) {
+            return 5;
+        }
+        if (zoom < 16.5f) {
+            return 3;
+        }
+        return 2;
+    }
+    if (polygon_class == POLYGON_CLASS_LANDUSE) {
+        return zoom < 14.5f ? 4 : 3;
+    }
+    if (polygon_class == POLYGON_CLASS_PARK) {
+        return zoom < 14.0f ? 3 : 2;
+    }
+    if (polygon_class == POLYGON_CLASS_WATER) {
+        return zoom < 13.5f ? 3 : 2;
+    }
+    return 1;
 }
 
 static bool polygon_get_cached_indices(const MftTile *tile,
@@ -114,13 +187,13 @@ static bool polygon_get_cached_indices(const MftTile *tile,
     return true;
 }
 
-static bool draw_polygon_fill_cached(SDL_Renderer *sdl,
+static bool draw_polygon_fill_cached(Renderer *renderer,
                                      const SDL_FPoint *points,
                                      int count,
                                      SDL_Color color,
                                      const uint32_t *indices,
                                      uint32_t index_count) {
-    if (!sdl || !points || count < 3 || !indices || index_count < 3) {
+    if (!renderer || !points || count < 3 || !indices || index_count < 3) {
         return false;
     }
 
@@ -135,7 +208,7 @@ static bool draw_polygon_fill_cached(SDL_Renderer *sdl,
         verts[i].tex_coord = (SDL_FPoint){0.0f, 0.0f};
     }
 
-    SDL_RenderGeometry(sdl, NULL, verts, count, (const int *)indices, (int)index_count);
+    renderer_draw_geometry(renderer, verts, count, (const int *)indices, (int)index_count);
     SDL_free(verts);
     return true;
 }
@@ -146,7 +219,7 @@ void polygon_renderer_draw_tile(Renderer *renderer,
                                 float building_zoom_bias,
                                 bool building_fill_enabled,
                                 bool polygon_outline_only) {
-    if (!renderer || !renderer->sdl || !camera || !tile || tile->polygon_count == 0) {
+    if (!renderer || !camera || !tile || tile->polygon_count == 0) {
         return;
     }
 
@@ -162,8 +235,10 @@ void polygon_renderer_draw_tile(Renderer *renderer,
         ZoomTier min_tier = polygon_class_min_tier(polygon->polygon_class);
         float fade = zoom_tier_fade_in_alpha(camera->zoom, min_tier);
         if (polygon->polygon_class == POLYGON_CLASS_BUILDING) {
-            float start = zoom_tier_min_zoom(ZOOM_TIER_CLOSE) + 0.9f + building_zoom_bias;
-            float end = start + 0.6f;
+            float start = layer_policy_building_fade_start(
+                building_zoom_bias, renderer->backend == RENDERER_BACKEND_VULKAN);
+            float end = layer_policy_building_fade_end(
+                building_zoom_bias, renderer->backend == RENDERER_BACKEND_VULKAN);
             float building_fade = (camera->zoom - start) / (end - start);
             if (building_fade < 0.0f) {
                 building_fade = 0.0f;
@@ -173,6 +248,9 @@ void polygon_renderer_draw_tile(Renderer *renderer,
             fade *= building_fade;
         }
         if (fade <= 0.0f) {
+            continue;
+        }
+        if (!polygon_allow_under_vk_pressure(renderer, polygon->polygon_class, camera->zoom)) {
             continue;
         }
 
@@ -235,7 +313,30 @@ void polygon_renderer_draw_tile(Renderer *renderer,
                 points[p] = (SDL_FPoint){sx, sy};
             }
 
+            if (polygon->polygon_class == POLYGON_CLASS_BUILDING) {
+                float scale = 0.80f + 0.20f * clampf_local((camera->zoom - 14.0f) / 2.0f, 0.0f, 1.0f);
+                if (scale < 0.999f) {
+                    float cx = 0.0f;
+                    float cy = 0.0f;
+                    for (uint32_t p = 0; p < ring_count; ++p) {
+                        cx += points[p].x;
+                        cy += points[p].y;
+                    }
+                    cx /= (float)ring_count;
+                    cy /= (float)ring_count;
+                    for (uint32_t p = 0; p < ring_count; ++p) {
+                        points[p].x = cx + (points[p].x - cx) * scale;
+                        points[p].y = cy + (points[p].y - cy) * scale;
+                    }
+                }
+            }
+
         bool draw_fill = convex || polygon->polygon_class != POLYGON_CLASS_LANDUSE;
+        if (renderer->backend == RENDERER_BACKEND_VULKAN) {
+            // Vulkan backend currently keeps polygon rendering in outline mode to avoid
+            // high triangle throughput stalls on dense regions.
+            draw_fill = false;
+        }
         if (polygon_outline_only) {
             draw_fill = false;
         }
@@ -252,19 +353,25 @@ void polygon_renderer_draw_tile(Renderer *renderer,
                 const uint32_t *indices = NULL;
                 uint32_t index_count = 0;
                 if (!polygon_get_cached_indices(tile, ring_index, &indices, &index_count) ||
-                    !draw_polygon_fill_cached(renderer->sdl, points, (int)ring_count, fill, indices, index_count)) {
+                    !draw_polygon_fill_cached(renderer, points, (int)ring_count, fill, indices, index_count)) {
                     draw_fill = false;
                 }
             }
 
+            int outline_count = (int)ring_count;
+            if (renderer->backend == RENDERER_BACKEND_VULKAN) {
+                int outline_step = polygon_vk_outline_step(polygon->polygon_class, camera->zoom);
+                outline_count = polygon_compact_outline_points(points, outline_count, outline_step);
+            }
+
             if (style.outline) {
                 SDL_Color stroke = {style.r, style.g, style.b, (uint8_t)SDL_max(alpha - 40, 40)};
-                SDL_SetRenderDrawColor(renderer->sdl, stroke.r, stroke.g, stroke.b, stroke.a);
-                draw_polygon_outline(renderer->sdl, points, (int)ring_count);
+                renderer_set_draw_color(renderer, stroke.r, stroke.g, stroke.b, stroke.a);
+                draw_polygon_outline(renderer, points, outline_count);
             } else if (!draw_fill) {
                 SDL_Color stroke = {style.r, style.g, style.b, (uint8_t)SDL_max(alpha - 40, 40)};
-                SDL_SetRenderDrawColor(renderer->sdl, stroke.r, stroke.g, stroke.b, stroke.a);
-                draw_polygon_outline(renderer->sdl, points, (int)ring_count);
+                renderer_set_draw_color(renderer, stroke.r, stroke.g, stroke.b, stroke.a);
+                draw_polygon_outline(renderer, points, outline_count);
             }
 
             SDL_free(points);

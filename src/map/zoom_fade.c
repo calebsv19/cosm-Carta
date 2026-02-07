@@ -1,4 +1,5 @@
 #include "map/zoom_fade.h"
+#include "map/layer_policy.h"
 
 #include <math.h>
 
@@ -9,19 +10,21 @@ typedef struct ZoomTierInfo {
     bool has_upper;
 } ZoomTierInfo;
 
-#define ZOOM_TIER_FAR_MAX 9.5f
-#define ZOOM_TIER_MID_MAX 11.0f
-#define ZOOM_TIER_NEAR_MAX 12.0f
-#define ZOOM_TIER_CLOSE_MAX 13.5f
-#define ZOOM_TIER_PATH_MAX 15.0f
-
-static const ZoomTierInfo kZoomTiers[] = {
-    [ZOOM_TIER_FAR] = {0.0f, ZOOM_TIER_FAR_MAX, false, true},
-    [ZOOM_TIER_MID] = {ZOOM_TIER_FAR_MAX, ZOOM_TIER_MID_MAX, true, true},
-    [ZOOM_TIER_NEAR] = {ZOOM_TIER_MID_MAX, ZOOM_TIER_NEAR_MAX, true, true},
-    [ZOOM_TIER_CLOSE] = {ZOOM_TIER_NEAR_MAX, ZOOM_TIER_CLOSE_MAX, true, true},
-    [ZOOM_TIER_PATH] = {ZOOM_TIER_CLOSE_MAX, ZOOM_TIER_PATH_MAX, true, false},
-};
+static ZoomTierInfo zoom_tier_info(ZoomTier tier) {
+    switch (tier) {
+        case ZOOM_TIER_FAR:
+            return (ZoomTierInfo){0.0f, layer_policy_zoom_tier_far_max(), false, true};
+        case ZOOM_TIER_MID:
+            return (ZoomTierInfo){layer_policy_zoom_tier_far_max(), layer_policy_zoom_tier_mid_max(), true, true};
+        case ZOOM_TIER_NEAR:
+            return (ZoomTierInfo){layer_policy_zoom_tier_mid_max(), layer_policy_zoom_tier_near_max(), true, true};
+        case ZOOM_TIER_CLOSE:
+            return (ZoomTierInfo){layer_policy_zoom_tier_near_max(), layer_policy_zoom_tier_close_max(), true, true};
+        case ZOOM_TIER_PATH:
+        default:
+            return (ZoomTierInfo){layer_policy_zoom_tier_close_max(), layer_policy_zoom_tier_path_max(), true, false};
+    }
+}
 
 static float clampf(float value, float min_value, float max_value) {
     if (value < min_value) {
@@ -34,16 +37,16 @@ static float clampf(float value, float min_value, float max_value) {
 }
 
 ZoomTier zoom_tier_for(float zoom) {
-    if (zoom <= ZOOM_TIER_FAR_MAX) {
+    if (zoom <= layer_policy_zoom_tier_far_max()) {
         return ZOOM_TIER_FAR;
     }
-    if (zoom <= ZOOM_TIER_MID_MAX) {
+    if (zoom <= layer_policy_zoom_tier_mid_max()) {
         return ZOOM_TIER_MID;
     }
-    if (zoom <= ZOOM_TIER_NEAR_MAX) {
+    if (zoom <= layer_policy_zoom_tier_near_max()) {
         return ZOOM_TIER_NEAR;
     }
-    if (zoom <= ZOOM_TIER_CLOSE_MAX) {
+    if (zoom <= layer_policy_zoom_tier_close_max()) {
         return ZOOM_TIER_CLOSE;
     }
     return ZOOM_TIER_PATH;
@@ -69,7 +72,7 @@ float zoom_tier_min_zoom(ZoomTier tier) {
     if (tier < ZOOM_TIER_FAR || tier > ZOOM_TIER_PATH) {
         return 0.0f;
     }
-    return kZoomTiers[tier].min_zoom;
+    return zoom_tier_info(tier).min_zoom;
 }
 
 float zoom_tier_fade_in_alpha(float zoom, ZoomTier tier) {
@@ -77,7 +80,7 @@ float zoom_tier_fade_in_alpha(float zoom, ZoomTier tier) {
         return 1.0f;
     }
 
-    ZoomTierInfo info = kZoomTiers[tier];
+    ZoomTierInfo info = zoom_tier_info(tier);
     if (zoom <= info.min_zoom) {
         return 0.0f;
     }
