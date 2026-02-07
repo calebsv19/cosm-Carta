@@ -60,6 +60,10 @@ typedef struct MftTile {
     uint32_t *polygon_tri_ring_offsets;
     uint32_t *polygon_tri_ring_counts;
     uint32_t *polygon_tri_indices;
+    bool water_variants_available;
+    uint32_t *water_variant_rings[3];
+    uint32_t water_variant_point_total[3];
+    uint16_t *water_variant_points[3];
 } MftTile;
 
 // Loads an MFT tile from disk.

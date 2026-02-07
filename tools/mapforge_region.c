@@ -14,6 +14,7 @@
 #include <time.h>
 
 #define TILE_EXTENT 4096.0
+#define MFT_WATER_VARIANT_COUNT 3
 
 // Stores an OSM node coordinate keyed by ID.
 typedef struct NodeEntry {
@@ -945,7 +946,7 @@ static bool write_tile_file_polygons(const char *base_dir, const TileOutput *til
     }
 
     const char magic[4] = {'M', 'F', 'T', '1'};
-    uint16_t version = 2;
+    uint16_t version = (polygon_class == POLYGON_CLASS_WATER) ? 3 : 2;
     uint16_t z = tile->coord.z;
     uint32_t x = tile->coord.x;
     uint32_t y = tile->coord.y;
@@ -990,6 +991,62 @@ static bool write_tile_file_polygons(const char *base_dir, const TileOutput *til
             continue;
         }
         fwrite(polygon->points, sizeof(uint16_t), polygon->point_count * 2, file);
+    }
+
+    if (polygon_class == POLYGON_CLASS_WATER && polygon_count > 0u) {
+        static const uint32_t kVariantSteps[MFT_WATER_VARIANT_COUNT] = {4u, 2u, 1u};
+        const char ext_magic[4] = {'W', 'S', 'M', 'P'};
+        uint8_t variant_count = MFT_WATER_VARIANT_COUNT;
+        fwrite(ext_magic, sizeof(ext_magic), 1, file);
+        fwrite(&variant_count, sizeof(uint8_t), 1, file);
+
+        for (uint32_t v = 0; v < MFT_WATER_VARIANT_COUNT; ++v) {
+            uint32_t step = kVariantSteps[v];
+            for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+                const TilePolygon *polygon = &tile->polygons[i];
+                if (polygon->polygon_class != polygon_class) {
+                    continue;
+                }
+                uint32_t count = polygon->point_count;
+                uint32_t reduced = count;
+                if (step > 1u && count > 3u) {
+                    reduced = (count + step - 1u) / step;
+                    if (reduced < 3u) {
+                        reduced = 3u;
+                    }
+                }
+                fwrite(&reduced, sizeof(uint32_t), 1, file);
+            }
+            for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+                const TilePolygon *polygon = &tile->polygons[i];
+                if (polygon->polygon_class != polygon_class) {
+                    continue;
+                }
+                uint32_t count = polygon->point_count;
+                uint32_t reduced = count;
+                if (step > 1u && count > 3u) {
+                    reduced = (count + step - 1u) / step;
+                    if (reduced < 3u) {
+                        reduced = 3u;
+                    }
+                }
+                if (step <= 1u || count <= 3u || reduced >= count) {
+                    fwrite(polygon->points, sizeof(uint16_t), count * 2u, file);
+                    continue;
+                }
+                uint32_t written = 0u;
+                for (uint32_t p = 0u; p < count && written < reduced; p += step) {
+                    const uint16_t *src = &polygon->points[p * 2u];
+                    fwrite(src, sizeof(uint16_t), 2u, file);
+                    written += 1u;
+                }
+                while (written < reduced) {
+                    const uint16_t *src = &polygon->points[(count - 1u) * 2u];
+                    fwrite(src, sizeof(uint16_t), 2u, file);
+                    written += 1u;
+                }
+            }
+        }
     }
 
     fclose(file);

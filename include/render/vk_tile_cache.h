@@ -23,6 +23,8 @@ typedef struct VkTileCacheEntry {
     uint32_t polygon_ring_count;
     uint32_t class_counts[ROAD_CLASS_PATH + 1];
 #if defined(MAPFORGE_HAVE_VK)
+    bool water_lod_mesh_ready[3];
+    VkRendererLineMesh water_lod_mesh[3];
     bool mesh_ready;
     VkRendererLineMesh mesh;
     bool fill_mesh_ready;

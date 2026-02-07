@@ -2,6 +2,7 @@
 
 #include "core/time.h"
 #include "map/mercator.h"
+#include "map/polygon_cache.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -98,7 +99,7 @@ static bool app_compute_visible_tile_bounds(AppState *app, uint16_t *out_z, Tile
     float min_y = app->camera.y - half_h_m;
     float max_y = app->camera.y + half_h_m;
 
-    uint16_t z = app_zoom_to_tile_level(app->camera.zoom);
+    uint16_t z = app_zoom_to_tile_level(app->camera.zoom, &app->region);
     TileCoord top_left = tile_from_meters(z, (MercatorMeters){min_x, max_y});
     TileCoord bottom_right = tile_from_meters(z, (MercatorMeters){max_x, min_y});
 
@@ -156,6 +157,469 @@ static int app_tile_queue_compare(const void *a, const void *b) {
     return 0;
 }
 
+static bool app_kind_is_polygon(TileLayerKind kind) {
+    return kind == TILE_LAYER_POLY_WATER ||
+           kind == TILE_LAYER_POLY_PARK ||
+           kind == TILE_LAYER_POLY_LANDUSE ||
+           kind == TILE_LAYER_POLY_BUILDING;
+}
+
+static uint32_t app_vk_asset_visible_ring_distance(const AppState *app, TileCoord coord) {
+    if (!app || !app->visible_valid || coord.z != app->visible_zoom) {
+        return UINT32_MAX / 4u;
+    }
+
+    uint32_t dx = 0u;
+    uint32_t dy = 0u;
+    if (coord.x < app->visible_top_left.x) {
+        dx = app->visible_top_left.x - coord.x;
+    } else if (coord.x > app->visible_bottom_right.x) {
+        dx = coord.x - app->visible_bottom_right.x;
+    }
+    if (coord.y < app->visible_top_left.y) {
+        dy = app->visible_top_left.y - coord.y;
+    } else if (coord.y > app->visible_bottom_right.y) {
+        dy = coord.y - app->visible_bottom_right.y;
+    }
+    return dx + dy;
+}
+
+static uint32_t app_vk_asset_ring_bucket(uint32_t ring_distance) {
+    if (ring_distance == 0u) {
+        return 0u;
+    }
+    if (ring_distance <= 1u) {
+        return 1u;
+    }
+    if (ring_distance <= 2u) {
+        return 2u;
+    }
+    if (ring_distance <= 4u) {
+        return 3u;
+    }
+    return 4u;
+}
+
+static bool app_vk_asset_pop_job_at(AppState *app, uint32_t offset, VkAssetJob *out_job) {
+    if (!app || !out_job || offset >= app->vk_asset_job_count) {
+        return false;
+    }
+
+    uint32_t cap = APP_VK_ASSET_QUEUE_CAPACITY;
+    uint32_t head = app->vk_asset_job_head;
+    uint32_t idx = (head + offset) % cap;
+    *out_job = app->vk_asset_jobs[idx];
+
+    for (uint32_t i = offset; i + 1u < app->vk_asset_job_count; ++i) {
+        uint32_t from = (head + i + 1u) % cap;
+        uint32_t to = (head + i) % cap;
+        app->vk_asset_jobs[to] = app->vk_asset_jobs[from];
+    }
+
+    if (app->vk_asset_job_count > 0u) {
+        app->vk_asset_job_tail = (app->vk_asset_job_tail + cap - 1u) % cap;
+        app->vk_asset_job_count -= 1u;
+    }
+    return true;
+}
+
+static void app_refresh_visible_layer_coverage(AppState *app) {
+    if (!app) {
+        return;
+    }
+
+    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+        app->layer_visible_expected[i] = 0u;
+        app->layer_visible_loaded[i] = 0u;
+    }
+    if (!app->visible_valid) {
+        return;
+    }
+
+    for (uint32_t y = app->visible_top_left.y; y <= app->visible_bottom_right.y; ++y) {
+        for (uint32_t x = app->visible_top_left.x; x <= app->visible_bottom_right.x; ++x) {
+            TileCoord coord = {app->visible_zoom, x, y};
+            for (size_t i = 0; i < layer_policy_count(); ++i) {
+                const LayerPolicy *policy = layer_policy_at(i);
+                if (!policy) {
+                    continue;
+                }
+                TileLayerKind kind = policy->kind;
+                if (!app_layer_active_runtime(app, kind)) {
+                    continue;
+                }
+                app->layer_visible_expected[kind] += 1u;
+                if (tile_manager_peek_tile(&app->tile_managers[kind], coord)) {
+                    app->layer_visible_loaded[kind] += 1u;
+                }
+            }
+        }
+    }
+}
+
+static bool app_vk_poly_prep_push(TileResult *queue,
+                                  uint32_t *tail,
+                                  uint32_t *count,
+                                  const TileResult *item) {
+    if (!queue || !tail || !count || !item || *count >= APP_VK_POLY_PREP_QUEUE_CAPACITY) {
+        return false;
+    }
+    queue[*tail] = *item;
+    *tail = (*tail + 1u) % APP_VK_POLY_PREP_QUEUE_CAPACITY;
+    *count += 1u;
+    return true;
+}
+
+static bool app_vk_poly_prep_pop(TileResult *queue,
+                                 uint32_t *head,
+                                 uint32_t *count,
+                                 TileResult *out_item) {
+    if (!queue || !head || !count || !out_item || *count == 0u) {
+        return false;
+    }
+    *out_item = queue[*head];
+    memset(&queue[*head], 0, sizeof(queue[*head]));
+    *head = (*head + 1u) % APP_VK_POLY_PREP_QUEUE_CAPACITY;
+    *count -= 1u;
+    return true;
+}
+
+static void *app_vk_poly_prep_thread_main(void *userdata) {
+    AppState *app = (AppState *)userdata;
+    if (!app) {
+        return NULL;
+    }
+
+    for (;;) {
+        TileResult job = {0};
+
+        pthread_mutex_lock(&app->vk_poly_prep_mutex);
+        while (app->vk_poly_prep_running && app->vk_poly_prep_in_count == 0u) {
+            pthread_cond_wait(&app->vk_poly_prep_cond, &app->vk_poly_prep_mutex);
+        }
+        if (!app->vk_poly_prep_running) {
+            pthread_mutex_unlock(&app->vk_poly_prep_mutex);
+            break;
+        }
+        bool has_job = app_vk_poly_prep_pop(
+            app->vk_poly_prep_in,
+            &app->vk_poly_prep_in_head,
+            &app->vk_poly_prep_in_count,
+            &job);
+        pthread_mutex_unlock(&app->vk_poly_prep_mutex);
+        if (!has_job) {
+            continue;
+        }
+
+        if (job.ok && app_kind_is_polygon(job.kind)) {
+            polygon_cache_build(&job.tile);
+        }
+
+        pthread_mutex_lock(&app->vk_poly_prep_mutex);
+        bool pushed = app_vk_poly_prep_push(
+            app->vk_poly_prep_out,
+            &app->vk_poly_prep_out_tail,
+            &app->vk_poly_prep_out_count,
+            &job);
+        if (pushed) {
+            app->vk_poly_prep_done_count += 1u;
+        } else {
+            app->vk_poly_prep_drop_count += 1u;
+        }
+        pthread_mutex_unlock(&app->vk_poly_prep_mutex);
+        if (!pushed && job.ok) {
+            mft_free_tile(&job.tile);
+        }
+    }
+
+    return NULL;
+}
+
+bool app_vk_poly_prep_init(AppState *app) {
+    if (!app) {
+        return false;
+    }
+    app->vk_poly_prep_enabled = false;
+    app->vk_poly_prep_running = false;
+    app->vk_poly_prep_in_head = 0u;
+    app->vk_poly_prep_in_tail = 0u;
+    app->vk_poly_prep_in_count = 0u;
+    app->vk_poly_prep_out_head = 0u;
+    app->vk_poly_prep_out_tail = 0u;
+    app->vk_poly_prep_out_count = 0u;
+    app->vk_poly_prep_enqueued_count = 0u;
+    app->vk_poly_prep_done_count = 0u;
+    app->vk_poly_prep_drop_count = 0u;
+    if (pthread_mutex_init(&app->vk_poly_prep_mutex, NULL) != 0) {
+        return false;
+    }
+    if (pthread_cond_init(&app->vk_poly_prep_cond, NULL) != 0) {
+        pthread_mutex_destroy(&app->vk_poly_prep_mutex);
+        return false;
+    }
+    app->vk_poly_prep_running = true;
+    if (pthread_create(&app->vk_poly_prep_thread, NULL, app_vk_poly_prep_thread_main, app) != 0) {
+        app->vk_poly_prep_running = false;
+        pthread_cond_destroy(&app->vk_poly_prep_cond);
+        pthread_mutex_destroy(&app->vk_poly_prep_mutex);
+        return false;
+    }
+    app->vk_poly_prep_enabled = true;
+    return true;
+}
+
+void app_vk_poly_prep_shutdown(AppState *app) {
+    if (!app || !app->vk_poly_prep_enabled) {
+        return;
+    }
+    pthread_mutex_lock(&app->vk_poly_prep_mutex);
+    app->vk_poly_prep_running = false;
+    pthread_cond_broadcast(&app->vk_poly_prep_cond);
+    pthread_mutex_unlock(&app->vk_poly_prep_mutex);
+    pthread_join(app->vk_poly_prep_thread, NULL);
+    app_vk_poly_prep_clear(app);
+    pthread_cond_destroy(&app->vk_poly_prep_cond);
+    pthread_mutex_destroy(&app->vk_poly_prep_mutex);
+    app->vk_poly_prep_enabled = false;
+}
+
+void app_vk_poly_prep_clear(AppState *app) {
+    if (!app || !app->vk_poly_prep_enabled) {
+        return;
+    }
+    pthread_mutex_lock(&app->vk_poly_prep_mutex);
+    TileResult item = {0};
+    while (app_vk_poly_prep_pop(
+               app->vk_poly_prep_in,
+               &app->vk_poly_prep_in_head,
+               &app->vk_poly_prep_in_count,
+               &item)) {
+        if (item.ok) {
+            mft_free_tile(&item.tile);
+        }
+        memset(&item, 0, sizeof(item));
+    }
+    while (app_vk_poly_prep_pop(
+               app->vk_poly_prep_out,
+               &app->vk_poly_prep_out_head,
+               &app->vk_poly_prep_out_count,
+               &item)) {
+        if (item.ok) {
+            mft_free_tile(&item.tile);
+        }
+        memset(&item, 0, sizeof(item));
+    }
+    pthread_mutex_unlock(&app->vk_poly_prep_mutex);
+}
+
+bool app_vk_poly_prep_enqueue(AppState *app, const TileResult *result) {
+    if (!app || !result || !app->vk_poly_prep_enabled || !app_kind_is_polygon(result->kind)) {
+        return false;
+    }
+    bool pushed = false;
+    pthread_mutex_lock(&app->vk_poly_prep_mutex);
+    pushed = app_vk_poly_prep_push(
+        app->vk_poly_prep_in,
+        &app->vk_poly_prep_in_tail,
+        &app->vk_poly_prep_in_count,
+        result);
+    if (pushed) {
+        app->vk_poly_prep_enqueued_count += 1u;
+        pthread_cond_signal(&app->vk_poly_prep_cond);
+    } else {
+        app->vk_poly_prep_drop_count += 1u;
+    }
+    pthread_mutex_unlock(&app->vk_poly_prep_mutex);
+    return pushed;
+}
+
+void app_vk_poly_prep_drain(AppState *app, uint32_t max_results, double max_time_slice_sec) {
+    if (!app || !app->vk_poly_prep_enabled || max_results == 0u) {
+        return;
+    }
+    double start = time_now_seconds();
+    uint32_t drained = 0u;
+    while (drained < max_results) {
+        if (drained > 0u && (time_now_seconds() - start) >= max_time_slice_sec) {
+            break;
+        }
+        TileResult result = {0};
+        pthread_mutex_lock(&app->vk_poly_prep_mutex);
+        bool ok = app_vk_poly_prep_pop(
+            app->vk_poly_prep_out,
+            &app->vk_poly_prep_out_head,
+            &app->vk_poly_prep_out_count,
+            &result);
+        pthread_mutex_unlock(&app->vk_poly_prep_mutex);
+        if (!ok) {
+            break;
+        }
+
+        if (result.request_id != app->tile_request_id) {
+            if (result.ok) {
+                mft_free_tile(&result.tile);
+            }
+            continue;
+        }
+        if (!result.ok) {
+            continue;
+        }
+        if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, &result.tile)) {
+            mft_free_tile(&result.tile);
+            continue;
+        }
+        app_vk_asset_enqueue(app, result.kind, result.coord);
+        drained += 1u;
+    }
+}
+
+void app_vk_poly_prep_get_stats(AppState *app, VkPolyPrepStats *out_stats) {
+    if (!out_stats) {
+        return;
+    }
+    memset(out_stats, 0, sizeof(*out_stats));
+    if (!app || !app->vk_poly_prep_enabled) {
+        return;
+    }
+    pthread_mutex_lock(&app->vk_poly_prep_mutex);
+    out_stats->in_count = app->vk_poly_prep_in_count;
+    out_stats->out_count = app->vk_poly_prep_out_count;
+    out_stats->enqueued_count = app->vk_poly_prep_enqueued_count;
+    out_stats->done_count = app->vk_poly_prep_done_count;
+    out_stats->drop_count = app->vk_poly_prep_drop_count;
+    pthread_mutex_unlock(&app->vk_poly_prep_mutex);
+}
+
+void app_vk_asset_queue_clear(AppState *app) {
+    if (!app) {
+        return;
+    }
+    app->vk_asset_job_head = 0u;
+    app->vk_asset_job_tail = 0u;
+    app->vk_asset_job_count = 0u;
+}
+
+bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord) {
+    if (!app || !app->vk_assets_enabled || !app_kind_is_polygon(kind)) {
+        return false;
+    }
+    for (uint32_t i = 0; i < app->vk_asset_job_count; ++i) {
+        uint32_t index = (app->vk_asset_job_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
+        const VkAssetJob *job = &app->vk_asset_jobs[index];
+        if (job->kind == kind &&
+            job->coord.z == coord.z &&
+            job->coord.x == coord.x &&
+            job->coord.y == coord.y &&
+            job->request_id == app->tile_request_id) {
+            return true;
+        }
+    }
+    if (app->vk_asset_job_count >= APP_VK_ASSET_QUEUE_CAPACITY) {
+        app->vk_asset_job_drop_count += 1u;
+        return false;
+    }
+    app->vk_asset_jobs[app->vk_asset_job_tail] = (VkAssetJob){
+        .coord = coord,
+        .kind = kind,
+        .request_id = app->tile_request_id
+    };
+    app->vk_asset_job_tail = (app->vk_asset_job_tail + 1u) % APP_VK_ASSET_QUEUE_CAPACITY;
+    app->vk_asset_job_count += 1u;
+    return true;
+}
+
+void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_time_slice_sec) {
+    if (!app || !app->vk_assets_enabled || !app->renderer.vk || max_jobs == 0u) {
+        return;
+    }
+    double start = time_now_seconds();
+    uint32_t processed = 0u;
+    uint32_t built_by_kind[TILE_LAYER_COUNT] = {0};
+    while (app->vk_asset_job_count > 0u && processed < max_jobs) {
+        if ((time_now_seconds() - start) >= max_time_slice_sec) {
+            break;
+        }
+
+        bool have_best = false;
+        uint64_t best_score = UINT64_MAX;
+        uint32_t best_offset = 0u;
+        bool have_stale = false;
+        uint32_t stale_offset = 0u;
+
+        for (uint32_t i = 0u; i < app->vk_asset_job_count; ++i) {
+            uint32_t idx = (app->vk_asset_job_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
+            const VkAssetJob *job = &app->vk_asset_jobs[idx];
+            if (job->request_id != app->tile_request_id) {
+                if (!have_stale) {
+                    have_stale = true;
+                    stale_offset = i;
+                }
+                continue;
+            }
+
+            const VkTileCacheEntry *resident = vk_tile_cache_peek(&app->vk_tile_cache, job->kind, job->coord);
+            if (resident && resident->mesh_ready) {
+                if (!have_stale) {
+                    have_stale = true;
+                    stale_offset = i;
+                }
+                continue;
+            }
+
+            const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[job->kind], job->coord);
+            if (!tile) {
+                if (!have_stale) {
+                    have_stale = true;
+                    stale_offset = i;
+                }
+                continue;
+            }
+
+            uint32_t kind_load = (job->kind < TILE_LAYER_COUNT) ? built_by_kind[job->kind] : 0u;
+            uint32_t ring_distance = app_vk_asset_visible_ring_distance(app, job->coord);
+            uint32_t ring_bucket = app_vk_asset_ring_bucket(ring_distance);
+            uint64_t score = ((uint64_t)kind_load << 48) |
+                             ((uint64_t)ring_bucket << 40) |
+                             ((uint64_t)ring_distance << 16) |
+                             (uint64_t)i;
+            if (!have_best || score < best_score) {
+                have_best = true;
+                best_score = score;
+                best_offset = i;
+            }
+        }
+
+        VkAssetJob job = {0};
+        if (have_best) {
+            if (!app_vk_asset_pop_job_at(app, best_offset, &job)) {
+                break;
+            }
+        } else if (have_stale) {
+            if (!app_vk_asset_pop_job_at(app, stale_offset, &job)) {
+                break;
+            }
+            continue;
+        } else {
+            break;
+        }
+
+        if (job.request_id != app->tile_request_id) {
+            continue;
+        }
+        const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[job.kind], job.coord);
+        if (!tile) {
+            continue;
+        }
+        if (vk_tile_cache_on_tile_loaded(&app->vk_tile_cache, app->renderer.vk, job.kind, job.coord, tile)) {
+            processed += 1u;
+            if (job.kind < TILE_LAYER_COUNT) {
+                built_by_kind[job.kind] += 1u;
+            }
+            app->vk_asset_job_build_count += 1u;
+        }
+    }
+}
+
 void app_clear_tile_queue(AppState *app) {
     if (!app) {
         return;
@@ -166,11 +630,15 @@ void app_clear_tile_queue(AppState *app) {
         app->layer_expected[i] = 0;
         app->layer_done[i] = 0;
         app->layer_inflight[i] = 0;
+        app->layer_visible_expected[i] = 0;
+        app->layer_visible_loaded[i] = 0;
         app->layer_state[i] = LAYER_READINESS_HIDDEN;
     }
     app->queue_valid = false;
     app->loading_layer_index = 0;
     app->active_layer_valid = false;
+    app_vk_poly_prep_clear(app);
+    app_vk_asset_queue_clear(app);
 }
 
 static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, TileLayerKind kind,
@@ -280,6 +748,17 @@ void app_drain_tile_results(AppState *app, uint32_t budget) {
             continue;
         }
 
+        if (app->vk_assets_enabled && app_kind_is_polygon(result.kind)) {
+            if (!app_vk_poly_prep_enqueue(app, &result)) {
+                if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, &result.tile)) {
+                    mft_free_tile(&result.tile);
+                    continue;
+                }
+                app_vk_asset_enqueue(app, result.kind, result.coord);
+            }
+            continue;
+        }
+
         if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, &result.tile)) {
             mft_free_tile(&result.tile);
             continue;
@@ -301,6 +780,8 @@ void app_refresh_layer_states(AppState *app) {
         return;
     }
 
+    app_refresh_visible_layer_coverage(app);
+
     for (size_t i = 0; i < layer_policy_count(); ++i) {
         const LayerPolicy *policy = layer_policy_at(i);
         if (!policy) {
@@ -316,6 +797,20 @@ void app_refresh_layer_states(AppState *app) {
         uint32_t expected = app->layer_expected[kind];
         uint32_t done = app->layer_done[kind];
         uint32_t inflight = app->layer_inflight[kind];
+        uint32_t visible_expected = app->layer_visible_expected[kind];
+        uint32_t visible_loaded = app->layer_visible_loaded[kind];
+        bool full_ready = layer_policy_requires_full_ready(kind);
+
+        if (!full_ready) {
+            if (visible_expected == 0u) {
+                app->layer_state[kind] = LAYER_READINESS_READY;
+            } else if (visible_loaded >= visible_expected) {
+                app->layer_state[kind] = LAYER_READINESS_READY;
+            } else {
+                app->layer_state[kind] = LAYER_READINESS_LOADING;
+            }
+            continue;
+        }
 
         if (expected > 0 && done >= expected && inflight == 0) {
             app->layer_state[kind] = LAYER_READINESS_READY;
@@ -403,17 +898,39 @@ void app_update_tile_queue(AppState *app) {
         if (!policy || !app_layer_active_runtime(app, policy->kind)) {
             continue;
         }
-        if (app->layer_done[policy->kind] >= app->layer_expected[policy->kind] &&
-            app->layer_inflight[policy->kind] == 0) {
-            continue;
+        bool full_ready = layer_policy_requires_full_ready(policy->kind);
+        if (full_ready) {
+            if (app->layer_done[policy->kind] >= app->layer_expected[policy->kind] &&
+                app->layer_inflight[policy->kind] == 0) {
+                continue;
+            }
+        } else {
+            if (app->layer_visible_loaded[policy->kind] >= app->layer_visible_expected[policy->kind]) {
+                continue;
+            }
+        }
+        if (!app->active_layer_valid) {
+            app->active_layer_valid = true;
+            app->active_layer_kind = policy->kind;
+            app->active_layer_expected = full_ready
+                ? app->layer_expected[policy->kind]
+                : app->layer_visible_expected[policy->kind];
         }
         TileQueue *queue = &app->tile_queues[policy->kind];
         uint32_t expected = app->layer_expected[policy->kind];
         uint32_t budget = app_tile_load_budget(policy->kind, expected);
+        if (policy->kind == TILE_LAYER_ROAD_ARTERY || policy->kind == TILE_LAYER_ROAD_LOCAL) {
+            if (budget > 8u) {
+                budget = 8u;
+            }
+        } else if (policy->kind == TILE_LAYER_POLY_WATER ||
+                   policy->kind == TILE_LAYER_POLY_PARK ||
+                   policy->kind == TILE_LAYER_POLY_LANDUSE ||
+                   policy->kind == TILE_LAYER_POLY_BUILDING) {
+            if (budget > 1u) {
+                budget = 1u;
+            }
+        }
         app_process_tile_queue(app, queue, policy->kind, budget);
-        app->active_layer_valid = true;
-        app->active_layer_kind = policy->kind;
-        app->active_layer_expected = expected;
-        break;
     }
 }

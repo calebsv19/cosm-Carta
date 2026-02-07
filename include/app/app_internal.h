@@ -25,6 +25,18 @@
 #define APP_TILE_NO_DATA_TIMEOUT 1.5f
 /* Max time slice spent integrating tile results each frame. */
 #define APP_TILE_INTEGRATE_TIME_SLICE_SEC 0.0018
+/* Max queued polygon prep jobs/results. */
+#define APP_VK_POLY_PREP_QUEUE_CAPACITY 128u
+/* Max prepared polygon results integrated per frame. */
+#define APP_VK_POLY_PREP_INTEGRATE_BUDGET 2u
+/* Max time slice spent integrating prepared polygon results each frame. */
+#define APP_VK_POLY_PREP_INTEGRATE_TIME_SLICE_SEC 0.0010
+/* Max queued Vulkan polygon asset build jobs. */
+#define APP_VK_ASSET_QUEUE_CAPACITY 4096u
+/* Default per-frame Vulkan polygon asset build jobs. */
+#define APP_VK_ASSET_BUILD_BUDGET 2u
+/* Max time slice spent building Vulkan polygon assets each frame. */
+#define APP_VK_ASSET_BUILD_TIME_SLICE_SEC 0.0012
 
 /* Per-tile queue entry sorted by distance from camera center tile. */
 typedef struct TileQueueItem {
@@ -54,6 +66,22 @@ typedef struct VkPolyAssetBuildBudget {
     uint32_t cap;
     uint32_t used;
 } VkPolyAssetBuildBudget;
+
+/* Work item for deferred Vulkan polygon asset construction. */
+typedef struct VkAssetJob {
+    TileCoord coord;
+    TileLayerKind kind;
+    uint32_t request_id;
+} VkAssetJob;
+
+/* Thread-safe snapshot for polygon prep worker diagnostics. */
+typedef struct VkPolyPrepStats {
+    uint32_t in_count;
+    uint32_t out_count;
+    uint64_t enqueued_count;
+    uint64_t done_count;
+    uint64_t drop_count;
+} VkPolyPrepStats;
 
 /* Owns core application state for the main loop. */
 typedef struct AppState {
@@ -86,6 +114,8 @@ typedef struct AppState {
     uint32_t layer_expected[TILE_LAYER_COUNT];
     uint32_t layer_done[TILE_LAYER_COUNT];
     uint32_t layer_inflight[TILE_LAYER_COUNT];
+    uint32_t layer_visible_expected[TILE_LAYER_COUNT];
+    uint32_t layer_visible_loaded[TILE_LAYER_COUNT];
     LayerReadinessState layer_state[TILE_LAYER_COUNT];
     TileCoord queue_top_left;
     TileCoord queue_bottom_right;
@@ -109,12 +139,34 @@ typedef struct AppState {
     uint32_t vk_poly_fill_skip;
     uint32_t vk_poly_fill_fail;
     uint32_t vk_poly_fill_indices;
+    bool vk_poly_prep_enabled;
+    bool vk_poly_prep_running;
+    pthread_t vk_poly_prep_thread;
+    pthread_mutex_t vk_poly_prep_mutex;
+    pthread_cond_t vk_poly_prep_cond;
+    TileResult vk_poly_prep_in[APP_VK_POLY_PREP_QUEUE_CAPACITY];
+    uint32_t vk_poly_prep_in_head;
+    uint32_t vk_poly_prep_in_tail;
+    uint32_t vk_poly_prep_in_count;
+    TileResult vk_poly_prep_out[APP_VK_POLY_PREP_QUEUE_CAPACITY];
+    uint32_t vk_poly_prep_out_head;
+    uint32_t vk_poly_prep_out_tail;
+    uint32_t vk_poly_prep_out_count;
+    uint64_t vk_poly_prep_enqueued_count;
+    uint64_t vk_poly_prep_done_count;
+    uint64_t vk_poly_prep_drop_count;
+    VkAssetJob vk_asset_jobs[APP_VK_ASSET_QUEUE_CAPACITY];
+    uint32_t vk_asset_job_head;
+    uint32_t vk_asset_job_tail;
+    uint32_t vk_asset_job_count;
+    uint64_t vk_asset_job_drop_count;
+    uint64_t vk_asset_job_build_count;
     int width;
     int height;
 } AppState;
 
 float app_clampf(float value, float min_value, float max_value);
-uint16_t app_zoom_to_tile_level(float zoom);
+uint16_t app_zoom_to_tile_level(float zoom, const RegionInfo *region);
 float app_building_zoom_bias_for_region(const RegionInfo *region);
 float app_road_zoom_bias_for_region(const RegionInfo *region);
 void app_center_camera_on_region(Camera *camera, const RegionInfo *region, int screen_w, int screen_h);
@@ -129,6 +181,15 @@ void app_clear_tile_queue(AppState *app);
 void app_drain_tile_results(AppState *app, uint32_t budget);
 void app_refresh_layer_states(AppState *app);
 void app_update_tile_queue(AppState *app);
+bool app_vk_poly_prep_init(AppState *app);
+void app_vk_poly_prep_shutdown(AppState *app);
+void app_vk_poly_prep_clear(AppState *app);
+bool app_vk_poly_prep_enqueue(AppState *app, const TileResult *result);
+void app_vk_poly_prep_drain(AppState *app, uint32_t max_results, double max_time_slice_sec);
+void app_vk_poly_prep_get_stats(AppState *app, VkPolyPrepStats *out_stats);
+void app_vk_asset_queue_clear(AppState *app);
+bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord);
+void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_time_slice_sec);
 
 uint32_t app_draw_visible_tiles(AppState *app);
 void app_draw_region_bounds(AppState *app);

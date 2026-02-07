@@ -9,6 +9,9 @@
 #define MFT_MAGIC "MFT1"
 #define MFT_VERSION_BASE 1
 #define MFT_VERSION_POLYGONS 2
+#define MFT_VERSION_WATER_VARIANTS 3
+#define MFT_WATER_VARIANT_COUNT 3
+#define MFT_WATER_VARIANT_MAGIC "WSMP"
 
 static bool read_u16(FILE *file, uint16_t *out) {
     return fread(out, sizeof(uint16_t), 1, file) == 1;
@@ -53,7 +56,9 @@ bool mft_load_tile(const char *path, MftTile *out_tile) {
         return false;
     }
 
-    if (version != MFT_VERSION_BASE && version != MFT_VERSION_POLYGONS) {
+    if (version != MFT_VERSION_BASE &&
+        version != MFT_VERSION_POLYGONS &&
+        version != MFT_VERSION_WATER_VARIANTS) {
         log_error("MFT unsupported version %u: %s", version, path);
         fclose(file);
         return false;
@@ -202,6 +207,65 @@ bool mft_load_tile(const char *path, MftTile *out_tile) {
         }
     }
 
+    if (version >= MFT_VERSION_WATER_VARIANTS &&
+        polygon_count > 0 &&
+        out_tile->polygon_ring_total > 0) {
+        char variant_magic[4] = {0};
+        size_t got = fread(variant_magic, sizeof(char), 4, file);
+        if (got == 4 && memcmp(variant_magic, MFT_WATER_VARIANT_MAGIC, 4) == 0) {
+            uint8_t variant_count = 0;
+            if (!read_u8(file, &variant_count) || variant_count != MFT_WATER_VARIANT_COUNT) {
+                log_error("MFT water variant header invalid: %s", path);
+                mft_free_tile(out_tile);
+                fclose(file);
+                return false;
+            }
+            for (uint32_t v = 0; v < MFT_WATER_VARIANT_COUNT; ++v) {
+                uint32_t total_points = 0u;
+                uint32_t *rings = (uint32_t *)calloc(out_tile->polygon_ring_total, sizeof(uint32_t));
+                if (!rings) {
+                    mft_free_tile(out_tile);
+                    fclose(file);
+                    return false;
+                }
+                for (uint32_t i = 0; i < out_tile->polygon_ring_total; ++i) {
+                    if (!read_u32(file, &rings[i])) {
+                        log_error("MFT water variant ring data truncated: %s", path);
+                        free(rings);
+                        mft_free_tile(out_tile);
+                        fclose(file);
+                        return false;
+                    }
+                    total_points += rings[i];
+                }
+                uint16_t *points = NULL;
+                if (total_points > 0u) {
+                    points = (uint16_t *)calloc(total_points * 2u, sizeof(uint16_t));
+                    if (!points) {
+                        free(rings);
+                        mft_free_tile(out_tile);
+                        fclose(file);
+                        return false;
+                    }
+                    if (fread(points, sizeof(uint16_t), total_points * 2u, file) != total_points * 2u) {
+                        log_error("MFT water variant points truncated: %s", path);
+                        free(points);
+                        free(rings);
+                        mft_free_tile(out_tile);
+                        fclose(file);
+                        return false;
+                    }
+                }
+                out_tile->water_variant_rings[v] = rings;
+                out_tile->water_variant_point_total[v] = total_points;
+                out_tile->water_variant_points[v] = points;
+            }
+            out_tile->water_variants_available = true;
+        } else if (got == 4) {
+            // Unknown extension payload: ignore for forward compatibility.
+        }
+    }
+
     fclose(file);
     return true;
 }
@@ -219,5 +283,9 @@ void mft_free_tile(MftTile *tile) {
     free(tile->polygon_tri_ring_offsets);
     free(tile->polygon_tri_ring_counts);
     free(tile->polygon_tri_indices);
+    for (uint32_t i = 0; i < 3u; ++i) {
+        free(tile->water_variant_rings[i]);
+        free(tile->water_variant_points[i]);
+    }
     memset(tile, 0, sizeof(*tile));
 }

@@ -4,8 +4,8 @@
 
 #include <math.h>
 
-static const uint16_t kRegionMinZoom = 12;
-static const uint16_t kRegionMaxZoom = 12;
+static const uint16_t kDefaultMinZoom = 10;
+static const uint16_t kDefaultMaxZoom = 18;
 
 float app_clampf(float value, float min_value, float max_value) {
     if (value < min_value) {
@@ -17,13 +17,24 @@ float app_clampf(float value, float min_value, float max_value) {
     return value;
 }
 
-uint16_t app_zoom_to_tile_level(float zoom) {
+uint16_t app_zoom_to_tile_level(float zoom, const RegionInfo *region) {
     int level = (int)floorf(zoom + 0.5f);
-    if (level < (int)kRegionMinZoom) {
-        level = (int)kRegionMinZoom;
+    uint16_t min_zoom = kDefaultMinZoom;
+    uint16_t max_zoom = kDefaultMaxZoom;
+    if (region && region->has_tile_range) {
+        min_zoom = region->tile_min_zoom;
+        max_zoom = region->tile_max_zoom;
+        if (min_zoom > max_zoom) {
+            uint16_t swap = min_zoom;
+            min_zoom = max_zoom;
+            max_zoom = swap;
+        }
     }
-    if (level > (int)kRegionMaxZoom) {
-        level = (int)kRegionMaxZoom;
+    if (level < (int)min_zoom) {
+        level = (int)min_zoom;
+    }
+    if (level > (int)max_zoom) {
+        level = (int)max_zoom;
     }
     return (uint16_t)level;
 }
@@ -50,8 +61,16 @@ static float app_zoom_for_bounds(const Camera *camera, const RegionInfo *region,
     }
 
     double world_size = mercator_world_size_meters();
+    float min_zoom = (region && region->has_tile_range) ? (float)region->tile_min_zoom : 10.0f;
+    float max_zoom = (region && region->has_tile_range) ? (float)region->tile_max_zoom : 18.0f;
+    if (min_zoom > max_zoom) {
+        float swap = min_zoom;
+        min_zoom = max_zoom;
+        max_zoom = swap;
+    }
+
     double zoom = log2(ppm * world_size / 256.0);
-    return app_clampf((float)zoom, 10.0f, 18.0f);
+    return app_clampf((float)zoom, min_zoom, max_zoom);
 }
 
 void app_center_camera_on_region(Camera *camera, const RegionInfo *region, int screen_w, int screen_h) {

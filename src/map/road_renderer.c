@@ -1,13 +1,11 @@
 #include "map/road_renderer.h"
 
 #include "map/layer_policy.h"
-#include "map/tile_math.h"
+#include "map/map_space.h"
 #include "map/zoom_fade.h"
 
 #include <SDL.h>
 #include <stdbool.h>
-
-#define TILE_EXTENT 4096.0f
 
 typedef struct RoadStyle {
     uint8_t r;
@@ -285,8 +283,8 @@ void road_renderer_draw_tile(Renderer *renderer,
         effective_zoom = 0.0f;
     }
     ZoomTier tier = zoom_tier_for(effective_zoom);
-    double tile_size = tile_size_meters(tile->coord.z);
-    MercatorMeters origin = tile_origin_meters(tile->coord);
+    MapTileTransform transform;
+    map_tile_transform_init(tile->coord, &transform);
 
     int pass_count = (renderer->backend == RENDERER_BACKEND_VULKAN) ? 9 : 1;
     for (int pass = 0; pass < pass_count; ++pass) {
@@ -370,15 +368,9 @@ void road_renderer_draw_tile(Renderer *renderer,
                 float qx = (float)tile->points[idx + 0];
                 float qy = (float)tile->points[idx + 1];
 
-                float ux = qx / TILE_EXTENT;
-                float uy = qy / TILE_EXTENT;
-
-                float world_x = (float)(origin.x + ux * tile_size);
-                float world_y = (float)(origin.y - uy * tile_size);
-
                 float sx = 0.0f;
                 float sy = 0.0f;
-                camera_world_to_screen(camera, world_x, world_y, renderer->width, renderer->height, &sx, &sy);
+                map_tile_local_to_screen(&transform, camera, renderer->width, renderer->height, qx, qy, &sx, &sy);
 
                 bool is_last_sample = (p + sample_step >= polyline->point_count);
                 if (out_count > 0 && !is_last_sample && min_point_px2 > 0.0f) {
@@ -398,13 +390,9 @@ void road_renderer_draw_tile(Renderer *renderer,
                 uint32_t idx = (polyline->point_offset + last_index) * 2;
                 float qx = (float)tile->points[idx + 0];
                 float qy = (float)tile->points[idx + 1];
-                float ux = qx / TILE_EXTENT;
-                float uy = qy / TILE_EXTENT;
-                float world_x = (float)(origin.x + ux * tile_size);
-                float world_y = (float)(origin.y - uy * tile_size);
                 float sx = 0.0f;
                 float sy = 0.0f;
-                camera_world_to_screen(camera, world_x, world_y, renderer->width, renderer->height, &sx, &sy);
+                map_tile_local_to_screen(&transform, camera, renderer->width, renderer->height, qx, qy, &sx, &sy);
                 points[out_count].x = sx;
                 points[out_count].y = sy;
                 out_count += 1;

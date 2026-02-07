@@ -2,30 +2,43 @@
 
 #include "core/log.h"
 
+#include <json-c/json.h>
 #include <stdio.h>
-#include <string.h>
+#include <stdint.h>
 
-static bool extract_double(const char *line, const char *key, double *out_value) {
-    if (!line || !key || !out_value) {
+static bool json_get_double_obj(struct json_object *obj, const char *key, double *out_value) {
+    struct json_object *value = NULL;
+    if (!obj || !key || !out_value) {
         return false;
     }
-
-    const char *pos = strstr(line, key);
-    if (!pos) {
+    if (!json_object_object_get_ex(obj, key, &value)) {
         return false;
     }
-
-    const char *colon = strchr(pos, ':');
-    if (!colon) {
+    if (!json_object_is_type(value, json_type_double) &&
+        !json_object_is_type(value, json_type_int)) {
         return false;
     }
+    *out_value = json_object_get_double(value);
+    return true;
+}
 
-    double value = 0.0;
-    if (sscanf(colon + 1, " %lf", &value) != 1) {
+static bool json_get_u32_obj(struct json_object *obj, const char *key, uint32_t *out_value) {
+    struct json_object *value = NULL;
+    int64_t v = 0;
+    if (!obj || !key || !out_value) {
         return false;
     }
-
-    *out_value = value;
+    if (!json_object_object_get_ex(obj, key, &value)) {
+        return false;
+    }
+    if (!json_object_is_type(value, json_type_int)) {
+        return false;
+    }
+    v = json_object_get_int64(value);
+    if (v < 0 || v > 0xFFFFFFFFLL) {
+        return false;
+    }
+    *out_value = (uint32_t)v;
     return true;
 }
 
@@ -39,8 +52,11 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
     char path[512];
     snprintf(path, sizeof(path), "data/regions/%s/meta.json", info->name);
 
-    FILE *file = fopen(path, "r");
-    if (!file) {
+    struct json_object *root = json_object_from_file(path);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) {
+            json_object_put(root);
+        }
         return false;
     }
 
@@ -52,24 +68,29 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
     bool got_max_lat = false;
     bool got_min_lon = false;
     bool got_max_lon = false;
+    uint32_t tile_min_z = 0;
+    uint32_t tile_max_z = 0;
+    uint32_t tile_extent = 0;
+    bool got_tile_min_z = false;
+    bool got_tile_max_z = false;
+    bool got_tile_extent = false;
 
-    char line[512];
-    while (fgets(line, sizeof(line), file)) {
-        if (!got_min_lat && extract_double(line, "\"min_lat\"", &min_lat)) {
-            got_min_lat = true;
-        }
-        if (!got_max_lat && extract_double(line, "\"max_lat\"", &max_lat)) {
-            got_max_lat = true;
-        }
-        if (!got_min_lon && extract_double(line, "\"min_lon\"", &min_lon)) {
-            got_min_lon = true;
-        }
-        if (!got_max_lon && extract_double(line, "\"max_lon\"", &max_lon)) {
-            got_max_lon = true;
-        }
+    struct json_object *bounds = NULL;
+    if (json_object_object_get_ex(root, "bounds", &bounds) &&
+        json_object_is_type(bounds, json_type_object)) {
+        got_min_lat = json_get_double_obj(bounds, "min_lat", &min_lat);
+        got_max_lat = json_get_double_obj(bounds, "max_lat", &max_lat);
+        got_min_lon = json_get_double_obj(bounds, "min_lon", &min_lon);
+        got_max_lon = json_get_double_obj(bounds, "max_lon", &max_lon);
     }
 
-    fclose(file);
+    struct json_object *tile = NULL;
+    if (json_object_object_get_ex(root, "tile", &tile) &&
+        json_object_is_type(tile, json_type_object)) {
+        got_tile_min_z = json_get_u32_obj(tile, "min_z", &tile_min_z);
+        got_tile_max_z = json_get_u32_obj(tile, "max_z", &tile_max_z);
+        got_tile_extent = json_get_u32_obj(tile, "extent", &tile_extent);
+    }
 
     if (got_min_lat && got_max_lat && got_min_lon && got_max_lon) {
         out_info->center_lat = (min_lat + max_lat) * 0.5;
@@ -80,8 +101,28 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
         out_info->min_lon = min_lon;
         out_info->max_lon = max_lon;
         out_info->has_bounds = true;
-        return true;
     }
 
-    return false;
+    if (got_tile_min_z && got_tile_max_z) {
+        if (tile_min_z > tile_max_z) {
+            uint32_t swap = tile_min_z;
+            tile_min_z = tile_max_z;
+            tile_max_z = swap;
+        }
+        if (tile_min_z > 30u) {
+            tile_min_z = 30u;
+        }
+        if (tile_max_z > 30u) {
+            tile_max_z = 30u;
+        }
+        out_info->tile_min_zoom = (uint16_t)tile_min_z;
+        out_info->tile_max_zoom = (uint16_t)tile_max_z;
+        out_info->has_tile_range = true;
+    }
+    if (got_tile_extent && tile_extent > 0u) {
+        out_info->tile_extent = tile_extent;
+    }
+
+    json_object_put(root);
+    return out_info->has_bounds || out_info->has_tile_range;
 }

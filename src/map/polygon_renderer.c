@@ -2,7 +2,7 @@
 
 #include "map/polygon_cache.h"
 #include "map/layer_policy.h"
-#include "map/tile_math.h"
+#include "map/map_space.h"
 #include "map/zoom_fade.h"
 
 #include <SDL.h>
@@ -10,7 +10,6 @@
 #include <math.h>
 #include <stdlib.h>
 
-#define TILE_EXTENT 4096.0f
 #define POLYGON_MAX_OUTLINE_POINTS 2048u
 
 typedef struct PolygonStyle {
@@ -223,8 +222,8 @@ void polygon_renderer_draw_tile(Renderer *renderer,
         return;
     }
 
-    double tile_size = tile_size_meters(tile->coord.z);
-    MercatorMeters origin = tile_origin_meters(tile->coord);
+    MapTileTransform transform;
+    map_tile_transform_init(tile->coord, &transform);
 
     for (uint32_t i = 0; i < tile->polygon_count; ++i) {
         const MftPolygon *polygon = &tile->polygons[i];
@@ -300,15 +299,9 @@ void polygon_renderer_draw_tile(Renderer *renderer,
                 float qx = (float)ring_points[p * 2];
                 float qy = (float)ring_points[p * 2 + 1];
 
-                float ux = qx / TILE_EXTENT;
-                float uy = qy / TILE_EXTENT;
-
-                float world_x = (float)(origin.x + ux * tile_size);
-                float world_y = (float)(origin.y - uy * tile_size);
-
                 float sx = 0.0f;
                 float sy = 0.0f;
-                camera_world_to_screen(camera, world_x, world_y, renderer->width, renderer->height, &sx, &sy);
+                map_tile_local_to_screen(&transform, camera, renderer->width, renderer->height, qx, qy, &sx, &sy);
 
                 points[p] = (SDL_FPoint){sx, sy};
             }

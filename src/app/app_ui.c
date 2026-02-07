@@ -82,8 +82,12 @@ static void app_draw_header_layer_chips(AppState *app, float left_limit, float b
             break;
         }
 
-        uint32_t expected = app->layer_expected[kind];
-        uint32_t done = app->layer_done[kind];
+        uint32_t expected = layer_policy_requires_full_ready(kind)
+            ? app->layer_expected[kind]
+            : app->layer_visible_expected[kind];
+        uint32_t done = layer_policy_requires_full_ready(kind)
+            ? app->layer_done[kind]
+            : app->layer_visible_loaded[kind];
         bool runtime_active = app_layer_active_runtime(app, kind);
         bool is_ready = app->layer_state[kind] == LAYER_READINESS_READY;
         bool is_loading = app->layer_state[kind] == LAYER_READINESS_LOADING && expected > 0;
@@ -282,11 +286,13 @@ void app_draw_layer_debug(AppState *app) {
         }
         TileLayerKind kind = policy->kind;
         float start = app_layer_zoom_start(app, kind);
-        snprintf(line, sizeof(line), "%s z>=%.2f exp %u done %u in %u state=%s runtime=%s",
+        snprintf(line, sizeof(line), "%s z>=%.2f exp %u done %u vis %u/%u in %u state=%s runtime=%s",
                  app_layer_label(kind),
                  start,
                  app->layer_expected[kind],
                  app->layer_done[kind],
+                 app->layer_visible_loaded[kind],
+                 app->layer_visible_expected[kind],
                  app->layer_inflight[kind],
                  layer_policy_readiness_label(app->layer_state[kind]),
                  app_layer_runtime_state_label(app, kind));
@@ -335,11 +341,13 @@ void app_copy_overlay_text(AppState *app) {
         TileLayerKind kind = policy->kind;
         float start = app_layer_zoom_start(app, kind);
         written = snprintf(buffer + offset, sizeof(buffer) - offset,
-                           "%s z>=%.2f exp %u done %u in %u state=%s runtime=%s\n",
+                           "%s z>=%.2f exp %u done %u vis %u/%u in %u state=%s runtime=%s\n",
                            app_layer_label(kind),
                            start,
                            app->layer_expected[kind],
                            app->layer_done[kind],
+                           app->layer_visible_loaded[kind],
+                           app->layer_visible_expected[kind],
                            app->layer_inflight[kind],
                            layer_policy_readiness_label(app->layer_state[kind]),
                            app_layer_runtime_state_label(app, kind));

@@ -6,6 +6,10 @@ SDL_TTF_CFLAGS := $(shell pkg-config --cflags SDL2_ttf 2>/dev/null)
 SDL_TTF_LIBS := $(shell pkg-config --libs SDL2_ttf 2>/dev/null)
 VULKAN_CFLAGS := $(shell pkg-config --cflags vulkan 2>/dev/null)
 VULKAN_LIBS := $(shell pkg-config --libs vulkan 2>/dev/null)
+JSON_CFLAGS := $(shell pkg-config --cflags json-c 2>/dev/null)
+JSON_LIBS := $(shell pkg-config --libs json-c 2>/dev/null)
+CORE_SPACE_DIR := ../shared/core_space
+CORE_BASE_DIR := ../shared/core_base
 
 VK_RENDERER_DIR ?= third_party/vk_renderer
 VK_RENDERER_FALLBACK_DIR ?= $(HOME)/Desktop/CodeWork/shared/vk_renderer
@@ -34,18 +38,30 @@ VULKAN_LIBS := -lvulkan
 endif
 
 CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g -pthread $(SDL_CFLAGS) $(SDL_TTF_CFLAGS)
-LDLIBS := $(SDL_LIBS) $(SDL_TTF_LIBS) -pthread
+LDLIBS := $(SDL_LIBS) $(SDL_TTF_LIBS) $(JSON_LIBS) -pthread
 TOOL_LDLIBS := -lm
+
+ifeq ($(JSON_LIBS),)
+LDLIBS += -ljson-c
+endif
+CFLAGS += $(JSON_CFLAGS)
+CFLAGS += -I$(CORE_SPACE_DIR)/include
+CFLAGS += -I$(CORE_BASE_DIR)/include
 
 SRCS := $(shell find src -name '*.c')
 OBJS := $(SRCS:src/%.c=build/%.o)
 DEPS := $(OBJS:.o=.d)
 LINK_OBJS := $(OBJS)
+CORE_SPACE_SRCS := $(CORE_SPACE_DIR)/src/core_space.c
+CORE_SPACE_OBJS := $(patsubst $(CORE_SPACE_DIR)/src/%.c,build/core_space/%.o,$(CORE_SPACE_SRCS))
+LINK_OBJS += $(CORE_SPACE_OBJS)
 TARGET := build/mapforge
 TOOL_TARGET := build/tools/mapforge_region
 TOOL_SRCS := tools/mapforge_region.c src/map/mercator.c src/map/tile_math.c src/core/log.c
 GRAPH_TARGET := build/tools/mapforge_graph
 GRAPH_SRCS := tools/mapforge_graph.c src/map/mercator.c src/core/log.c
+MAP_SPACE_TEST_TARGET := build/tests/map_space_test
+MAP_SPACE_TEST_SRCS := tests/map_space_test.c src/map/map_space.c src/map/tile_math.c src/map/mercator.c src/camera/camera.c $(CORE_SPACE_DIR)/src/core_space.c
 
 ifeq ($(VK_APP_ENABLED),1)
 CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
@@ -56,6 +72,7 @@ endif
 MIN_Z ?= 12
 MAX_Z ?= 12
 RENDER_BACKEND ?= vulkan
+VK_DEBUG ?= 0
 
 app: $(TARGET)
 
@@ -70,8 +87,12 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
+build/core_space/%.o: $(CORE_SPACE_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
 run: app
-	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) ./$(TARGET)
+	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) ./$(TARGET)
 
 tools: $(TOOL_TARGET)
 
@@ -84,6 +105,13 @@ graph: $(GRAPH_TARGET)
 $(GRAPH_TARGET): $(GRAPH_SRCS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(GRAPH_SRCS) -o $@ $(TOOL_LDLIBS)
+
+test-space: $(MAP_SPACE_TEST_TARGET)
+	./$(MAP_SPACE_TEST_TARGET)
+
+$(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(MAP_SPACE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 route: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out data/regions/$(REGION)
@@ -118,6 +146,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run tools graph route region vk-lib vk-check clean
+.PHONY: app run tools graph test-space route region vk-lib vk-check clean
 
 -include $(DEPS)

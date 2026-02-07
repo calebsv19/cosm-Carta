@@ -208,6 +208,33 @@ static bool polygon_ring_is_convex(const uint16_t *points, uint32_t count) {
     return true;
 }
 
+static uint32_t polygon_outline_base_step(uint32_t ring_count) {
+    if (ring_count > 8192u) {
+        return 12u;
+    }
+    if (ring_count > 4096u) {
+        return 8u;
+    }
+    if (ring_count > 2048u) {
+        return 4u;
+    }
+    if (ring_count > 1024u) {
+        return 2u;
+    }
+    return 1u;
+}
+
+static uint32_t polygon_outline_segment_count(uint32_t ring_count, uint32_t step_scale) {
+    if (ring_count < 2u) {
+        return 0u;
+    }
+    uint32_t step = polygon_outline_base_step(ring_count) * (step_scale == 0u ? 1u : step_scale);
+    if (step == 0u) {
+        step = 1u;
+    }
+    return (ring_count + step - 1u) / step;
+}
+
 static bool polygon_get_cached_indices(const MftTile *tile,
                                        uint32_t ring_index,
                                        const uint32_t **out_indices,
@@ -268,6 +295,17 @@ static void destroy_entry_meshes(VkTileCache *cache, void *vk_renderer, VkTileCa
     if (!cache || !entry) {
         return;
     }
+    for (uint32_t i = 0u; i < 3u; ++i) {
+        if (!entry->water_lod_mesh_ready[i]) {
+            continue;
+        }
+        cache->mesh_vertices -= entry->water_lod_mesh[i].vertex_count;
+        cache->mesh_bytes -= entry->water_lod_mesh[i].vertex_buffer.size;
+        if (vk_renderer) {
+            vk_renderer_destroy_line_mesh((VkRenderer *)vk_renderer, &entry->water_lod_mesh[i]);
+        }
+        entry->water_lod_mesh_ready[i] = false;
+    }
     if (entry->mesh_ready) {
         cache->mesh_vertices -= entry->mesh.vertex_count;
         cache->mesh_bytes -= entry->mesh.vertex_buffer.size;
@@ -297,12 +335,142 @@ static void destroy_entry_meshes(VkTileCache *cache, void *vk_renderer, VkTileCa
     }
 }
 
+static bool build_polygon_outline_mesh_points(VkTileCache *cache,
+                                              void *vk_renderer,
+                                              TileLayerKind kind,
+                                              const MftTile *tile,
+                                              const uint32_t *polygon_rings,
+                                              const uint16_t *polygon_points,
+                                              VkRendererLineMesh *out_mesh,
+                                              uint32_t *out_vertex_count,
+                                              uint64_t *out_buffer_bytes) {
+    if (!cache || !vk_renderer || !tile || !polygon_rings || !polygon_points || !out_mesh) {
+        return false;
+    }
+
+    uint32_t *ring_point_offsets = (uint32_t *)malloc(sizeof(uint32_t) * (size_t)tile->polygon_ring_total);
+    if (!ring_point_offsets) {
+        return false;
+    }
+    {
+        uint32_t running_offset = 0u;
+        for (uint32_t ring = 0u; ring < tile->polygon_ring_total; ++ring) {
+            ring_point_offsets[ring] = running_offset;
+            running_offset += polygon_rings[ring];
+        }
+    }
+
+    uint32_t segment_count = 0u;
+    uint32_t polygon_step_scale = 1u;
+    for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+        const MftPolygon *polygon = &tile->polygons[i];
+        for (uint16_t r = 0; r < polygon->ring_count; ++r) {
+            uint32_t ring_index = polygon->ring_offset + r;
+            if (ring_index >= tile->polygon_ring_total) {
+                cache->mesh_build_failures += 1u;
+                free(ring_point_offsets);
+                return false;
+            }
+            uint32_t ring_count = polygon_rings[ring_index];
+            if (ring_count >= 2u) {
+                segment_count += polygon_outline_segment_count(ring_count, 1u);
+            }
+        }
+    }
+
+    {
+        const uint32_t kPolygonOutlineSegmentCap = 24000u;
+        if (segment_count > kPolygonOutlineSegmentCap) {
+            polygon_step_scale = (segment_count + kPolygonOutlineSegmentCap - 1u) / kPolygonOutlineSegmentCap;
+            if (polygon_step_scale > 32u) {
+                polygon_step_scale = 32u;
+            }
+            segment_count = 0u;
+            for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+                const MftPolygon *polygon = &tile->polygons[i];
+                    for (uint16_t r = 0; r < polygon->ring_count; ++r) {
+                        uint32_t ring_index = polygon->ring_offset + r;
+                        if (ring_index >= tile->polygon_ring_total) {
+                            cache->mesh_build_failures += 1u;
+                            free(ring_point_offsets);
+                            return false;
+                        }
+                        uint32_t ring_count = polygon_rings[ring_index];
+                        if (ring_count >= 2u) {
+                            segment_count += polygon_outline_segment_count(ring_count, polygon_step_scale);
+                    }
+                }
+            }
+        }
+    }
+
+    if (segment_count == 0u) {
+        free(ring_point_offsets);
+        return false;
+    }
+    SDL_FPoint *verts = (SDL_FPoint *)malloc(sizeof(SDL_FPoint) * (size_t)(segment_count * 2u));
+    if (!verts) {
+        free(ring_point_offsets);
+        return false;
+    }
+
+    uint32_t v = 0u;
+    for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+        const MftPolygon *polygon = &tile->polygons[i];
+        for (uint16_t r = 0; r < polygon->ring_count; ++r) {
+            uint32_t ring_index = polygon->ring_offset + r;
+            uint32_t ring_count = polygon_rings[ring_index];
+            if (ring_count < 2u) {
+                continue;
+            }
+            uint32_t point_offset = ring_point_offsets[ring_index];
+            uint32_t step = polygon_outline_base_step(ring_count) * polygon_step_scale;
+            if (step == 0u) {
+                step = 1u;
+            }
+            for (uint32_t p = 0; p < ring_count; p += step) {
+                uint32_t p0 = point_offset + p;
+                uint32_t next = p + step;
+                if (next >= ring_count) {
+                    next = 0u;
+                }
+                uint32_t p1 = point_offset + next;
+                uint32_t idx0 = p0 * 2u;
+                uint32_t idx1 = p1 * 2u;
+                verts[v++] = (SDL_FPoint){(float)polygon_points[idx0], (float)polygon_points[idx0 + 1u]};
+                verts[v++] = (SDL_FPoint){(float)polygon_points[idx1], (float)polygon_points[idx1 + 1u]};
+            }
+        }
+    }
+
+    float r = 0.92f;
+    float g = 0.92f;
+    float b = 0.92f;
+    float a = 1.0f;
+    mesh_outline_color_for_kind(kind, &r, &g, &b, &a);
+    VkResult result = vk_renderer_create_line_list_mesh((VkRenderer *)vk_renderer, verts, v, r, g, b, a, out_mesh);
+    free(verts);
+    free(ring_point_offsets);
+    if (result != VK_SUCCESS) {
+        cache->mesh_build_failures += 1u;
+        return false;
+    }
+    if (out_vertex_count) {
+        *out_vertex_count = out_mesh->vertex_count;
+    }
+    if (out_buffer_bytes) {
+        *out_buffer_bytes = out_mesh->vertex_buffer.size;
+    }
+    return true;
+}
+
 static bool build_entry_mesh(VkTileCache *cache, void *vk_renderer, VkTileCacheEntry *entry, const MftTile *tile) {
     if (!vk_renderer || !entry || !tile) {
         return false;
     }
 
     uint32_t segment_count = 0u;
+    uint32_t polygon_step_scale = 1u;
     if (kind_is_road(entry->kind)) {
         uint32_t class_segment_counts[ROAD_CLASS_PATH + 1] = {0};
         if (tile->polyline_count == 0u) {
@@ -385,6 +553,33 @@ static bool build_entry_mesh(VkTileCache *cache, void *vk_renderer, VkTileCacheE
         }
         return true;
     } else if (kind_is_polygon(entry->kind)) {
+        if (entry->kind == TILE_LAYER_POLY_WATER && tile->water_variants_available) {
+            for (uint32_t lod = 0u; lod < 3u; ++lod) {
+                if (!tile->water_variant_rings[lod] || !tile->water_variant_points[lod]) {
+                    continue;
+                }
+                uint32_t verts = 0u;
+                uint64_t bytes = 0u;
+                if (build_polygon_outline_mesh_points(cache,
+                                                      vk_renderer,
+                                                      entry->kind,
+                                                      tile,
+                                                      tile->water_variant_rings[lod],
+                                                      tile->water_variant_points[lod],
+                                                      &entry->water_lod_mesh[lod],
+                                                      &verts,
+                                                      &bytes)) {
+                    entry->water_lod_mesh_ready[lod] = true;
+                    cache->mesh_vertices += verts;
+                    cache->mesh_bytes += bytes;
+                }
+            }
+            if (entry->water_lod_mesh_ready[0] ||
+                entry->water_lod_mesh_ready[1] ||
+                entry->water_lod_mesh_ready[2]) {
+                return true;
+            }
+        }
         if (tile->polygon_count == 0u) {
             return false;
         }
@@ -416,9 +611,44 @@ static bool build_entry_mesh(VkTileCache *cache, void *vk_renderer, VkTileCacheE
                         }
                         return false;
                     }
-                    segment_count += ring_count;
+                    segment_count += polygon_outline_segment_count(ring_count, 1u);
                 }
                 point_offset += ring_count;
+            }
+        }
+        {
+            const uint32_t kPolygonOutlineSegmentCap = 24000u;
+            if (segment_count > kPolygonOutlineSegmentCap) {
+                polygon_step_scale = (segment_count + kPolygonOutlineSegmentCap - 1u) / kPolygonOutlineSegmentCap;
+                if (polygon_step_scale > 32u) {
+                    polygon_step_scale = 32u;
+                }
+                segment_count = 0u;
+                for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+                    const MftPolygon *polygon = &tile->polygons[i];
+                    uint32_t point_offset = polygon->point_offset;
+                    for (uint16_t r = 0; r < polygon->ring_count; ++r) {
+                        uint32_t ring_index = polygon->ring_offset + r;
+                        if (ring_index >= tile->polygon_ring_total) {
+                            if (cache) {
+                                cache->mesh_build_failures += 1u;
+                            }
+                            return false;
+                        }
+                        uint32_t ring_count = tile->polygon_rings[ring_index];
+                        if (ring_count >= 2u) {
+                            if (point_offset >= tile->polygon_point_total ||
+                                point_offset + ring_count > tile->polygon_point_total) {
+                                if (cache) {
+                                    cache->mesh_build_failures += 1u;
+                                }
+                                return false;
+                            }
+                            segment_count += polygon_outline_segment_count(ring_count, polygon_step_scale);
+                        }
+                        point_offset += ring_count;
+                    }
+                }
             }
         }
     } else {
@@ -460,15 +690,9 @@ static bool build_entry_mesh(VkTileCache *cache, void *vk_renderer, VkTileCacheE
                     }
                     return false;
                 }
-                uint32_t step = 1u;
-                if (ring_count > 8192u) {
-                    step = 12u;
-                } else if (ring_count > 4096u) {
-                    step = 8u;
-                } else if (ring_count > 2048u) {
-                    step = 4u;
-                } else if (ring_count > 1024u) {
-                    step = 2u;
+                uint32_t step = polygon_outline_base_step(ring_count) * polygon_step_scale;
+                if (step == 0u) {
+                    step = 1u;
                 }
                 for (uint32_t p = 0; p < ring_count; p += step) {
                     uint32_t p0 = point_offset + p;

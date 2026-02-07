@@ -1,6 +1,7 @@
 #include "app/app_internal.h"
 
 #include "map/mercator.h"
+#include "map/map_space.h"
 #include "map/polygon_renderer.h"
 #include "map/road_renderer.h"
 
@@ -36,9 +37,8 @@ static void app_init_vk_poly_asset_build_budget(AppState *app, VkPolyAssetBuildB
         return;
     }
 
+    // Keep polygon asset creation tightly bounded to avoid frame hitches on dense tiles.
     if (app->visible_tile_count <= 2u) {
-        budget->cap = 3u;
-    } else if (app->visible_tile_count <= 6u) {
         budget->cap = 2u;
     } else {
         budget->cap = 1u;
@@ -57,8 +57,8 @@ void app_draw_region_bounds(AppState *app) {
     float y0 = 0.0f;
     float x1 = 0.0f;
     float y1 = 0.0f;
-    camera_world_to_screen(&app->camera, (float)min_m.x, (float)max_m.y, app->width, app->height, &x0, &y0);
-    camera_world_to_screen(&app->camera, (float)max_m.x, (float)min_m.y, app->width, app->height, &x1, &y1);
+    map_world_to_screen(&app->camera, app->width, app->height, (float)min_m.x, (float)max_m.y, &x0, &y0);
+    map_world_to_screen(&app->camera, app->width, app->height, (float)max_m.x, (float)min_m.y, &x1, &y1);
 
     float left = x0 < x1 ? x0 : x1;
     float right = x0 < x1 ? x1 : x0;
@@ -77,14 +77,18 @@ static void app_draw_vk_mesh_for_coord(AppState *app,
     if (!app || !mesh || !app->renderer.vk) {
         return;
     }
-    double tile_size = tile_size_meters(coord.z);
-    MercatorMeters origin = tile_origin_meters(coord);
-    float ppm = camera_pixels_per_meter(&app->camera);
-    float sx = (float)((tile_size / 4096.0) * (double)ppm);
-    float sy = (float)((tile_size / 4096.0) * (double)ppm);
-    float ox = (float)((origin.x - app->camera.x) * (double)ppm + (double)app->renderer.width * 0.5);
-    float oy = (float)((app->camera.y - origin.y) * (double)ppm + (double)app->renderer.height * 0.5);
-    vk_renderer_draw_line_mesh_affine((VkRenderer *)app->renderer.vk, mesh, sx, 0.0f, ox, 0.0f, sy, oy);
+    MapTileAffine affine;
+    if (!map_tile_affine_from_camera(&app->camera, app->renderer.width, app->renderer.height, coord, &affine)) {
+        return;
+    }
+    vk_renderer_draw_line_mesh_affine((VkRenderer *)app->renderer.vk,
+                                      mesh,
+                                      affine.m00,
+                                      affine.m01,
+                                      affine.m02,
+                                      affine.m10,
+                                      affine.m11,
+                                      affine.m12);
 #else
     (void)app;
     (void)mesh;
@@ -99,14 +103,18 @@ static void app_draw_vk_tri_mesh_for_coord(AppState *app,
     if (!app || !mesh || !app->renderer.vk) {
         return;
     }
-    double tile_size = tile_size_meters(coord.z);
-    MercatorMeters origin = tile_origin_meters(coord);
-    float ppm = camera_pixels_per_meter(&app->camera);
-    float sx = (float)((tile_size / 4096.0) * (double)ppm);
-    float sy = (float)((tile_size / 4096.0) * (double)ppm);
-    float ox = (float)((origin.x - app->camera.x) * (double)ppm + (double)app->renderer.width * 0.5);
-    float oy = (float)((app->camera.y - origin.y) * (double)ppm + (double)app->renderer.height * 0.5);
-    vk_renderer_draw_tri_mesh_affine((VkRenderer *)app->renderer.vk, mesh, sx, 0.0f, ox, 0.0f, sy, oy);
+    MapTileAffine affine;
+    if (!map_tile_affine_from_camera(&app->camera, app->renderer.width, app->renderer.height, coord, &affine)) {
+        return;
+    }
+    vk_renderer_draw_tri_mesh_affine((VkRenderer *)app->renderer.vk,
+                                     mesh,
+                                     affine.m00,
+                                     affine.m01,
+                                     affine.m02,
+                                     affine.m10,
+                                     affine.m11,
+                                     affine.m12);
 #else
     (void)app;
     (void)mesh;
@@ -156,15 +164,7 @@ static bool app_try_draw_vk_cached_polygon_tile(AppState *app,
     }
 #if defined(MAPFORGE_HAVE_VK)
     const VkTileCacheEntry *asset = vk_tile_cache_peek(&app->vk_tile_cache, kind, coord);
-    if (!asset && asset_build_budget && asset_build_budget->used < asset_build_budget->cap) {
-        const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[kind], coord);
-        if (tile) {
-            if (vk_tile_cache_on_tile_loaded(&app->vk_tile_cache, app->renderer.vk, kind, coord, tile)) {
-                asset_build_budget->used += 1u;
-                asset = vk_tile_cache_peek(&app->vk_tile_cache, kind, coord);
-            }
-        }
-    }
+    (void)asset_build_budget;
     if (!asset) {
         return false;
     }
@@ -205,7 +205,27 @@ static bool app_try_draw_vk_cached_polygon_tile(AppState *app,
         }
     }
 
-    if (asset->mesh_ready) {
+    if (kind == TILE_LAYER_POLY_WATER) {
+        uint32_t lod = 2u;
+        if (app->camera.zoom < 13.8f) {
+            lod = 0u;
+        } else if (app->camera.zoom < 15.0f) {
+            lod = 1u;
+        }
+        if (asset->water_lod_mesh_ready[lod]) {
+            app_draw_vk_mesh_for_coord(app, &asset->water_lod_mesh[lod], coord);
+            drew_any = true;
+        } else if (asset->water_lod_mesh_ready[2]) {
+            app_draw_vk_mesh_for_coord(app, &asset->water_lod_mesh[2], coord);
+            drew_any = true;
+        } else if (asset->water_lod_mesh_ready[1]) {
+            app_draw_vk_mesh_for_coord(app, &asset->water_lod_mesh[1], coord);
+            drew_any = true;
+        } else if (asset->water_lod_mesh_ready[0]) {
+            app_draw_vk_mesh_for_coord(app, &asset->water_lod_mesh[0], coord);
+            drew_any = true;
+        }
+    } else if (asset->mesh_ready) {
         app_draw_vk_mesh_for_coord(app, &asset->mesh, coord);
         drew_any = true;
     }
@@ -225,10 +245,8 @@ uint32_t app_draw_visible_tiles(AppState *app) {
 
     uint32_t visible = 0;
     bool vk_backend = renderer_get_backend(&app->renderer) == RENDERER_BACKEND_VULKAN;
+    bool allow_immediate_polygon_fallback = !(vk_backend && app->vk_assets_enabled);
     uint32_t vk_asset_misses = 0u;
-    uint32_t polygon_tile_budget = vk_backend
-        ? layer_policy_vk_polygon_tile_budget(app->visible_tile_count)
-        : UINT32_MAX;
     uint32_t total_line_budget = app->renderer.vk_line_budget;
     uint32_t reserve_line_budget = 0u;
     uint32_t road_line_budget = total_line_budget;
@@ -241,7 +259,6 @@ uint32_t app_draw_visible_tiles(AppState *app) {
         app->renderer.vk_line_budget = road_line_budget;
     }
 
-    uint32_t polygon_tiles_drawn = 0;
     VkPolyFillBudget poly_fill_budget = {0};
     VkPolyAssetBuildBudget poly_asset_build_budget = {0};
     app_init_vk_poly_fill_budget(app, &poly_fill_budget);
@@ -257,8 +274,13 @@ uint32_t app_draw_visible_tiles(AppState *app) {
         if (!policy || !app_layer_active_runtime(app, policy->kind)) {
             continue;
         }
-        expected += app->layer_expected[policy->kind];
-        done += app->layer_done[policy->kind];
+        if (layer_policy_requires_full_ready(policy->kind)) {
+            expected += app->layer_expected[policy->kind];
+            done += app->layer_done[policy->kind];
+        } else {
+            expected += app->layer_visible_expected[policy->kind];
+            done += app->layer_visible_loaded[policy->kind];
+        }
     }
 
     for (uint32_t y = app->visible_top_left.y; y <= app->visible_bottom_right.y; ++y) {
@@ -319,7 +341,6 @@ uint32_t app_draw_visible_tiles(AppState *app) {
     for (uint32_t y = app->visible_top_left.y; y <= app->visible_bottom_right.y; ++y) {
         for (uint32_t x = app->visible_top_left.x; x <= app->visible_bottom_right.x; ++x) {
             TileCoord coord = {app->visible_zoom, x, y};
-            bool allow_polygon_tile = polygon_tiles_drawn < polygon_tile_budget;
             bool water_ready = !layer_policy_requires_full_ready(TILE_LAYER_POLY_WATER) ||
                 app->layer_state[TILE_LAYER_POLY_WATER] == LAYER_READINESS_READY;
             bool park_ready = !layer_policy_requires_full_ready(TILE_LAYER_POLY_PARK) ||
@@ -328,20 +349,16 @@ uint32_t app_draw_visible_tiles(AppState *app) {
                 app->layer_state[TILE_LAYER_POLY_LANDUSE] == LAYER_READINESS_READY;
             bool building_ready = !layer_policy_requires_full_ready(TILE_LAYER_POLY_BUILDING) ||
                 app->layer_state[TILE_LAYER_POLY_BUILDING] == LAYER_READINESS_READY;
-            const MftTile *water = (allow_polygon_tile &&
-                app_layer_active_runtime(app, TILE_LAYER_POLY_WATER) &&
+            const MftTile *water = (app_layer_active_runtime(app, TILE_LAYER_POLY_WATER) &&
                 water_ready)
                 ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_POLY_WATER], coord) : NULL;
-            const MftTile *park = (allow_polygon_tile &&
-                app_layer_active_runtime(app, TILE_LAYER_POLY_PARK) &&
+            const MftTile *park = (app_layer_active_runtime(app, TILE_LAYER_POLY_PARK) &&
                 park_ready)
                 ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_POLY_PARK], coord) : NULL;
-            const MftTile *landuse = (allow_polygon_tile &&
-                app_layer_active_runtime(app, TILE_LAYER_POLY_LANDUSE) &&
+            const MftTile *landuse = (app_layer_active_runtime(app, TILE_LAYER_POLY_LANDUSE) &&
                 landuse_ready)
                 ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_POLY_LANDUSE], coord) : NULL;
-            const MftTile *building = (allow_polygon_tile &&
-                app_layer_active_runtime(app, TILE_LAYER_POLY_BUILDING) &&
+            const MftTile *building = (app_layer_active_runtime(app, TILE_LAYER_POLY_BUILDING) &&
                 building_ready)
                 ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_POLY_BUILDING], coord) : NULL;
             if (water) {
@@ -350,10 +367,11 @@ uint32_t app_draw_visible_tiles(AppState *app) {
                     if (vk_backend && app->vk_assets_enabled) {
                         vk_asset_misses += 1u;
                     }
-                    polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)water, app->show_landuse,
-                        app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+                    if (allow_immediate_polygon_fallback) {
+                        polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)water, app->show_landuse,
+                            app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+                    }
                 }
-                polygon_tiles_drawn += 1;
             }
             if (park) {
                 if (!app_try_draw_vk_cached_polygon_tile(
@@ -361,10 +379,11 @@ uint32_t app_draw_visible_tiles(AppState *app) {
                     if (vk_backend && app->vk_assets_enabled) {
                         vk_asset_misses += 1u;
                     }
-                    polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)park, app->show_landuse,
-                        app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+                    if (allow_immediate_polygon_fallback) {
+                        polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)park, app->show_landuse,
+                            app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+                    }
                 }
-                polygon_tiles_drawn += 1;
             }
             if (landuse) {
                 if (!app_try_draw_vk_cached_polygon_tile(
@@ -372,10 +391,11 @@ uint32_t app_draw_visible_tiles(AppState *app) {
                     if (vk_backend && app->vk_assets_enabled) {
                         vk_asset_misses += 1u;
                     }
-                    polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)landuse, app->show_landuse,
-                        app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+                    if (allow_immediate_polygon_fallback) {
+                        polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)landuse, app->show_landuse,
+                            app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+                    }
                 }
-                polygon_tiles_drawn += 1;
             }
             if (building) {
                 if (!app_try_draw_vk_cached_polygon_tile(
@@ -383,10 +403,11 @@ uint32_t app_draw_visible_tiles(AppState *app) {
                     if (vk_backend && app->vk_assets_enabled) {
                         vk_asset_misses += 1u;
                     }
-                    polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)building, app->show_landuse,
-                        app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+                    if (allow_immediate_polygon_fallback) {
+                        polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)building, app->show_landuse,
+                            app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
+                    }
                 }
-                polygon_tiles_drawn += 1;
             }
         }
     }
