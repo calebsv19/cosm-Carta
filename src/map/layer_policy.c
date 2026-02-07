@@ -95,58 +95,25 @@ float layer_policy_zoom_tier_path_max(void) {
 }
 
 bool layer_policy_vk_road_class_allowed(RoadClass road_class, float effective_zoom) {
-    if (effective_zoom < 11.5f) {
-        return road_class <= ROAD_CLASS_SECONDARY;
-    }
-    if (effective_zoom < 12.0f) {
-        return road_class <= ROAD_CLASS_TERTIARY;
-    }
-    if (effective_zoom < 12.6f) {
-        return road_class <= ROAD_CLASS_RESIDENTIAL;
-    }
-    if (effective_zoom < 13.2f) {
-        return road_class <= ROAD_CLASS_SERVICE;
-    }
-    if (effective_zoom < 13.8f) {
-        return road_class <= ROAD_CLASS_FOOTWAY;
-    }
+    (void)effective_zoom;
+    (void)road_class;
     return true;
 }
 
 uint32_t layer_policy_vk_sample_step(RoadClass road_class, float effective_zoom) {
     uint32_t step = 1u;
-    if (effective_zoom < 12.3f) {
-        step = 6u;
-    } else if (effective_zoom < 12.9f) {
-        step = 4u;
-    } else if (effective_zoom < 13.5f) {
-        step = 3u;
-    } else if (effective_zoom < 14.5f) {
+    if (effective_zoom < 12.0f) {
         step = 2u;
     }
-
-    if (road_class == ROAD_CLASS_RESIDENTIAL && effective_zoom < 14.5f) {
-        step += 1u;
-    } else if ((road_class == ROAD_CLASS_SERVICE ||
-                road_class == ROAD_CLASS_FOOTWAY ||
-                road_class == ROAD_CLASS_PATH) &&
-               effective_zoom < 15.0f) {
-        step += 2u;
+    if ((road_class == ROAD_CLASS_FOOTWAY || road_class == ROAD_CLASS_PATH) && effective_zoom < 12.0f) {
+        step = 3u;
     }
     return step;
 }
 
 float layer_policy_vk_min_point_spacing_px(float effective_zoom) {
-    if (effective_zoom < 13.0f) {
-        return 1.2f;
-    }
-    if (effective_zoom < 14.0f) {
-        return 0.8f;
-    }
-    if (effective_zoom < 15.0f) {
-        return 0.6f;
-    }
-    return 0.4f;
+    (void)effective_zoom;
+    return 0.0f;
 }
 
 float layer_policy_building_fade_start(float building_zoom_bias, bool vulkan_backend) {
@@ -208,4 +175,132 @@ uint32_t layer_policy_vk_line_budget(float zoom, uint32_t visible_tiles) {
         budget = 32000u;
     }
     return budget;
+}
+
+uint32_t layer_policy_vk_polygon_tile_budget(uint32_t visible_tiles) {
+    if (visible_tiles > 80u) {
+        return 4u;
+    }
+    if (visible_tiles > 40u) {
+        return 8u;
+    }
+    return 16u;
+}
+
+uint32_t layer_policy_vk_reserved_line_budget(uint32_t total_line_budget) {
+    if (total_line_budget == 0u) {
+        return 0u;
+    }
+
+    uint32_t reserve = total_line_budget / 20u;
+    if (reserve < 1500u) {
+        reserve = 1500u;
+    }
+    if (reserve > total_line_budget / 5u) {
+        reserve = total_line_budget / 5u;
+    }
+    return reserve;
+}
+
+uint32_t layer_policy_vk_road_line_budget(uint32_t total_line_budget,
+                                          uint32_t reserved_line_budget,
+                                          bool building_layer_enabled) {
+    if (total_line_budget == 0u) {
+        return 0u;
+    }
+
+    uint32_t drawable_budget = total_line_budget > reserved_line_budget
+        ? (total_line_budget - reserved_line_budget)
+        : total_line_budget;
+    float road_share = building_layer_enabled ? 0.82f : 0.95f;
+    uint32_t road_budget = (uint32_t)((float)drawable_budget * road_share);
+    if (road_budget < drawable_budget / 2u) {
+        road_budget = drawable_budget / 2u;
+    }
+    return road_budget;
+}
+
+uint32_t layer_policy_vk_polygon_line_budget_cap(uint32_t lines_drawn,
+                                                 uint32_t total_line_budget,
+                                                 uint32_t reserved_line_budget,
+                                                 uint32_t road_line_budget) {
+    if (total_line_budget == 0u) {
+        return 0u;
+    }
+
+    uint32_t drawable_budget = total_line_budget > reserved_line_budget
+        ? (total_line_budget - reserved_line_budget)
+        : total_line_budget;
+    uint32_t polygon_budget = drawable_budget > road_line_budget
+        ? (drawable_budget - road_line_budget)
+        : 0u;
+    uint32_t polygon_cap = lines_drawn + polygon_budget;
+    uint32_t max_cap = total_line_budget > reserved_line_budget
+        ? (total_line_budget - reserved_line_budget)
+        : total_line_budget;
+    if (polygon_cap > max_cap) {
+        polygon_cap = max_cap;
+    }
+    if (polygon_cap < lines_drawn) {
+        polygon_cap = lines_drawn;
+    }
+    return polygon_cap;
+}
+
+uint32_t layer_policy_vk_polygon_fill_index_budget(float zoom, uint32_t visible_tiles) {
+    uint32_t budget = 180000u;
+    if (zoom >= 16.0f) {
+        budget = 260000u;
+    } else if (zoom >= 15.0f) {
+        budget = 230000u;
+    } else if (zoom >= 14.0f) {
+        budget = 210000u;
+    } else if (zoom < 13.0f) {
+        budget = 150000u;
+    }
+
+    if (visible_tiles <= 2u) {
+        budget = (uint32_t)((float)budget * 1.35f);
+    } else if (visible_tiles <= 4u) {
+        budget = (uint32_t)((float)budget * 1.20f);
+    } else if (visible_tiles > 48u) {
+        budget = (uint32_t)((float)budget * 0.55f);
+    } else if (visible_tiles > 24u) {
+        budget = (uint32_t)((float)budget * 0.70f);
+    }
+
+    if (budget < 40000u) {
+        budget = 40000u;
+    }
+    return budget;
+}
+
+uint32_t layer_policy_vk_polygon_fill_layer_budget(TileLayerKind kind, uint32_t total_index_budget) {
+    if (total_index_budget == 0u) {
+        return 0u;
+    }
+
+    float share = 0.0f;
+    switch (kind) {
+        case TILE_LAYER_POLY_WATER:
+            share = 0.38f;
+            break;
+        case TILE_LAYER_POLY_PARK:
+            share = 0.24f;
+            break;
+        case TILE_LAYER_POLY_LANDUSE:
+            share = 0.14f;
+            break;
+        case TILE_LAYER_POLY_BUILDING:
+            share = 0.24f;
+            break;
+        default:
+            share = 0.0f;
+            break;
+    }
+    uint32_t layer_budget = (uint32_t)((float)total_index_budget * share);
+    if (layer_budget == 0u && share > 0.0f) {
+        layer_budget = 1u;
+    }
+    return layer_budget;
 }

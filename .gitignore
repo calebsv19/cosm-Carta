@@ -1,3 +1,4 @@
 *.osm
 docs/*
 data/*
+build/*

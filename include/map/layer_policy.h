@@ -73,4 +73,27 @@ const char *layer_policy_readiness_label(LayerReadinessState state);
 // Returns per-frame Vulkan line budget tuned by zoom and visible tile count.
 uint32_t layer_policy_vk_line_budget(float zoom, uint32_t visible_tiles);
 
+// Returns per-frame polygon tile draw budget tuned by visible tile count.
+uint32_t layer_policy_vk_polygon_tile_budget(uint32_t visible_tiles);
+
+// Returns reserved line budget kept for non-map primitives and HUD.
+uint32_t layer_policy_vk_reserved_line_budget(uint32_t total_line_budget);
+
+// Returns road line budget from total/reserved budget and active layer state.
+uint32_t layer_policy_vk_road_line_budget(uint32_t total_line_budget,
+                                          uint32_t reserved_line_budget,
+                                          bool building_layer_enabled);
+
+// Returns capped polygon line budget for the current frame.
+uint32_t layer_policy_vk_polygon_line_budget_cap(uint32_t lines_drawn,
+                                                 uint32_t total_line_budget,
+                                                 uint32_t reserved_line_budget,
+                                                 uint32_t road_line_budget);
+
+// Returns per-frame polygon fill index budget for Vulkan retained fill meshes.
+uint32_t layer_policy_vk_polygon_fill_index_budget(float zoom, uint32_t visible_tiles);
+
+// Returns per-layer share of the polygon fill index budget.
+uint32_t layer_policy_vk_polygon_fill_layer_budget(TileLayerKind kind, uint32_t total_index_budget);
+
 #endif

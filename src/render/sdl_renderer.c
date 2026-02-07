@@ -343,9 +343,9 @@ void renderer_draw_lines(Renderer *renderer, const SDL_FPoint *points, int count
                 return;
             }
         }
-        for (int i = 0; i + 1 < count; ++i) {
-            renderer_draw_line(renderer, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
-        }
+        VkRenderer *vk = (VkRenderer *)renderer->vk;
+        vk_renderer_draw_line_strip(vk, points, (uint32_t)count);
+        renderer->vk_lines_drawn += (uint32_t)segments;
         return;
     }
 #endif
