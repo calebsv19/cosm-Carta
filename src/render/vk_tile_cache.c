@@ -23,7 +23,7 @@ static bool kind_is_polygon(TileLayerKind kind) {
            kind == TILE_LAYER_POLY_BUILDING;
 }
 
-static VkTileCacheEntry *find_entry(VkTileCache *cache, TileLayerKind kind, TileCoord coord) {
+static VkTileCacheEntry *find_entry(VkTileCache *cache, TileLayerKind kind, TileCoord coord, TileZoomBand band) {
     if (!cache || !cache->entries) {
         return NULL;
     }
@@ -33,7 +33,7 @@ static VkTileCacheEntry *find_entry(VkTileCache *cache, TileLayerKind kind, Tile
         if (!entry->occupied) {
             continue;
         }
-        if (entry->kind == kind && coord_equals(entry->coord, coord)) {
+        if (entry->kind == kind && entry->band == band && coord_equals(entry->coord, coord)) {
             return entry;
         }
     }
@@ -908,12 +908,14 @@ static bool build_polygon_fill_mesh(VkTileCache *cache,
 static void fill_entry_from_tile(VkTileCacheEntry *entry,
                                  TileLayerKind kind,
                                  TileCoord coord,
+                                 TileZoomBand band,
                                  const MftTile *tile,
                                  uint64_t stamp) {
     memset(entry, 0, sizeof(*entry));
     entry->occupied = true;
     entry->kind = kind;
     entry->coord = coord;
+    entry->band = band;
     entry->last_used = stamp;
 
     if (!tile) {
@@ -1024,17 +1026,18 @@ bool vk_tile_cache_on_tile_loaded(VkTileCache *cache,
                                   void *vk_renderer,
                                   TileLayerKind kind,
                                   TileCoord coord,
+                                  TileZoomBand band,
                                   const MftTile *tile) {
     if (!cache || !cache->entries || !tile) {
         return false;
     }
 
-    VkTileCacheEntry *entry = find_entry(cache, kind, coord);
+    VkTileCacheEntry *entry = find_entry(cache, kind, coord, band);
     if (entry) {
 #if defined(MAPFORGE_HAVE_VK)
         destroy_entry_meshes(cache, vk_renderer, entry);
 #endif
-        fill_entry_from_tile(entry, kind, coord, tile, cache->tick++);
+        fill_entry_from_tile(entry, kind, coord, band, tile, cache->tick++);
 #if defined(MAPFORGE_HAVE_VK)
         if (kind_is_road(kind) || kind_is_polygon(kind)) {
             build_entry_mesh(cache, vk_renderer, entry, tile);
@@ -1063,7 +1066,7 @@ bool vk_tile_cache_on_tile_loaded(VkTileCache *cache,
         cache->count += 1u;
     }
 
-    fill_entry_from_tile(entry, kind, coord, tile, cache->tick++);
+    fill_entry_from_tile(entry, kind, coord, band, tile, cache->tick++);
     if (kind < TILE_LAYER_COUNT) {
         cache->resident_by_kind[kind] += 1u;
     }
@@ -1079,8 +1082,8 @@ bool vk_tile_cache_on_tile_loaded(VkTileCache *cache,
     return true;
 }
 
-const VkTileCacheEntry *vk_tile_cache_peek(VkTileCache *cache, TileLayerKind kind, TileCoord coord) {
-    VkTileCacheEntry *entry = find_entry(cache, kind, coord);
+const VkTileCacheEntry *vk_tile_cache_peek(VkTileCache *cache, TileLayerKind kind, TileCoord coord, TileZoomBand band) {
+    VkTileCacheEntry *entry = find_entry(cache, kind, coord, band);
     if (!entry) {
         return NULL;
     }

@@ -74,6 +74,7 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
     bool got_tile_min_z = false;
     bool got_tile_max_z = false;
     bool got_tile_extent = false;
+    bool roads_pyramid_enabled = false;
 
     struct json_object *bounds = NULL;
     if (json_object_object_get_ex(root, "bounds", &bounds) &&
@@ -90,6 +91,20 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
         got_tile_min_z = json_get_u32_obj(tile, "min_z", &tile_min_z);
         got_tile_max_z = json_get_u32_obj(tile, "max_z", &tile_max_z);
         got_tile_extent = json_get_u32_obj(tile, "extent", &tile_extent);
+    }
+
+    struct json_object *tile_pyramid = NULL;
+    if (json_object_object_get_ex(root, "tile_pyramid", &tile_pyramid) &&
+        json_object_is_type(tile_pyramid, json_type_object)) {
+        struct json_object *roads = NULL;
+        if (json_object_object_get_ex(tile_pyramid, "roads", &roads) &&
+            json_object_is_type(roads, json_type_object)) {
+            struct json_object *enabled = NULL;
+            if (json_object_object_get_ex(roads, "enabled", &enabled) &&
+                json_object_is_type(enabled, json_type_boolean)) {
+                roads_pyramid_enabled = json_object_get_boolean(enabled);
+            }
+        }
     }
 
     if (got_min_lat && got_max_lat && got_min_lon && got_max_lon) {
@@ -118,10 +133,16 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
         out_info->tile_min_zoom = (uint16_t)tile_min_z;
         out_info->tile_max_zoom = (uint16_t)tile_max_z;
         out_info->has_tile_range = true;
+        if (tile_min_z == tile_max_z) {
+            log_info("region '%s' has single tile zoom level z=%u; stepped tile pyramid behavior is disabled",
+                     out_info->name,
+                     tile_min_z);
+        }
     }
     if (got_tile_extent && tile_extent > 0u) {
         out_info->tile_extent = tile_extent;
     }
+    out_info->has_tile_pyramid_roads = roads_pyramid_enabled;
 
     json_object_put(root);
     return out_info->has_bounds || out_info->has_tile_range;

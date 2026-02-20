@@ -1,46 +1,62 @@
 #include "route/graph.h"
 
+#include "core_io.h"
 #include "core/log.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static bool read_exact(FILE *file, void *buffer, size_t size) {
-    return fread(buffer, 1, size, file) == size;
+typedef struct GraphCursor {
+    const uint8_t *data;
+    size_t size;
+    size_t pos;
+} GraphCursor;
+
+static bool graph_read_exact(GraphCursor *cursor, void *buffer, size_t bytes) {
+    if (!cursor || !buffer) return false;
+    if (bytes > cursor->size - cursor->pos) return false;
+    memcpy(buffer, cursor->data + cursor->pos, bytes);
+    cursor->pos += bytes;
+    return true;
 }
 
 bool route_graph_load(const char *path, RouteGraph *graph) {
+    CoreBuffer file_data = {0};
+    CoreResult read_result;
+    GraphCursor cursor = {0};
     if (!path || !graph) {
         return false;
     }
 
     memset(graph, 0, sizeof(*graph));
 
-    FILE *file = fopen(path, "rb");
-    if (!file) {
+    read_result = core_io_read_all(path, &file_data);
+    if (read_result.code != CORE_OK) {
         log_error("Failed to open graph: %s", path);
         return false;
     }
+    cursor.data = file_data.data;
+    cursor.size = file_data.size;
+    cursor.pos = 0u;
 
     char magic[4] = {0};
     uint32_t version = 0;
-    if (!read_exact(file, magic, sizeof(magic)) || memcmp(magic, "MFG1", 4) != 0) {
+    if (!graph_read_exact(&cursor, magic, sizeof(magic)) || memcmp(magic, "MFG1", 4) != 0) {
         log_error("Graph invalid magic: %s", path);
-        fclose(file);
+        core_io_buffer_free(&file_data);
         return false;
     }
 
-    if (!read_exact(file, &version, sizeof(version)) || version != 1) {
+    if (!graph_read_exact(&cursor, &version, sizeof(version)) || version != 1) {
         log_error("Graph unsupported version: %s", path);
-        fclose(file);
+        core_io_buffer_free(&file_data);
         return false;
     }
 
-    if (!read_exact(file, &graph->node_count, sizeof(uint32_t)) ||
-        !read_exact(file, &graph->edge_count, sizeof(uint32_t))) {
+    if (!graph_read_exact(&cursor, &graph->node_count, sizeof(uint32_t)) ||
+        !graph_read_exact(&cursor, &graph->edge_count, sizeof(uint32_t))) {
         log_error("Graph header truncated: %s", path);
-        fclose(file);
+        core_io_buffer_free(&file_data);
         return false;
     }
 
@@ -55,24 +71,24 @@ bool route_graph_load(const char *path, RouteGraph *graph) {
     if (!graph->node_x || !graph->node_y || !graph->edge_start || !graph->edge_to ||
         !graph->edge_length || !graph->edge_speed || !graph->edge_class) {
         route_graph_free(graph);
-        fclose(file);
+        core_io_buffer_free(&file_data);
         return false;
     }
 
-    if (!read_exact(file, graph->node_x, sizeof(double) * graph->node_count) ||
-        !read_exact(file, graph->node_y, sizeof(double) * graph->node_count) ||
-        !read_exact(file, graph->edge_start, sizeof(uint32_t) * (graph->node_count + 1)) ||
-        !read_exact(file, graph->edge_to, sizeof(uint32_t) * graph->edge_count) ||
-        !read_exact(file, graph->edge_length, sizeof(float) * graph->edge_count) ||
-        !read_exact(file, graph->edge_speed, sizeof(float) * graph->edge_count) ||
-        !read_exact(file, graph->edge_class, sizeof(uint8_t) * graph->edge_count)) {
+    if (!graph_read_exact(&cursor, graph->node_x, sizeof(double) * graph->node_count) ||
+        !graph_read_exact(&cursor, graph->node_y, sizeof(double) * graph->node_count) ||
+        !graph_read_exact(&cursor, graph->edge_start, sizeof(uint32_t) * (graph->node_count + 1u)) ||
+        !graph_read_exact(&cursor, graph->edge_to, sizeof(uint32_t) * graph->edge_count) ||
+        !graph_read_exact(&cursor, graph->edge_length, sizeof(float) * graph->edge_count) ||
+        !graph_read_exact(&cursor, graph->edge_speed, sizeof(float) * graph->edge_count) ||
+        !graph_read_exact(&cursor, graph->edge_class, sizeof(uint8_t) * graph->edge_count)) {
         log_error("Graph data truncated: %s", path);
         route_graph_free(graph);
-        fclose(file);
+        core_io_buffer_free(&file_data);
         return false;
     }
 
-    fclose(file);
+    core_io_buffer_free(&file_data);
     return true;
 }
 

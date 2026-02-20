@@ -1,5 +1,6 @@
 #include "render/renderer.h"
 #include "ui/font.h"
+#include "core_io.h"
 
 #include <math.h>
 #include <string.h>
@@ -8,7 +9,6 @@
 #include <vulkan/vulkan.h>
 #include "vk_renderer.h"
 #include "vk_renderer_config.h"
-#include <stdio.h>
 #endif
 
 #if defined(MAPFORGE_HAVE_VK)
@@ -114,14 +114,12 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
         char shader_path[1024];
         for (size_t i = 0; i < sizeof(kRequiredShaders) / sizeof(kRequiredShaders[0]); ++i) {
             snprintf(shader_path, sizeof(shader_path), "%s/shaders/%s", VK_RENDERER_SHADER_ROOT, kRequiredShaders[i]);
-            FILE *shader_file = fopen(shader_path, "rb");
-            if (!shader_file) {
+            if (!core_io_path_exists(shader_path)) {
                 SDL_Log("[renderer] Vulkan shader missing: %s", shader_path);
                 SDL_Log("[renderer] Falling back to SDL renderer");
                 renderer->backend = RENDERER_BACKEND_SDL;
                 break;
             }
-            fclose(shader_file);
         }
     }
     if (renderer->backend == RENDERER_BACKEND_VULKAN) {

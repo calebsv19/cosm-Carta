@@ -279,6 +279,17 @@ void app_draw_layer_debug(AppState *app) {
     ui_draw_text(&app->renderer, x, y, line, color, 1.0f);
     y += line_h + 4;
 
+    snprintf(line, sizeof(line), "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u",
+             app->band_visible_loaded[TILE_BAND_COARSE], app->band_visible_expected[TILE_BAND_COARSE],
+             app->band_visible_loaded[TILE_BAND_MID], app->band_visible_expected[TILE_BAND_MID],
+             app->band_visible_loaded[TILE_BAND_FINE], app->band_visible_expected[TILE_BAND_FINE],
+             app->band_visible_loaded[TILE_BAND_DEFAULT], app->band_visible_expected[TILE_BAND_DEFAULT],
+             app->band_queue_depth[TILE_BAND_COARSE], app->band_queue_depth[TILE_BAND_MID],
+             app->band_queue_depth[TILE_BAND_FINE], app->band_queue_depth[TILE_BAND_DEFAULT],
+             app->vk_road_band_fallback_draws);
+    ui_draw_text(&app->renderer, x, y, line, color, 1.0f);
+    y += line_h + 4;
+
     for (size_t i = 0; i < layer_policy_count(); ++i) {
         const LayerPolicy *policy = layer_policy_at(i);
         if (!policy) {
@@ -286,9 +297,10 @@ void app_draw_layer_debug(AppState *app) {
         }
         TileLayerKind kind = policy->kind;
         float start = app_layer_zoom_start(app, kind);
-        snprintf(line, sizeof(line), "%s z>=%.2f exp %u done %u vis %u/%u in %u state=%s runtime=%s",
+        snprintf(line, sizeof(line), "%s z>=%.2f band=%s exp %u done %u vis %u/%u in %u state=%s runtime=%s",
                  app_layer_label(kind),
                  start,
+                 layer_policy_band_label(app->layer_target_band[kind]),
                  app->layer_expected[kind],
                  app->layer_done[kind],
                  app->layer_visible_loaded[kind],
@@ -309,13 +321,21 @@ void app_copy_overlay_text(AppState *app) {
     char buffer[2048];
     size_t offset = 0;
     int written = snprintf(buffer + offset, sizeof(buffer) - offset,
-                           "Region: %s\nZoom: %.2f\nVisible tiles: %u\nLoad total: %u/%u no_data=%.1fs\n",
+                           "Region: %s\nZoom: %.2f\nVisible tiles: %u\nLoad total: %u/%u no_data=%.1fs\n"
+                           "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u\n",
                            app->region.name,
                            app->camera.zoom,
                            app->visible_tile_count,
                            app->loading_done,
                            app->loading_expected,
-                           app->loading_no_data_time);
+                           app->loading_no_data_time,
+                           app->band_visible_loaded[TILE_BAND_COARSE], app->band_visible_expected[TILE_BAND_COARSE],
+                           app->band_visible_loaded[TILE_BAND_MID], app->band_visible_expected[TILE_BAND_MID],
+                           app->band_visible_loaded[TILE_BAND_FINE], app->band_visible_expected[TILE_BAND_FINE],
+                           app->band_visible_loaded[TILE_BAND_DEFAULT], app->band_visible_expected[TILE_BAND_DEFAULT],
+                           app->band_queue_depth[TILE_BAND_COARSE], app->band_queue_depth[TILE_BAND_MID],
+                           app->band_queue_depth[TILE_BAND_FINE], app->band_queue_depth[TILE_BAND_DEFAULT],
+                           app->vk_road_band_fallback_draws);
     if (written < 0) {
         return;
     }
@@ -341,9 +361,10 @@ void app_copy_overlay_text(AppState *app) {
         TileLayerKind kind = policy->kind;
         float start = app_layer_zoom_start(app, kind);
         written = snprintf(buffer + offset, sizeof(buffer) - offset,
-                           "%s z>=%.2f exp %u done %u vis %u/%u in %u state=%s runtime=%s\n",
+                           "%s z>=%.2f band=%s exp %u done %u vis %u/%u in %u state=%s runtime=%s\n",
                            app_layer_label(kind),
                            start,
+                           layer_policy_band_label(app->layer_target_band[kind]),
                            app->layer_expected[kind],
                            app->layer_done[kind],
                            app->layer_visible_loaded[kind],

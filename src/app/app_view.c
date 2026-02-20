@@ -7,6 +7,37 @@
 static const uint16_t kDefaultMinZoom = 10;
 static const uint16_t kDefaultMaxZoom = 18;
 
+static float app_region_tile_zoom_bias(const RegionInfo *region) {
+    if (!region || !region->has_bounds) {
+        return 0.0f;
+    }
+
+    MercatorMeters min_m = mercator_from_latlon((LatLon){region->min_lat, region->min_lon});
+    MercatorMeters max_m = mercator_from_latlon((LatLon){region->max_lat, region->max_lon});
+
+    double width = max_m.x - min_m.x;
+    double height = max_m.y - min_m.y;
+    if (width <= 0.0 || height <= 0.0) {
+        return 0.0f;
+    }
+
+    double span = width > height ? width : height;
+    double base = 30000.0;
+    double ratio = span / base;
+    if (ratio < 1.0) {
+        ratio = 1.0;
+    }
+
+    float bias = (float)log2(ratio) * 0.55f;
+    if (bias < 0.0f) {
+        bias = 0.0f;
+    }
+    if (bias > 1.8f) {
+        bias = 1.8f;
+    }
+    return bias;
+}
+
 float app_clampf(float value, float min_value, float max_value) {
     if (value < min_value) {
         return min_value;
@@ -18,7 +49,8 @@ float app_clampf(float value, float min_value, float max_value) {
 }
 
 uint16_t app_zoom_to_tile_level(float zoom, const RegionInfo *region) {
-    int level = (int)floorf(zoom + 0.5f);
+    float zoom_bias = app_region_tile_zoom_bias(region);
+    int level = (int)floorf((zoom - zoom_bias) + 0.5f);
     uint16_t min_zoom = kDefaultMinZoom;
     uint16_t max_zoom = kDefaultMaxZoom;
     if (region && region->has_tile_range) {

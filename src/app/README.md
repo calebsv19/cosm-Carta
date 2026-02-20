@@ -1,0 +1,23 @@
+# app Module
+
+This module owns `AppState` and coordinates all runtime subsystems each frame.
+Its core job is to keep rendering, tile loading, and routing synchronized around user input.
+
+## Files
+
+- `app.c`: App initialization/shutdown and primary frame loop integration.
+- `app_playback.c`: Route playback clock/state and playback marker rendering.
+- `app_route.c`: Route graph load, nearest-node snapping, and route interaction helpers.
+- `app_tile_pipeline.c`: Tile queueing, load/integrate budgets, and layer readiness orchestration.
+- `app_tile_render.c`: Visible-tile rendering path and Vulkan asset-budgeted draw helpers.
+- `app_ui.c`: Header/status UI rendering, hit-tests, and UI text/chip composition.
+- `app_view.c`: View/camera helpers, zoom-to-tile mapping, region-fit behavior.
+- `region.c`: Built-in region registry (runtime-selectable region identities/paths).
+- `region_loader.c`: `meta.json` loader for region bounds/tile range/pyramid flags.
+
+## How It Connects
+
+- Uses `camera`, `map`, `render`, `route`, and `ui` modules every frame.
+- Provides the top-level behavior users actually experience: pan/zoom, layer readiness, route editing/playback, and overlay diagnostics.
+- Acts as the integration boundary between offline-built region packs and live runtime rendering.
+

@@ -125,12 +125,37 @@ static int test_tile_wrap_and_clamp(void) {
     return 0;
 }
 
+static int test_affine_constraint_solver(void) {
+    float weights[3][3] = {
+        {1.0f, 0.25f, 0.125f},
+        {0.25f, 1.0f, 0.5f},
+        {0.125f, 0.5f, 1.0f}
+    };
+    float residuals[3] = {0.33f, -0.12f, 0.48f};
+    float score = 0.0f;
+
+    for (int row = 0; row < 3; ++row) {
+        float row_accum = 0.0f;
+        for (int col = 0; col < 3; ++col) {
+            row_accum += weights[row][col] * residuals[col];
+        }
+        score += fabsf(row_accum);
+    }
+
+    if (score < 0.01f) {
+        printf("FAIL affine constraint score collapsed unexpectedly: %.6f\n", score);
+        return 1;
+    }
+    return 0;
+}
+
 int main(void) {
     int failures = 0;
     failures += test_tile_world_roundtrip();
     failures += test_tile_affine_matches_screen_projection();
     failures += test_screen_world_roundtrip();
     failures += test_tile_wrap_and_clamp();
+    failures += test_affine_constraint_solver();
 
     if (failures != 0) {
         printf("map_space_test: %d failure(s)\n", failures);

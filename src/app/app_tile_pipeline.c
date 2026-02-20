@@ -164,6 +164,16 @@ static bool app_kind_is_polygon(TileLayerKind kind) {
            kind == TILE_LAYER_POLY_BUILDING;
 }
 
+static TileZoomBand app_layer_target_band(const AppState *app, TileLayerKind kind) {
+    if (!app) {
+        return TILE_BAND_DEFAULT;
+    }
+    if (!app->region.has_tile_pyramid_roads) {
+        return TILE_BAND_DEFAULT;
+    }
+    return layer_policy_band_for_zoom(kind, app->camera.zoom, app->road_zoom_bias);
+}
+
 static uint32_t app_vk_asset_visible_ring_distance(const AppState *app, TileCoord coord) {
     if (!app || !app->visible_valid || coord.z != app->visible_zoom) {
         return UINT32_MAX / 4u;
@@ -223,6 +233,181 @@ static bool app_vk_asset_pop_job_at(AppState *app, uint32_t offset, VkAssetJob *
     return true;
 }
 
+static bool app_vk_asset_main_has_duplicate(const AppState *app,
+                                            TileLayerKind kind,
+                                            TileCoord coord,
+                                            TileZoomBand band,
+                                            uint32_t request_id) {
+    if (!app) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < app->vk_asset_job_count; ++i) {
+        uint32_t idx = (app->vk_asset_job_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
+        const VkAssetJob *job = &app->vk_asset_jobs[idx];
+        if (job->kind == kind &&
+            job->band == band &&
+            job->coord.z == coord.z &&
+            job->coord.x == coord.x &&
+            job->coord.y == coord.y &&
+            job->request_id == request_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool app_vk_asset_main_admit_job(AppState *app, const VkAssetJob *in_job) {
+    if (!app || !in_job) {
+        return false;
+    }
+    if (app_vk_asset_main_has_duplicate(app, in_job->kind, in_job->coord, in_job->band, in_job->request_id)) {
+        return true;
+    }
+
+    if (app->vk_asset_job_count >= APP_VK_ASSET_QUEUE_CAPACITY) {
+        bool evicted = false;
+        uint64_t evict_score = 0u;
+        uint32_t evict_offset = 0u;
+        for (uint32_t i = 0u; i < app->vk_asset_job_count; ++i) {
+            uint32_t idx = (app->vk_asset_job_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
+            const VkAssetJob *job = &app->vk_asset_jobs[idx];
+            uint32_t stale = (job->request_id == app->tile_request_id) ? 0u : 1u;
+            uint32_t ring = app_vk_asset_visible_ring_distance(app, job->coord);
+            uint64_t score = ((uint64_t)stale << 63) |
+                             ((uint64_t)ring << 24) |
+                             (uint64_t)i;
+            if (!evicted || score > evict_score) {
+                evicted = true;
+                evict_score = score;
+                evict_offset = i;
+            }
+        }
+        if (evicted) {
+            VkAssetJob dropped = {0};
+            if (app_vk_asset_pop_job_at(app, evict_offset, &dropped)) {
+                app->vk_asset_job_evict_count += 1u;
+            }
+        }
+    }
+
+    if (app->vk_asset_job_count >= APP_VK_ASSET_QUEUE_CAPACITY) {
+        app->vk_asset_job_drop_count += 1u;
+        return false;
+    }
+
+    app->vk_asset_jobs[app->vk_asset_job_tail] = *in_job;
+    app->vk_asset_job_tail = (app->vk_asset_job_tail + 1u) % APP_VK_ASSET_QUEUE_CAPACITY;
+    app->vk_asset_job_count += 1u;
+    return true;
+}
+
+static bool app_vk_asset_stage_push(AppState *app, const VkAssetJob *job) {
+    if (!app || !job || app->vk_asset_stage_count >= APP_VK_ASSET_QUEUE_CAPACITY) {
+        return false;
+    }
+    app->vk_asset_stage_jobs[app->vk_asset_stage_tail] = *job;
+    app->vk_asset_stage_tail = (app->vk_asset_stage_tail + 1u) % APP_VK_ASSET_QUEUE_CAPACITY;
+    app->vk_asset_stage_count += 1u;
+    return true;
+}
+
+static bool app_vk_asset_stage_pop(AppState *app, VkAssetJob *out_job) {
+    if (!app || !out_job || app->vk_asset_stage_count == 0u) {
+        return false;
+    }
+    *out_job = app->vk_asset_stage_jobs[app->vk_asset_stage_head];
+    memset(&app->vk_asset_stage_jobs[app->vk_asset_stage_head], 0, sizeof(app->vk_asset_stage_jobs[app->vk_asset_stage_head]));
+    app->vk_asset_stage_head = (app->vk_asset_stage_head + 1u) % APP_VK_ASSET_QUEUE_CAPACITY;
+    app->vk_asset_stage_count -= 1u;
+    return true;
+}
+
+static bool app_vk_asset_stage_pop_at(AppState *app, uint32_t offset, VkAssetJob *out_job) {
+    if (!app || offset >= app->vk_asset_stage_count) {
+        return false;
+    }
+    uint32_t cap = APP_VK_ASSET_QUEUE_CAPACITY;
+    uint32_t head = app->vk_asset_stage_head;
+    uint32_t idx = (head + offset) % cap;
+    if (out_job) {
+        *out_job = app->vk_asset_stage_jobs[idx];
+    }
+    for (uint32_t i = offset; i + 1u < app->vk_asset_stage_count; ++i) {
+        uint32_t from = (head + i + 1u) % cap;
+        uint32_t to = (head + i) % cap;
+        app->vk_asset_stage_jobs[to] = app->vk_asset_stage_jobs[from];
+    }
+    app->vk_asset_stage_tail = (app->vk_asset_stage_tail + cap - 1u) % cap;
+    app->vk_asset_stage_count -= 1u;
+    return true;
+}
+
+static bool app_vk_asset_ready_push(AppState *app, const VkAssetReadyJob *job) {
+    if (!app || !job || app->vk_asset_ready_count >= APP_VK_ASSET_READY_QUEUE_CAPACITY) {
+        return false;
+    }
+    app->vk_asset_ready_jobs[app->vk_asset_ready_tail] = *job;
+    app->vk_asset_ready_tail = (app->vk_asset_ready_tail + 1u) % APP_VK_ASSET_READY_QUEUE_CAPACITY;
+    app->vk_asset_ready_count += 1u;
+    return true;
+}
+
+static bool app_vk_asset_ready_pop(AppState *app, VkAssetReadyJob *out_job) {
+    if (!app || !out_job || app->vk_asset_ready_count == 0u) {
+        return false;
+    }
+    *out_job = app->vk_asset_ready_jobs[app->vk_asset_ready_head];
+    memset(&app->vk_asset_ready_jobs[app->vk_asset_ready_head], 0, sizeof(app->vk_asset_ready_jobs[app->vk_asset_ready_head]));
+    app->vk_asset_ready_head = (app->vk_asset_ready_head + 1u) % APP_VK_ASSET_READY_QUEUE_CAPACITY;
+    app->vk_asset_ready_count -= 1u;
+    return true;
+}
+
+static void *app_vk_asset_worker_thread_main(void *userdata) {
+    AppState *app = (AppState *)userdata;
+    if (!app) {
+        return NULL;
+    }
+
+    for (;;) {
+        VkAssetJob stage_job = {0};
+        pthread_mutex_lock(&app->vk_asset_worker_mutex);
+        while (app->vk_asset_worker_running && app->vk_asset_stage_count == 0u) {
+            pthread_cond_wait(&app->vk_asset_worker_cond, &app->vk_asset_worker_mutex);
+        }
+        if (!app->vk_asset_worker_running) {
+            pthread_mutex_unlock(&app->vk_asset_worker_mutex);
+            break;
+        }
+        if (!app_vk_asset_stage_pop(app, &stage_job)) {
+            pthread_mutex_unlock(&app->vk_asset_worker_mutex);
+            continue;
+        }
+
+        VkAssetReadyJob ready = {
+            .coord = stage_job.coord,
+            .kind = stage_job.kind,
+            .band = stage_job.band,
+            .request_id = stage_job.request_id
+        };
+        bool pushed = app_vk_asset_ready_push(app, &ready);
+        if (!pushed && app->vk_asset_ready_count > 0u) {
+            VkAssetReadyJob dropped = {0};
+            app_vk_asset_ready_pop(app, &dropped);
+            app->vk_asset_stage_evict_count += 1u;
+            pushed = app_vk_asset_ready_push(app, &ready);
+        }
+        if (pushed) {
+            app->vk_asset_stage_prepared_count += 1u;
+        } else {
+            app->vk_asset_stage_drop_count += 1u;
+        }
+        pthread_mutex_unlock(&app->vk_asset_worker_mutex);
+    }
+
+    return NULL;
+}
+
 static void app_refresh_visible_layer_coverage(AppState *app) {
     if (!app) {
         return;
@@ -231,6 +416,10 @@ static void app_refresh_visible_layer_coverage(AppState *app) {
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         app->layer_visible_expected[i] = 0u;
         app->layer_visible_loaded[i] = 0u;
+    }
+    for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
+        app->band_visible_expected[i] = 0u;
+        app->band_visible_loaded[i] = 0u;
     }
     if (!app->visible_valid) {
         return;
@@ -249,8 +438,15 @@ static void app_refresh_visible_layer_coverage(AppState *app) {
                     continue;
                 }
                 app->layer_visible_expected[kind] += 1u;
-                if (tile_manager_peek_tile(&app->tile_managers[kind], coord)) {
+                TileZoomBand band = app->layer_target_band[kind];
+                if ((size_t)band < TILE_BAND_COUNT) {
+                    app->band_visible_expected[band] += 1u;
+                }
+                if (tile_manager_peek_tile(&app->tile_managers[kind], coord, band)) {
                     app->layer_visible_loaded[kind] += 1u;
+                    if ((size_t)band < TILE_BAND_COUNT) {
+                        app->band_visible_loaded[band] += 1u;
+                    }
                 }
             }
         }
@@ -464,11 +660,11 @@ void app_vk_poly_prep_drain(AppState *app, uint32_t max_results, double max_time
         if (!result.ok) {
             continue;
         }
-        if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, &result.tile)) {
+        if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, result.band, &result.tile)) {
             mft_free_tile(&result.tile);
             continue;
         }
-        app_vk_asset_enqueue(app, result.kind, result.coord);
+        app_vk_asset_enqueue(app, result.kind, result.coord, result.band);
         drained += 1u;
     }
 }
@@ -497,41 +693,151 @@ void app_vk_asset_queue_clear(AppState *app) {
     app->vk_asset_job_head = 0u;
     app->vk_asset_job_tail = 0u;
     app->vk_asset_job_count = 0u;
+    if (app->vk_asset_worker_enabled) {
+        pthread_mutex_lock(&app->vk_asset_worker_mutex);
+        app->vk_asset_stage_head = 0u;
+        app->vk_asset_stage_tail = 0u;
+        app->vk_asset_stage_count = 0u;
+        app->vk_asset_ready_head = 0u;
+        app->vk_asset_ready_tail = 0u;
+        app->vk_asset_ready_count = 0u;
+        pthread_mutex_unlock(&app->vk_asset_worker_mutex);
+    }
 }
 
-bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord) {
-    if (!app || !app->vk_assets_enabled || !app_kind_is_polygon(kind)) {
+bool app_vk_asset_worker_init(AppState *app) {
+    if (!app) {
         return false;
     }
-    for (uint32_t i = 0; i < app->vk_asset_job_count; ++i) {
-        uint32_t index = (app->vk_asset_job_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
-        const VkAssetJob *job = &app->vk_asset_jobs[index];
-        if (job->kind == kind &&
-            job->coord.z == coord.z &&
-            job->coord.x == coord.x &&
-            job->coord.y == coord.y &&
-            job->request_id == app->tile_request_id) {
-            return true;
-        }
-    }
-    if (app->vk_asset_job_count >= APP_VK_ASSET_QUEUE_CAPACITY) {
-        app->vk_asset_job_drop_count += 1u;
+    app->vk_asset_worker_enabled = false;
+    app->vk_asset_worker_running = false;
+    app->vk_asset_stage_head = 0u;
+    app->vk_asset_stage_tail = 0u;
+    app->vk_asset_stage_count = 0u;
+    app->vk_asset_ready_head = 0u;
+    app->vk_asset_ready_tail = 0u;
+    app->vk_asset_ready_count = 0u;
+    app->vk_asset_stage_drop_count = 0u;
+    app->vk_asset_stage_evict_count = 0u;
+    app->vk_asset_stage_enqueued_count = 0u;
+    app->vk_asset_stage_prepared_count = 0u;
+    if (pthread_mutex_init(&app->vk_asset_worker_mutex, NULL) != 0) {
         return false;
     }
-    app->vk_asset_jobs[app->vk_asset_job_tail] = (VkAssetJob){
+    if (pthread_cond_init(&app->vk_asset_worker_cond, NULL) != 0) {
+        pthread_mutex_destroy(&app->vk_asset_worker_mutex);
+        return false;
+    }
+    app->vk_asset_worker_running = true;
+    if (pthread_create(&app->vk_asset_worker_thread, NULL, app_vk_asset_worker_thread_main, app) != 0) {
+        app->vk_asset_worker_running = false;
+        pthread_cond_destroy(&app->vk_asset_worker_cond);
+        pthread_mutex_destroy(&app->vk_asset_worker_mutex);
+        return false;
+    }
+    app->vk_asset_worker_enabled = true;
+    return true;
+}
+
+void app_vk_asset_worker_shutdown(AppState *app) {
+    if (!app || !app->vk_asset_worker_enabled) {
+        return;
+    }
+    pthread_mutex_lock(&app->vk_asset_worker_mutex);
+    app->vk_asset_worker_running = false;
+    pthread_cond_broadcast(&app->vk_asset_worker_cond);
+    pthread_mutex_unlock(&app->vk_asset_worker_mutex);
+    pthread_join(app->vk_asset_worker_thread, NULL);
+    pthread_cond_destroy(&app->vk_asset_worker_cond);
+    pthread_mutex_destroy(&app->vk_asset_worker_mutex);
+    app->vk_asset_worker_enabled = false;
+}
+
+bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord, TileZoomBand band) {
+    bool supported_kind = app_kind_is_polygon(kind) ||
+        kind == TILE_LAYER_ROAD_ARTERY ||
+        kind == TILE_LAYER_ROAD_LOCAL;
+    if (!app || !app->vk_assets_enabled || !supported_kind) {
+        return false;
+    }
+    VkAssetJob in_job = {
         .coord = coord,
         .kind = kind,
+        .band = band,
         .request_id = app->tile_request_id
     };
-    app->vk_asset_job_tail = (app->vk_asset_job_tail + 1u) % APP_VK_ASSET_QUEUE_CAPACITY;
-    app->vk_asset_job_count += 1u;
-    return true;
+
+    if (!app->vk_asset_worker_enabled) {
+        return app_vk_asset_main_admit_job(app, &in_job);
+    }
+
+    bool accepted = false;
+    pthread_mutex_lock(&app->vk_asset_worker_mutex);
+    for (uint32_t i = 0u; i < app->vk_asset_stage_count; ++i) {
+        uint32_t idx = (app->vk_asset_stage_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
+        const VkAssetJob *job = &app->vk_asset_stage_jobs[idx];
+        if (job->kind == in_job.kind &&
+            job->band == in_job.band &&
+            job->coord.z == in_job.coord.z &&
+            job->coord.x == in_job.coord.x &&
+            job->coord.y == in_job.coord.y &&
+            job->request_id == in_job.request_id) {
+            accepted = true;
+            break;
+        }
+    }
+    if (!accepted) {
+        if (app->vk_asset_stage_count >= APP_VK_ASSET_QUEUE_CAPACITY) {
+            bool evicted = false;
+            for (uint32_t i = 0u; i < app->vk_asset_stage_count; ++i) {
+                uint32_t idx = (app->vk_asset_stage_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
+                if (app->vk_asset_stage_jobs[idx].request_id != in_job.request_id) {
+                    evicted = app_vk_asset_stage_pop_at(app, i, NULL);
+                    break;
+                }
+            }
+            if (!evicted) {
+                evicted = app_vk_asset_stage_pop_at(app, 0u, NULL);
+            }
+            if (evicted) {
+                app->vk_asset_stage_evict_count += 1u;
+            }
+        }
+        if (app_vk_asset_stage_push(app, &in_job)) {
+            app->vk_asset_stage_enqueued_count += 1u;
+            accepted = true;
+            pthread_cond_signal(&app->vk_asset_worker_cond);
+        }
+    }
+    if (!accepted) {
+        app->vk_asset_job_drop_count += 1u;
+    }
+    pthread_mutex_unlock(&app->vk_asset_worker_mutex);
+    return accepted;
 }
 
 void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_time_slice_sec) {
     if (!app || !app->vk_assets_enabled || !app->renderer.vk || max_jobs == 0u) {
         return;
     }
+    if (app->vk_asset_worker_enabled) {
+        pthread_mutex_lock(&app->vk_asset_worker_mutex);
+        while (app->vk_asset_ready_count > 0u) {
+            VkAssetReadyJob ready = {0};
+            if (!app_vk_asset_ready_pop(app, &ready)) {
+                break;
+            }
+            VkAssetJob admitted = {
+                .coord = ready.coord,
+                .kind = ready.kind,
+                .band = ready.band,
+                .request_id = ready.request_id
+            };
+            app_vk_asset_main_admit_job(app, &admitted);
+        }
+        pthread_mutex_unlock(&app->vk_asset_worker_mutex);
+    }
+
     double start = time_now_seconds();
     uint32_t processed = 0u;
     uint32_t built_by_kind[TILE_LAYER_COUNT] = {0};
@@ -557,7 +863,7 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
                 continue;
             }
 
-            const VkTileCacheEntry *resident = vk_tile_cache_peek(&app->vk_tile_cache, job->kind, job->coord);
+            const VkTileCacheEntry *resident = vk_tile_cache_peek(&app->vk_tile_cache, job->kind, job->coord, job->band);
             if (resident && resident->mesh_ready) {
                 if (!have_stale) {
                     have_stale = true;
@@ -566,7 +872,7 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
                 continue;
             }
 
-            const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[job->kind], job->coord);
+            const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[job->kind], job->coord, job->band);
             if (!tile) {
                 if (!have_stale) {
                     have_stale = true;
@@ -606,11 +912,11 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
         if (job.request_id != app->tile_request_id) {
             continue;
         }
-        const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[job.kind], job.coord);
+        const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[job.kind], job.coord, job.band);
         if (!tile) {
             continue;
         }
-        if (vk_tile_cache_on_tile_loaded(&app->vk_tile_cache, app->renderer.vk, job.kind, job.coord, tile)) {
+        if (vk_tile_cache_on_tile_loaded(&app->vk_tile_cache, app->renderer.vk, job.kind, job.coord, job.band, tile)) {
             processed += 1u;
             if (job.kind < TILE_LAYER_COUNT) {
                 built_by_kind[job.kind] += 1u;
@@ -633,6 +939,13 @@ void app_clear_tile_queue(AppState *app) {
         app->layer_visible_expected[i] = 0;
         app->layer_visible_loaded[i] = 0;
         app->layer_state[i] = LAYER_READINESS_HIDDEN;
+        app->queue_band[i] = TILE_BAND_DEFAULT;
+        app->layer_target_band[i] = TILE_BAND_DEFAULT;
+    }
+    for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
+        app->band_visible_expected[i] = 0u;
+        app->band_visible_loaded[i] = 0u;
+        app->band_queue_depth[i] = 0u;
     }
     app->queue_valid = false;
     app->loading_layer_index = 0;
@@ -642,7 +955,7 @@ void app_clear_tile_queue(AppState *app) {
 }
 
 static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, TileLayerKind kind,
-    uint16_t z, TileCoord top_left, TileCoord bottom_right) {
+    uint16_t z, TileCoord top_left, TileCoord bottom_right, TileZoomBand band) {
     if (!app) {
         return;
     }
@@ -676,7 +989,7 @@ static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, Til
     for (uint32_t y = top_left.y; y <= bottom_right.y; ++y) {
         for (uint32_t x = top_left.x; x <= bottom_right.x; ++x) {
             TileCoord coord = {z, x, y};
-            const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[kind], coord);
+            const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[kind], coord, band);
             if (tile) {
                 continue;
             }
@@ -707,7 +1020,8 @@ static void app_process_tile_queue(AppState *app, TileQueue *queue, TileLayerKin
     uint32_t load_count = budget < remaining ? budget : remaining;
     for (uint32_t i = 0; i < load_count; ++i) {
         TileQueueItem item = queue->items[queue->index++];
-        if (!tile_loader_enqueue(&app->tile_loader, item.coord, kind, app->tile_request_id)) {
+        TileZoomBand band = app->queue_band[kind];
+        if (!tile_loader_enqueue(&app->tile_loader, item.coord, kind, band, app->tile_request_id)) {
             queue->index -= 1;
             break;
         }
@@ -750,16 +1064,16 @@ void app_drain_tile_results(AppState *app, uint32_t budget) {
 
         if (app->vk_assets_enabled && app_kind_is_polygon(result.kind)) {
             if (!app_vk_poly_prep_enqueue(app, &result)) {
-                if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, &result.tile)) {
+                if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, result.band, &result.tile)) {
                     mft_free_tile(&result.tile);
                     continue;
                 }
-                app_vk_asset_enqueue(app, result.kind, result.coord);
+                app_vk_asset_enqueue(app, result.kind, result.coord, result.band);
             }
             continue;
         }
 
-        if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, &result.tile)) {
+        if (!tile_manager_put_tile(&app->tile_managers[result.kind], result.coord, result.band, &result.tile)) {
             mft_free_tile(&result.tile);
             continue;
         }
@@ -767,9 +1081,9 @@ void app_drain_tile_results(AppState *app, uint32_t budget) {
         if (app->vk_assets_enabled &&
             (result.kind == TILE_LAYER_ROAD_ARTERY ||
              result.kind == TILE_LAYER_ROAD_LOCAL)) {
-            const MftTile *cached = tile_manager_peek_tile(&app->tile_managers[result.kind], result.coord);
+            const MftTile *cached = tile_manager_peek_tile(&app->tile_managers[result.kind], result.coord, result.band);
             if (cached) {
-                vk_tile_cache_on_tile_loaded(&app->vk_tile_cache, app->renderer.vk, result.kind, result.coord, cached);
+                vk_tile_cache_on_tile_loaded(&app->vk_tile_cache, app->renderer.vk, result.kind, result.coord, result.band, cached);
             }
         }
     }
@@ -852,11 +1166,30 @@ void app_update_tile_queue(AppState *app) {
     app->visible_bottom_right = bottom_right;
     app->visible_valid = true;
     app->visible_tile_count = (bottom_right.x - top_left.x + 1) * (bottom_right.y - top_left.y + 1);
+    for (size_t i = 0; i < layer_policy_count(); ++i) {
+        const LayerPolicy *policy = layer_policy_at(i);
+        if (!policy) {
+            continue;
+        }
+        app->layer_target_band[policy->kind] = app_layer_target_band(app, policy->kind);
+    }
 
     bool bounds_changed = !app->queue_valid ||
         app->queue_zoom != z ||
         app->queue_top_left.x != top_left.x || app->queue_top_left.y != top_left.y ||
         app->queue_bottom_right.x != bottom_right.x || app->queue_bottom_right.y != bottom_right.y;
+    if (!bounds_changed) {
+        for (size_t i = 0; i < layer_policy_count(); ++i) {
+            const LayerPolicy *policy = layer_policy_at(i);
+            if (!policy) {
+                continue;
+            }
+            if (app->queue_band[policy->kind] != app->layer_target_band[policy->kind]) {
+                bounds_changed = true;
+                break;
+            }
+        }
+    }
 
     if (bounds_changed) {
         app->tile_request_id += 1;
@@ -866,11 +1199,13 @@ void app_update_tile_queue(AppState *app) {
                 continue;
             }
             TileLayerKind kind = policy->kind;
-            app_rebuild_tile_queue_for_kind(app, &app->tile_queues[kind], kind, z, top_left, bottom_right);
+            TileZoomBand band = app->layer_target_band[kind];
+            app->queue_band[kind] = band;
+            app_rebuild_tile_queue_for_kind(app, &app->tile_queues[kind], kind, z, top_left, bottom_right, band);
         }
-        uint32_t buffer = app->visible_tile_count / 2;
-        if (buffer < 16) {
-            buffer = 16;
+        uint32_t buffer = app->visible_tile_count;
+        if (buffer < 64u) {
+            buffer = 64u;
         }
         uint32_t target_capacity = app->visible_tile_count + buffer;
         for (size_t i = 0; i < layer_policy_count(); ++i) {
@@ -889,6 +1224,25 @@ void app_update_tile_queue(AppState *app) {
 
     if (!app->queue_valid) {
         return;
+    }
+
+    for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
+        app->band_queue_depth[i] = 0u;
+    }
+    for (size_t i = 0; i < layer_policy_count(); ++i) {
+        const LayerPolicy *policy = layer_policy_at(i);
+        if (!policy || !app_layer_active_runtime(app, policy->kind)) {
+            continue;
+        }
+        TileQueue *queue = &app->tile_queues[policy->kind];
+        uint32_t remaining = 0u;
+        if (queue->count > queue->index) {
+            remaining = queue->count - queue->index;
+        }
+        TileZoomBand band = app->queue_band[policy->kind];
+        if ((size_t)band < TILE_BAND_COUNT) {
+            app->band_queue_depth[band] += remaining + app->layer_inflight[policy->kind];
+        }
     }
 
     app_refresh_layer_states(app);
@@ -932,5 +1286,24 @@ void app_update_tile_queue(AppState *app) {
             }
         }
         app_process_tile_queue(app, queue, policy->kind, budget);
+    }
+
+    for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
+        app->band_queue_depth[i] = 0u;
+    }
+    for (size_t i = 0; i < layer_policy_count(); ++i) {
+        const LayerPolicy *policy = layer_policy_at(i);
+        if (!policy || !app_layer_active_runtime(app, policy->kind)) {
+            continue;
+        }
+        TileQueue *queue = &app->tile_queues[policy->kind];
+        uint32_t remaining = 0u;
+        if (queue->count > queue->index) {
+            remaining = queue->count - queue->index;
+        }
+        TileZoomBand band = app->queue_band[policy->kind];
+        if ((size_t)band < TILE_BAND_COUNT) {
+            app->band_queue_depth[band] += remaining + app->layer_inflight[policy->kind];
+        }
     }
 }

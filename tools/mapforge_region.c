@@ -1,9 +1,11 @@
 #include "core/log.h"
 #include "map/mercator.h"
 #include "map/mft_loader.h"
+#include "map/tile_layers.h"
 #include "map/tile_math.h"
 
 #include <errno.h>
+#include <dirent.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,6 +14,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #define TILE_EXTENT 4096.0
 #define MFT_WATER_VARIANT_COUNT 3
@@ -73,6 +76,19 @@ typedef struct BuildContext {
     double max_lat;
     double max_lon;
     bool has_bounds;
+    uint64_t files_written_total;
+    uint64_t files_written_legacy;
+    uint64_t files_written_banded;
+    uint64_t files_written_contour;
+    uint64_t layer_artery_files;
+    uint64_t layer_local_files;
+    uint64_t layer_water_files;
+    uint64_t layer_park_files;
+    uint64_t layer_landuse_files;
+    uint64_t layer_building_files;
+    uint64_t band_coarse_files;
+    uint64_t band_mid_files;
+    uint64_t band_fine_files;
 } BuildContext;
 
 // Stores CLI options for the region build.
@@ -83,7 +99,44 @@ typedef struct BuildOptions {
     const char *out_dir;
     uint16_t min_z;
     uint16_t max_z;
+    bool replace;
+    uint32_t keep_old;
+    uint32_t prune_days;
+    bool prune_dry_run;
+    bool pad_bounds;
+    bool emit_contour_empty;
+    bool emit_legacy_tiles;
 } BuildOptions;
+
+static TileZoomBand road_band_for_tile_z(uint16_t z, uint16_t min_z, uint16_t max_z) {
+    if (max_z <= min_z) {
+        return TILE_BAND_FINE;
+    }
+    uint16_t span = (uint16_t)(max_z - min_z);
+    uint16_t coarse_max = (uint16_t)(min_z + (span / 3u));
+    uint16_t mid_max = (uint16_t)(min_z + ((2u * span) / 3u));
+    if (z <= coarse_max) {
+        return TILE_BAND_COARSE;
+    }
+    if (z <= mid_max) {
+        return TILE_BAND_MID;
+    }
+    return TILE_BAND_FINE;
+}
+
+static const char *road_band_label(TileZoomBand band) {
+    switch (band) {
+        case TILE_BAND_COARSE:
+            return "coarse";
+        case TILE_BAND_MID:
+            return "mid";
+        case TILE_BAND_FINE:
+            return "fine";
+        case TILE_BAND_DEFAULT:
+        default:
+            return "default";
+    }
+}
 
 // Hashes an OSM node ID for the node map.
 static uint64_t hash_id(int64_t id) {
@@ -794,23 +847,186 @@ static bool ensure_dir(const char *path) {
     return errno == EEXIST;
 }
 
+// Returns true when a filesystem path exists.
+static bool path_exists(const char *path) {
+    struct stat st;
+    if (!path) {
+        return false;
+    }
+    return stat(path, &st) == 0;
+}
+
+// Returns true when a filesystem path is a directory.
+static bool path_is_dir(const char *path) {
+    struct stat st;
+    if (!path) {
+        return false;
+    }
+    if (stat(path, &st) != 0) {
+        return false;
+    }
+    return S_ISDIR(st.st_mode);
+}
+
+// Recursively creates all parent path segments.
+static bool ensure_dir_recursive(const char *path) {
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+
+    char buffer[512];
+    snprintf(buffer, sizeof(buffer), "%s", path);
+    size_t len = strlen(buffer);
+    if (len == 0u) {
+        return false;
+    }
+
+    if (buffer[len - 1] == '/') {
+        buffer[len - 1] = '\0';
+    }
+
+    for (char *p = buffer + 1; *p != '\0'; ++p) {
+        if (*p != '/') {
+            continue;
+        }
+        *p = '\0';
+        if (!ensure_dir(buffer)) {
+            return false;
+        }
+        *p = '/';
+    }
+
+    return ensure_dir(buffer);
+}
+
+// Splits a filesystem path into parent directory and leaf name.
+static bool split_parent_name(const char *path, char *out_parent, size_t parent_size, char *out_name, size_t name_size) {
+    if (!path || !out_parent || !out_name || parent_size == 0u || name_size == 0u) {
+        return false;
+    }
+
+    const char *slash = strrchr(path, '/');
+    if (!slash) {
+        snprintf(out_parent, parent_size, ".");
+        snprintf(out_name, name_size, "%s", path);
+        return true;
+    }
+
+    size_t parent_len = (size_t)(slash - path);
+    if (parent_len == 0u) {
+        snprintf(out_parent, parent_size, "/");
+    } else {
+        if (parent_len >= parent_size) {
+            return false;
+        }
+        memcpy(out_parent, path, parent_len);
+        out_parent[parent_len] = '\0';
+    }
+
+    snprintf(out_name, name_size, "%s", slash + 1);
+    return out_name[0] != '\0';
+}
+
+// Removes a file tree recursively when present.
+static bool remove_tree(const char *path) {
+    struct stat st;
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+
+    if (lstat(path, &st) != 0) {
+        return errno == ENOENT;
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+        DIR *dir = opendir(path);
+        if (!dir) {
+            return false;
+        }
+
+        struct dirent *entry = NULL;
+        while ((entry = readdir(dir)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                continue;
+            }
+            char child[512];
+            snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
+            if (!remove_tree(child)) {
+                closedir(dir);
+                return false;
+            }
+        }
+        closedir(dir);
+        return rmdir(path) == 0;
+    }
+
+    return unlink(path) == 0;
+}
+
+// Returns true when a file has a given suffix.
+static bool string_has_suffix(const char *value, const char *suffix) {
+    if (!value || !suffix) {
+        return false;
+    }
+    size_t value_len = strlen(value);
+    size_t suffix_len = strlen(suffix);
+    if (suffix_len > value_len) {
+        return false;
+    }
+    return strcmp(value + (value_len - suffix_len), suffix) == 0;
+}
+
+// Scans a directory tree and returns true on the first matching suffix.
+static bool tree_has_file_suffix(const char *root, const char *suffix) {
+    DIR *dir = NULL;
+    struct dirent *entry = NULL;
+    if (!root || !suffix) {
+        return false;
+    }
+
+    dir = opendir(root);
+    if (!dir) {
+        return false;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char path[512];
+        struct stat st;
+        snprintf(path, sizeof(path), "%s/%s", root, entry->d_name);
+        if (lstat(path, &st) != 0) {
+            continue;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            if (tree_has_file_suffix(path, suffix)) {
+                closedir(dir);
+                return true;
+            }
+            continue;
+        }
+        if (S_ISREG(st.st_mode) && string_has_suffix(entry->d_name, suffix)) {
+            closedir(dir);
+            return true;
+        }
+    }
+
+    closedir(dir);
+    return false;
+}
+
 // Builds the output path for a tile and creates parent directories.
-static bool ensure_tile_path(const char *base_dir, TileCoord coord, const char *suffix, char *out_path, size_t out_size) {
-    if (!base_dir || !out_path || out_size == 0) {
+static bool ensure_tile_path_from_root(const char *root_dir, TileCoord coord, const char *suffix, char *out_path, size_t out_size) {
+    if (!root_dir || !out_path || out_size == 0) {
         return false;
     }
     if (!suffix) {
         suffix = "mft";
     }
 
-    char tiles_dir[512];
-    snprintf(tiles_dir, sizeof(tiles_dir), "%s/tiles", base_dir);
-    if (!ensure_dir(base_dir) || !ensure_dir(tiles_dir)) {
-        return false;
-    }
-
     char z_dir[512];
-    snprintf(z_dir, sizeof(z_dir), "%s/%u", tiles_dir, coord.z);
+    snprintf(z_dir, sizeof(z_dir), "%s/%u", root_dir, coord.z);
     if (!ensure_dir(z_dir)) {
         return false;
     }
@@ -825,6 +1041,30 @@ static bool ensure_tile_path(const char *base_dir, TileCoord coord, const char *
     return true;
 }
 
+static bool ensure_tile_path(const char *base_dir, TileCoord coord, const char *suffix, char *out_path, size_t out_size) {
+    if (!base_dir || !out_path || out_size == 0) {
+        return false;
+    }
+    char tiles_dir[512];
+    snprintf(tiles_dir, sizeof(tiles_dir), "%s/tiles", base_dir);
+    if (!ensure_dir(base_dir) || !ensure_dir(tiles_dir)) {
+        return false;
+    }
+    return ensure_tile_path_from_root(tiles_dir, coord, suffix, out_path, out_size);
+}
+
+static bool ensure_band_root_dir(const char *base_dir, const char *band_label, char *out_dir, size_t out_size) {
+    if (!base_dir || !band_label || !out_dir || out_size == 0u) {
+        return false;
+    }
+    char tiles_dir[512];
+    char bands_dir[512];
+    snprintf(tiles_dir, sizeof(tiles_dir), "%s/tiles", base_dir);
+    snprintf(bands_dir, sizeof(bands_dir), "%s/bands", tiles_dir);
+    snprintf(out_dir, out_size, "%s/%s", bands_dir, band_label);
+    return ensure_dir(base_dir) && ensure_dir(tiles_dir) && ensure_dir(bands_dir) && ensure_dir(out_dir);
+}
+
 static bool road_class_is_artery(RoadClass road_class) {
     return road_class == ROAD_CLASS_MOTORWAY ||
         road_class == ROAD_CLASS_TRUNK ||
@@ -832,13 +1072,53 @@ static bool road_class_is_artery(RoadClass road_class) {
         road_class == ROAD_CLASS_SECONDARY;
 }
 
-static bool write_tile_file_roads(const char *base_dir, const TileOutput *tile, const char *suffix, bool want_artery) {
-    if (!base_dir || !tile || !suffix) {
+// Records per-layer and per-band file output counters for build diagnostics.
+static void record_file_write(BuildContext *ctx, const char *suffix, bool is_legacy, TileZoomBand band) {
+    if (!ctx || !suffix) {
+        return;
+    }
+
+    ctx->files_written_total += 1u;
+    if (is_legacy) {
+        ctx->files_written_legacy += 1u;
+    } else {
+        ctx->files_written_banded += 1u;
+    }
+
+    if (strcmp(suffix, "artery.mft") == 0) {
+        ctx->layer_artery_files += 1u;
+    } else if (strcmp(suffix, "local.mft") == 0) {
+        ctx->layer_local_files += 1u;
+    } else if (strcmp(suffix, "water.mft") == 0) {
+        ctx->layer_water_files += 1u;
+    } else if (strcmp(suffix, "park.mft") == 0) {
+        ctx->layer_park_files += 1u;
+    } else if (strcmp(suffix, "landuse.mft") == 0) {
+        ctx->layer_landuse_files += 1u;
+    } else if (strcmp(suffix, "building.mft") == 0) {
+        ctx->layer_building_files += 1u;
+    } else if (strcmp(suffix, "contour.mft") == 0) {
+        ctx->files_written_contour += 1u;
+    }
+
+    if (!is_legacy) {
+        if (band == TILE_BAND_COARSE) {
+            ctx->band_coarse_files += 1u;
+        } else if (band == TILE_BAND_MID) {
+            ctx->band_mid_files += 1u;
+        } else if (band == TILE_BAND_FINE) {
+            ctx->band_fine_files += 1u;
+        }
+    }
+}
+
+static bool write_tile_file_roads_at_root(const char *root_dir, const TileOutput *tile, const char *suffix, bool want_artery) {
+    if (!root_dir || !tile || !suffix) {
         return false;
     }
 
     char path[512];
-    if (!ensure_tile_path(base_dir, tile->coord, suffix, path, sizeof(path))) {
+    if (!ensure_tile_path_from_root(root_dir, tile->coord, suffix, path, sizeof(path))) {
         return false;
     }
 
@@ -894,6 +1174,42 @@ static bool write_tile_file_roads(const char *base_dir, const TileOutput *tile, 
     return true;
 }
 
+static bool write_tile_file_roads(const char *base_dir,
+                                  BuildContext *ctx,
+                                  const TileOutput *tile,
+                                  const BuildOptions *options,
+                                  const char *suffix,
+                                  bool want_artery) {
+    if (!base_dir || !tile || !options || !suffix) {
+        return false;
+    }
+    char legacy_root[512];
+    snprintf(legacy_root, sizeof(legacy_root), "%s/tiles", base_dir);
+    if (!ensure_dir(base_dir)) {
+        return false;
+    }
+    if (options->emit_legacy_tiles) {
+        if (!ensure_dir(legacy_root)) {
+            return false;
+        }
+        if (!write_tile_file_roads_at_root(legacy_root, tile, suffix, want_artery)) {
+            return false;
+        }
+        record_file_write(ctx, suffix, true, TILE_BAND_DEFAULT);
+    }
+    TileZoomBand band = road_band_for_tile_z(tile->coord.z, options->min_z, options->max_z);
+    const char *band_label = road_band_label(band);
+    char band_root[512];
+    if (!ensure_band_root_dir(base_dir, band_label, band_root, sizeof(band_root))) {
+        return false;
+    }
+    if (!write_tile_file_roads_at_root(band_root, tile, suffix, want_artery)) {
+        return false;
+    }
+    record_file_write(ctx, suffix, false, band);
+    return true;
+}
+
 // Writes an empty split MFT tile payload for a layer placeholder.
 static bool write_empty_tile_file(const char *base_dir, TileCoord coord, const char *suffix) {
     if (!base_dir || !suffix) {
@@ -930,13 +1246,13 @@ static bool write_empty_tile_file(const char *base_dir, TileCoord coord, const c
     return true;
 }
 
-static bool write_tile_file_polygons(const char *base_dir, const TileOutput *tile, const char *suffix, PolygonClass polygon_class) {
-    if (!base_dir || !tile || !suffix) {
+static bool write_tile_file_polygons_at_root(const char *root_dir, const TileOutput *tile, const char *suffix, PolygonClass polygon_class) {
+    if (!root_dir || !tile || !suffix) {
         return false;
     }
 
     char path[512];
-    if (!ensure_tile_path(base_dir, tile->coord, suffix, path, sizeof(path))) {
+    if (!ensure_tile_path_from_root(root_dir, tile->coord, suffix, path, sizeof(path))) {
         return false;
     }
 
@@ -1053,32 +1369,84 @@ static bool write_tile_file_polygons(const char *base_dir, const TileOutput *til
     return true;
 }
 
+static bool write_tile_file_polygons(const char *base_dir,
+                                     BuildContext *ctx,
+                                     const TileOutput *tile,
+                                     const BuildOptions *options,
+                                     const char *suffix,
+                                     PolygonClass polygon_class) {
+    if (!base_dir || !tile || !options || !suffix) {
+        return false;
+    }
+    char legacy_root[512];
+    snprintf(legacy_root, sizeof(legacy_root), "%s/tiles", base_dir);
+    if (!ensure_dir(base_dir)) {
+        return false;
+    }
+    if (options->emit_legacy_tiles) {
+        if (!ensure_dir(legacy_root)) {
+            return false;
+        }
+        if (!write_tile_file_polygons_at_root(legacy_root, tile, suffix, polygon_class)) {
+            return false;
+        }
+        record_file_write(ctx, suffix, true, TILE_BAND_DEFAULT);
+    }
+
+    bool band_enabled = (polygon_class == POLYGON_CLASS_WATER ||
+                         polygon_class == POLYGON_CLASS_PARK ||
+                         polygon_class == POLYGON_CLASS_LANDUSE ||
+                         polygon_class == POLYGON_CLASS_BUILDING);
+    if (!band_enabled) {
+        return true;
+    }
+
+    TileZoomBand band = road_band_for_tile_z(tile->coord.z, options->min_z, options->max_z);
+    if (polygon_class == POLYGON_CLASS_BUILDING && band != TILE_BAND_FINE) {
+        // Keep building pyramid conservative: fine band only for now.
+        return true;
+    }
+    const char *band_label = road_band_label(band);
+    char band_root[512];
+    if (!ensure_band_root_dir(base_dir, band_label, band_root, sizeof(band_root))) {
+        return false;
+    }
+    if (!write_tile_file_polygons_at_root(band_root, tile, suffix, polygon_class)) {
+        return false;
+    }
+    record_file_write(ctx, suffix, false, band);
+    return true;
+}
+
 // Writes split MFT tile files to disk.
-static bool write_tile_file(const char *base_dir, const TileOutput *tile) {
-    if (!base_dir || !tile) {
+static bool write_tile_file(const BuildOptions *options, BuildContext *ctx, const TileOutput *tile) {
+    if (!options || !options->out_dir || !ctx || !tile) {
         return false;
     }
 
-    if (!write_tile_file_roads(base_dir, tile, "artery.mft", true)) {
+    if (!write_tile_file_roads(options->out_dir, ctx, tile, options, "artery.mft", true)) {
         return false;
     }
-    if (!write_tile_file_roads(base_dir, tile, "local.mft", false)) {
+    if (!write_tile_file_roads(options->out_dir, ctx, tile, options, "local.mft", false)) {
         return false;
     }
-    if (!write_tile_file_polygons(base_dir, tile, "water.mft", POLYGON_CLASS_WATER)) {
+    if (!write_tile_file_polygons(options->out_dir, ctx, tile, options, "water.mft", POLYGON_CLASS_WATER)) {
         return false;
     }
-    if (!write_tile_file_polygons(base_dir, tile, "park.mft", POLYGON_CLASS_PARK)) {
+    if (!write_tile_file_polygons(options->out_dir, ctx, tile, options, "park.mft", POLYGON_CLASS_PARK)) {
         return false;
     }
-    if (!write_tile_file_polygons(base_dir, tile, "landuse.mft", POLYGON_CLASS_LANDUSE)) {
+    if (!write_tile_file_polygons(options->out_dir, ctx, tile, options, "landuse.mft", POLYGON_CLASS_LANDUSE)) {
         return false;
     }
-    if (!write_tile_file_polygons(base_dir, tile, "building.mft", POLYGON_CLASS_BUILDING)) {
+    if (!write_tile_file_polygons(options->out_dir, ctx, tile, options, "building.mft", POLYGON_CLASS_BUILDING)) {
         return false;
     }
-    if (!write_empty_tile_file(base_dir, tile->coord, "contour.mft")) {
-        return false;
+    if (options->emit_contour_empty) {
+        if (!write_empty_tile_file(options->out_dir, tile->coord, "contour.mft")) {
+            return false;
+        }
+        record_file_write(ctx, "contour.mft", true, TILE_BAND_DEFAULT);
     }
     return true;
 }
@@ -1124,15 +1492,297 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
     fprintf(file, "        \"max_z\": %u,\n", options->max_z);
     fprintf(file, "        \"extent\": %u\n", (unsigned)TILE_EXTENT);
     fprintf(file, "    },\n");
+    fprintf(file, "    \"tile_pyramid\": {\n");
+    fprintf(file, "        \"roads\": {\n");
+    fprintf(file, "            \"enabled\": true,\n");
+    fprintf(file, "            \"bands\": {\n");
+    fprintf(file, "                \"coarse\": {\"label\": \"coarse\"},\n");
+    fprintf(file, "                \"mid\": {\"label\": \"mid\"},\n");
+    fprintf(file, "                \"fine\": {\"label\": \"fine\"}\n");
+    fprintf(file, "            }\n");
+    fprintf(file, "        }\n");
+    fprintf(file, "    },\n");
     fprintf(file, "    \"contours\": {\n");
     fprintf(file, "        \"enabled\": %s,\n", (options->dem_path && options->dem_path[0] != '\0') ? "true" : "false");
     fprintf(file, "        \"phase\": \"A_scaffold\",\n");
     fprintf(file, "        \"interval_m\": 10,\n");
     fprintf(file, "        \"major_every\": 5\n");
+    fprintf(file, "    },\n");
+    fprintf(file, "    \"build_options\": {\n");
+    fprintf(file, "        \"pad_bounds\": %s,\n", options->pad_bounds ? "true" : "false");
+    fprintf(file, "        \"emit_contour_empty\": %s,\n", options->emit_contour_empty ? "true" : "false");
+    fprintf(file, "        \"emit_legacy_tiles\": %s,\n", options->emit_legacy_tiles ? "true" : "false");
+    fprintf(file, "        \"replace\": %s,\n", options->replace ? "true" : "false");
+    fprintf(file, "        \"keep_old\": %u,\n", options->keep_old);
+    fprintf(file, "        \"prune_days\": %u\n", options->prune_days);
+    fprintf(file, "    },\n");
+    fprintf(file, "    \"output_stats\": {\n");
+    fprintf(file, "        \"tile_count\": %zu,\n", ctx->tile_count);
+    fprintf(file, "        \"files_written_total\": %llu,\n", (unsigned long long)ctx->files_written_total);
+    fprintf(file, "        \"files_written_legacy\": %llu,\n", (unsigned long long)ctx->files_written_legacy);
+    fprintf(file, "        \"files_written_banded\": %llu,\n", (unsigned long long)ctx->files_written_banded);
+    fprintf(file, "        \"files_written_contour\": %llu,\n", (unsigned long long)ctx->files_written_contour);
+    fprintf(file, "        \"layers\": {\n");
+    fprintf(file, "            \"artery\": %llu,\n", (unsigned long long)ctx->layer_artery_files);
+    fprintf(file, "            \"local\": %llu,\n", (unsigned long long)ctx->layer_local_files);
+    fprintf(file, "            \"water\": %llu,\n", (unsigned long long)ctx->layer_water_files);
+    fprintf(file, "            \"park\": %llu,\n", (unsigned long long)ctx->layer_park_files);
+    fprintf(file, "            \"landuse\": %llu,\n", (unsigned long long)ctx->layer_landuse_files);
+    fprintf(file, "            \"building\": %llu\n", (unsigned long long)ctx->layer_building_files);
+    fprintf(file, "        },\n");
+    fprintf(file, "        \"bands\": {\n");
+    fprintf(file, "            \"coarse\": %llu,\n", (unsigned long long)ctx->band_coarse_files);
+    fprintf(file, "            \"mid\": %llu,\n", (unsigned long long)ctx->band_mid_files);
+    fprintf(file, "            \"fine\": %llu\n", (unsigned long long)ctx->band_fine_files);
+    fprintf(file, "        }\n");
     fprintf(file, "    }\n");
     fprintf(file, "}\n");
 
     fclose(file);
+    return true;
+}
+
+typedef struct SnapshotEntry {
+    char path[512];
+    time_t mtime;
+} SnapshotEntry;
+
+// Compares snapshot entries by descending modification time.
+static int snapshot_entry_compare_desc(const void *a, const void *b) {
+    const SnapshotEntry *left = (const SnapshotEntry *)a;
+    const SnapshotEntry *right = (const SnapshotEntry *)b;
+    if (left->mtime == right->mtime) {
+        return strcmp(left->path, right->path);
+    }
+    return (left->mtime > right->mtime) ? -1 : 1;
+}
+
+// Prunes snapshot directories by keep-old count and optional max age.
+static void prune_snapshot_dir(const char *snapshot_root, uint32_t keep_old, uint32_t prune_days, bool dry_run) {
+    DIR *dir = NULL;
+    struct dirent *entry = NULL;
+    SnapshotEntry *items = NULL;
+    size_t count = 0u;
+    size_t capacity = 0u;
+    time_t now = time(NULL);
+    time_t prune_seconds = (prune_days > 0u) ? (time_t)prune_days * 24 * 60 * 60 : 0;
+
+    if (!snapshot_root || !path_is_dir(snapshot_root)) {
+        return;
+    }
+
+    dir = opendir(snapshot_root);
+    if (!dir) {
+        return;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char path[512];
+        struct stat st;
+        snprintf(path, sizeof(path), "%s/%s", snapshot_root, entry->d_name);
+        if (stat(path, &st) != 0) {
+            continue;
+        }
+        if (!S_ISDIR(st.st_mode)) {
+            continue;
+        }
+
+        if (count == capacity) {
+            size_t next = (capacity == 0u) ? 16u : capacity * 2u;
+            SnapshotEntry *next_items = (SnapshotEntry *)realloc(items, next * sizeof(SnapshotEntry));
+            if (!next_items) {
+                free(items);
+                closedir(dir);
+                return;
+            }
+            items = next_items;
+            capacity = next;
+        }
+
+        snprintf(items[count].path, sizeof(items[count].path), "%s", path);
+        items[count].mtime = st.st_mtime;
+        count += 1u;
+    }
+
+    closedir(dir);
+
+    if (count == 0u) {
+        free(items);
+        return;
+    }
+
+    qsort(items, count, sizeof(SnapshotEntry), snapshot_entry_compare_desc);
+
+    for (size_t i = 0u; i < count; ++i) {
+        bool remove_by_count = i >= keep_old;
+        bool remove_by_age = false;
+        if (prune_seconds > 0 && now >= items[i].mtime) {
+            remove_by_age = (now - items[i].mtime) > prune_seconds;
+        }
+        if (!remove_by_count && !remove_by_age) {
+            continue;
+        }
+
+        if (dry_run) {
+            log_info("dry-run prune snapshot: %s", items[i].path);
+            continue;
+        }
+        if (!remove_tree(items[i].path)) {
+            log_error("Failed to prune snapshot: %s", items[i].path);
+        } else {
+            log_info("Pruned snapshot: %s", items[i].path);
+        }
+    }
+
+    free(items);
+}
+
+// Prunes stale staging directories older than prune_days.
+static void prune_staging_dirs(const char *staging_root, uint32_t prune_days, bool dry_run) {
+    DIR *dir = NULL;
+    struct dirent *entry = NULL;
+    time_t now = time(NULL);
+    time_t prune_seconds = (prune_days > 0u) ? (time_t)prune_days * 24 * 60 * 60 : 0;
+    if (!staging_root || prune_seconds == 0 || !path_is_dir(staging_root)) {
+        return;
+    }
+
+    dir = opendir(staging_root);
+    if (!dir) {
+        return;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char path[512];
+        struct stat st;
+        snprintf(path, sizeof(path), "%s/%s", staging_root, entry->d_name);
+        if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+            continue;
+        }
+        if (now < st.st_mtime || (now - st.st_mtime) <= prune_seconds) {
+            continue;
+        }
+        if (dry_run) {
+            log_info("dry-run prune staging dir: %s", path);
+            continue;
+        }
+        if (!remove_tree(path)) {
+            log_error("Failed to prune stale staging dir: %s", path);
+        } else {
+            log_info("Pruned stale staging dir: %s", path);
+        }
+    }
+
+    closedir(dir);
+}
+
+// Builds staging and snapshot root paths for region publish.
+static bool build_publish_paths(const char *active_dir,
+                                char *out_stage_dir,
+                                size_t stage_size,
+                                char *out_snapshot_root,
+                                size_t snapshot_size,
+                                char *out_staging_root,
+                                size_t staging_root_size) {
+    char parent[512];
+    char name[256];
+    time_t now = time(NULL);
+    long pid = (long)getpid();
+
+    if (!active_dir || !out_stage_dir || !out_snapshot_root || !out_staging_root) {
+        return false;
+    }
+    if (!split_parent_name(active_dir, parent, sizeof(parent), name, sizeof(name))) {
+        return false;
+    }
+    snprintf(out_staging_root, staging_root_size, "%s/.staging", parent);
+    snprintf(out_snapshot_root, snapshot_size, "%s/.snapshots/%s", parent, name);
+    snprintf(out_stage_dir, stage_size, "%s/%s.%ld.%ld", out_staging_root, name, (long)now, pid);
+    return true;
+}
+
+// Validates staged output before publish.
+static bool validate_staged_region(const char *stage_dir) {
+    char meta_path[512];
+    char tiles_path[512];
+    struct stat st;
+
+    if (!stage_dir) {
+        return false;
+    }
+
+    snprintf(meta_path, sizeof(meta_path), "%s/meta.json", stage_dir);
+    snprintf(tiles_path, sizeof(tiles_path), "%s/tiles", stage_dir);
+
+    if (stat(meta_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        log_error("staged region missing meta.json: %s", meta_path);
+        return false;
+    }
+    if (stat(tiles_path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        log_error("staged region missing tiles dir: %s", tiles_path);
+        return false;
+    }
+    if (!tree_has_file_suffix(tiles_path, ".mft")) {
+        log_error("staged region missing tile payload files: %s", tiles_path);
+        return false;
+    }
+    return true;
+}
+
+// Publishes staged region output with rollback support.
+static bool publish_region_pack(const BuildOptions *options, const char *stage_dir, const char *active_dir, const char *snapshot_root) {
+    char snapshot_path[512];
+    char active_parent[512];
+    char active_name[256];
+    bool moved_active = false;
+    time_t now = time(NULL);
+    long pid = (long)getpid();
+
+    if (!options || !stage_dir || !active_dir || !snapshot_root) {
+        return false;
+    }
+    if (!split_parent_name(active_dir, active_parent, sizeof(active_parent), active_name, sizeof(active_name))) {
+        return false;
+    }
+
+    snprintf(snapshot_path, sizeof(snapshot_path), "%s/%s.%ld.%ld", snapshot_root, active_name, (long)now, pid);
+
+    if (path_exists(active_dir)) {
+        if (options->replace) {
+            if (!remove_tree(active_dir)) {
+                log_error("Failed to remove existing region dir: %s", active_dir);
+                return false;
+            }
+        } else {
+            if (!ensure_dir_recursive(snapshot_root)) {
+                log_error("Failed to ensure snapshot root: %s", snapshot_root);
+                return false;
+            }
+            if (rename(active_dir, snapshot_path) != 0) {
+                log_error("Failed to move active region into snapshot: %s", strerror(errno));
+                return false;
+            }
+            moved_active = true;
+        }
+    }
+
+    if (rename(stage_dir, active_dir) != 0) {
+        log_error("Failed to publish staged region: %s", strerror(errno));
+        if (moved_active && rename(snapshot_path, active_dir) != 0) {
+            log_error("Rollback failed for region publish: %s", strerror(errno));
+        }
+        return false;
+    }
+
+    if (!options->replace) {
+        prune_snapshot_dir(snapshot_root, options->keep_old, options->prune_days, options->prune_dry_run);
+    }
     return true;
 }
 
@@ -1371,7 +2021,7 @@ static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
 
 // Prints CLI usage to stdout.
 static void usage(void) {
-    printf("mapforge_region --region <name> --osm <file.osm> [--dem <file.dem>] --out <dir> [--min-z N] [--max-z N]\n");
+    printf("mapforge_region --region <name> --osm <file.osm> [--dem <file.dem>] --out <dir> [--min-z N] [--max-z N] [--replace] [--keep-old N] [--prune-days N] [--prune-dry-run] [--pad-bounds] [--emit-contour-empty] [--emit-legacy-tiles]\n");
 }
 
 // Parses CLI arguments into build options.
@@ -1383,6 +2033,9 @@ static bool parse_args(int argc, char **argv, BuildOptions *options) {
     memset(options, 0, sizeof(*options));
     options->min_z = 12;
     options->max_z = 12;
+    options->keep_old = 1u;
+    options->prune_days = 30u;
+    options->emit_legacy_tiles = true;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--region") == 0 && i + 1 < argc) {
@@ -1397,6 +2050,22 @@ static bool parse_args(int argc, char **argv, BuildOptions *options) {
             options->min_z = (uint16_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--max-z") == 0 && i + 1 < argc) {
             options->max_z = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--replace") == 0) {
+            options->replace = true;
+        } else if (strcmp(argv[i], "--keep-old") == 0 && i + 1 < argc) {
+            options->keep_old = (uint32_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--prune-days") == 0 && i + 1 < argc) {
+            options->prune_days = (uint32_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--prune-dry-run") == 0) {
+            options->prune_dry_run = true;
+        } else if (strcmp(argv[i], "--pad-bounds") == 0) {
+            options->pad_bounds = true;
+        } else if (strcmp(argv[i], "--emit-contour-empty") == 0) {
+            options->emit_contour_empty = true;
+        } else if (strcmp(argv[i], "--emit-legacy-tiles") == 0) {
+            options->emit_legacy_tiles = true;
+        } else if (strcmp(argv[i], "--no-legacy-tiles") == 0) {
+            options->emit_legacy_tiles = false;
         } else {
             return false;
         }
@@ -1412,10 +2081,40 @@ static bool parse_args(int argc, char **argv, BuildOptions *options) {
 // Entry point for the region pack tool.
 int main(int argc, char **argv) {
     BuildOptions options;
+    char active_out_dir[512];
+    char stage_dir[512];
+    char snapshot_root[512];
+    char staging_root[512];
+    bool stage_created = false;
+
     if (!parse_args(argc, argv, &options)) {
         usage();
         return 1;
     }
+
+    snprintf(active_out_dir, sizeof(active_out_dir), "%s", options.out_dir);
+    if (!build_publish_paths(active_out_dir, stage_dir, sizeof(stage_dir), snapshot_root, sizeof(snapshot_root), staging_root, sizeof(staging_root))) {
+        log_error("Failed to build publish paths for output: %s", active_out_dir);
+        return 1;
+    }
+    if (!ensure_dir_recursive(staging_root)) {
+        log_error("Failed to create staging root: %s", staging_root);
+        return 1;
+    }
+    if (!options.replace && !ensure_dir_recursive(snapshot_root)) {
+        log_error("Failed to create snapshot root: %s", snapshot_root);
+        return 1;
+    }
+    if (!remove_tree(stage_dir)) {
+        log_error("Failed to remove previous staging dir: %s", stage_dir);
+        return 1;
+    }
+    if (!ensure_dir_recursive(stage_dir)) {
+        log_error("Failed to create stage dir: %s", stage_dir);
+        return 1;
+    }
+    stage_created = true;
+    options.out_dir = stage_dir;
 
     BuildContext ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -1425,25 +2124,53 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    ensure_tiles_for_bounds(&ctx, &options);
+    if (options.pad_bounds) {
+        ensure_tiles_for_bounds(&ctx, &options);
+    }
 
     if (ctx.tile_count == 0) {
         log_info("No tiles produced.");
         build_context_free(&ctx);
+        if (stage_created) {
+            remove_tree(stage_dir);
+        }
         return 0;
     }
 
     qsort(ctx.tiles, ctx.tile_count, sizeof(TileOutput), tile_coord_compare);
 
     for (size_t i = 0; i < ctx.tile_count; ++i) {
-        if (!write_tile_file(options.out_dir, &ctx.tiles[i])) {
+        if (!write_tile_file(&options, &ctx, &ctx.tiles[i])) {
             log_error("Failed to write tile %u/%u/%u", ctx.tiles[i].coord.z, ctx.tiles[i].coord.x, ctx.tiles[i].coord.y);
         }
     }
 
-    write_meta_json(&options, &ctx);
+    if (!write_meta_json(&options, &ctx)) {
+        log_error("Failed to write staged meta.json for region: %s", options.region);
+        build_context_free(&ctx);
+        if (stage_created) {
+            remove_tree(stage_dir);
+        }
+        return 1;
+    }
     build_context_free(&ctx);
 
-    log_info("Region pack generated at %s", options.out_dir);
+    if (!validate_staged_region(stage_dir)) {
+        if (stage_created) {
+            remove_tree(stage_dir);
+        }
+        return 1;
+    }
+
+    log_info("Publishing staged region pack: %s -> %s", stage_dir, active_out_dir);
+    if (!publish_region_pack(&options, stage_dir, active_out_dir, snapshot_root)) {
+        if (stage_created) {
+            remove_tree(stage_dir);
+        }
+        return 1;
+    }
+
+    prune_staging_dirs(staging_root, options.prune_days, options.prune_dry_run);
+    log_info("Region pack generated at %s", active_out_dir);
     return 0;
 }

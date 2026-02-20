@@ -117,12 +117,20 @@ static bool app_init(AppState *app) {
              app->renderer.vulkan_available ? "yes" : "no");
 
     app->vk_assets_enabled = renderer_get_backend(&app->renderer) == RENDERER_BACKEND_VULKAN;
-    if (!vk_tile_cache_init(&app->vk_tile_cache, 512)) {
+    if (!vk_tile_cache_init(&app->vk_tile_cache, 2048)) {
         log_error("vk_tile_cache_init failed");
         return false;
     }
     if (!app_vk_poly_prep_init(app)) {
         log_error("app_vk_poly_prep_init failed");
+        return false;
+    }
+    if (!app_vk_asset_worker_init(app)) {
+        log_error("app_vk_asset_worker_init failed");
+        return false;
+    }
+    if (!app_route_worker_init(app)) {
+        log_error("app_route_worker_init failed");
         return false;
     }
 
@@ -143,7 +151,7 @@ static bool app_init(AppState *app) {
     region_load_meta(info, &app->region);
 
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-        if (!tile_manager_init(&app->tile_managers[i], 128, app->region.tiles_dir)) {
+        if (!tile_manager_init(&app->tile_managers[i], 256, app->region.tiles_dir)) {
             log_error("tile_manager_init failed");
             return false;
         }
@@ -207,6 +215,8 @@ static void app_shutdown(AppState *app) {
     }
     tile_loader_shutdown(&app->tile_loader);
     app_vk_poly_prep_shutdown(app);
+    app_vk_asset_worker_shutdown(app);
+    app_route_worker_shutdown(app);
     vk_tile_cache_shutdown(&app->vk_tile_cache);
     route_state_shutdown(&app->route);
     app_clear_tile_queue(app);
@@ -235,6 +245,7 @@ int app_run(void) {
 
     while (!app.input.quit) {
         double frame_begin = time_now_seconds();
+        memset(&app.frame_timings, 0, sizeof(app.frame_timings));
         input_begin_frame(&app.input);
 
         SDL_Event event;
@@ -257,7 +268,7 @@ int app_run(void) {
                 region_load_meta(info, &app.region);
                 for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
                     tile_manager_shutdown(&app.tile_managers[i]);
-                    tile_manager_init(&app.tile_managers[i], 128, app.region.tiles_dir);
+                    tile_manager_init(&app.tile_managers[i], 256, app.region.tiles_dir);
                 }
                 tile_loader_shutdown(&app.tile_loader);
                 tile_loader_init(&app.tile_loader, app.region.tiles_dir);
@@ -270,6 +281,7 @@ int app_run(void) {
                 app.tile_request_id += 1;
                 app_load_route_graph(&app);
                 route_state_clear(&app.route);
+                app_route_worker_clear(&app);
                 app_playback_reset(&app);
                 app.building_zoom_bias = app_building_zoom_bias_for_region(&app.region);
                 app.road_zoom_bias = app_road_zoom_bias_for_region(&app.region);
@@ -279,7 +291,7 @@ int app_run(void) {
         if (app.input.toggle_profile_pressed) {
             app.route.fastest = !app.route.fastest;
             if (app.route.has_start && app.route.has_goal) {
-                app_recompute_route(&app);
+                app_route_schedule_recompute(&app, 0.0);
             }
         }
         if (app.input.toggle_landuse_pressed) {
@@ -340,7 +352,11 @@ int app_run(void) {
         debug_overlay_update(&app.overlay, dt);
 
         app_update_hover(&app);
+        double after_update = time_now_seconds();
+
+        app_route_poll_result(&app);
         app_update_tile_queue(&app);
+        double after_queue = time_now_seconds();
         uint32_t integrate_budget = app.active_layer_valid
             ? app_tile_integrate_budget(app.active_layer_kind, app.active_layer_expected)
             : APP_TILE_INTEGRATE_BUDGET;
@@ -355,13 +371,13 @@ int app_run(void) {
         if (app.input.copy_overlay_pressed) {
             app_copy_overlay_text(&app);
         }
-        double after_update = time_now_seconds();
+        double after_integrate = time_now_seconds();
 
         bool consumed_click = false;
         if (app.input.left_click_pressed && app_header_button_hit(&app, app.input.mouse_x, app.input.mouse_y)) {
             app.route.mode = (app.route.mode == ROUTE_MODE_CAR) ? ROUTE_MODE_WALK : ROUTE_MODE_CAR;
             if (app.route.has_start && app.route.has_goal) {
-                app_recompute_route(&app);
+                app_route_schedule_recompute(&app, 0.0);
             }
             consumed_click = true;
         } else if ((app.input.left_click_pressed || app.input.right_click_pressed || app.input.middle_click_pressed) &&
@@ -404,7 +420,7 @@ int app_run(void) {
             }
         }
         if (app.input.enter_pressed && app.route.has_start && app.route.has_goal) {
-            app_recompute_route(&app);
+            app_route_schedule_recompute(&app, 0.0);
         }
 
         if (app.dragging_start || app.dragging_goal) {
@@ -425,7 +441,7 @@ int app_run(void) {
                     changed = true;
                 }
                 if (changed && app.route.has_start && app.route.has_goal) {
-                    app_recompute_route(&app);
+                    app_route_schedule_recompute(&app, APP_ROUTE_DRAG_DEBOUNCE_SEC);
                 }
             }
         }
@@ -434,13 +450,13 @@ int app_run(void) {
             if (app.dragging_start) {
                 app.dragging_start = false;
                 if (app.route.has_start && app.route.has_goal) {
-                    app_recompute_route(&app);
+                    app_route_schedule_recompute(&app, 0.0);
                 }
             }
             if (app.dragging_goal) {
                 app.dragging_goal = false;
                 if (app.route.has_start && app.route.has_goal) {
-                    app_recompute_route(&app);
+                    app_route_schedule_recompute(&app, 0.0);
                 }
             }
         }
@@ -448,10 +464,12 @@ int app_run(void) {
             if (app.dragging_goal) {
                 app.dragging_goal = false;
                 if (app.route.has_start && app.route.has_goal) {
-                    app_recompute_route(&app);
+                    app_route_schedule_recompute(&app, 0.0);
                 }
             }
         }
+        app_route_poll_result(&app);
+        double after_route = time_now_seconds();
 
         app_playback_update(&app, dt);
 
@@ -489,6 +507,7 @@ int app_run(void) {
         app_draw_header_bar(&app);
         app_draw_layer_debug(&app);
         debug_overlay_render(&app.overlay, &app.renderer);
+        double before_present = time_now_seconds();
         renderer_end_frame(&app.renderer);
         double after_render = time_now_seconds();
 
@@ -534,10 +553,16 @@ int app_run(void) {
             last_loading_progress_time = after_render;
         }
 
-        double frame_ms = (after_render - frame_begin) * 1000.0;
-        double events_ms = (after_events - frame_begin) * 1000.0;
-        double update_ms = (after_update - after_events) * 1000.0;
-        double render_ms = (after_render - after_update) * 1000.0;
+        app.frame_timings.frame_ms = (after_render - frame_begin) * 1000.0;
+        app.frame_timings.events_ms = (after_events - frame_begin) * 1000.0;
+        app.frame_timings.update_ms = (after_update - after_events) * 1000.0;
+        app.frame_timings.queue_ms = (after_queue - after_update) * 1000.0;
+        app.frame_timings.integrate_ms = (after_integrate - after_queue) * 1000.0;
+        app.frame_timings.route_ms = (after_route - after_integrate) * 1000.0;
+        app.frame_timings.render_ms = (before_present - after_route) * 1000.0;
+        app.frame_timings.present_ms = (after_render - before_present) * 1000.0;
+        double frame_ms = app.frame_timings.frame_ms;
+        double events_ms = app.frame_timings.events_ms;
         bool long_frame = frame_ms >= 120.0;
         bool stuck_loading = app.loading_expected > 0 &&
             app.loading_done < app.loading_expected &&
@@ -556,24 +581,38 @@ int app_run(void) {
                 uint32_t filt_major = app_sum_road_classes(road_stats.filtered_by_class, ROAD_CLASS_MOTORWAY, ROAD_CLASS_TERTIARY);
                 uint32_t filt_local = app_sum_road_classes(road_stats.filtered_by_class, ROAD_CLASS_RESIDENTIAL, ROAD_CLASS_SERVICE);
                 uint32_t filt_path = app_sum_road_classes(road_stats.filtered_by_class, ROAD_CLASS_FOOTWAY, ROAD_CLASS_PATH);
-                log_info("perf region=%s backend=vk frame=%.1fms events=%.1f update=%.1f render=%.1f zoom=%.2f vis=%u load=%u/%u active=%s "
-                         "req=%u/%u res=%u/%u enq=%llu drop=%llu out=%llu out_drop=%llu miss=%llu ok=%llu fail=%llu "
+                log_info("perf region=%s backend=vk frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f zoom=%.2f vis=%u load=%u/%u active=%s "
+                         "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
+                         "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu "
                          "vk_begin=%d vk_begin_fail_total=%llu vk_recreate=%u vk_geom=%u/%u vk_geom_skip=%u vk_lines=%u vk_line_skip=%u vk_line_budget=%u vk_rect=%u vk_fill=%u "
-                         "vk_assets=%u/%u builds=%u evict=%u miss=%u jobs(q=%u build=%llu drop=%llu) poly_prep(in=%u out=%u enq=%llu done=%llu drop=%llu) resident(a=%u l=%u) fill_resident(w=%u p=%u l=%u b=%u) "
+                         "vk_assets=%u/%u builds=%u evict=%u miss=%u jobs(q=%u build=%llu drop=%llu evict=%llu) poly_prep(in=%u out=%u enq=%llu done=%llu drop=%llu) resident(a=%u l=%u) fill_resident(w=%u p=%u l=%u b=%u) "
                          "mesh(v=%llu b=%llu fail=%u fill_fail=%u) vk_poly_fill(draw=%u skip=%u fail=%u idx=%u) "
                          "road_draw(m=%u l=%u p=%u) road_filter(m=%u l=%u p=%u)",
                          app.region.name,
-                         frame_ms, events_ms, update_ms, render_ms,
+                         frame_ms, events_ms, app.frame_timings.update_ms,
+                         app.frame_timings.queue_ms, app.frame_timings.integrate_ms,
+                         app.frame_timings.route_ms, app.frame_timings.render_ms, app.frame_timings.present_ms,
                          app.camera.zoom,
                          app.visible_tile_count,
                          app.loading_done, app.loading_expected,
                          app.active_layer_valid ? layer_policy_label(app.active_layer_kind) : "none",
+                         layer_policy_band_label(app.layer_target_band[TILE_LAYER_ROAD_ARTERY]),
+                         layer_policy_band_label(app.layer_target_band[TILE_LAYER_ROAD_LOCAL]),
+                         app.band_visible_loaded[TILE_BAND_COARSE], app.band_visible_expected[TILE_BAND_COARSE],
+                         app.band_visible_loaded[TILE_BAND_MID], app.band_visible_expected[TILE_BAND_MID],
+                         app.band_visible_loaded[TILE_BAND_FINE], app.band_visible_expected[TILE_BAND_FINE],
+                         app.band_visible_loaded[TILE_BAND_DEFAULT], app.band_visible_expected[TILE_BAND_DEFAULT],
+                         app.band_queue_depth[TILE_BAND_COARSE], app.band_queue_depth[TILE_BAND_MID],
+                         app.band_queue_depth[TILE_BAND_FINE], app.band_queue_depth[TILE_BAND_DEFAULT],
+                         app.vk_road_band_fallback_draws,
                          stats.req_count, stats.req_capacity,
                          stats.res_count, stats.res_capacity,
                          (unsigned long long)stats.enqueued_count,
                          (unsigned long long)stats.enqueue_drop_count,
+                         (unsigned long long)stats.enqueue_evict_count,
                          (unsigned long long)stats.produced_count,
                          (unsigned long long)stats.result_drop_count,
+                         (unsigned long long)stats.result_evict_count,
                          (unsigned long long)stats.missing_count,
                          (unsigned long long)stats.load_ok_count,
                          (unsigned long long)stats.load_fail_count,
@@ -596,6 +635,7 @@ int app_run(void) {
                          app.vk_asset_job_count,
                          (unsigned long long)app.vk_asset_job_build_count,
                          (unsigned long long)app.vk_asset_job_drop_count,
+                         (unsigned long long)app.vk_asset_job_evict_count,
                          poly_prep_stats.in_count,
                          poly_prep_stats.out_count,
                          (unsigned long long)poly_prep_stats.enqueued_count,
@@ -618,20 +658,34 @@ int app_run(void) {
                          drawn_major, drawn_local, drawn_path,
                          filt_major, filt_local, filt_path);
             } else {
-                log_info("perf region=%s backend=sdl frame=%.1fms events=%.1f update=%.1f render=%.1f zoom=%.2f vis=%u load=%u/%u active=%s "
-                         "req=%u/%u res=%u/%u enq=%llu drop=%llu out=%llu out_drop=%llu miss=%llu ok=%llu fail=%llu",
+                log_info("perf region=%s backend=sdl frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f zoom=%.2f vis=%u load=%u/%u active=%s "
+                         "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
+                         "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu",
                          app.region.name,
-                         frame_ms, events_ms, update_ms, render_ms,
+                         frame_ms, events_ms, app.frame_timings.update_ms,
+                         app.frame_timings.queue_ms, app.frame_timings.integrate_ms,
+                         app.frame_timings.route_ms, app.frame_timings.render_ms, app.frame_timings.present_ms,
                          app.camera.zoom,
                          app.visible_tile_count,
                          app.loading_done, app.loading_expected,
                          app.active_layer_valid ? layer_policy_label(app.active_layer_kind) : "none",
+                         layer_policy_band_label(app.layer_target_band[TILE_LAYER_ROAD_ARTERY]),
+                         layer_policy_band_label(app.layer_target_band[TILE_LAYER_ROAD_LOCAL]),
+                         app.band_visible_loaded[TILE_BAND_COARSE], app.band_visible_expected[TILE_BAND_COARSE],
+                         app.band_visible_loaded[TILE_BAND_MID], app.band_visible_expected[TILE_BAND_MID],
+                         app.band_visible_loaded[TILE_BAND_FINE], app.band_visible_expected[TILE_BAND_FINE],
+                         app.band_visible_loaded[TILE_BAND_DEFAULT], app.band_visible_expected[TILE_BAND_DEFAULT],
+                         app.band_queue_depth[TILE_BAND_COARSE], app.band_queue_depth[TILE_BAND_MID],
+                         app.band_queue_depth[TILE_BAND_FINE], app.band_queue_depth[TILE_BAND_DEFAULT],
+                         app.vk_road_band_fallback_draws,
                          stats.req_count, stats.req_capacity,
                          stats.res_count, stats.res_capacity,
                          (unsigned long long)stats.enqueued_count,
                          (unsigned long long)stats.enqueue_drop_count,
+                         (unsigned long long)stats.enqueue_evict_count,
                          (unsigned long long)stats.produced_count,
                          (unsigned long long)stats.result_drop_count,
+                         (unsigned long long)stats.result_evict_count,
                          (unsigned long long)stats.missing_count,
                          (unsigned long long)stats.load_ok_count,
                          (unsigned long long)stats.load_fail_count);

@@ -1,6 +1,7 @@
 #include "map/tile_manager.h"
 
 #include "core/log.h"
+#include "core_io.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +9,43 @@
 
 static bool tile_coord_equals(TileCoord a, TileCoord b) {
     return a.z == b.z && a.x == b.x && a.y == b.y;
+}
+
+static const char *tile_band_dir(TileZoomBand band) {
+    switch (band) {
+        case TILE_BAND_COARSE:
+            return "coarse";
+        case TILE_BAND_MID:
+            return "mid";
+        case TILE_BAND_FINE:
+            return "fine";
+        case TILE_BAND_DEFAULT:
+        default:
+            return NULL;
+    }
+}
+
+static bool tile_resolve_path(const char *base_dir, TileCoord coord, TileZoomBand band, char *path, size_t path_size) {
+    if (!base_dir || !path || path_size == 0u) {
+        return false;
+    }
+
+    const char *band_dir = tile_band_dir(band);
+    if (band_dir) {
+        char band_path[512];
+        snprintf(band_path, sizeof(band_path), "%s/bands/%s/%u/%u/%u.mft",
+                 base_dir, band_dir, coord.z, coord.x, coord.y);
+        if (core_io_path_exists(band_path)) {
+            snprintf(path, path_size, "%s", band_path);
+            return true;
+        }
+    }
+
+    snprintf(path, path_size, "%s/%u/%u/%u.mft", base_dir, coord.z, coord.x, coord.y);
+    if (!core_io_path_exists(path)) {
+        return false;
+    }
+    return true;
 }
 
 static void tile_entry_reset(TileEntry *entry) {
@@ -53,14 +91,14 @@ void tile_manager_shutdown(TileManager *manager) {
     memset(manager, 0, sizeof(*manager));
 }
 
-static TileEntry *tile_manager_find(TileManager *manager, TileCoord coord) {
+static TileEntry *tile_manager_find(TileManager *manager, TileCoord coord, TileZoomBand band) {
     if (!manager) {
         return NULL;
     }
 
     for (uint32_t i = 0; i < manager->capacity; ++i) {
         TileEntry *entry = &manager->entries[i];
-        if (entry->occupied && tile_coord_equals(entry->coord, coord)) {
+        if (entry->occupied && entry->band == band && tile_coord_equals(entry->coord, coord)) {
             return entry;
         }
     }
@@ -68,14 +106,14 @@ static TileEntry *tile_manager_find(TileManager *manager, TileCoord coord) {
     return NULL;
 }
 
-const MftTile *tile_manager_peek_tile(const TileManager *manager, TileCoord coord) {
+const MftTile *tile_manager_peek_tile(const TileManager *manager, TileCoord coord, TileZoomBand band) {
     if (!manager || !manager->entries) {
         return NULL;
     }
 
     for (uint32_t i = 0; i < manager->capacity; ++i) {
         const TileEntry *entry = &manager->entries[i];
-        if (entry->occupied && tile_coord_equals(entry->coord, coord)) {
+        if (entry->occupied && entry->band == band && tile_coord_equals(entry->coord, coord)) {
             return &entry->tile;
         }
     }
@@ -105,24 +143,21 @@ static TileEntry *tile_manager_pick_slot(TileManager *manager) {
     return empty ? empty : oldest;
 }
 
-const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord) {
+const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord, TileZoomBand band) {
     if (!manager) {
         return NULL;
     }
 
-    TileEntry *entry = tile_manager_find(manager, coord);
+    TileEntry *entry = tile_manager_find(manager, coord, band);
     if (entry) {
         entry->last_used = manager->tick++;
         return &entry->tile;
     }
 
     char path[512];
-    snprintf(path, sizeof(path), "%s/%u/%u/%u.mft", manager->base_dir, coord.z, coord.x, coord.y);
-    FILE *probe = fopen(path, "rb");
-    if (!probe) {
+    if (!tile_resolve_path(manager->base_dir, coord, band, path, sizeof(path))) {
         return NULL;
     }
-    fclose(probe);
 
     entry = tile_manager_pick_slot(manager);
     if (!entry) {
@@ -143,6 +178,7 @@ const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord) {
     }
 
     entry->coord = coord;
+    entry->band = band;
     entry->tile = tile;
     entry->occupied = true;
     entry->last_used = manager->tick++;
@@ -151,12 +187,12 @@ const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord) {
     return &entry->tile;
 }
 
-bool tile_manager_put_tile(TileManager *manager, TileCoord coord, MftTile *tile) {
+bool tile_manager_put_tile(TileManager *manager, TileCoord coord, TileZoomBand band, MftTile *tile) {
     if (!manager || !tile) {
         return false;
     }
 
-    TileEntry *entry = tile_manager_find(manager, coord);
+    TileEntry *entry = tile_manager_find(manager, coord, band);
     if (entry) {
         mft_free_tile(tile);
         return false;
@@ -176,6 +212,7 @@ bool tile_manager_put_tile(TileManager *manager, TileCoord coord, MftTile *tile)
     }
 
     entry->coord = coord;
+    entry->band = band;
     entry->tile = *tile;
     entry->occupied = true;
     entry->last_used = manager->tick++;

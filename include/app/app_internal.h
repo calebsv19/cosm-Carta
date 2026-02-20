@@ -34,9 +34,13 @@
 /* Max queued Vulkan polygon asset build jobs. */
 #define APP_VK_ASSET_QUEUE_CAPACITY 4096u
 /* Default per-frame Vulkan polygon asset build jobs. */
-#define APP_VK_ASSET_BUILD_BUDGET 2u
+#define APP_VK_ASSET_BUILD_BUDGET 6u
 /* Max time slice spent building Vulkan polygon assets each frame. */
 #define APP_VK_ASSET_BUILD_TIME_SLICE_SEC 0.0012
+/* Max queued prepared Vulkan asset jobs waiting for GPU submission. */
+#define APP_VK_ASSET_READY_QUEUE_CAPACITY 1024u
+/* Route recompute debounce while dragging endpoints. */
+#define APP_ROUTE_DRAG_DEBOUNCE_SEC 0.045
 
 /* Per-tile queue entry sorted by distance from camera center tile. */
 typedef struct TileQueueItem {
@@ -71,8 +75,53 @@ typedef struct VkPolyAssetBuildBudget {
 typedef struct VkAssetJob {
     TileCoord coord;
     TileLayerKind kind;
+    TileZoomBand band;
     uint32_t request_id;
 } VkAssetJob;
+
+/* Prepared Vulkan asset work item ready for main-thread GPU submission. */
+typedef struct VkAssetReadyJob {
+    TileCoord coord;
+    TileLayerKind kind;
+    TileZoomBand band;
+    uint32_t request_id;
+} VkAssetReadyJob;
+
+/* Per-frame timing buckets for runtime phase instrumentation. */
+typedef struct FramePhaseTimings {
+    double frame_ms;
+    double events_ms;
+    double update_ms;
+    double route_ms;
+    double queue_ms;
+    double integrate_ms;
+    double render_ms;
+    double present_ms;
+} FramePhaseTimings;
+
+/* Route worker request payload. */
+typedef struct RouteComputeJob {
+    uint32_t request_id;
+    uint32_t start_node;
+    uint32_t goal_node;
+    bool fastest;
+    RouteTravelMode mode;
+} RouteComputeJob;
+
+/* Route worker result payload; paths are transferred to main thread ownership. */
+typedef struct RouteComputeResult {
+    uint32_t request_id;
+    bool ok;
+    uint32_t start_node;
+    uint32_t goal_node;
+    bool fastest;
+    RouteTravelMode mode;
+    bool has_transfer;
+    uint32_t transfer_node;
+    RoutePath path;
+    RoutePath drive_path;
+    RoutePath walk_path;
+} RouteComputeResult;
 
 /* Thread-safe snapshot for polygon prep worker diagnostics. */
 typedef struct VkPolyPrepStats {
@@ -111,6 +160,11 @@ typedef struct AppState {
     bool polygon_outline_only;
     uint32_t tile_request_id;
     TileQueue tile_queues[TILE_LAYER_COUNT];
+    TileZoomBand queue_band[TILE_LAYER_COUNT];
+    TileZoomBand layer_target_band[TILE_LAYER_COUNT];
+    uint32_t band_visible_expected[TILE_BAND_COUNT];
+    uint32_t band_visible_loaded[TILE_BAND_COUNT];
+    uint32_t band_queue_depth[TILE_BAND_COUNT];
     uint32_t layer_expected[TILE_LAYER_COUNT];
     uint32_t layer_done[TILE_LAYER_COUNT];
     uint32_t layer_inflight[TILE_LAYER_COUNT];
@@ -139,6 +193,7 @@ typedef struct AppState {
     uint32_t vk_poly_fill_skip;
     uint32_t vk_poly_fill_fail;
     uint32_t vk_poly_fill_indices;
+    uint32_t vk_road_band_fallback_draws;
     bool vk_poly_prep_enabled;
     bool vk_poly_prep_running;
     pthread_t vk_poly_prep_thread;
@@ -160,7 +215,42 @@ typedef struct AppState {
     uint32_t vk_asset_job_tail;
     uint32_t vk_asset_job_count;
     uint64_t vk_asset_job_drop_count;
+    uint64_t vk_asset_job_evict_count;
     uint64_t vk_asset_job_build_count;
+    bool vk_asset_worker_enabled;
+    bool vk_asset_worker_running;
+    pthread_t vk_asset_worker_thread;
+    pthread_mutex_t vk_asset_worker_mutex;
+    pthread_cond_t vk_asset_worker_cond;
+    VkAssetJob vk_asset_stage_jobs[APP_VK_ASSET_QUEUE_CAPACITY];
+    uint32_t vk_asset_stage_head;
+    uint32_t vk_asset_stage_tail;
+    uint32_t vk_asset_stage_count;
+    VkAssetReadyJob vk_asset_ready_jobs[APP_VK_ASSET_READY_QUEUE_CAPACITY];
+    uint32_t vk_asset_ready_head;
+    uint32_t vk_asset_ready_tail;
+    uint32_t vk_asset_ready_count;
+    uint64_t vk_asset_stage_drop_count;
+    uint64_t vk_asset_stage_evict_count;
+    uint64_t vk_asset_stage_enqueued_count;
+    uint64_t vk_asset_stage_prepared_count;
+    bool route_worker_enabled;
+    bool route_worker_running;
+    bool route_worker_busy;
+    pthread_t route_worker_thread;
+    pthread_mutex_t route_worker_mutex;
+    pthread_cond_t route_worker_cond;
+    RouteState route_worker_state;
+    bool route_job_pending;
+    RouteComputeJob route_job;
+    bool route_result_pending;
+    RouteComputeResult route_result;
+    uint32_t route_latest_requested_id;
+    uint32_t route_latest_submitted_id;
+    uint32_t route_latest_applied_id;
+    bool route_recompute_scheduled;
+    double route_recompute_due_time;
+    FramePhaseTimings frame_timings;
     int width;
     int height;
 } AppState;
@@ -188,13 +278,20 @@ bool app_vk_poly_prep_enqueue(AppState *app, const TileResult *result);
 void app_vk_poly_prep_drain(AppState *app, uint32_t max_results, double max_time_slice_sec);
 void app_vk_poly_prep_get_stats(AppState *app, VkPolyPrepStats *out_stats);
 void app_vk_asset_queue_clear(AppState *app);
-bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord);
+bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord, TileZoomBand band);
+bool app_vk_asset_worker_init(AppState *app);
+void app_vk_asset_worker_shutdown(AppState *app);
 void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_time_slice_sec);
 
 uint32_t app_draw_visible_tiles(AppState *app);
 void app_draw_region_bounds(AppState *app);
 
 bool app_load_route_graph(AppState *app);
+void app_route_schedule_recompute(AppState *app, double debounce_sec);
+void app_route_poll_result(AppState *app);
+bool app_route_worker_init(AppState *app);
+void app_route_worker_shutdown(AppState *app);
+void app_route_worker_clear(AppState *app);
 bool app_is_near_node(const AppState *app, float world_x, float world_y, uint32_t *out_node);
 bool app_mouse_over_node(const AppState *app, uint32_t node, float radius);
 void app_update_hover(AppState *app);

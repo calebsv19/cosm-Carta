@@ -15,6 +15,10 @@
 #define ZOOM_TIER_CLOSE_MAX 13.5f
 #define ZOOM_TIER_PATH_MAX 15.0f
 
+// Centralized zoom thresholds for tile pyramid band selection.
+#define BAND_COARSE_MAX_ZOOM 12.6f
+#define BAND_MID_MAX_ZOOM 14.6f
+
 static const LayerPolicy kLayerPolicies[] = {
     {TILE_LAYER_ROAD_ARTERY, "artery", 0.0f, 0u, true, false, false},
     {TILE_LAYER_ROAD_LOCAL, "local", LAYER_ZOOM_LOCAL_START, 1u, true, false, true},
@@ -95,24 +99,42 @@ float layer_policy_zoom_tier_path_max(void) {
 }
 
 bool layer_policy_vk_road_class_allowed(RoadClass road_class, float effective_zoom) {
-    (void)effective_zoom;
-    (void)road_class;
+    if (effective_zoom < 12.2f) {
+        return road_class == ROAD_CLASS_MOTORWAY ||
+               road_class == ROAD_CLASS_TRUNK ||
+               road_class == ROAD_CLASS_PRIMARY ||
+               road_class == ROAD_CLASS_SECONDARY;
+    }
+    if (effective_zoom < 13.6f) {
+        return road_class != ROAD_CLASS_FOOTWAY &&
+               road_class != ROAD_CLASS_PATH;
+    }
+    if (effective_zoom < 14.4f) {
+        return road_class != ROAD_CLASS_PATH;
+    }
     return true;
 }
 
 uint32_t layer_policy_vk_sample_step(RoadClass road_class, float effective_zoom) {
     uint32_t step = 1u;
     if (effective_zoom < 12.0f) {
+        step = 3u;
+    } else if (effective_zoom < 13.3f) {
         step = 2u;
     }
-    if ((road_class == ROAD_CLASS_FOOTWAY || road_class == ROAD_CLASS_PATH) && effective_zoom < 12.0f) {
-        step = 3u;
+    if ((road_class == ROAD_CLASS_FOOTWAY || road_class == ROAD_CLASS_PATH) && effective_zoom < 13.8f) {
+        step += 1u;
     }
     return step;
 }
 
 float layer_policy_vk_min_point_spacing_px(float effective_zoom) {
-    (void)effective_zoom;
+    if (effective_zoom < 12.0f) {
+        return 1.4f;
+    }
+    if (effective_zoom < 13.2f) {
+        return 0.8f;
+    }
     return 0.0f;
 }
 
@@ -139,6 +161,67 @@ const char *layer_policy_readiness_label(LayerReadinessState state) {
         default:
             return "unknown";
     }
+}
+
+const char *layer_policy_band_label(TileZoomBand band) {
+    switch (band) {
+        case TILE_BAND_COARSE:
+            return "coarse";
+        case TILE_BAND_MID:
+            return "mid";
+        case TILE_BAND_FINE:
+            return "fine";
+        case TILE_BAND_DEFAULT:
+        default:
+            return "default";
+    }
+}
+
+TileZoomBand layer_policy_band_for_zoom(TileLayerKind kind, float zoom, float region_bias) {
+    (void)region_bias;
+    if (kind == TILE_LAYER_ROAD_ARTERY || kind == TILE_LAYER_ROAD_LOCAL) {
+        if (zoom < BAND_COARSE_MAX_ZOOM) {
+            return TILE_BAND_COARSE;
+        }
+        if (zoom < BAND_MID_MAX_ZOOM) {
+            return TILE_BAND_MID;
+        }
+        return TILE_BAND_FINE;
+    }
+
+    // Phase 7D 4B: polygon overlays participate in pyramid bands (buildings remain fine/default).
+    if (kind == TILE_LAYER_POLY_WATER || kind == TILE_LAYER_POLY_PARK || kind == TILE_LAYER_POLY_LANDUSE) {
+        if (zoom < 13.1f) {
+            return TILE_BAND_COARSE;
+        }
+        if (zoom < 15.0f) {
+            return TILE_BAND_MID;
+        }
+        return TILE_BAND_FINE;
+    }
+
+    return TILE_BAND_DEFAULT;
+}
+
+uint16_t layer_policy_source_tile_z_for_band(uint16_t min_zoom,
+                                             uint16_t max_zoom,
+                                             uint16_t base_zoom,
+                                             TileZoomBand band) {
+    int source = (int)base_zoom;
+    if (band == TILE_BAND_COARSE) {
+        source -= 2;
+    } else if (band == TILE_BAND_MID) {
+        source -= 1;
+    } else if (band == TILE_BAND_FINE) {
+        source += 1;
+    }
+    if (source < (int)min_zoom) {
+        source = (int)min_zoom;
+    }
+    if (source > (int)max_zoom) {
+        source = (int)max_zoom;
+    }
+    return (uint16_t)source;
 }
 
 uint32_t layer_policy_vk_line_budget(float zoom, uint32_t visible_tiles) {

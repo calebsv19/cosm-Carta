@@ -70,6 +70,18 @@ float layer_policy_building_fade_end(float building_zoom_bias, bool vulkan_backe
 // Returns label used in debug output for layer readiness states.
 const char *layer_policy_readiness_label(LayerReadinessState state);
 
+// Returns zoom band label used by tile pyramid paths.
+const char *layer_policy_band_label(TileZoomBand band);
+
+// Returns target tile pyramid band for a layer at the current zoom.
+TileZoomBand layer_policy_band_for_zoom(TileLayerKind kind, float zoom, float region_bias);
+
+// Returns source tile z for a requested band from a base z and range.
+uint16_t layer_policy_source_tile_z_for_band(uint16_t min_zoom,
+                                             uint16_t max_zoom,
+                                             uint16_t base_zoom,
+                                             TileZoomBand band);
+
 // Returns per-frame Vulkan line budget tuned by zoom and visible tile count.
 uint32_t layer_policy_vk_line_budget(float zoom, uint32_t visible_tiles);
 

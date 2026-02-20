@@ -12,4 +12,12 @@ typedef enum TileLayerKind {
     TILE_LAYER_COUNT = 7
 } TileLayerKind;
 
+typedef enum TileZoomBand {
+    TILE_BAND_DEFAULT = 0,
+    TILE_BAND_COARSE = 1,
+    TILE_BAND_MID = 2,
+    TILE_BAND_FINE = 3,
+    TILE_BAND_COUNT = 4
+} TileZoomBand;
+
 #endif

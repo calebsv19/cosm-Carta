@@ -17,6 +17,7 @@ typedef struct RegionInfo {
     uint16_t tile_min_zoom;
     uint16_t tile_max_zoom;
     uint32_t tile_extent;
+    bool has_tile_pyramid_roads;
     bool has_center;
     bool has_bounds;
     bool has_tile_range;

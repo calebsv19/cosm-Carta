@@ -15,6 +15,7 @@
 typedef struct VkTileCacheEntry {
     TileLayerKind kind;
     TileCoord coord;
+    TileZoomBand band;
     bool occupied;
     uint64_t last_used;
     uint32_t polyline_count;
@@ -89,10 +90,11 @@ bool vk_tile_cache_on_tile_loaded(VkTileCache *cache,
                                   void *vk_renderer,
                                   TileLayerKind kind,
                                   TileCoord coord,
+                                  TileZoomBand band,
                                   const MftTile *tile);
 
 // Returns cached retained metadata for a tile, if available.
-const VkTileCacheEntry *vk_tile_cache_peek(VkTileCache *cache, TileLayerKind kind, TileCoord coord);
+const VkTileCacheEntry *vk_tile_cache_peek(VkTileCache *cache, TileLayerKind kind, TileCoord coord, TileZoomBand band);
 
 // Returns cache counters for instrumentation.
 void vk_tile_cache_get_stats(const VkTileCache *cache, VkTileCacheStats *out_stats);
