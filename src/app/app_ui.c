@@ -1,6 +1,7 @@
 #include "app/app_internal.h"
 
 #include "ui/font.h"
+#include "ui/shared_theme_font_adapter.h"
 
 #include <stdio.h>
 
@@ -11,6 +12,32 @@ static SDL_FRect app_header_button_rect(const AppState *app) {
     SDL_FRect rect = {pad, (APP_HEADER_HEIGHT - height) * 0.5f, width, height};
     (void)app;
     return rect;
+}
+
+static MapForgeThemePalette app_theme_palette(void) {
+    MapForgeThemePalette palette = {
+        .background_clear = {20, 20, 28, 255},
+        .header_fill = {18, 20, 28, 230},
+        .header_outline = {80, 90, 110, 220},
+        .button_fill = {50, 70, 90, 200},
+        .button_outline = {70, 80, 100, 220},
+        .button_active_primary = {60, 140, 220, 220},
+        .button_active_success = {60, 200, 130, 220},
+        .badge_fill = {30, 35, 46, 230},
+        .badge_outline = {80, 90, 110, 220},
+        .text_primary = {225, 230, 240, 255},
+        .text_muted = {205, 212, 225, 255},
+        .progress_fill = {110, 180, 255, 230},
+        .progress_bg = {42, 56, 76, 220},
+        .chip_idle_fill = {34, 38, 48, 200},
+        .chip_idle_outline = {58, 64, 80, 220},
+        .chip_loading_fill = {30, 42, 58, 220},
+        .chip_loading_outline = {92, 146, 210, 230},
+        .chip_ready_fill = {28, 50, 44, 220},
+        .chip_ready_outline = {78, 170, 130, 230}
+    };
+    mapforge_shared_theme_resolve_palette(&palette);
+    return palette;
 }
 
 bool app_header_button_hit(const AppState *app, int x, int y) {
@@ -43,7 +70,12 @@ static const char *app_header_layer_chip_label(TileLayerKind kind) {
     }
 }
 
-static void app_draw_header_layer_chips(AppState *app, float left_limit, float box_y, float box_h, int text_h) {
+static void app_draw_header_layer_chips(AppState *app,
+                                        const MapForgeThemePalette *palette,
+                                        float left_limit,
+                                        float box_y,
+                                        float box_h,
+                                        int text_h) {
     if (!app) {
         return;
     }
@@ -62,7 +94,7 @@ static void app_draw_header_layer_chips(AppState *app, float left_limit, float b
     const float right_pad = 8.0f;
     const float text_pad_x = 6.0f;
     const float progress_h = 3.0f;
-    SDL_Color text_color = {225, 230, 240, 255};
+    SDL_Color text_color = palette ? palette->text_primary : (SDL_Color){225, 230, 240, 255};
     float available_w = ((float)app->width - right_pad) - left_limit;
     if (available_w < chip_w) {
         return;
@@ -93,24 +125,34 @@ static void app_draw_header_layer_chips(AppState *app, float left_limit, float b
         bool is_loading = app->layer_state[kind] == LAYER_READINESS_LOADING && expected > 0;
 
         if (!runtime_active || app->layer_state[kind] == LAYER_READINESS_HIDDEN) {
-            renderer_set_draw_color(&app->renderer, 34, 38, 48, 200);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->chip_idle_fill.r, palette->chip_idle_fill.g, palette->chip_idle_fill.b, palette->chip_idle_fill.a);
             renderer_fill_rect(&app->renderer, &(SDL_FRect){chip_x, box_y, chip_w, box_h});
-            renderer_set_draw_color(&app->renderer, 58, 64, 80, 220);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->chip_idle_outline.r, palette->chip_idle_outline.g, palette->chip_idle_outline.b, palette->chip_idle_outline.a);
             renderer_draw_rect(&app->renderer, &(SDL_FRect){chip_x, box_y, chip_w, box_h});
         } else if (is_loading) {
-            renderer_set_draw_color(&app->renderer, 30, 42, 58, 220);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->chip_loading_fill.r, palette->chip_loading_fill.g, palette->chip_loading_fill.b, palette->chip_loading_fill.a);
             renderer_fill_rect(&app->renderer, &(SDL_FRect){chip_x, box_y, chip_w, box_h});
-            renderer_set_draw_color(&app->renderer, 92, 146, 210, 230);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->chip_loading_outline.r, palette->chip_loading_outline.g,
+                                    palette->chip_loading_outline.b, palette->chip_loading_outline.a);
             renderer_draw_rect(&app->renderer, &(SDL_FRect){chip_x, box_y, chip_w, box_h});
         } else if (is_ready) {
-            renderer_set_draw_color(&app->renderer, 28, 50, 44, 220);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->chip_ready_fill.r, palette->chip_ready_fill.g, palette->chip_ready_fill.b, palette->chip_ready_fill.a);
             renderer_fill_rect(&app->renderer, &(SDL_FRect){chip_x, box_y, chip_w, box_h});
-            renderer_set_draw_color(&app->renderer, 78, 170, 130, 230);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->chip_ready_outline.r, palette->chip_ready_outline.g,
+                                    palette->chip_ready_outline.b, palette->chip_ready_outline.a);
             renderer_draw_rect(&app->renderer, &(SDL_FRect){chip_x, box_y, chip_w, box_h});
         } else {
-            renderer_set_draw_color(&app->renderer, 30, 35, 46, 220);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->badge_fill.r, palette->badge_fill.g, palette->badge_fill.b, palette->badge_fill.a);
             renderer_fill_rect(&app->renderer, &(SDL_FRect){chip_x, box_y, chip_w, box_h});
-            renderer_set_draw_color(&app->renderer, 80, 90, 110, 220);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->badge_outline.r, palette->badge_outline.g, palette->badge_outline.b, palette->badge_outline.a);
             renderer_draw_rect(&app->renderer, &(SDL_FRect){chip_x, box_y, chip_w, box_h});
         }
 
@@ -132,10 +174,12 @@ static void app_draw_header_layer_chips(AppState *app, float left_limit, float b
         if (is_loading && expected > 0) {
             float progress = app_clampf((float)done / (float)expected, 0.0f, 1.0f);
             SDL_FRect bar_bg = {chip_x + text_pad_x, box_y + box_h - 6.0f, chip_w - text_pad_x * 2.0f, progress_h};
-            renderer_set_draw_color(&app->renderer, 42, 56, 76, 220);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->progress_bg.r, palette->progress_bg.g, palette->progress_bg.b, palette->progress_bg.a);
             renderer_fill_rect(&app->renderer, &bar_bg);
             SDL_FRect bar_fg = {bar_bg.x, bar_bg.y, bar_bg.w * progress, bar_bg.h};
-            renderer_set_draw_color(&app->renderer, 110, 180, 255, 230);
+            renderer_set_draw_color(&app->renderer,
+                                    palette->progress_fill.r, palette->progress_fill.g, palette->progress_fill.b, palette->progress_fill.a);
             renderer_fill_rect(&app->renderer, &bar_fg);
         }
 
@@ -144,34 +188,40 @@ static void app_draw_header_layer_chips(AppState *app, float left_limit, float b
 }
 
 void app_draw_header_bar(AppState *app) {
+    MapForgeThemePalette palette;
     if (!app) {
         return;
     }
+    palette = app_theme_palette();
 
-    renderer_set_draw_color(&app->renderer, 18, 20, 28, 230);
+    renderer_set_draw_color(&app->renderer, palette.header_fill.r, palette.header_fill.g, palette.header_fill.b, palette.header_fill.a);
     SDL_FRect bar = {0.0f, 0.0f, (float)app->width, APP_HEADER_HEIGHT};
     renderer_fill_rect(&app->renderer, &bar);
 
     SDL_FRect button = app_header_button_rect(app);
-    renderer_set_draw_color(&app->renderer, 70, 80, 100, 220);
+    renderer_set_draw_color(&app->renderer, palette.button_outline.r, palette.button_outline.g, palette.button_outline.b, palette.button_outline.a);
     renderer_draw_rect(&app->renderer, &button);
 
     SDL_FRect left = {button.x + 1.0f, button.y + 1.0f, (button.w * 0.5f) - 2.0f, button.h - 2.0f};
     SDL_FRect right = {button.x + button.w * 0.5f + 1.0f, button.y + 1.0f, (button.w * 0.5f) - 2.0f, button.h - 2.0f};
 
     if (app->route.mode == ROUTE_MODE_CAR) {
-        renderer_set_draw_color(&app->renderer, 60, 140, 220, 220);
+        renderer_set_draw_color(&app->renderer,
+                                palette.button_active_primary.r, palette.button_active_primary.g,
+                                palette.button_active_primary.b, palette.button_active_primary.a);
         renderer_fill_rect(&app->renderer, &left);
-        renderer_set_draw_color(&app->renderer, 50, 70, 90, 200);
+        renderer_set_draw_color(&app->renderer, palette.button_fill.r, palette.button_fill.g, palette.button_fill.b, palette.button_fill.a);
         renderer_fill_rect(&app->renderer, &right);
     } else {
-        renderer_set_draw_color(&app->renderer, 50, 70, 90, 200);
+        renderer_set_draw_color(&app->renderer, palette.button_fill.r, palette.button_fill.g, palette.button_fill.b, palette.button_fill.a);
         renderer_fill_rect(&app->renderer, &left);
-        renderer_set_draw_color(&app->renderer, 60, 200, 130, 220);
+        renderer_set_draw_color(&app->renderer,
+                                palette.button_active_success.r, palette.button_active_success.g,
+                                palette.button_active_success.b, palette.button_active_success.a);
         renderer_fill_rect(&app->renderer, &right);
     }
 
-    SDL_Color label_color = {225, 230, 240, 255};
+    SDL_Color label_color = palette.text_primary;
     int text_h = ui_font_line_height(1.0f);
     if (text_h > 0) {
         int car_w = ui_measure_text_width("CAR", 1.0f);
@@ -197,8 +247,8 @@ void app_draw_header_bar(AppState *app) {
     snprintf(distance_text, sizeof(distance_text), "Route: %.2f km | %.1f min", km, minutes);
     snprintf(zoom_text, sizeof(zoom_text), "Zoom: %.2f", app->camera.zoom);
 
-    SDL_Color badge_fill = {30, 35, 46, 230};
-    SDL_Color badge_outline = {80, 90, 110, 220};
+    SDL_Color badge_fill = palette.badge_fill;
+    SDL_Color badge_outline = palette.badge_outline;
     float pad_x = 8.0f;
     float pad_y = 3.0f;
     int speed_w = ui_measure_text_width(speed_text, 1.0f);
@@ -233,7 +283,7 @@ void app_draw_header_bar(AppState *app) {
     ui_draw_text(&app->renderer, (int)(zoom_box.x + pad_x), (int)(zoom_box.y + (box_h - text_h) * 0.5f), zoom_text, label_color, 1.0f);
     cursor_x += zoom_box_w + 10.0f;
 
-    app_draw_header_layer_chips(app, cursor_x + 8.0f, box_y, box_h, text_h);
+    app_draw_header_layer_chips(app, &palette, cursor_x + 8.0f, box_y, box_h, text_h);
 }
 
 static const char *app_layer_label(TileLayerKind kind) {
@@ -252,7 +302,7 @@ void app_draw_layer_debug(AppState *app) {
         return;
     }
 
-    SDL_Color color = {220, 230, 245, 255};
+    SDL_Color color = app_theme_palette().text_primary;
     int line_h = ui_font_line_height(1.0f);
     if (line_h <= 0) {
         return;

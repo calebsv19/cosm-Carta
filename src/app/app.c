@@ -7,12 +7,17 @@
 #include "map/road_renderer.h"
 #include "route/route_render.h"
 #include "ui/font.h"
+#include "ui/shared_theme_font_adapter.h"
 
 #include <SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
 
 static uint32_t app_sum_road_classes(const uint32_t *values, int first_class, int last_class) {
     if (!values || first_class < 0 || last_class < first_class) {
@@ -43,6 +48,92 @@ static bool app_env_flag_enabled(const char *name) {
         return true;
     }
     return false;
+}
+
+static bool app_trace_ensure_dirs(void) {
+    if (mkdir("build", 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    if (mkdir("build/traces", 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    return true;
+}
+
+static void app_trace_emit_frame_samples(AppState *app, double rel_time_s) {
+    if (!app || !app->trace_enabled) {
+        return;
+    }
+    core_trace_emit_sample_f32(&app->trace_session, "frame", rel_time_s, (float)app->frame_timings.frame_ms);
+    core_trace_emit_sample_f32(&app->trace_session, "events", rel_time_s, (float)app->frame_timings.events_ms);
+    core_trace_emit_sample_f32(&app->trace_session, "update", rel_time_s, (float)app->frame_timings.update_ms);
+    core_trace_emit_sample_f32(&app->trace_session, "queue", rel_time_s, (float)app->frame_timings.queue_ms);
+    core_trace_emit_sample_f32(&app->trace_session, "integrate", rel_time_s, (float)app->frame_timings.integrate_ms);
+    core_trace_emit_sample_f32(&app->trace_session, "route", rel_time_s, (float)app->frame_timings.route_ms);
+    core_trace_emit_sample_f32(&app->trace_session, "render", rel_time_s, (float)app->frame_timings.render_ms);
+    core_trace_emit_sample_f32(&app->trace_session, "present", rel_time_s, (float)app->frame_timings.present_ms);
+}
+
+static void app_trace_emit_queue_markers(AppState *app, double rel_time_s) {
+    if (!app || !app->trace_enabled) {
+        return;
+    }
+
+    TileLoaderStats stats = {0};
+    tile_loader_get_stats(&app->tile_loader, &stats);
+    if (stats.enqueue_drop_count > app->trace_last_tile_enqueue_drop_count) {
+        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "tile_enq_drop");
+    }
+    if (stats.enqueue_evict_count > app->trace_last_tile_enqueue_evict_count) {
+        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "tile_enq_evict");
+    }
+    if (stats.result_drop_count > app->trace_last_tile_result_drop_count) {
+        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "tile_res_drop");
+    }
+    if (stats.result_evict_count > app->trace_last_tile_result_evict_count) {
+        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "tile_res_evict");
+    }
+    if (app->vk_asset_job_drop_count > app->trace_last_vk_asset_drop_count) {
+        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "vk_job_drop");
+    }
+    if (app->vk_asset_job_evict_count > app->trace_last_vk_asset_evict_count) {
+        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "vk_job_evict");
+    }
+
+    app->trace_last_tile_enqueue_drop_count = stats.enqueue_drop_count;
+    app->trace_last_tile_enqueue_evict_count = stats.enqueue_evict_count;
+    app->trace_last_tile_result_drop_count = stats.result_drop_count;
+    app->trace_last_tile_result_evict_count = stats.result_evict_count;
+    app->trace_last_vk_asset_drop_count = app->vk_asset_job_drop_count;
+    app->trace_last_vk_asset_evict_count = app->vk_asset_job_evict_count;
+}
+
+static void app_trace_shutdown(AppState *app) {
+    if (!app || !app->trace_enabled) {
+        return;
+    }
+
+    CoreResult final_result = core_trace_finalize(&app->trace_session);
+    if (final_result.code != CORE_OK) {
+        log_error("core_trace_finalize failed: %s", final_result.message);
+    } else if (!app_trace_ensure_dirs()) {
+        log_error("failed to create build/traces directory");
+    } else {
+        time_t now = time(NULL);
+        struct tm local_tm = {0};
+        localtime_r(&now, &local_tm);
+        char path[256];
+        strftime(path, sizeof(path), "build/traces/mapforge_trace_%Y%m%d_%H%M%S.pack", &local_tm);
+        CoreResult export_result = core_trace_export_pack(&app->trace_session, path);
+        if (export_result.code != CORE_OK) {
+            log_error("core_trace_export_pack failed: %s", export_result.message);
+        } else {
+            log_info("trace exported: %s", path);
+        }
+    }
+
+    core_trace_session_reset(&app->trace_session);
+    app->trace_enabled = false;
 }
 
 static bool app_init(AppState *app) {
@@ -133,12 +224,19 @@ static bool app_init(AppState *app) {
         log_error("app_route_worker_init failed");
         return false;
     }
-
     if (TTF_Init() != 0) {
         log_error("TTF_Init failed: %s", TTF_GetError());
         return false;
     }
-    ui_font_set("assets/fonts/Montserrat-Regular.ttf", 10);
+    {
+        char shared_font_path[384] = {0};
+        int shared_font_size = 0;
+        if (mapforge_shared_font_resolve_ui_regular(shared_font_path, sizeof(shared_font_path), &shared_font_size)) {
+            ui_font_set(shared_font_path, shared_font_size);
+        } else {
+            ui_font_set("assets/fonts/Montserrat-Regular.ttf", 10);
+        }
+    }
 
     app->region_index = 0;
     const RegionInfo *info = region_get(app->region_index);
@@ -159,6 +257,26 @@ static bool app_init(AppState *app) {
     if (!tile_loader_init(&app->tile_loader, app->region.tiles_dir)) {
         log_error("tile_loader_init failed");
         return false;
+    }
+    app->trace_enabled = false;
+    CoreTraceConfig trace_cfg = {
+        .sample_capacity = APP_TRACE_SAMPLE_CAPACITY,
+        .marker_capacity = APP_TRACE_MARKER_CAPACITY
+    };
+    CoreResult trace_init = core_trace_session_init(&app->trace_session, &trace_cfg);
+    if (trace_init.code != CORE_OK) {
+        log_error("core_trace_session_init failed: %s", trace_init.message);
+    } else {
+        TileLoaderStats trace_stats = {0};
+        tile_loader_get_stats(&app->tile_loader, &trace_stats);
+        app->trace_enabled = true;
+        app->trace_start_time = time_now_seconds();
+        app->trace_last_tile_enqueue_drop_count = trace_stats.enqueue_drop_count;
+        app->trace_last_tile_enqueue_evict_count = trace_stats.enqueue_evict_count;
+        app->trace_last_tile_result_drop_count = trace_stats.result_drop_count;
+        app->trace_last_tile_result_evict_count = trace_stats.result_evict_count;
+        app->trace_last_vk_asset_drop_count = app->vk_asset_job_drop_count;
+        app->trace_last_vk_asset_evict_count = app->vk_asset_job_evict_count;
     }
 
     input_init(&app->input);
@@ -217,6 +335,7 @@ static void app_shutdown(AppState *app) {
     app_vk_poly_prep_shutdown(app);
     app_vk_asset_worker_shutdown(app);
     app_route_worker_shutdown(app);
+    app_trace_shutdown(app);
     vk_tile_cache_shutdown(&app->vk_tile_cache);
     route_state_shutdown(&app->route);
     app_clear_tile_queue(app);
@@ -485,7 +604,18 @@ int app_run(void) {
             }
             last_backend = frame_backend;
         }
-        renderer_clear(&app.renderer, 20, 20, 28, 255);
+        {
+            MapForgeThemePalette palette = {0};
+            if (mapforge_shared_theme_resolve_palette(&palette)) {
+                renderer_clear(&app.renderer,
+                               palette.background_clear.r,
+                               palette.background_clear.g,
+                               palette.background_clear.b,
+                               palette.background_clear.a);
+            } else {
+                renderer_clear(&app.renderer, 20, 20, 28, 255);
+            }
+        }
         road_renderer_stats_reset();
         uint32_t visible_tiles = 0;
         visible_tiles = app_draw_visible_tiles(&app);
@@ -561,6 +691,11 @@ int app_run(void) {
         app.frame_timings.route_ms = (after_route - after_integrate) * 1000.0;
         app.frame_timings.render_ms = (before_present - after_route) * 1000.0;
         app.frame_timings.present_ms = (after_render - before_present) * 1000.0;
+        if (app.trace_enabled) {
+            double rel_time_s = after_render - app.trace_start_time;
+            app_trace_emit_frame_samples(&app, rel_time_s);
+            app_trace_emit_queue_markers(&app, rel_time_s);
+        }
         double frame_ms = app.frame_timings.frame_ms;
         double events_ms = app.frame_timings.events_ms;
         bool long_frame = frame_ms >= 120.0;

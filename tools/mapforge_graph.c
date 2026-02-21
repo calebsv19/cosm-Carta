@@ -1,4 +1,5 @@
 #include "core/log.h"
+#include "core_io.h"
 #include "map/mercator.h"
 #include "map/mft_loader.h"
 #include "map/tile_math.h"
@@ -664,11 +665,7 @@ static bool path_is_dir(const char *path) {
 }
 
 static bool path_exists(const char *path) {
-    struct stat st;
-    if (!path) {
-        return false;
-    }
-    return stat(path, &st) == 0;
+    return path && core_io_path_exists(path);
 }
 
 static bool ensure_dir_recursive(const char *path) {
@@ -887,21 +884,19 @@ static bool build_publish_paths(const char *active_root,
 
 static bool validate_staged_graph(const char *stage_root) {
     char path[512];
-    FILE *file = NULL;
-    char magic[4];
+    CoreBuffer buffer = {0};
+    char magic[4] = {0};
     uint32_t version = 0u;
     snprintf(path, sizeof(path), "%s/graph/graph.bin", stage_root);
-    file = fopen(path, "rb");
-    if (!file) {
+    CoreResult r = core_io_read_all(path, &buffer);
+    if (r.code != CORE_OK || !buffer.data || buffer.size < 8u) {
+        core_io_buffer_free(&buffer);
         log_error("missing staged graph file: %s", path);
         return false;
     }
-    if (fread(magic, 1, 4, file) != 4 || fread(&version, sizeof(uint32_t), 1, file) != 1) {
-        fclose(file);
-        log_error("invalid staged graph header: %s", path);
-        return false;
-    }
-    fclose(file);
+    memcpy(magic, buffer.data, 4u);
+    memcpy(&version, buffer.data + 4u, sizeof(uint32_t));
+    core_io_buffer_free(&buffer);
     if (memcmp(magic, GRAPH_MAGIC, 4) != 0 || version != 1u) {
         log_error("unexpected staged graph magic/version: %s", path);
         return false;
@@ -1079,8 +1074,20 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
     free(cursor);
     free(edges);
 
-    FILE *file = fopen(path, "wb");
-    if (!file) {
+    uint32_t node_count = (uint32_t)build->node_count;
+    uint32_t out_edge_count = (uint32_t)edge_count;
+    const size_t header_bytes = 4u + sizeof(uint32_t) * 3u;
+    const size_t node_bytes = (size_t)node_count * sizeof(double) * 2u;
+    const size_t edge_start_bytes = (size_t)(node_count + 1u) * sizeof(uint32_t);
+    const size_t edge_to_bytes = (size_t)out_edge_count * sizeof(uint32_t);
+    const size_t edge_length_bytes = (size_t)out_edge_count * sizeof(float);
+    const size_t edge_speed_bytes = (size_t)out_edge_count * sizeof(float);
+    const size_t edge_class_bytes = (size_t)out_edge_count * sizeof(uint8_t);
+    const size_t total_bytes = header_bytes + node_bytes + edge_start_bytes + edge_to_bytes +
+                               edge_length_bytes + edge_speed_bytes + edge_class_bytes;
+
+    uint8_t *blob = (uint8_t *)malloc(total_bytes);
+    if (!blob) {
         free(node_x);
         free(node_y);
         free(edge_start);
@@ -1090,25 +1097,32 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
         free(edge_class);
         return false;
     }
+    uint8_t *out_ptr = blob;
+    uint32_t version = 1u;
+    memcpy(out_ptr, GRAPH_MAGIC, 4u);
+    out_ptr += 4u;
+    memcpy(out_ptr, &version, sizeof(uint32_t));
+    out_ptr += sizeof(uint32_t);
+    memcpy(out_ptr, &node_count, sizeof(uint32_t));
+    out_ptr += sizeof(uint32_t);
+    memcpy(out_ptr, &out_edge_count, sizeof(uint32_t));
+    out_ptr += sizeof(uint32_t);
+    memcpy(out_ptr, node_x, (size_t)node_count * sizeof(double));
+    out_ptr += (size_t)node_count * sizeof(double);
+    memcpy(out_ptr, node_y, (size_t)node_count * sizeof(double));
+    out_ptr += (size_t)node_count * sizeof(double);
+    memcpy(out_ptr, edge_start, (size_t)(node_count + 1u) * sizeof(uint32_t));
+    out_ptr += (size_t)(node_count + 1u) * sizeof(uint32_t);
+    memcpy(out_ptr, edge_to, (size_t)out_edge_count * sizeof(uint32_t));
+    out_ptr += (size_t)out_edge_count * sizeof(uint32_t);
+    memcpy(out_ptr, edge_length, (size_t)out_edge_count * sizeof(float));
+    out_ptr += (size_t)out_edge_count * sizeof(float);
+    memcpy(out_ptr, edge_speed, (size_t)out_edge_count * sizeof(float));
+    out_ptr += (size_t)out_edge_count * sizeof(float);
+    memcpy(out_ptr, edge_class, (size_t)out_edge_count * sizeof(uint8_t));
 
-    uint32_t version = 1;
-    uint32_t node_count = (uint32_t)build->node_count;
-    uint32_t out_edge_count = (uint32_t)edge_count;
-
-    fwrite(GRAPH_MAGIC, 1, 4, file);
-    fwrite(&version, sizeof(uint32_t), 1, file);
-    fwrite(&node_count, sizeof(uint32_t), 1, file);
-    fwrite(&out_edge_count, sizeof(uint32_t), 1, file);
-
-    fwrite(node_x, sizeof(double), node_count, file);
-    fwrite(node_y, sizeof(double), node_count, file);
-    fwrite(edge_start, sizeof(uint32_t), node_count + 1, file);
-    fwrite(edge_to, sizeof(uint32_t), out_edge_count, file);
-    fwrite(edge_length, sizeof(float), out_edge_count, file);
-    fwrite(edge_speed, sizeof(float), out_edge_count, file);
-    fwrite(edge_class, sizeof(uint8_t), out_edge_count, file);
-
-    fclose(file);
+    CoreResult write_r = core_io_write_all(path, blob, total_bytes);
+    free(blob);
 
     free(node_x);
     free(node_y);
@@ -1118,7 +1132,7 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
     free(edge_speed);
     free(edge_class);
 
-    return true;
+    return write_r.code == CORE_OK;
 }
 
 static void usage(void) {

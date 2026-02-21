@@ -11,6 +11,7 @@
 #include "render/renderer.h"
 #include "render/vk_tile_cache.h"
 #include "route/route.h"
+#include "core_trace.h"
 
 #include <SDL.h>
 #include <stdbool.h>
@@ -41,6 +42,9 @@
 #define APP_VK_ASSET_READY_QUEUE_CAPACITY 1024u
 /* Route recompute debounce while dragging endpoints. */
 #define APP_ROUTE_DRAG_DEBOUNCE_SEC 0.045
+/* Runtime trace sample/marker ring capacities. */
+#define APP_TRACE_SAMPLE_CAPACITY 262144u
+#define APP_TRACE_MARKER_CAPACITY 4096u
 
 /* Per-tile queue entry sorted by distance from camera center tile. */
 typedef struct TileQueueItem {
@@ -251,6 +255,15 @@ typedef struct AppState {
     bool route_recompute_scheduled;
     double route_recompute_due_time;
     FramePhaseTimings frame_timings;
+    bool trace_enabled;
+    CoreTraceSession trace_session;
+    double trace_start_time;
+    uint64_t trace_last_tile_enqueue_drop_count;
+    uint64_t trace_last_tile_enqueue_evict_count;
+    uint64_t trace_last_tile_result_drop_count;
+    uint64_t trace_last_tile_result_evict_count;
+    uint64_t trace_last_vk_asset_drop_count;
+    uint64_t trace_last_vk_asset_evict_count;
     int width;
     int height;
 } AppState;

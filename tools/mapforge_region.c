@@ -1,4 +1,5 @@
 #include "core/log.h"
+#include "core_io.h"
 #include "map/mercator.h"
 #include "map/mft_loader.h"
 #include "map/tile_layers.h"
@@ -849,11 +850,7 @@ static bool ensure_dir(const char *path) {
 
 // Returns true when a filesystem path exists.
 static bool path_exists(const char *path) {
-    struct stat st;
-    if (!path) {
-        return false;
-    }
-    return stat(path, &st) == 0;
+    return path && core_io_path_exists(path);
 }
 
 // Returns true when a filesystem path is a directory.
@@ -1460,86 +1457,119 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
     char path[512];
     snprintf(path, sizeof(path), "%s/meta.json", options->out_dir);
 
-    FILE *file = fopen(path, "w");
-    if (!file) {
-        return false;
-    }
-
     time_t now = time(NULL);
     struct tm *utc = gmtime(&now);
     char timestamp[64] = "";
+    char terrain_source_json[1024];
     if (utc) {
         strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", utc);
     }
-
-    fprintf(file, "{\n");
-    fprintf(file, "    \"region\": \"%s\",\n", options->region);
-    fprintf(file, "    \"city_source\": \"%s\",\n", options->osm_path);
     if (options->dem_path && options->dem_path[0] != '\0') {
-        fprintf(file, "    \"terrain_source\": \"%s\",\n", options->dem_path);
+        snprintf(terrain_source_json, sizeof(terrain_source_json), "\"%s\"", options->dem_path);
     } else {
-        fprintf(file, "    \"terrain_source\": null,\n");
+        snprintf(terrain_source_json, sizeof(terrain_source_json), "null");
     }
-    fprintf(file, "    \"created_utc\": \"%s\",\n", timestamp);
-    fprintf(file, "    \"bounds\": {\n");
-    fprintf(file, "        \"min_lat\": %.8f,\n", ctx->min_lat);
-    fprintf(file, "        \"min_lon\": %.8f,\n", ctx->min_lon);
-    fprintf(file, "        \"max_lat\": %.8f,\n", ctx->max_lat);
-    fprintf(file, "        \"max_lon\": %.8f\n", ctx->max_lon);
-    fprintf(file, "    },\n");
-    fprintf(file, "    \"tile\": {\n");
-    fprintf(file, "        \"min_z\": %u,\n", options->min_z);
-    fprintf(file, "        \"max_z\": %u,\n", options->max_z);
-    fprintf(file, "        \"extent\": %u\n", (unsigned)TILE_EXTENT);
-    fprintf(file, "    },\n");
-    fprintf(file, "    \"tile_pyramid\": {\n");
-    fprintf(file, "        \"roads\": {\n");
-    fprintf(file, "            \"enabled\": true,\n");
-    fprintf(file, "            \"bands\": {\n");
-    fprintf(file, "                \"coarse\": {\"label\": \"coarse\"},\n");
-    fprintf(file, "                \"mid\": {\"label\": \"mid\"},\n");
-    fprintf(file, "                \"fine\": {\"label\": \"fine\"}\n");
-    fprintf(file, "            }\n");
-    fprintf(file, "        }\n");
-    fprintf(file, "    },\n");
-    fprintf(file, "    \"contours\": {\n");
-    fprintf(file, "        \"enabled\": %s,\n", (options->dem_path && options->dem_path[0] != '\0') ? "true" : "false");
-    fprintf(file, "        \"phase\": \"A_scaffold\",\n");
-    fprintf(file, "        \"interval_m\": 10,\n");
-    fprintf(file, "        \"major_every\": 5\n");
-    fprintf(file, "    },\n");
-    fprintf(file, "    \"build_options\": {\n");
-    fprintf(file, "        \"pad_bounds\": %s,\n", options->pad_bounds ? "true" : "false");
-    fprintf(file, "        \"emit_contour_empty\": %s,\n", options->emit_contour_empty ? "true" : "false");
-    fprintf(file, "        \"emit_legacy_tiles\": %s,\n", options->emit_legacy_tiles ? "true" : "false");
-    fprintf(file, "        \"replace\": %s,\n", options->replace ? "true" : "false");
-    fprintf(file, "        \"keep_old\": %u,\n", options->keep_old);
-    fprintf(file, "        \"prune_days\": %u\n", options->prune_days);
-    fprintf(file, "    },\n");
-    fprintf(file, "    \"output_stats\": {\n");
-    fprintf(file, "        \"tile_count\": %zu,\n", ctx->tile_count);
-    fprintf(file, "        \"files_written_total\": %llu,\n", (unsigned long long)ctx->files_written_total);
-    fprintf(file, "        \"files_written_legacy\": %llu,\n", (unsigned long long)ctx->files_written_legacy);
-    fprintf(file, "        \"files_written_banded\": %llu,\n", (unsigned long long)ctx->files_written_banded);
-    fprintf(file, "        \"files_written_contour\": %llu,\n", (unsigned long long)ctx->files_written_contour);
-    fprintf(file, "        \"layers\": {\n");
-    fprintf(file, "            \"artery\": %llu,\n", (unsigned long long)ctx->layer_artery_files);
-    fprintf(file, "            \"local\": %llu,\n", (unsigned long long)ctx->layer_local_files);
-    fprintf(file, "            \"water\": %llu,\n", (unsigned long long)ctx->layer_water_files);
-    fprintf(file, "            \"park\": %llu,\n", (unsigned long long)ctx->layer_park_files);
-    fprintf(file, "            \"landuse\": %llu,\n", (unsigned long long)ctx->layer_landuse_files);
-    fprintf(file, "            \"building\": %llu\n", (unsigned long long)ctx->layer_building_files);
-    fprintf(file, "        },\n");
-    fprintf(file, "        \"bands\": {\n");
-    fprintf(file, "            \"coarse\": %llu,\n", (unsigned long long)ctx->band_coarse_files);
-    fprintf(file, "            \"mid\": %llu,\n", (unsigned long long)ctx->band_mid_files);
-    fprintf(file, "            \"fine\": %llu\n", (unsigned long long)ctx->band_fine_files);
-    fprintf(file, "        }\n");
-    fprintf(file, "    }\n");
-    fprintf(file, "}\n");
+    char json[16384];
+    int n = snprintf(
+        json, sizeof(json),
+        "{\n"
+        "    \"region\": \"%s\",\n"
+        "    \"city_source\": \"%s\",\n"
+        "    \"terrain_source\": %s,\n"
+        "    \"created_utc\": \"%s\",\n"
+        "    \"bounds\": {\n"
+        "        \"min_lat\": %.8f,\n"
+        "        \"min_lon\": %.8f,\n"
+        "        \"max_lat\": %.8f,\n"
+        "        \"max_lon\": %.8f\n"
+        "    },\n"
+        "    \"tile\": {\n"
+        "        \"min_z\": %u,\n"
+        "        \"max_z\": %u,\n"
+        "        \"extent\": %u\n"
+        "    },\n"
+        "    \"tile_pyramid\": {\n"
+        "        \"roads\": {\n"
+        "            \"enabled\": true,\n"
+        "            \"bands\": {\n"
+        "                \"coarse\": {\"label\": \"coarse\"},\n"
+        "                \"mid\": {\"label\": \"mid\"},\n"
+        "                \"fine\": {\"label\": \"fine\"}\n"
+        "            }\n"
+        "        }\n"
+        "    },\n"
+        "    \"contours\": {\n"
+        "        \"enabled\": %s,\n"
+        "        \"phase\": \"A_scaffold\",\n"
+        "        \"interval_m\": 10,\n"
+        "        \"major_every\": 5\n"
+        "    },\n"
+        "    \"build_options\": {\n"
+        "        \"pad_bounds\": %s,\n"
+        "        \"emit_contour_empty\": %s,\n"
+        "        \"emit_legacy_tiles\": %s,\n"
+        "        \"replace\": %s,\n"
+        "        \"keep_old\": %u,\n"
+        "        \"prune_days\": %u\n"
+        "    },\n"
+        "    \"output_stats\": {\n"
+        "        \"tile_count\": %zu,\n"
+        "        \"files_written_total\": %llu,\n"
+        "        \"files_written_legacy\": %llu,\n"
+        "        \"files_written_banded\": %llu,\n"
+        "        \"files_written_contour\": %llu,\n"
+        "        \"layers\": {\n"
+        "            \"artery\": %llu,\n"
+        "            \"local\": %llu,\n"
+        "            \"water\": %llu,\n"
+        "            \"park\": %llu,\n"
+        "            \"landuse\": %llu,\n"
+        "            \"building\": %llu\n"
+        "        },\n"
+        "        \"bands\": {\n"
+        "            \"coarse\": %llu,\n"
+        "            \"mid\": %llu,\n"
+        "            \"fine\": %llu\n"
+        "        }\n"
+        "    }\n"
+        "}\n",
+        options->region,
+        options->osm_path,
+        terrain_source_json,
+        timestamp,
+        ctx->min_lat,
+        ctx->min_lon,
+        ctx->max_lat,
+        ctx->max_lon,
+        options->min_z,
+        options->max_z,
+        (unsigned)TILE_EXTENT,
+        (options->dem_path && options->dem_path[0] != '\0') ? "true" : "false",
+        options->pad_bounds ? "true" : "false",
+        options->emit_contour_empty ? "true" : "false",
+        options->emit_legacy_tiles ? "true" : "false",
+        options->replace ? "true" : "false",
+        options->keep_old,
+        options->prune_days,
+        ctx->tile_count,
+        (unsigned long long)ctx->files_written_total,
+        (unsigned long long)ctx->files_written_legacy,
+        (unsigned long long)ctx->files_written_banded,
+        (unsigned long long)ctx->files_written_contour,
+        (unsigned long long)ctx->layer_artery_files,
+        (unsigned long long)ctx->layer_local_files,
+        (unsigned long long)ctx->layer_water_files,
+        (unsigned long long)ctx->layer_park_files,
+        (unsigned long long)ctx->layer_landuse_files,
+        (unsigned long long)ctx->layer_building_files,
+        (unsigned long long)ctx->band_coarse_files,
+        (unsigned long long)ctx->band_mid_files,
+        (unsigned long long)ctx->band_fine_files);
+    if (n <= 0 || (size_t)n >= sizeof(json)) {
+        return false;
+    }
 
-    fclose(file);
-    return true;
+    return core_io_write_all(path, json, (size_t)n).code == CORE_OK;
 }
 
 typedef struct SnapshotEntry {

@@ -11,6 +11,18 @@ JSON_LIBS := $(shell pkg-config --libs json-c 2>/dev/null)
 CORE_SPACE_DIR := ../shared/core_space
 CORE_BASE_DIR := ../shared/core_base
 CORE_IO_DIR := ../shared/core_io
+CORE_PACK_DIR := ../shared/core_pack
+CORE_TRACE_DIR := ../shared/core_trace
+CORE_THEME_DIR := ../shared/core_theme
+CORE_FONT_DIR := ../shared/core_font
+
+CORE_SPACE_LIB := $(CORE_SPACE_DIR)/build/libcore_space.a
+CORE_BASE_LIB := $(CORE_BASE_DIR)/build/libcore_base.a
+CORE_IO_LIB := $(CORE_IO_DIR)/build/libcore_io.a
+CORE_PACK_LIB := $(CORE_PACK_DIR)/build/libcore_pack.a
+CORE_TRACE_LIB := $(CORE_TRACE_DIR)/build/libcore_trace.a
+CORE_THEME_LIB := $(CORE_THEME_DIR)/build/libcore_theme.a
+CORE_FONT_LIB := $(CORE_FONT_DIR)/build/libcore_font.a
 
 VK_RENDERER_DIR ?= third_party/vk_renderer
 VK_RENDERER_FALLBACK_DIR ?= $(HOME)/Desktop/CodeWork/shared/vk_renderer
@@ -40,7 +52,7 @@ endif
 
 CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g -pthread $(SDL_CFLAGS) $(SDL_TTF_CFLAGS)
 LDLIBS := $(SDL_LIBS) $(SDL_TTF_LIBS) $(JSON_LIBS) -pthread
-TOOL_LDLIBS := -lm
+TOOL_LDLIBS := -lm $(CORE_IO_LIB) $(CORE_BASE_LIB)
 
 ifeq ($(JSON_LIBS),)
 LDLIBS += -ljson-c
@@ -49,27 +61,26 @@ CFLAGS += $(JSON_CFLAGS)
 CFLAGS += -I$(CORE_SPACE_DIR)/include
 CFLAGS += -I$(CORE_BASE_DIR)/include
 CFLAGS += -I$(CORE_IO_DIR)/include
+CFLAGS += -I$(CORE_PACK_DIR)/include
+CFLAGS += -I$(CORE_TRACE_DIR)/include
+CFLAGS += -I$(CORE_THEME_DIR)/include
+CFLAGS += -I$(CORE_FONT_DIR)/include
 
 SRCS := $(shell find src -name '*.c')
 OBJS := $(SRCS:src/%.c=build/%.o)
 DEPS := $(OBJS:.o=.d)
 LINK_OBJS := $(OBJS)
-CORE_SPACE_SRCS := $(CORE_SPACE_DIR)/src/core_space.c
-CORE_SPACE_OBJS := $(patsubst $(CORE_SPACE_DIR)/src/%.c,build/core_space/%.o,$(CORE_SPACE_SRCS))
-CORE_BASE_SRCS := $(CORE_BASE_DIR)/src/core_base.c
-CORE_BASE_OBJS := $(patsubst $(CORE_BASE_DIR)/src/%.c,build/core_base/%.o,$(CORE_BASE_SRCS))
-CORE_IO_SRCS := $(CORE_IO_DIR)/src/core_io.c
-CORE_IO_OBJS := $(patsubst $(CORE_IO_DIR)/src/%.c,build/core_io/%.o,$(CORE_IO_SRCS))
-LINK_OBJS += $(CORE_SPACE_OBJS)
-LINK_OBJS += $(CORE_BASE_OBJS)
-LINK_OBJS += $(CORE_IO_OBJS)
+CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB)
+LINK_OBJS += $(CORE_SHARED_LIBS)
 TARGET := build/mapforge
 TOOL_TARGET := build/tools/mapforge_region
 TOOL_SRCS := tools/mapforge_region.c src/map/mercator.c src/map/tile_math.c src/core/log.c
 GRAPH_TARGET := build/tools/mapforge_graph
 GRAPH_SRCS := tools/mapforge_graph.c src/map/mercator.c src/core/log.c
 MAP_SPACE_TEST_TARGET := build/tests/map_space_test
-MAP_SPACE_TEST_SRCS := tests/map_space_test.c src/map/map_space.c src/map/tile_math.c src/map/mercator.c src/camera/camera.c $(CORE_SPACE_DIR)/src/core_space.c
+MAP_SPACE_TEST_SRCS := tests/map_space_test.c src/map/map_space.c src/map/tile_math.c src/map/mercator.c src/camera/camera.c
+SHARED_THEME_FONT_ADAPTER_TEST_TARGET := build/tests/shared_theme_font_adapter_test
+SHARED_THEME_FONT_ADAPTER_TEST_SRCS := tests/shared_theme_font_adapter_test.c src/ui/shared_theme_font_adapter.c $(CORE_THEME_DIR)/src/core_theme.c $(CORE_FONT_DIR)/src/core_font.c $(CORE_BASE_DIR)/src/core_base.c
 
 ifeq ($(VK_APP_ENABLED),1)
 CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
@@ -110,6 +121,27 @@ GRAPH_TOOL_FLAGS := $(if $(filter 1,$(REPLACE)),--replace,) \
 
 app: $(TARGET)
 
+$(CORE_BASE_LIB):
+	$(MAKE) -C $(CORE_BASE_DIR)
+
+$(CORE_IO_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_IO_DIR)
+
+$(CORE_SPACE_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_SPACE_DIR)
+
+$(CORE_PACK_LIB): $(CORE_IO_LIB)
+	$(MAKE) -C $(CORE_PACK_DIR)
+
+$(CORE_TRACE_LIB): $(CORE_PACK_LIB)
+	$(MAKE) -C $(CORE_TRACE_DIR)
+
+$(CORE_THEME_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_THEME_DIR)
+
+$(CORE_FONT_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_FONT_DIR)
+
 $(TARGET): $(LINK_OBJS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
@@ -121,30 +153,28 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
-build/core_space/%.o: $(CORE_SPACE_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
-
-build/core_base/%.o: $(CORE_BASE_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
-
-build/core_io/%.o: $(CORE_IO_DIR)/src/%.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
-
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) ./$(TARGET)
 
+run-ide-theme: app
+	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
+	MAPFORGE_USE_SHARED_THEME_FONT=1 MAPFORGE_USE_SHARED_THEME=1 MAPFORGE_USE_SHARED_FONT=1 \
+	MAPFORGE_THEME_PRESET=ide_gray MAPFORGE_FONT_PRESET=ide ./$(TARGET)
+
+run-daw-theme: app
+	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
+	MAPFORGE_USE_SHARED_THEME_FONT=1 MAPFORGE_USE_SHARED_THEME=1 MAPFORGE_USE_SHARED_FONT=1 \
+	MAPFORGE_THEME_PRESET=daw_default MAPFORGE_FONT_PRESET=daw_default ./$(TARGET)
+
 tools: $(TOOL_TARGET)
 
-$(TOOL_TARGET): $(TOOL_SRCS)
+$(TOOL_TARGET): $(TOOL_SRCS) $(CORE_IO_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(TOOL_SRCS) -o $@ $(TOOL_LDLIBS)
 
 graph: $(GRAPH_TARGET)
 
-$(GRAPH_TARGET): $(GRAPH_SRCS)
+$(GRAPH_TARGET): $(GRAPH_SRCS) $(CORE_IO_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(GRAPH_SRCS) -o $@ $(TOOL_LDLIBS)
 
@@ -156,9 +186,16 @@ build-safety-check: tools graph
 
 test: test-space build-safety-check
 
+test-shared-theme-font-adapter: $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
+	./$(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
+
 $(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(MAP_SPACE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+	$(CC) $(CFLAGS) -Iinclude $(MAP_SPACE_TEST_SRCS) $(CORE_SPACE_LIB) $(CORE_BASE_LIB) -o $@ $(TOOL_LDLIBS)
+
+$(SHARED_THEME_FONT_ADAPTER_TEST_TARGET): $(SHARED_THEME_FONT_ADAPTER_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(SHARED_THEME_FONT_ADAPTER_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 route: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out data/regions/$(REGION) $(GRAPH_TOOL_FLAGS)
@@ -215,6 +252,36 @@ graph-clean:
 prune-regions:
 	tools/prune_regions.sh --regions-dir "$(REGIONS_DIR)" --prune-days "$(PRUNE_DAYS)" --keep-old "$(KEEP_OLD)" $(if $(filter 1,$(PRUNE_DRY_RUN)),--dry-run,)
 
+shared-check:
+	@echo "=== Shared Library Check ==="
+	@for path in "$(CORE_BASE_LIB)" "$(CORE_IO_LIB)" "$(CORE_SPACE_LIB)" "$(CORE_PACK_LIB)" "$(CORE_TRACE_LIB)"; do \
+		if [ ! -f "$$path" ]; then \
+			echo "missing: $$path"; \
+			exit 1; \
+		fi; \
+		echo "ok: $$path"; \
+	done
+	@echo ""
+	@echo "=== Shared Versions ==="
+	@for path in "$(CORE_BASE_DIR)/VERSION" "$(CORE_IO_DIR)/VERSION" "$(CORE_SPACE_DIR)/VERSION" "$(CORE_PACK_DIR)/VERSION" "$(CORE_TRACE_DIR)/VERSION"; do \
+		if [ -f "$$path" ]; then \
+			printf "%s: " "$$path"; cat "$$path"; \
+		else \
+			echo "$$path: missing"; \
+			exit 1; \
+		fi; \
+	done
+
+trace-latest:
+	@latest=$$(ls -1t build/traces/*.pack 2>/dev/null | head -n 1); \
+	if [ -z "$$latest" ]; then \
+		echo "no trace packs found under build/traces"; \
+		exit 1; \
+	fi; \
+	echo "inspecting $$latest"; \
+	$(MAKE) -C $(CORE_PACK_DIR) tools >/dev/null; \
+	$(CORE_PACK_DIR)/build/pack_cli inspect "$$latest"
+
 vk-lib:
 	@if [ ! -f "$(VK_RENDERER_RESOLVED_DIR)/include/vk_renderer.h" ]; then \
 		echo "vk renderer not found at $(VK_RENDERER_DIR) or $(VK_RENDERER_FALLBACK_DIR)"; \
@@ -242,6 +309,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run tools graph test-space build-safety-check test route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions vk-lib vk-check clean
+.PHONY: app run run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)
