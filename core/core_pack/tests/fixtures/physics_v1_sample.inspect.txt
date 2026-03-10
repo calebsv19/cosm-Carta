@@ -1,0 +1,11 @@
+pack=tests/fixtures/physics_v1_sample.pack version=1 (1.0) chunk_count=5
+chunk[0] type=VFHD size=56 offset=24
+  vf2d: version=2 grid=96x96 frame=1936 time=32.982061 dt=0.019000 origin=(0.000,0.000) cell=1.000 crc=3864232968
+chunk[1] type=DENS size=36864 offset=96
+  float_count=9216 min=0 max=6.49222 preview=8.67998e-11,8.67998e-11,8.50053e-11,8.09637e-11
+chunk[2] type=VELX size=36864 offset=36976
+  float_count=9216 min=-10.7664 max=10.4753 preview=0,-0.0130113,-0.0426707,-0.0850729
+chunk[3] type=VELY size=36864 offset=73856
+  float_count=9216 min=-10.0166 max=8.86824 preview=0,-0.100511,-0.100068,-0.0993665
+chunk[4] type=JSON size=434082 offset=110736
+  preview="{.."manifest_version":.1,.."grid_w":.96,.."grid_h":.96,.."cell_size":.1,.."origin_x":.0,.."origin_y":.0,.."obstacle_mask"

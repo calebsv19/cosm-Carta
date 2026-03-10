@@ -1,0 +1,22 @@
+CodeWork Shared Libraries
+Copyright (c) 2026 Caleb S. V.
+
+This product includes third-party components and assets:
+
+1) SQLite (amalgamation)
+- Location: `shared/core/core_memdb/external/sqlite3.c`, `sqlite3.h`
+- Upstream project: SQLite
+- License: Public Domain (as stated in SQLite source headers)
+
+2) cJSON
+- Location: `shared/shape/external/cjson/*`, `shared/timer_hud/external/*`
+- Upstream project: cJSON
+- License: MIT License
+- Copyright: (c) 2009-2017 Dave Gamble and cJSON contributors
+
+3) Fonts (Google Fonts)
+- Families currently referenced in manifests: Montserrat, Lato
+- Location: `shared/assets/fonts/*`
+- License in manifest entries: SIL Open Font License 1.1 (OFL-1.1)
+
+Additional third-party attributions may be added as shared modules evolve.

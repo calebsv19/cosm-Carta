@@ -1,0 +1,7 @@
+pack=tests/fixtures/daw_v1_sample.pack version=1 (1.0) chunk_count=5
+chunk[0] type=DAWH size=48 offset=24
+chunk[1] type=WMIN size=15944 offset=88
+chunk[2] type=WMAX size=15944 offset=16048
+chunk[3] type=MRKS size=440 offset=32008
+chunk[4] type=JSON size=135 offset=32464
+  preview="{"profile":"daw","version":1,"sample_rate":48000,"channels":2,"start_frame":0,"end_frame":1020218,"point_count":3986,"ma"

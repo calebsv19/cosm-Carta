@@ -1,0 +1,4 @@
+version=core_font_manifest_v1
+entry|preset=daw_default|role=ui_regular|family=Montserrat|style=Regular|weight=400|point=9|primary=include/fonts/Montserrat/Montserrat-Regular.ttf|fallback=shared/assets/fonts/Montserrat-Regular.ttf|license=OFL-1.1|source=GoogleFonts|pack=basic
+entry|preset=ide|role=ui_regular|family=Montserrat|style=Medium|weight=500|point=14|primary=include/fonts/Montserrat/Montserrat-Medium.ttf|fallback=shared/assets/fonts/Montserrat-Medium.ttf|license=OFL-1.1|source=GoogleFonts|pack=basic
+entry|preset=ide|role=ui_mono|family=JetBrains Mono|style=Regular|weight=400|point=13|primary=include/fonts/JetBrainsMono/JetBrainsMono-Regular.ttf|fallback=include/fonts/FiraCode/FiraCode-Regular.ttf|license=OFL-1.1|source=GoogleFonts|pack=extended

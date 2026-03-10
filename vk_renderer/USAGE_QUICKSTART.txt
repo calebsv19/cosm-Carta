@@ -1,0 +1,77 @@
+VULKAN RENDERER QUICK INTEGRATION GUIDE
+======================================
+
+1. Build / Package
+   - Add this folder as a submodule or copy into your project tree.
+   - Run `./scripts/compile_shaders.sh` once to generate SPIR-V binaries.
+   - Build `libvkrenderer.a` with `make` (or include the sources directly in your own build).
+   - Link your application with the static library plus Vulkan + SDL2 (see Makefile for flags).
+
+2. Initialise (replacement for SDL_CreateRenderer)
+   ```c
+   #include "vk_renderer.h"
+   #include "vk_renderer_sdl.h"
+
+   VkRenderer renderer;
+   VkRendererConfig cfg;
+   vk_renderer_config_set_defaults(&cfg);
+   VkResult ok = vk_renderer_init(&renderer, sdlWindow, &cfg);
+   SDL_assert(ok == VK_SUCCESS);
+
+   // Store &renderer anywhere you previously stored SDL_Renderer*.
+   ctx->renderer = &renderer;  // ctx was holding SDL_Renderer* before.
+   ```
+
+3. Frame Loop (drop-in for SDL_RenderClear / SDL_RenderPresent)
+   ```c
+   int winW, winH;
+   SDL_GetWindowSize(sdlWindow, &winW, &winH);
+   vk_renderer_set_logical_size(&renderer, (float)winW, (float)winH);
+
+   VkCommandBuffer cmd;
+   VkFramebuffer fb;
+   VkExtent2D extent;
+   VkResult r = vk_renderer_begin_frame(&renderer, &cmd, &fb, &extent);
+   if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
+       vk_renderer_recreate_swapchain(&renderer, sdlWindow);
+       continue;
+   }
+
+   // existing SDL_Render* calls now map to Vulkan via the compat macros
+   SDL_SetRenderDrawColor(ctx->renderer, 32, 64, 128, 255);
+   SDL_RenderFillRect(ctx->renderer, &someRect);
+
+   vk_renderer_end_frame(&renderer, cmd);
+   ```
+
+4. Textures (SDL_ttf or surfaces)
+   ```c
+   SDL_Surface* glyph = ...;  // SDL_ttf output
+   VkRendererTexture tex;
+   vk_renderer_upload_sdl_surface(&renderer, glyph, &tex);
+
+   SDL_Rect dst = {x, y, glyph->w, glyph->h};
+   vk_renderer_draw_texture(&renderer, &tex, NULL, &dst);
+   vk_renderer_texture_destroy(&renderer, &tex);
+   ```
+
+5. Shutdown (replacement for SDL_DestroyRenderer)
+   ```c
+   vk_renderer_shutdown(&renderer);
+   ```
+
+6. Extras / Notes
+   - If shader files fail to load, define `VK_RENDERER_SHADER_ROOT` to the folder
+     that contains `shaders/` in your build system.
+   - Window resize: call `vk_renderer_recreate_swapchain(&renderer, sdlWindow)` when you receive
+     `VK_ERROR_OUT_OF_DATE_KHR` **or** `VK_SUBOPTIMAL_KHR`, or if SDL reports a resize.
+     High-DPI windows sometimes trigger `SUBOPTIMAL` even though the swapchain still renders.
+   - Logical size: call `vk_renderer_set_logical_size` whenever your window size changes so UI
+     code using layout coordinates stays in sync with the swapchain extent.
+   - Validation: enabled by default in debug builds; automatically disabled if unavailable
+     (common on vanilla macOS). Install Homebrew `vulkan-validationlayers` and set `VK_LAYER_PATH`
+     to re-enable.
+   - Keep the SDL window creation (`SDL_CreateWindow` with `SDL_WINDOW_VULKAN`) exactly as before;
+     the Vulkan layer sits on top of it.
+   - If you prefer to migrate off the compat macros later, call `vk_renderer_*` functions directly
+     (`vk_renderer_draw_line`, `vk_renderer_fill_rect`, etc.).

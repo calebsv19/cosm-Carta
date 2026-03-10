@@ -1,0 +1,5 @@
+# core_font pack descriptor
+version=core_font_pack_v1
+pack=basic
+includes=Montserrat-Regular.ttf,Montserrat-Medium.ttf,Montserrat-Bold.ttf
+purpose=Minimum UI pack for DAW/IDE shared defaults
