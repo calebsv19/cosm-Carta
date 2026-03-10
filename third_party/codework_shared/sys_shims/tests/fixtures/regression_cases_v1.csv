@@ -1,0 +1,14 @@
+# case_id,domain,severity,note
+types_size_t_parity,types,medium,size_t alias should match stddef size
+types_uint64_parity,types,medium,uint64 alias should match stdint size
+types_macro_bounds,types,high,stdint macro bounds must match system header
+stdlib_strtol_valid,stdlib,medium,valid numeric parse should match libc
+stdlib_strtol_invalid,stdlib,high,invalid numeric parse must reject and set error
+string_memcpy_overflow,string,high,bounds-checked copy must reject overflow
+errno_set_get,errno,medium,shim errno set/get parity
+math_sqrt_negative,math,high,negative sqrt must fail with domain error
+math_pow_basic,math,medium,pow wrapper should match libc result
+time_now_range,time,medium,time wrapper should stay near libc now
+extended_ctype_parity,extended,medium,ctype wrappers should match libc behavior
+extended_limits_parity,extended,high,limits macro wrappers must match system macros
+extended_locale_signal_surface,extended,medium,locale/signal shim surface should be available

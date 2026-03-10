@@ -1,0 +1,5 @@
+# core_font pack descriptor
+version=core_font_pack_v1
+pack=extended
+includes=Lato-Regular.ttf,Lato-Bold.ttf
+purpose=Alternate body/mono lane fallback used by shared UI presets

@@ -1,0 +1,12 @@
+# core_font manifest
+version=core_font_manifest_v1
+entry|preset=daw_default|role=ui_regular|family=Montserrat|style=Regular|weight=400|point=9|primary=include/fonts/Montserrat/Montserrat-Regular.ttf|fallback=shared/assets/fonts/Montserrat-Regular.ttf|license=OFL-1.1|source=GoogleFonts|pack=basic
+entry|preset=daw_default|role=ui_medium|family=Montserrat|style=Medium|weight=500|point=9|primary=include/fonts/Montserrat/Montserrat-Medium.ttf|fallback=shared/assets/fonts/Montserrat-Medium.ttf|license=OFL-1.1|source=GoogleFonts|pack=basic
+entry|preset=daw_default|role=ui_bold|family=Montserrat|style=Bold|weight=700|point=9|primary=include/fonts/Montserrat/Montserrat-Bold.ttf|fallback=shared/assets/fonts/Montserrat-Bold.ttf|license=OFL-1.1|source=GoogleFonts|pack=basic
+entry|preset=daw_default|role=ui_mono|family=Lato|style=Regular|weight=400|point=13|primary=include/fonts/Lato/Lato-Regular.ttf|fallback=shared/assets/fonts/Lato-Regular.ttf|license=OFL-1.1|source=GoogleFonts|pack=extended
+entry|preset=daw_default|role=ui_mono_small|family=Lato|style=Regular|weight=400|point=12|primary=include/fonts/Lato/Lato-Regular.ttf|fallback=shared/assets/fonts/Lato-Regular.ttf|license=OFL-1.1|source=GoogleFonts|pack=extended
+entry|preset=ide|role=ui_regular|family=Lato|style=Regular|weight=400|point=11|primary=include/fonts/Lato/Lato-Regular.ttf|fallback=shared/assets/fonts/Lato-Regular.ttf|license=OFL-1.1|source=GoogleFonts|pack=extended
+entry|preset=ide|role=ui_medium|family=Lato|style=Regular|weight=400|point=11|primary=include/fonts/Lato/Lato-Regular.ttf|fallback=shared/assets/fonts/Lato-Regular.ttf|license=OFL-1.1|source=GoogleFonts|pack=extended
+entry|preset=ide|role=ui_bold|family=Lato|style=Bold|weight=700|point=11|primary=include/fonts/Lato/Lato-Bold.ttf|fallback=shared/assets/fonts/Lato-Bold.ttf|license=OFL-1.1|source=GoogleFonts|pack=extended
+entry|preset=ide|role=ui_mono|family=Lato|style=Regular|weight=400|point=11|primary=include/fonts/Lato/Lato-Regular.ttf|fallback=shared/assets/fonts/Lato-Regular.ttf|license=OFL-1.1|source=GoogleFonts|pack=extended
+entry|preset=ide|role=ui_mono_small|family=Lato|style=Regular|weight=400|point=10|primary=include/fonts/Lato/Lato-Regular.ttf|fallback=shared/assets/fonts/Lato-Regular.ttf|license=OFL-1.1|source=GoogleFonts|pack=extended

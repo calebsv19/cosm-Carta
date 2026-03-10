@@ -1,0 +1,12 @@
+{
+  "generated_by": "shared/shape/sync_exports.sh",
+  "count": 6,
+  "assets": [
+    {"file":"airfoil.asset.json"},
+    {"file":"bubble_m.asset.json"},
+    {"file":"gap.asset.json"},
+    {"file":"Hexagon.asset.json"},
+    {"file":"small_waist.asset.json"},
+    {"file":"u_shape.asset.json"}
+  ]
+}

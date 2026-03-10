@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+
+# Local analyzer/cache artifacts
+ide_files/
+test/ide_files/
+kit/kit_ui/ide_files/
+kit/kit_audio/
+code_lines_by_file.txt
+code_lines_by_project.txt
+
+# Build outputs
+**/build/
+*.o
+*.a
+*.so
+*.dylib
+*.class
+
+# Runtime outputs / local captures
+*.log
+*.tmp
+*.bak
+*.ppm
+vk_renderer/vk_hello
+showcase/mem_console/vk_frame.ppm
+
+# SQLite/demo DB artifacts
+*.sqlite
+*.sqlite.*
+*.db
+
+# Local archive/quarantine dirs
+_archive/
