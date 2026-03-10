@@ -55,3 +55,11 @@ MapForge is an offline-first map viewer and route explorer for macOS (C99 + SDL)
 - Avoid per-feature malloc churn; use arenas.
 - Keep rendering decoupled from OSM tags.
 - Keep routing decoupled from render styling.
+
+## Shared Library Sync
+- Shared libs are vendored in-repo at `third_party/codework_shared/`.
+- Subtree update flow:
+  - `git -C map_forge fetch shared-upstream main`
+  - `git -C map_forge subtree pull --prefix=third_party/codework_shared shared-upstream main --squash`
+- Rebuild check:
+  - `make -C map_forge clean && make -C map_forge`

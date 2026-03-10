@@ -1,5 +1,8 @@
 CC := cc
 
+# Build the application when running plain `make`.
+.DEFAULT_GOAL := app
+
 SDL_CFLAGS := $(shell sdl2-config --cflags 2>/dev/null)
 SDL_LIBS := $(shell sdl2-config --libs 2>/dev/null)
 SDL_TTF_CFLAGS := $(shell pkg-config --cflags SDL2_ttf 2>/dev/null)
@@ -8,25 +11,35 @@ VULKAN_CFLAGS := $(shell pkg-config --cflags vulkan 2>/dev/null)
 VULKAN_LIBS := $(shell pkg-config --libs vulkan 2>/dev/null)
 JSON_CFLAGS := $(shell pkg-config --cflags json-c 2>/dev/null)
 JSON_LIBS := $(shell pkg-config --libs json-c 2>/dev/null)
-CORE_SPACE_DIR := ../shared/core_space
-CORE_BASE_DIR := ../shared/core_base
-CORE_IO_DIR := ../shared/core_io
-CORE_PACK_DIR := ../shared/core_pack
-CORE_TRACE_DIR := ../shared/core_trace
-CORE_THEME_DIR := ../shared/core_theme
-CORE_FONT_DIR := ../shared/core_font
+SHARED_ROOT ?= third_party/codework_shared
+CORE_SPACE_DIR := $(SHARED_ROOT)/core/core_space
+CORE_BASE_DIR := $(SHARED_ROOT)/core/core_base
+CORE_IO_DIR := $(SHARED_ROOT)/core/core_io
+CORE_DATA_DIR := $(SHARED_ROOT)/core/core_data
+CORE_PACK_DIR := $(SHARED_ROOT)/core/core_pack
+CORE_TIME_DIR := $(SHARED_ROOT)/core/core_time
+CORE_QUEUE_DIR := $(SHARED_ROOT)/core/core_queue
+CORE_WORKERS_DIR := $(SHARED_ROOT)/core/core_workers
+CORE_WAKE_DIR := $(SHARED_ROOT)/core/core_wake
+CORE_TRACE_DIR := $(SHARED_ROOT)/core/core_trace
+CORE_THEME_DIR := $(SHARED_ROOT)/core/core_theme
+CORE_FONT_DIR := $(SHARED_ROOT)/core/core_font
 
 CORE_SPACE_LIB := $(CORE_SPACE_DIR)/build/libcore_space.a
 CORE_BASE_LIB := $(CORE_BASE_DIR)/build/libcore_base.a
 CORE_IO_LIB := $(CORE_IO_DIR)/build/libcore_io.a
+CORE_DATA_LIB := $(CORE_DATA_DIR)/build/libcore_data.a
 CORE_PACK_LIB := $(CORE_PACK_DIR)/build/libcore_pack.a
+CORE_TIME_LIB := $(CORE_TIME_DIR)/build/libcore_time.a
+CORE_QUEUE_LIB := $(CORE_QUEUE_DIR)/build/libcore_queue.a
+CORE_WORKERS_LIB := $(CORE_WORKERS_DIR)/build/libcore_workers.a
+CORE_WAKE_LIB := $(CORE_WAKE_DIR)/build/libcore_wake.a
 CORE_TRACE_LIB := $(CORE_TRACE_DIR)/build/libcore_trace.a
 CORE_THEME_LIB := $(CORE_THEME_DIR)/build/libcore_theme.a
 CORE_FONT_LIB := $(CORE_FONT_DIR)/build/libcore_font.a
 
-VK_RENDERER_DIR ?= third_party/vk_renderer
-VK_RENDERER_FALLBACK_DIR ?= $(HOME)/Desktop/CodeWork/shared/vk_renderer
-VK_RENDERER_RESOLVED_DIR := $(if $(wildcard $(VK_RENDERER_DIR)/include/vk_renderer.h),$(VK_RENDERER_DIR),$(VK_RENDERER_FALLBACK_DIR))
+VK_RENDERER_DIR ?= $(SHARED_ROOT)/vk_renderer
+VK_RENDERER_RESOLVED_DIR := $(VK_RENDERER_DIR)
 VK_RENDERER_INCLUDE := $(VK_RENDERER_RESOLVED_DIR)/include
 VK_RENDERER_STATIC_LIB := $(VK_RENDERER_RESOLVED_DIR)/build/lib/libvkrenderer.a
 VK_RENDERER_SRCS := $(wildcard $(VK_RENDERER_RESOLVED_DIR)/src/*.c)
@@ -34,7 +47,7 @@ VK_RENDERER_OBJS := $(patsubst $(VK_RENDERER_RESOLVED_DIR)/src/%.c,build/vk_rend
 VK_BUILD_LIB := build/vk/lib/libvkrenderer.a
 VK_BUILD_SHADER_DIR := build/vk/shaders
 VK_REQUIRED_SHADERS := fill.vert.spv fill.frag.spv line.vert.spv line.frag.spv textured.vert.spv textured.frag.spv
-VK_APP_ENABLED := $(if $(wildcard $(VK_RENDERER_INCLUDE)/vk_renderer.h),$(if $(wildcard $(VK_RENDERER_STATIC_LIB)),1,))
+VK_APP_ENABLED := $(if $(wildcard $(VK_RENDERER_INCLUDE)/vk_renderer.h),1,)
 
 ifeq ($(SDL_LIBS),)
 SDL_CFLAGS :=
@@ -52,7 +65,7 @@ endif
 
 CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g -pthread $(SDL_CFLAGS) $(SDL_TTF_CFLAGS)
 LDLIBS := $(SDL_LIBS) $(SDL_TTF_LIBS) $(JSON_LIBS) -pthread
-TOOL_LDLIBS := -lm $(CORE_IO_LIB) $(CORE_BASE_LIB)
+TOOL_LDLIBS := -lm $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 
 ifeq ($(JSON_LIBS),)
 LDLIBS += -ljson-c
@@ -61,7 +74,12 @@ CFLAGS += $(JSON_CFLAGS)
 CFLAGS += -I$(CORE_SPACE_DIR)/include
 CFLAGS += -I$(CORE_BASE_DIR)/include
 CFLAGS += -I$(CORE_IO_DIR)/include
+CFLAGS += -I$(CORE_DATA_DIR)/include
 CFLAGS += -I$(CORE_PACK_DIR)/include
+CFLAGS += -I$(CORE_TIME_DIR)/include
+CFLAGS += -I$(CORE_QUEUE_DIR)/include
+CFLAGS += -I$(CORE_WORKERS_DIR)/include
+CFLAGS += -I$(CORE_WAKE_DIR)/include
 CFLAGS += -I$(CORE_TRACE_DIR)/include
 CFLAGS += -I$(CORE_THEME_DIR)/include
 CFLAGS += -I$(CORE_FONT_DIR)/include
@@ -70,7 +88,7 @@ SRCS := $(shell find src -name '*.c')
 OBJS := $(SRCS:src/%.c=build/%.o)
 DEPS := $(OBJS:.o=.d)
 LINK_OBJS := $(OBJS)
-CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB)
+CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_TIME_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 LINK_OBJS += $(CORE_SHARED_LIBS)
 TARGET := build/mapforge
 TOOL_TARGET := build/tools/mapforge_region
@@ -127,11 +145,26 @@ $(CORE_BASE_LIB):
 $(CORE_IO_LIB): $(CORE_BASE_LIB)
 	$(MAKE) -C $(CORE_IO_DIR)
 
+$(CORE_DATA_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_DATA_DIR)
+
 $(CORE_SPACE_LIB): $(CORE_BASE_LIB)
 	$(MAKE) -C $(CORE_SPACE_DIR)
 
 $(CORE_PACK_LIB): $(CORE_IO_LIB)
 	$(MAKE) -C $(CORE_PACK_DIR)
+
+$(CORE_TIME_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_TIME_DIR)
+
+$(CORE_QUEUE_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_QUEUE_DIR)
+
+$(CORE_WORKERS_LIB): $(CORE_QUEUE_LIB)
+	$(MAKE) -C $(CORE_WORKERS_DIR)
+
+$(CORE_WAKE_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_WAKE_DIR)
 
 $(CORE_TRACE_LIB): $(CORE_PACK_LIB)
 	$(MAKE) -C $(CORE_TRACE_DIR)
@@ -168,13 +201,13 @@ run-daw-theme: app
 
 tools: $(TOOL_TARGET)
 
-$(TOOL_TARGET): $(TOOL_SRCS) $(CORE_IO_LIB) $(CORE_BASE_LIB)
+$(TOOL_TARGET): $(TOOL_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(TOOL_SRCS) -o $@ $(TOOL_LDLIBS)
 
 graph: $(GRAPH_TARGET)
 
-$(GRAPH_TARGET): $(GRAPH_SRCS) $(CORE_IO_LIB) $(CORE_BASE_LIB)
+$(GRAPH_TARGET): $(GRAPH_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(GRAPH_SRCS) -o $@ $(TOOL_LDLIBS)
 
@@ -254,7 +287,7 @@ prune-regions:
 
 shared-check:
 	@echo "=== Shared Library Check ==="
-	@for path in "$(CORE_BASE_LIB)" "$(CORE_IO_LIB)" "$(CORE_SPACE_LIB)" "$(CORE_PACK_LIB)" "$(CORE_TRACE_LIB)"; do \
+	@for path in "$(CORE_BASE_LIB)" "$(CORE_IO_LIB)" "$(CORE_DATA_LIB)" "$(CORE_SPACE_LIB)" "$(CORE_PACK_LIB)" "$(CORE_TIME_LIB)" "$(CORE_QUEUE_LIB)" "$(CORE_WORKERS_LIB)" "$(CORE_WAKE_LIB)" "$(CORE_TRACE_LIB)"; do \
 		if [ ! -f "$$path" ]; then \
 			echo "missing: $$path"; \
 			exit 1; \
@@ -263,7 +296,7 @@ shared-check:
 	done
 	@echo ""
 	@echo "=== Shared Versions ==="
-	@for path in "$(CORE_BASE_DIR)/VERSION" "$(CORE_IO_DIR)/VERSION" "$(CORE_SPACE_DIR)/VERSION" "$(CORE_PACK_DIR)/VERSION" "$(CORE_TRACE_DIR)/VERSION"; do \
+	@for path in "$(CORE_BASE_DIR)/VERSION" "$(CORE_IO_DIR)/VERSION" "$(CORE_DATA_DIR)/VERSION" "$(CORE_SPACE_DIR)/VERSION" "$(CORE_PACK_DIR)/VERSION" "$(CORE_TIME_DIR)/VERSION" "$(CORE_QUEUE_DIR)/VERSION" "$(CORE_WORKERS_DIR)/VERSION" "$(CORE_WAKE_DIR)/VERSION" "$(CORE_TRACE_DIR)/VERSION"; do \
 		if [ -f "$$path" ]; then \
 			printf "%s: " "$$path"; cat "$$path"; \
 		else \
@@ -284,7 +317,7 @@ trace-latest:
 
 vk-lib:
 	@if [ ! -f "$(VK_RENDERER_RESOLVED_DIR)/include/vk_renderer.h" ]; then \
-		echo "vk renderer not found at $(VK_RENDERER_DIR) or $(VK_RENDERER_FALLBACK_DIR)"; \
+		echo "vk renderer not found at $(VK_RENDERER_DIR)"; \
 		exit 1; \
 	fi
 	$(MAKE) -C "$(VK_RENDERER_RESOLVED_DIR)" all
