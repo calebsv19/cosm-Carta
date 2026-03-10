@@ -141,6 +141,7 @@ static bool app_init(AppState *app) {
         return false;
     }
 
+    mapforge_shared_theme_load_persisted();
     app->width = 1280;
     app->height = 720;
     renderer_set_backend(&app->renderer, RENDERER_BACKEND_SDL);
@@ -321,6 +322,8 @@ static void app_shutdown(AppState *app) {
         return;
     }
 
+    mapforge_shared_theme_save_persisted();
+
     if (TTF_WasInit()) {
         ui_font_shutdown(&app->renderer);
         TTF_Quit();
@@ -421,6 +424,14 @@ int app_run(void) {
         }
         if (app.input.toggle_polygon_outline_pressed) {
             app.polygon_outline_only = !app.polygon_outline_only;
+        }
+        if (app.input.theme_cycle_next_pressed) {
+            mapforge_shared_theme_cycle_next();
+            mapforge_shared_theme_save_persisted();
+        }
+        if (app.input.theme_cycle_prev_pressed) {
+            mapforge_shared_theme_cycle_prev();
+            mapforge_shared_theme_save_persisted();
         }
         if (app.input.toggle_playback_pressed && app.route.path.count >= 2) {
             app.playback_playing = !app.playback_playing;

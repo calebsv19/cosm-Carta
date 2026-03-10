@@ -3,6 +3,7 @@
 #include <string.h>
 
 static const RegionInfo kRegions[] = {
+    {"sample", "data/regions/sample/tiles", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false},
     {"seattle_small", "data/regions/seattle_small/tiles", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false},
     {"seattle_medium", "data/regions/seattle_medium/tiles", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false},
     {"seattle_large", "data/regions/seattle_large/tiles", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false},

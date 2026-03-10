@@ -14,10 +14,12 @@ int main(void) {
     int point_size = 0;
     size_t i = 0;
     const char *theme_presets[] = {
-        "dark_default",
-        "ide_gray",
-        "daw_default",
-        "light_default"
+        "studio_blue",
+        "harbor_blue",
+        "midnight_contrast",
+        "soft_light",
+        "standard_grey",
+        "greyscale"
     };
 
     unsetenv("MAPFORGE_USE_SHARED_THEME_FONT");
@@ -34,7 +36,7 @@ int main(void) {
     }
 
     setenv("MAPFORGE_USE_SHARED_THEME_FONT", "1", 1);
-    setenv("MAPFORGE_THEME_PRESET", "ide_gray", 1);
+    setenv("MAPFORGE_THEME_PRESET", "standard_grey", 1);
     if (!mapforge_shared_theme_resolve_palette(&palette)) {
         return fail("theme should resolve when shared toggle is enabled");
     }
@@ -45,7 +47,7 @@ int main(void) {
     }
 
     setenv("MAPFORGE_USE_SHARED_FONT", "1", 1);
-    setenv("MAPFORGE_FONT_PRESET", "daw_default", 1);
+    setenv("MAPFORGE_FONT_PRESET", "studio_blue", 1);
     if (!mapforge_shared_font_resolve_ui_regular(path, sizeof(path), &point_size)) {
         return fail("font should resolve when enabled");
     }

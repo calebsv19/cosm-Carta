@@ -1,13 +1,8 @@
 #include "core/time.h"
 
-#include <SDL.h>
+#include "core_time.h"
 
 // Returns current time in seconds from a monotonic clock.
 double time_now_seconds(void) {
-    static double frequency = 0.0;
-    if (frequency == 0.0) {
-        frequency = (double)SDL_GetPerformanceFrequency();
-    }
-
-    return (double)SDL_GetPerformanceCounter() / frequency;
+    return core_time_ns_to_seconds(core_time_now_ns());
 }

@@ -34,7 +34,14 @@ static MapForgeThemePalette app_theme_palette(void) {
         .chip_loading_fill = {30, 42, 58, 220},
         .chip_loading_outline = {92, 146, 210, 230},
         .chip_ready_fill = {28, 50, 44, 220},
-        .chip_ready_outline = {78, 170, 130, 230}
+        .chip_ready_outline = {78, 170, 130, 230},
+        .overlay_fill = {16, 18, 24, 224},
+        .overlay_outline = {80, 90, 110, 220},
+        .overlay_accent = {110, 180, 255, 230},
+        .route_panel_fill = {20, 26, 36, 210},
+        .route_panel_outline = {80, 90, 110, 220},
+        .route_progress_fill = {80, 170, 255, 220},
+        .playback_marker_fill = {255, 230, 80, 240}
     };
     mapforge_shared_theme_resolve_palette(&palette);
     return palette;
@@ -302,7 +309,8 @@ void app_draw_layer_debug(AppState *app) {
         return;
     }
 
-    SDL_Color color = app_theme_palette().text_primary;
+    MapForgeThemePalette palette = app_theme_palette();
+    SDL_Color color = palette.text_primary;
     int line_h = ui_font_line_height(1.0f);
     if (line_h <= 0) {
         return;
@@ -311,6 +319,20 @@ void app_draw_layer_debug(AppState *app) {
     int x = 10;
     int y = (int)APP_HEADER_HEIGHT + 6;
     char line[128];
+    int total_lines = 4 + (int)layer_policy_count();
+    float panel_w = (float)(app->width > 740 ? 720 : app->width - 20);
+    if (panel_w < 220.0f) {
+        panel_w = 220.0f;
+    }
+    float panel_h = (float)(total_lines * (line_h + 2) + 14);
+    SDL_FRect panel = {(float)(x - 6), (float)(y - 4), panel_w, panel_h};
+    renderer_set_draw_color(&app->renderer, palette.overlay_fill.r, palette.overlay_fill.g, palette.overlay_fill.b, palette.overlay_fill.a);
+    renderer_fill_rect(&app->renderer, &panel);
+    renderer_set_draw_color(&app->renderer, palette.overlay_outline.r, palette.overlay_outline.g, palette.overlay_outline.b, palette.overlay_outline.a);
+    renderer_draw_rect(&app->renderer, &panel);
+    SDL_FRect accent = {panel.x, panel.y, 3.0f, panel.h};
+    renderer_set_draw_color(&app->renderer, palette.overlay_accent.r, palette.overlay_accent.g, palette.overlay_accent.b, palette.overlay_accent.a);
+    renderer_fill_rect(&app->renderer, &accent);
 
     snprintf(line, sizeof(line), "Visible tiles: %u", app->visible_tile_count);
     ui_draw_text(&app->renderer, x, y, line, color, 1.0f);

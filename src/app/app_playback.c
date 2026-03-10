@@ -1,8 +1,20 @@
 #include "app/app_internal.h"
 
 #include "route/route_render.h"
+#include "ui/shared_theme_font_adapter.h"
 
 #include <math.h>
+
+static MapForgeThemePalette playback_theme_palette(void) {
+    MapForgeThemePalette palette = {
+        .route_panel_fill = {20, 26, 36, 210},
+        .route_panel_outline = {80, 90, 110, 220},
+        .route_progress_fill = {80, 170, 255, 220},
+        .playback_marker_fill = {255, 230, 80, 240}
+    };
+    mapforge_shared_theme_resolve_palette(&palette);
+    return palette;
+}
 
 void app_playback_reset(AppState *app) {
     if (!app) {
@@ -86,7 +98,12 @@ void app_draw_playback_marker(AppState *app) {
     float sx = 0.0f;
     float sy = 0.0f;
     camera_world_to_screen(&app->camera, wx, wy, app->width, app->height, &sx, &sy);
-    renderer_set_draw_color(&app->renderer, 255, 230, 80, 240);
+    MapForgeThemePalette palette = playback_theme_palette();
+    renderer_set_draw_color(&app->renderer,
+                            palette.playback_marker_fill.r,
+                            palette.playback_marker_fill.g,
+                            palette.playback_marker_fill.b,
+                            palette.playback_marker_fill.a);
     SDL_FRect rect = {sx - 4.0f, sy - 4.0f, 8.0f, 8.0f};
     renderer_fill_rect(&app->renderer, &rect);
 }
@@ -100,9 +117,18 @@ void app_draw_route_panel(AppState *app) {
     float panel_h = 36.0f;
     float pad = 10.0f;
     SDL_FRect panel = {pad, APP_HEADER_HEIGHT + pad, panel_w, panel_h};
-    renderer_set_draw_color(&app->renderer, 20, 26, 36, 210);
+    MapForgeThemePalette palette = playback_theme_palette();
+    renderer_set_draw_color(&app->renderer,
+                            palette.route_panel_fill.r,
+                            palette.route_panel_fill.g,
+                            palette.route_panel_fill.b,
+                            palette.route_panel_fill.a);
     renderer_fill_rect(&app->renderer, &panel);
-    renderer_set_draw_color(&app->renderer, 80, 90, 110, 220);
+    renderer_set_draw_color(&app->renderer,
+                            palette.route_panel_outline.r,
+                            palette.route_panel_outline.g,
+                            palette.route_panel_outline.b,
+                            palette.route_panel_outline.a);
     renderer_draw_rect(&app->renderer, &panel);
 
     if (app->route.path.total_time_s > 0.0f) {
@@ -113,7 +139,11 @@ void app_draw_route_panel(AppState *app) {
             progress = 1.0f;
         }
         SDL_FRect bar = {panel.x + 8.0f, panel.y + panel.h - 10.0f, (panel.w - 16.0f) * progress, 4.0f};
-        renderer_set_draw_color(&app->renderer, 80, 170, 255, 220);
+        renderer_set_draw_color(&app->renderer,
+                                palette.route_progress_fill.r,
+                                palette.route_progress_fill.g,
+                                palette.route_progress_fill.b,
+                                palette.route_progress_fill.a);
         renderer_fill_rect(&app->renderer, &bar);
     }
 }

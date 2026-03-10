@@ -3,6 +3,9 @@
 
 #include "map/mft_loader.h"
 #include "map/tile_layers.h"
+#include "core_queue.h"
+#include "core_wake.h"
+#include "core_workers.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -24,20 +27,23 @@ typedef struct TileResult {
     MftTile tile;
 } TileResult;
 
+enum {
+    TILE_LOADER_REQ_CAPACITY = 1024u,
+    TILE_LOADER_RES_CAPACITY = 256u,
+    TILE_LOADER_WORKER_THREADS = 1u,
+    TILE_LOADER_WORKER_TASK_CAPACITY = 4u
+};
+
 typedef struct TileLoader {
-    pthread_t thread;
     pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    TileRequest *requests;
-    TileResult *results;
-    uint32_t req_head;
-    uint32_t req_tail;
-    uint32_t req_count;
-    uint32_t res_head;
-    uint32_t res_tail;
-    uint32_t res_count;
-    uint32_t req_capacity;
-    uint32_t res_capacity;
+    CoreQueueMutex request_queue;
+    CoreQueueMutex result_queue;
+    void *request_queue_backing[TILE_LOADER_REQ_CAPACITY];
+    void *result_queue_backing[TILE_LOADER_RES_CAPACITY];
+    CoreWake wake;
+    CoreWorkers workers;
+    pthread_t worker_threads[TILE_LOADER_WORKER_THREADS];
+    CoreWorkerTask worker_tasks[TILE_LOADER_WORKER_TASK_CAPACITY];
     uint64_t enqueued_count;
     uint64_t enqueue_drop_count;
     uint64_t enqueue_evict_count;

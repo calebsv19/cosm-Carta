@@ -26,6 +26,8 @@ typedef struct InputState {
     bool toggle_landuse_pressed;
     bool toggle_building_fill_pressed;
     bool toggle_polygon_outline_pressed;
+    bool theme_cycle_next_pressed;
+    bool theme_cycle_prev_pressed;
     bool playback_step_forward;
     bool playback_step_back;
     bool playback_speed_up;

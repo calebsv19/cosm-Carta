@@ -1,4 +1,5 @@
 #include "core/log.h"
+#include "core_data.h"
 #include "core_io.h"
 #include "map/mercator.h"
 #include "map/mft_loader.h"
@@ -1572,6 +1573,185 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
     return core_io_write_all(path, json, (size_t)n).code == CORE_OK;
 }
 
+// Writes additive core_data dataset JSON for tile/layer/feature build metrics.
+static bool write_metrics_dataset_json(const BuildOptions *options, const BuildContext *ctx) {
+    if (!options || !ctx || !options->out_dir) {
+        return false;
+    }
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/meta.dataset.json", options->out_dir);
+
+    CoreDataset dataset;
+    core_dataset_init(&dataset);
+
+    CoreResult r = core_dataset_add_metadata_string(&dataset, "profile", "map_forge_tile_layer_feature_dataset_v1");
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "dataset_schema", "map_forge.tile_layer_feature_metrics");
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_i64(&dataset, "dataset_contract_version", 1);
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_i64(&dataset, "schema_version", 1);
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "summary_table", "map_forge_summary_v1");
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "layers_table", "map_forge_layers_v1");
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "bands_table", "map_forge_bands_v1");
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "region", options->region ? options->region : "");
+    if (r.code != CORE_OK) goto fail;
+
+    r = core_dataset_add_scalar_f64(&dataset, "tile_count", (double)ctx->tile_count);
+    if (r.code != CORE_OK) goto fail;
+
+    {
+        const char *cols[] = {
+            "tile_count", "files_written_total", "files_written_legacy", "files_written_banded",
+            "files_written_contour", "emit_legacy_tiles", "emit_contour_empty", "min_z", "max_z"
+        };
+        CoreTableColumnType types[] = {
+            CORE_TABLE_COL_I64, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64,
+            CORE_TABLE_COL_I64, CORE_TABLE_COL_BOOL, CORE_TABLE_COL_BOOL, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64
+        };
+        int64_t tile_count_col[] = {(int64_t)ctx->tile_count};
+        int64_t files_total_col[] = {(int64_t)ctx->files_written_total};
+        int64_t files_legacy_col[] = {(int64_t)ctx->files_written_legacy};
+        int64_t files_banded_col[] = {(int64_t)ctx->files_written_banded};
+        int64_t files_contour_col[] = {(int64_t)ctx->files_written_contour};
+        bool emit_legacy_col[] = {options->emit_legacy_tiles};
+        bool emit_contour_col[] = {options->emit_contour_empty};
+        int64_t min_z_col[] = {(int64_t)options->min_z};
+        int64_t max_z_col[] = {(int64_t)options->max_z};
+        const void *col_data[] = {
+            tile_count_col, files_total_col, files_legacy_col, files_banded_col, files_contour_col,
+            emit_legacy_col, emit_contour_col, min_z_col, max_z_col
+        };
+        r = core_dataset_add_table_typed(&dataset,
+                                         "map_forge_summary_v1",
+                                         cols,
+                                         types,
+                                         (uint32_t)(sizeof(cols) / sizeof(cols[0])),
+                                         1u,
+                                         col_data);
+        if (r.code != CORE_OK) goto fail;
+    }
+
+    {
+        const char *cols[] = {"layer_id", "files_written"};
+        CoreTableColumnType types[] = {CORE_TABLE_COL_I64, CORE_TABLE_COL_I64};
+        int64_t layer_id_col[] = {1, 2, 3, 4, 5, 6};
+        int64_t files_col[] = {
+            (int64_t)ctx->layer_artery_files,
+            (int64_t)ctx->layer_local_files,
+            (int64_t)ctx->layer_water_files,
+            (int64_t)ctx->layer_park_files,
+            (int64_t)ctx->layer_landuse_files,
+            (int64_t)ctx->layer_building_files};
+        const void *col_data[] = {layer_id_col, files_col};
+        r = core_dataset_add_table_typed(&dataset,
+                                         "map_forge_layers_v1",
+                                         cols,
+                                         types,
+                                         (uint32_t)(sizeof(cols) / sizeof(cols[0])),
+                                         6u,
+                                         col_data);
+        if (r.code != CORE_OK) goto fail;
+    }
+
+    {
+        const char *cols[] = {"band_id", "files_written"};
+        CoreTableColumnType types[] = {CORE_TABLE_COL_I64, CORE_TABLE_COL_I64};
+        int64_t band_id_col[] = {1, 2, 3};
+        int64_t files_col[] = {
+            (int64_t)ctx->band_coarse_files,
+            (int64_t)ctx->band_mid_files,
+            (int64_t)ctx->band_fine_files};
+        const void *col_data[] = {band_id_col, files_col};
+        r = core_dataset_add_table_typed(&dataset,
+                                         "map_forge_bands_v1",
+                                         cols,
+                                         types,
+                                         (uint32_t)(sizeof(cols) / sizeof(cols[0])),
+                                         3u,
+                                         col_data);
+        if (r.code != CORE_OK) goto fail;
+    }
+
+    if (!core_dataset_find(&dataset, "map_forge_summary_v1") ||
+        !core_dataset_find(&dataset, "map_forge_layers_v1") ||
+        !core_dataset_find(&dataset, "map_forge_bands_v1")) {
+        goto fail;
+    }
+
+    char json[12288];
+    int n = snprintf(
+        json, sizeof(json),
+        "{\n"
+        "  \"profile\": \"map_forge_tile_layer_feature_dataset_v1\",\n"
+        "  \"dataset_schema\": \"map_forge.tile_layer_feature_metrics\",\n"
+        "  \"schema_version\": 1,\n"
+        "  \"metadata\": {\n"
+        "    \"region\": \"%s\",\n"
+        "    \"summary_table\": \"map_forge_summary_v1\",\n"
+        "    \"layers_table\": \"map_forge_layers_v1\",\n"
+        "    \"bands_table\": \"map_forge_bands_v1\"\n"
+        "  },\n"
+        "  \"items\": [\n"
+        "    {\n"
+        "      \"name\": \"map_forge_summary_v1\",\n"
+        "      \"kind\": \"table_typed\",\n"
+        "      \"rows\": 1,\n"
+        "      \"columns\": 9,\n"
+        "      \"row0\": {\n"
+        "        \"tile_count\": %lld,\n"
+        "        \"files_written_total\": %lld,\n"
+        "        \"files_written_legacy\": %lld,\n"
+        "        \"files_written_banded\": %lld,\n"
+        "        \"files_written_contour\": %lld,\n"
+        "        \"emit_legacy_tiles\": %s,\n"
+        "        \"emit_contour_empty\": %s,\n"
+        "        \"min_z\": %u,\n"
+        "        \"max_z\": %u\n"
+        "      }\n"
+        "    },\n"
+        "    {\n"
+        "      \"name\": \"map_forge_layers_v1\",\n"
+        "      \"kind\": \"table_typed\",\n"
+        "      \"rows\": 6,\n"
+        "      \"columns\": 2\n"
+        "    },\n"
+        "    {\n"
+        "      \"name\": \"map_forge_bands_v1\",\n"
+        "      \"kind\": \"table_typed\",\n"
+        "      \"rows\": 3,\n"
+        "      \"columns\": 2\n"
+        "    }\n"
+        "  ]\n"
+        "}\n",
+        options->region ? options->region : "",
+        (long long)ctx->tile_count,
+        (long long)ctx->files_written_total,
+        (long long)ctx->files_written_legacy,
+        (long long)ctx->files_written_banded,
+        (long long)ctx->files_written_contour,
+        options->emit_legacy_tiles ? "true" : "false",
+        options->emit_contour_empty ? "true" : "false",
+        (unsigned)options->min_z,
+        (unsigned)options->max_z);
+    if (n <= 0 || (size_t)n >= sizeof(json)) {
+        goto fail;
+    }
+
+    r = core_io_write_all(path, json, (size_t)n);
+    core_dataset_free(&dataset);
+    return r.code == CORE_OK;
+
+fail:
+    core_dataset_free(&dataset);
+    return false;
+}
+
 typedef struct SnapshotEntry {
     char path[512];
     time_t mtime;
@@ -2177,6 +2357,14 @@ int main(int argc, char **argv) {
 
     if (!write_meta_json(&options, &ctx)) {
         log_error("Failed to write staged meta.json for region: %s", options.region);
+        build_context_free(&ctx);
+        if (stage_created) {
+            remove_tree(stage_dir);
+        }
+        return 1;
+    }
+    if (!write_metrics_dataset_json(&options, &ctx)) {
+        log_error("Failed to write staged meta.dataset.json for region: %s", options.region);
         build_context_free(&ctx);
         if (stage_created) {
             remove_tree(stage_dir);

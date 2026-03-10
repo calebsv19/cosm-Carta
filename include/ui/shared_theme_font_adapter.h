@@ -25,9 +25,22 @@ typedef struct MapForgeThemePalette {
     SDL_Color chip_loading_outline;
     SDL_Color chip_ready_fill;
     SDL_Color chip_ready_outline;
+    SDL_Color overlay_fill;
+    SDL_Color overlay_outline;
+    SDL_Color overlay_accent;
+    SDL_Color route_panel_fill;
+    SDL_Color route_panel_outline;
+    SDL_Color route_progress_fill;
+    SDL_Color playback_marker_fill;
 } MapForgeThemePalette;
 
 bool mapforge_shared_theme_resolve_palette(MapForgeThemePalette *out_palette);
 bool mapforge_shared_font_resolve_ui_regular(char *out_path, size_t out_path_size, int *out_point_size);
+bool mapforge_shared_theme_cycle_next(void);
+bool mapforge_shared_theme_cycle_prev(void);
+bool mapforge_shared_theme_set_preset(const char *preset_name);
+bool mapforge_shared_theme_current_preset(char *out_name, size_t out_name_size);
+bool mapforge_shared_theme_load_persisted(void);
+bool mapforge_shared_theme_save_persisted(void);
 
 #endif

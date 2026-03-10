@@ -24,6 +24,8 @@ void input_init(InputState *input) {
     input->toggle_landuse_pressed = false;
     input->toggle_building_fill_pressed = false;
     input->toggle_polygon_outline_pressed = false;
+    input->theme_cycle_next_pressed = false;
+    input->theme_cycle_prev_pressed = false;
     input->playback_step_forward = false;
     input->playback_step_back = false;
     input->playback_speed_up = false;
@@ -53,6 +55,8 @@ void input_begin_frame(InputState *input) {
     input->toggle_landuse_pressed = false;
     input->toggle_building_fill_pressed = false;
     input->toggle_polygon_outline_pressed = false;
+    input->theme_cycle_next_pressed = false;
+    input->theme_cycle_prev_pressed = false;
     input->playback_step_forward = false;
     input->playback_step_back = false;
     input->playback_speed_up = false;
@@ -86,6 +90,16 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
             input->mouse_wheel_y += event->wheel.y;
             break;
         case SDL_KEYDOWN:
+            if ((event->key.keysym.mod & (KMOD_CTRL | KMOD_GUI)) != 0 &&
+                (event->key.keysym.mod & KMOD_SHIFT) != 0) {
+                if (event->key.keysym.sym == SDLK_t) {
+                    input->theme_cycle_next_pressed = true;
+                    break;
+                } else if (event->key.keysym.sym == SDLK_y) {
+                    input->theme_cycle_prev_pressed = true;
+                    break;
+                }
+            }
             if (event->key.keysym.sym == SDLK_ESCAPE) {
                 input->quit = true;
             } else if (event->key.keysym.sym == SDLK_F1) {

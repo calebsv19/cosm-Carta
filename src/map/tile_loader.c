@@ -8,100 +8,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void tile_loader_reset(TileLoader *loader) {
-    if (!loader) {
-        return;
-    }
-    memset(loader, 0, sizeof(*loader));
-}
+typedef struct TileLoaderTaskCtx {
+    TileLoader *loader;
+    TileRequest request;
+} TileLoaderTaskCtx;
 
-static bool tile_loader_request_push(TileLoader *loader, const TileRequest *request) {
-    if (!loader || !request || loader->req_count >= loader->req_capacity) {
-        return false;
-    }
-
-    loader->requests[loader->req_tail] = *request;
-    loader->req_tail = (loader->req_tail + 1) % loader->req_capacity;
-    loader->req_count += 1;
-    return true;
-}
-
-static bool tile_loader_request_evict_at(TileLoader *loader, uint32_t offset) {
-    if (!loader || loader->req_count == 0u || offset >= loader->req_count) {
-        return false;
-    }
-
-    uint32_t cap = loader->req_capacity;
-    uint32_t head = loader->req_head;
-    for (uint32_t i = offset; i + 1u < loader->req_count; ++i) {
-        uint32_t from = (head + i + 1u) % cap;
-        uint32_t to = (head + i) % cap;
-        loader->requests[to] = loader->requests[from];
-    }
-
-    loader->req_tail = (loader->req_tail + cap - 1u) % cap;
-    loader->req_count -= 1u;
-    return true;
-}
-
-static bool tile_loader_request_pop(TileLoader *loader, TileRequest *out_request) {
-    if (!loader || !out_request || loader->req_count == 0) {
-        return false;
-    }
-
-    *out_request = loader->requests[loader->req_head];
-    loader->req_head = (loader->req_head + 1) % loader->req_capacity;
-    loader->req_count -= 1;
-    return true;
-}
-
-static bool tile_loader_result_push(TileLoader *loader, const TileResult *result) {
-    if (!loader || !result || loader->res_count >= loader->res_capacity) {
-        return false;
-    }
-
-    loader->results[loader->res_tail] = *result;
-    loader->res_tail = (loader->res_tail + 1) % loader->res_capacity;
-    loader->res_count += 1;
-    return true;
-}
-
-static bool tile_loader_result_evict_at(TileLoader *loader, uint32_t offset) {
-    if (!loader || loader->res_count == 0u || offset >= loader->res_count) {
-        return false;
-    }
-
-    uint32_t cap = loader->res_capacity;
-    uint32_t head = loader->res_head;
-    uint32_t idx = (head + offset) % cap;
-    TileResult doomed = loader->results[idx];
-
-    for (uint32_t i = offset; i + 1u < loader->res_count; ++i) {
-        uint32_t from = (head + i + 1u) % cap;
-        uint32_t to = (head + i) % cap;
-        loader->results[to] = loader->results[from];
-    }
-
-    loader->res_tail = (loader->res_tail + cap - 1u) % cap;
-    loader->res_count -= 1u;
-    memset(&loader->results[loader->res_tail], 0, sizeof(loader->results[loader->res_tail]));
-    if (doomed.ok) {
-        mft_free_tile(&doomed.tile);
-    }
-    return true;
-}
-
-static bool tile_loader_result_pop(TileLoader *loader, TileResult *out_result) {
-    if (!loader || !out_result || loader->res_count == 0) {
-        return false;
-    }
-
-    *out_result = loader->results[loader->res_head];
-    memset(&loader->results[loader->res_head], 0, sizeof(TileResult));
-    loader->res_head = (loader->res_head + 1) % loader->res_capacity;
-    loader->res_count -= 1;
-    return true;
-}
+typedef struct TileLoaderResultNode {
+    TileResult result;
+} TileLoaderResultNode;
 
 static const char *tile_loader_suffix(TileLayerKind kind) {
     switch (kind) {
@@ -166,91 +80,169 @@ static bool tile_loader_resolve_path(const char *base_dir,
     return true;
 }
 
-static void *tile_loader_thread(void *userdata) {
-    TileLoader *loader = (TileLoader *)userdata;
+static bool tile_loader_take_request(TileLoader *loader, TileLoaderTaskCtx **out_ctx) {
+    if (!loader || !out_ctx) {
+        return false;
+    }
+    void *item = NULL;
+    if (!core_queue_mutex_pop(&loader->request_queue, &item)) {
+        return false;
+    }
+    if (!item) {
+        return false;
+    }
+    *out_ctx = (TileLoaderTaskCtx *)item;
+    return true;
+}
+
+static void tile_loader_free_request(TileLoaderTaskCtx *ctx) {
+    free(ctx);
+}
+
+static void tile_loader_free_result_node(TileLoaderResultNode *node) {
+    if (!node) {
+        return;
+    }
+    if (node->result.ok) {
+        mft_free_tile(&node->result.tile);
+    }
+    free(node);
+}
+
+static void tile_loader_record_load_stats(TileLoader *loader, bool existed, bool ok) {
+    pthread_mutex_lock(&loader->mutex);
+    if (!existed) {
+        loader->missing_count += 1u;
+    } else if (ok) {
+        loader->load_ok_count += 1u;
+    } else {
+        loader->load_fail_count += 1u;
+    }
+    pthread_mutex_unlock(&loader->mutex);
+}
+
+static void tile_loader_publish_result(TileLoader *loader, const TileResult *result) {
+    if (!loader || !result) {
+        return;
+    }
+
+    TileLoaderResultNode *node = (TileLoaderResultNode *)calloc(1u, sizeof(*node));
+    if (!node) {
+        pthread_mutex_lock(&loader->mutex);
+        loader->result_drop_count += 1u;
+        pthread_mutex_unlock(&loader->mutex);
+        if (result->ok) {
+            mft_free_tile((MftTile *)&result->tile);
+        }
+        return;
+    }
+    node->result = *result;
+
+    bool pushed = core_queue_mutex_push(&loader->result_queue, node);
+    if (!pushed) {
+        void *old_item = NULL;
+        if (core_queue_mutex_pop(&loader->result_queue, &old_item) && old_item) {
+            tile_loader_free_result_node((TileLoaderResultNode *)old_item);
+            pthread_mutex_lock(&loader->mutex);
+            loader->result_evict_count += 1u;
+            pthread_mutex_unlock(&loader->mutex);
+            pushed = core_queue_mutex_push(&loader->result_queue, node);
+        }
+    }
+
+    if (pushed) {
+        pthread_mutex_lock(&loader->mutex);
+        loader->produced_count += 1u;
+        pthread_mutex_unlock(&loader->mutex);
+        (void)core_wake_signal(&loader->wake);
+    } else {
+        pthread_mutex_lock(&loader->mutex);
+        loader->result_drop_count += 1u;
+        pthread_mutex_unlock(&loader->mutex);
+        tile_loader_free_result_node(node);
+    }
+}
+
+static void tile_loader_process_request(TileLoaderTaskCtx *ctx) {
+    if (!ctx || !ctx->loader) {
+        tile_loader_free_request(ctx);
+        return;
+    }
+
+    TileLoader *loader = ctx->loader;
+    TileRequest request = ctx->request;
+    tile_loader_free_request(ctx);
+
+    TileResult result;
+    memset(&result, 0, sizeof(result));
+    result.coord = request.coord;
+    result.kind = request.kind;
+    result.band = request.band;
+    result.request_id = request.request_id;
+
+    bool existed = false;
+    char path[512];
+    if (!tile_loader_resolve_path(loader->base_dir, request.coord, request.kind, request.band, path, sizeof(path))) {
+        result.ok = false;
+    } else if (mft_load_tile(path, &result.tile)) {
+        result.ok = true;
+        existed = true;
+    } else {
+        log_error("Failed to load tile: %s", path);
+        result.ok = false;
+        existed = true;
+    }
+
+    if (result.ok && request.kind == TILE_LAYER_POLY_BUILDING) {
+        polygon_cache_build(&result.tile);
+    }
+
+    tile_loader_record_load_stats(loader, existed, result.ok);
+    tile_loader_publish_result(loader, &result);
+}
+
+static void *tile_loader_worker_main(void *task_ctx) {
+    TileLoader *loader = (TileLoader *)task_ctx;
     if (!loader) {
         return NULL;
     }
 
     for (;;) {
         pthread_mutex_lock(&loader->mutex);
-        while (loader->running && loader->req_count == 0) {
-            pthread_cond_wait(&loader->cond, &loader->mutex);
-        }
-        if (!loader->running) {
-            pthread_mutex_unlock(&loader->mutex);
+        bool running = loader->running;
+        pthread_mutex_unlock(&loader->mutex);
+        if (!running) {
             break;
         }
 
-        TileRequest request;
-        bool has_request = tile_loader_request_pop(loader, &request);
-        pthread_mutex_unlock(&loader->mutex);
-        if (!has_request) {
+        TileLoaderTaskCtx *ctx = NULL;
+        bool had_work = false;
+        while (tile_loader_take_request(loader, &ctx)) {
+            had_work = true;
+            tile_loader_process_request(ctx);
+        }
+        if (had_work) {
             continue;
         }
 
-        TileResult result = {0};
-        result.coord = request.coord;
-        result.kind = request.kind;
-        result.band = request.band;
-        result.request_id = request.request_id;
-        bool existed = false;
-        char path[512];
-        if (!tile_loader_resolve_path(loader->base_dir, request.coord, request.kind, request.band, path, sizeof(path))) {
-            result.ok = false;
-        } else if (mft_load_tile(path, &result.tile)) {
-            result.ok = true;
-            existed = true;
-        } else {
-            log_error("Failed to load tile: %s", path);
-            result.ok = false;
-            existed = true;
-        }
-
-        if (result.ok && request.kind == TILE_LAYER_POLY_BUILDING) {
-            polygon_cache_build(&result.tile);
-        }
-
-        pthread_mutex_lock(&loader->mutex);
-        if (!existed) {
-            loader->missing_count += 1;
-        } else if (result.ok) {
-            loader->load_ok_count += 1;
-        } else {
-            loader->load_fail_count += 1;
-        }
-        bool pushed = tile_loader_result_push(loader, &result);
-        if (!pushed && loader->res_count >= loader->res_capacity) {
-            bool evicted = false;
-            for (uint32_t i = 0u; i < loader->res_count; ++i) {
-                uint32_t idx = (loader->res_head + i) % loader->res_capacity;
-                if (loader->results[idx].request_id < loader->latest_request_id) {
-                    evicted = tile_loader_result_evict_at(loader, i);
-                    break;
-                }
-            }
-            if (!evicted) {
-                evicted = tile_loader_result_evict_at(loader, 0u);
-            }
-            if (evicted) {
-                loader->result_evict_count += 1u;
-                pushed = tile_loader_result_push(loader, &result);
-            }
-        }
-        if (pushed) {
-            loader->produced_count += 1;
-        } else {
-            loader->result_drop_count += 1;
-        }
-        pthread_mutex_unlock(&loader->mutex);
-        if (!pushed) {
-            if (result.ok) {
-                mft_free_tile(&result.tile);
-            }
+        CoreWakeWaitResult wait_result = core_wake_wait(&loader->wake, CORE_WAKE_TIMEOUT_INFINITE);
+        if (wait_result == CORE_WAKE_WAIT_ERROR) {
+            break;
         }
     }
 
+    TileLoaderTaskCtx *ctx = NULL;
+    while (tile_loader_take_request(loader, &ctx)) {
+        tile_loader_free_request(ctx);
+    }
     return NULL;
+}
+
+static void tile_loader_reset(TileLoader *loader) {
+    if (!loader) {
+        return;
+    }
+    memset(loader, 0, sizeof(*loader));
 }
 
 bool tile_loader_init(TileLoader *loader, const char *base_dir) {
@@ -259,23 +251,52 @@ bool tile_loader_init(TileLoader *loader, const char *base_dir) {
     }
 
     memset(loader, 0, sizeof(*loader));
-    loader->req_capacity = 1024;
-    loader->res_capacity = 256;
-    loader->requests = (TileRequest *)calloc(loader->req_capacity, sizeof(TileRequest));
-    loader->results = (TileResult *)calloc(loader->res_capacity, sizeof(TileResult));
-    if (!loader->requests || !loader->results) {
-        free(loader->requests);
-        free(loader->results);
+    snprintf(loader->base_dir, sizeof(loader->base_dir), "%s", base_dir);
+
+    if (pthread_mutex_init(&loader->mutex, NULL) != 0) {
+        tile_loader_reset(loader);
+        return false;
+    }
+    if (!core_queue_mutex_init(&loader->request_queue, loader->request_queue_backing, TILE_LOADER_REQ_CAPACITY)) {
+        pthread_mutex_destroy(&loader->mutex);
+        tile_loader_reset(loader);
+        return false;
+    }
+    if (!core_queue_mutex_init(&loader->result_queue, loader->result_queue_backing, TILE_LOADER_RES_CAPACITY)) {
+        core_queue_mutex_destroy(&loader->request_queue);
+        pthread_mutex_destroy(&loader->mutex);
+        tile_loader_reset(loader);
+        return false;
+    }
+    if (!core_wake_init_cond(&loader->wake)) {
+        core_queue_mutex_destroy(&loader->result_queue);
+        core_queue_mutex_destroy(&loader->request_queue);
+        pthread_mutex_destroy(&loader->mutex);
         tile_loader_reset(loader);
         return false;
     }
 
-    snprintf(loader->base_dir, sizeof(loader->base_dir), "%s", base_dir);
-    pthread_mutex_init(&loader->mutex, NULL);
-    pthread_cond_init(&loader->cond, NULL);
     loader->running = true;
-    if (pthread_create(&loader->thread, NULL, tile_loader_thread, loader) != 0) {
-        tile_loader_shutdown(loader);
+    if (!core_workers_init(&loader->workers,
+                           loader->worker_threads,
+                           TILE_LOADER_WORKER_THREADS,
+                           loader->worker_tasks,
+                           TILE_LOADER_WORKER_TASK_CAPACITY,
+                           NULL)) {
+        core_wake_shutdown(&loader->wake);
+        core_queue_mutex_destroy(&loader->result_queue);
+        core_queue_mutex_destroy(&loader->request_queue);
+        pthread_mutex_destroy(&loader->mutex);
+        tile_loader_reset(loader);
+        return false;
+    }
+    if (!core_workers_submit(&loader->workers, tile_loader_worker_main, loader)) {
+        core_workers_shutdown_with_mode(&loader->workers, CORE_WORKERS_SHUTDOWN_CANCEL);
+        core_wake_shutdown(&loader->wake);
+        core_queue_mutex_destroy(&loader->result_queue);
+        core_queue_mutex_destroy(&loader->request_queue);
+        pthread_mutex_destroy(&loader->mutex);
+        tile_loader_reset(loader);
         return false;
     }
 
@@ -287,69 +308,89 @@ void tile_loader_shutdown(TileLoader *loader) {
         return;
     }
 
-    if (loader->running) {
-        pthread_mutex_lock(&loader->mutex);
-        loader->running = false;
-        pthread_cond_broadcast(&loader->cond);
-        pthread_mutex_unlock(&loader->mutex);
-        pthread_join(loader->thread, NULL);
+    pthread_mutex_lock(&loader->mutex);
+    bool was_running = loader->running;
+    loader->running = false;
+    pthread_mutex_unlock(&loader->mutex);
+
+    if (was_running) {
+        (void)core_wake_signal(&loader->wake);
     }
 
+    if (loader->workers.initialized) {
+        core_workers_shutdown_with_mode(&loader->workers, CORE_WORKERS_SHUTDOWN_DRAIN);
+    }
+
+    void *item = NULL;
+    while (core_queue_mutex_pop(&loader->request_queue, &item)) {
+        tile_loader_free_request((TileLoaderTaskCtx *)item);
+    }
+    while (core_queue_mutex_pop(&loader->result_queue, &item)) {
+        tile_loader_free_result_node((TileLoaderResultNode *)item);
+    }
+
+    core_wake_shutdown(&loader->wake);
+    core_queue_mutex_destroy(&loader->result_queue);
+    core_queue_mutex_destroy(&loader->request_queue);
     pthread_mutex_destroy(&loader->mutex);
-    pthread_cond_destroy(&loader->cond);
-
-    if (loader->results) {
-        TileResult result = {0};
-        while (tile_loader_result_pop(loader, &result)) {
-            if (result.ok) {
-                mft_free_tile(&result.tile);
-            }
-            memset(&result, 0, sizeof(result));
-        }
-    }
-
-    free(loader->requests);
-    free(loader->results);
     tile_loader_reset(loader);
 }
 
 bool tile_loader_enqueue(TileLoader *loader, TileCoord coord, TileLayerKind kind, TileZoomBand band, uint32_t request_id) {
-    if (!loader || !loader->running) {
+    if (!loader) {
         return false;
     }
 
-    TileRequest request = {coord, kind, band, request_id};
-    bool ok = false;
     pthread_mutex_lock(&loader->mutex);
+    bool running = loader->running;
     if (request_id > loader->latest_request_id) {
         loader->latest_request_id = request_id;
     }
-    ok = tile_loader_request_push(loader, &request);
-    if (!ok && loader->req_count >= loader->req_capacity) {
-        bool evicted = false;
-        for (uint32_t i = 0u; i < loader->req_count; ++i) {
-            uint32_t idx = (loader->req_head + i) % loader->req_capacity;
-            if (loader->requests[idx].request_id != request_id) {
-                evicted = tile_loader_request_evict_at(loader, i);
-                break;
-            }
-        }
-        if (!evicted) {
-            evicted = tile_loader_request_evict_at(loader, 0u);
-        }
-        if (evicted) {
+    pthread_mutex_unlock(&loader->mutex);
+    if (!running) {
+        return false;
+    }
+
+    TileLoaderTaskCtx *ctx = (TileLoaderTaskCtx *)calloc(1u, sizeof(*ctx));
+    if (!ctx) {
+        pthread_mutex_lock(&loader->mutex);
+        loader->enqueue_drop_count += 1u;
+        pthread_mutex_unlock(&loader->mutex);
+        return false;
+    }
+    ctx->loader = loader;
+    ctx->request.coord = coord;
+    ctx->request.kind = kind;
+    ctx->request.band = band;
+    ctx->request.request_id = request_id;
+
+    bool ok = core_queue_mutex_push(&loader->request_queue, ctx);
+    if (!ok) {
+        void *old_item = NULL;
+        if (core_queue_mutex_pop(&loader->request_queue, &old_item) && old_item) {
+            tile_loader_free_request((TileLoaderTaskCtx *)old_item);
+            pthread_mutex_lock(&loader->mutex);
             loader->enqueue_evict_count += 1u;
-            ok = tile_loader_request_push(loader, &request);
+            pthread_mutex_unlock(&loader->mutex);
+            ok = core_queue_mutex_push(&loader->request_queue, ctx);
         }
     }
+
+    pthread_mutex_lock(&loader->mutex);
     if (ok) {
-        loader->enqueued_count += 1;
-        pthread_cond_signal(&loader->cond);
+        loader->enqueued_count += 1u;
     } else {
-        loader->enqueue_drop_count += 1;
+        loader->enqueue_drop_count += 1u;
     }
     pthread_mutex_unlock(&loader->mutex);
-    return ok;
+
+    if (!ok) {
+        tile_loader_free_request(ctx);
+        return false;
+    }
+
+    (void)core_wake_signal(&loader->wake);
+    return true;
 }
 
 bool tile_loader_pop_result(TileLoader *loader, TileResult *out_result) {
@@ -357,11 +398,18 @@ bool tile_loader_pop_result(TileLoader *loader, TileResult *out_result) {
         return false;
     }
 
-    bool ok = false;
-    pthread_mutex_lock(&loader->mutex);
-    ok = tile_loader_result_pop(loader, out_result);
-    pthread_mutex_unlock(&loader->mutex);
-    return ok;
+    void *item = NULL;
+    if (!core_queue_mutex_pop(&loader->result_queue, &item)) {
+        return false;
+    }
+    if (!item) {
+        return false;
+    }
+
+    TileLoaderResultNode *node = (TileLoaderResultNode *)item;
+    *out_result = node->result;
+    free(node);
+    return true;
 }
 
 void tile_loader_get_stats(TileLoader *loader, TileLoaderStats *out_stats) {
@@ -370,10 +418,10 @@ void tile_loader_get_stats(TileLoader *loader, TileLoaderStats *out_stats) {
     }
 
     pthread_mutex_lock(&loader->mutex);
-    out_stats->req_count = loader->req_count;
-    out_stats->res_count = loader->res_count;
-    out_stats->req_capacity = loader->req_capacity;
-    out_stats->res_capacity = loader->res_capacity;
+    out_stats->req_count = (uint32_t)core_queue_mutex_size(&loader->request_queue);
+    out_stats->res_count = (uint32_t)core_queue_mutex_size(&loader->result_queue);
+    out_stats->req_capacity = TILE_LOADER_REQ_CAPACITY;
+    out_stats->res_capacity = TILE_LOADER_RES_CAPACITY;
     out_stats->enqueued_count = loader->enqueued_count;
     out_stats->enqueue_drop_count = loader->enqueue_drop_count;
     out_stats->enqueue_evict_count = loader->enqueue_evict_count;

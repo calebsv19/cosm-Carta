@@ -44,6 +44,7 @@ OSM
 "$graph_tool" --region test_city --osm "$workspace/base.osm" --out "$region_root" --keep-old 2 --prune-days 30
 
 [[ -f "$region_root/meta.json" ]]
+[[ -f "$region_root/meta.dataset.json" ]]
 [[ -f "$region_root/graph/graph.bin" ]]
 [[ -d "$workspace/regions/.staging" ]]
 [[ -d "$workspace/regions/.graph_staging" ]]
@@ -64,6 +65,11 @@ if [[ "$base_meta_hash" == "$new_meta_hash" ]]; then
 fi
 if [[ "$base_graph_hash" == "$new_graph_hash" ]]; then
     echo "graph.bin did not change across rebuild" >&2
+    exit 1
+fi
+
+if ! rg -q "map_forge_tile_layer_feature_dataset_v1" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing dataset profile" >&2
     exit 1
 fi
 

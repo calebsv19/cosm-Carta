@@ -1,6 +1,8 @@
 #include "route/route_render.h"
 
 #include <SDL.h>
+#include <stdlib.h>
+
 
 typedef struct RouteStyle {
     uint8_t r;
