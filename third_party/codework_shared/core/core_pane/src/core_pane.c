@@ -441,14 +441,14 @@ bool core_pane_apply_splitter_drag(CorePaneNode *nodes,
     if (hit->parent_span <= 0.0f) {
         return false;
     }
-    if (!pane_isfinite(delta_x) || !pane_isfinite(delta_y) || !pane_isfinite(hit->ratio_01)) {
+    if (!pane_isfinite(delta_x) || !pane_isfinite(delta_y) || !pane_isfinite(node->ratio_01)) {
         return false;
     }
 
     delta = (hit->axis == CORE_PANE_AXIS_HORIZONTAL) ? delta_x : delta_y;
     min_ratio = pane_clampf(hit->min_ratio_01, 0.0f, 1.0f);
     max_ratio = pane_clampf(hit->max_ratio_01, 0.0f, 1.0f);
-    ratio = core_pane_clamp_ratio(hit->ratio_01 + (delta / hit->parent_span), min_ratio, max_ratio);
+    ratio = core_pane_clamp_ratio(node->ratio_01 + (delta / hit->parent_span), min_ratio, max_ratio);
     if (ratio == node->ratio_01) {
         return false;
     }

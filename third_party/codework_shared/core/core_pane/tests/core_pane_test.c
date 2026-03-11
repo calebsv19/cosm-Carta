@@ -78,7 +78,6 @@ static void test_hit_and_drag_splitter(void) {
     assert(core_pane_apply_splitter_drag(nodes, 3u, &hit, 50.0f, 0.0f));
     assert(nearf(nodes[0].ratio_01, 0.75f, 0.0001f));
 
-    hit.ratio_01 = nodes[0].ratio_01;
     assert(core_pane_apply_splitter_drag(nodes, 3u, &hit, -400.0f, 0.0f));
     assert(nearf(nodes[0].ratio_01, 0.1f, 0.0001f));
 }
@@ -153,15 +152,12 @@ static void test_drag_sequence_is_deterministic(void) {
     hit.min_ratio_01 = 0.1f;
     hit.max_ratio_01 = 0.9f;
 
-    hit.ratio_01 = 0.5f;
     assert(core_pane_apply_splitter_drag(nodes, 3u, &hit, 10.0f, 0.0f));
     assert(nearf(nodes[0].ratio_01, 0.55f, 0.0001f));
 
-    hit.ratio_01 = nodes[0].ratio_01;
     assert(core_pane_apply_splitter_drag(nodes, 3u, &hit, 10.0f, 0.0f));
     assert(nearf(nodes[0].ratio_01, 0.60f, 0.0001f));
 
-    hit.ratio_01 = nodes[0].ratio_01;
     assert(core_pane_apply_splitter_drag(nodes, 3u, &hit, -20.0f, 0.0f));
     assert(nearf(nodes[0].ratio_01, 0.50f, 0.0001f));
 }
