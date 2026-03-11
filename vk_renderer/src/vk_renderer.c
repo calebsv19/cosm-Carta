@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #define VK_RENDERER_CAPTURE_FILENAME "vk_frame.ppm"
 
@@ -400,7 +401,8 @@ static VkResult vk_renderer_debug_capture_create(VkRenderer* renderer) {
     capture->requested = VK_FALSE;
     capture->dumped = VK_FALSE;
     capture->frame_counter = 0;
-    capture->frame_trigger = 20;
+    /* Capture is opt-in only via vk_renderer_request_capture. */
+    capture->frame_trigger = UINT32_MAX;
     return VK_SUCCESS;
 }
 
@@ -589,8 +591,6 @@ VkResult vk_renderer_init(VkRenderer* renderer,
     renderer->draw_state.clip_rect = (SDL_Rect){0, 0, 0, 0};
     renderer->draw_state.draw_call_count = 0;
 
-    vk_renderer_debug_capture_create(renderer);
-
     return VK_SUCCESS;
 }
 
@@ -670,8 +670,6 @@ VkResult vk_renderer_init_with_device(VkRenderer* renderer,
     renderer->draw_state.clip_enabled = SDL_FALSE;
     renderer->draw_state.clip_rect = (SDL_Rect){0, 0, 0, 0};
     renderer->draw_state.draw_call_count = 0;
-
-    vk_renderer_debug_capture_create(renderer);
 
     return VK_SUCCESS;
 }
@@ -778,14 +776,7 @@ VkResult vk_renderer_end_frame(VkRenderer* renderer,
     vkCmdEndRenderPass(cmd);
 
     VkRendererDebugCapture* capture = &renderer->debug_capture;
-    if (capture->frame_counter < capture->frame_trigger) {
-        capture->frame_counter++;
-    }
-
-    if ((capture->pending ||
-         (!capture->requested && capture->buffer.buffer != VK_NULL_HANDLE &&
-          capture->frame_counter >= capture->frame_trigger)) &&
-        capture->buffer.buffer != VK_NULL_HANDLE) {
+    if (capture->pending && capture->buffer.buffer != VK_NULL_HANDLE) {
         VkImage image = renderer->context.swapchain.images[renderer->swapchain_image_index];
 
         VkImageMemoryBarrier to_transfer = {
@@ -906,8 +897,6 @@ VkResult vk_renderer_recreate_swapchain(VkRenderer* renderer, SDL_Window* window
 
     result = create_framebuffers(renderer);
     if (result != VK_SUCCESS) return result;
-
-    vk_renderer_debug_capture_create(renderer);
 
     if (renderer->draw_state.logical_size[0] <= 0.0f ||
         renderer->draw_state.logical_size[1] <= 0.0f) {

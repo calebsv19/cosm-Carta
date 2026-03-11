@@ -29,6 +29,7 @@ Modules covered:
 - `shared/kit/kit_graph_struct`
 - `shared/kit/kit_ui`
 - `shared/kit/kit_viz`
+- `shared/vk_renderer`
 
 Each module has a module-local `VERSION` file as source of truth.
 
