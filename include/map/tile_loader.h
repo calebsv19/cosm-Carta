@@ -3,7 +3,10 @@
 
 #include "map/mft_loader.h"
 #include "map/tile_layers.h"
+#include "core_jobs.h"
+#include "core_kernel.h"
 #include "core_queue.h"
+#include "core_sched.h"
 #include "core_wake.h"
 #include "core_workers.h"
 
@@ -31,7 +34,10 @@ enum {
     TILE_LOADER_REQ_CAPACITY = 1024u,
     TILE_LOADER_RES_CAPACITY = 256u,
     TILE_LOADER_WORKER_THREADS = 1u,
-    TILE_LOADER_WORKER_TASK_CAPACITY = 4u
+    TILE_LOADER_WORKER_TASK_CAPACITY = 4u,
+    TILE_LOADER_JOB_CAPACITY = 256u,
+    TILE_LOADER_SCHED_CAPACITY = 8u,
+    TILE_LOADER_KERNEL_MODULE_CAPACITY = 1u
 };
 
 typedef struct TileLoader {
@@ -41,6 +47,13 @@ typedef struct TileLoader {
     void *request_queue_backing[TILE_LOADER_REQ_CAPACITY];
     void *result_queue_backing[TILE_LOADER_RES_CAPACITY];
     CoreWake wake;
+    CoreJobs jobs;
+    CoreSched sched;
+    CoreKernel kernel;
+    CoreKernelModule kernel_modules[TILE_LOADER_KERNEL_MODULE_CAPACITY];
+    CoreJob jobs_backing[TILE_LOADER_JOB_CAPACITY];
+    CoreSchedTimer sched_backing[TILE_LOADER_SCHED_CAPACITY];
+    CoreSchedTimerId maintenance_timer_id;
     CoreWorkers workers;
     pthread_t worker_threads[TILE_LOADER_WORKER_THREADS];
     CoreWorkerTask worker_tasks[TILE_LOADER_WORKER_TASK_CAPACITY];

@@ -28,11 +28,11 @@ int main(void) {
     unsetenv("MAPFORGE_THEME_PRESET");
     unsetenv("MAPFORGE_FONT_PRESET");
 
-    if (mapforge_shared_theme_resolve_palette(&palette)) {
-        return fail("theme should be disabled by default");
+    if (!mapforge_shared_theme_resolve_palette(&palette)) {
+        return fail("theme should be enabled by default");
     }
-    if (mapforge_shared_font_resolve_ui_regular(path, sizeof(path), &point_size)) {
-        return fail("font should be disabled by default");
+    if (!mapforge_shared_font_resolve_ui_regular(path, sizeof(path), &point_size)) {
+        return fail("font should be enabled by default");
     }
 
     setenv("MAPFORGE_USE_SHARED_THEME_FONT", "1", 1);

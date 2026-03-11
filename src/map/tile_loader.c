@@ -1,6 +1,7 @@
 #include "map/tile_loader.h"
 
 #include "core/log.h"
+#include "core_time.h"
 #include "core_io.h"
 #include "map/polygon_cache.h"
 
@@ -16,6 +17,15 @@ typedef struct TileLoaderTaskCtx {
 typedef struct TileLoaderResultNode {
     TileResult result;
 } TileLoaderResultNode;
+
+static void tile_loader_schedule_maintenance(CoreSchedTimerId id, void *user_ctx) {
+    TileLoader *loader = (TileLoader *)user_ctx;
+    (void)id;
+    if (!loader) {
+        return;
+    }
+    (void)core_wake_signal(&loader->wake);
+}
 
 static const char *tile_loader_suffix(TileLayerKind kind) {
     switch (kind) {
@@ -201,6 +211,10 @@ static void tile_loader_process_request(TileLoaderTaskCtx *ctx) {
     tile_loader_publish_result(loader, &result);
 }
 
+static void tile_loader_process_request_job(void *user_ctx) {
+    tile_loader_process_request((TileLoaderTaskCtx *)user_ctx);
+}
+
 static void *tile_loader_worker_main(void *task_ctx) {
     TileLoader *loader = (TileLoader *)task_ctx;
     if (!loader) {
@@ -216,18 +230,19 @@ static void *tile_loader_worker_main(void *task_ctx) {
         }
 
         TileLoaderTaskCtx *ctx = NULL;
-        bool had_work = false;
         while (tile_loader_take_request(loader, &ctx)) {
-            had_work = true;
-            tile_loader_process_request(ctx);
-        }
-        if (had_work) {
-            continue;
+            if (!core_jobs_enqueue(&loader->jobs, tile_loader_process_request_job, ctx)) {
+                tile_loader_process_request(ctx);
+            }
         }
 
-        CoreWakeWaitResult wait_result = core_wake_wait(&loader->wake, CORE_WAKE_TIMEOUT_INFINITE);
-        if (wait_result == CORE_WAKE_WAIT_ERROR) {
-            break;
+        core_kernel_tick(&loader->kernel, core_time_now_ns());
+    }
+
+    {
+        size_t pending_jobs = core_jobs_pending(&loader->jobs);
+        if (pending_jobs > 0u) {
+            core_jobs_run_n(&loader->jobs, pending_jobs);
         }
     }
 
@@ -269,6 +284,61 @@ bool tile_loader_init(TileLoader *loader, const char *base_dir) {
         return false;
     }
     if (!core_wake_init_cond(&loader->wake)) {
+        core_queue_mutex_destroy(&loader->result_queue);
+        core_queue_mutex_destroy(&loader->request_queue);
+        pthread_mutex_destroy(&loader->mutex);
+        tile_loader_reset(loader);
+        return false;
+    }
+    if (!core_jobs_init(&loader->jobs, loader->jobs_backing, TILE_LOADER_JOB_CAPACITY)) {
+        core_wake_shutdown(&loader->wake);
+        core_queue_mutex_destroy(&loader->result_queue);
+        core_queue_mutex_destroy(&loader->request_queue);
+        pthread_mutex_destroy(&loader->mutex);
+        tile_loader_reset(loader);
+        return false;
+    }
+    if (!core_sched_init(&loader->sched, loader->sched_backing, TILE_LOADER_SCHED_CAPACITY)) {
+        core_wake_shutdown(&loader->wake);
+        core_queue_mutex_destroy(&loader->result_queue);
+        core_queue_mutex_destroy(&loader->request_queue);
+        pthread_mutex_destroy(&loader->mutex);
+        tile_loader_reset(loader);
+        return false;
+    }
+    {
+        CoreKernelPolicy policy = {
+            CORE_KERNEL_IDLE_BACKOFF,
+            60u,
+            2u,
+            8u,
+            0u,
+            true
+        };
+        if (!core_kernel_init(&loader->kernel,
+                              &policy,
+                              &loader->sched,
+                              &loader->jobs,
+                              &loader->wake,
+                              loader->kernel_modules,
+                              TILE_LOADER_KERNEL_MODULE_CAPACITY)) {
+            core_wake_shutdown(&loader->wake);
+            core_queue_mutex_destroy(&loader->result_queue);
+            core_queue_mutex_destroy(&loader->request_queue);
+            pthread_mutex_destroy(&loader->mutex);
+            tile_loader_reset(loader);
+            return false;
+        }
+    }
+    loader->maintenance_timer_id =
+        core_sched_add_timer(&loader->sched,
+                             core_time_now_ns() + 8000000ull,
+                             8000000ull,
+                             tile_loader_schedule_maintenance,
+                             loader);
+    if (loader->maintenance_timer_id == 0u) {
+        core_kernel_shutdown(&loader->kernel);
+        core_wake_shutdown(&loader->wake);
         core_queue_mutex_destroy(&loader->result_queue);
         core_queue_mutex_destroy(&loader->request_queue);
         pthread_mutex_destroy(&loader->mutex);
@@ -320,6 +390,11 @@ void tile_loader_shutdown(TileLoader *loader) {
     if (loader->workers.initialized) {
         core_workers_shutdown_with_mode(&loader->workers, CORE_WORKERS_SHUTDOWN_DRAIN);
     }
+    if (loader->maintenance_timer_id != 0u) {
+        (void)core_sched_cancel_timer(&loader->sched, loader->maintenance_timer_id);
+        loader->maintenance_timer_id = 0u;
+    }
+    core_kernel_shutdown(&loader->kernel);
 
     void *item = NULL;
     while (core_queue_mutex_pop(&loader->request_queue, &item)) {

@@ -19,8 +19,11 @@ CORE_DATA_DIR := $(SHARED_ROOT)/core/core_data
 CORE_PACK_DIR := $(SHARED_ROOT)/core/core_pack
 CORE_TIME_DIR := $(SHARED_ROOT)/core/core_time
 CORE_QUEUE_DIR := $(SHARED_ROOT)/core/core_queue
+CORE_SCHED_DIR := $(SHARED_ROOT)/core/core_sched
+CORE_JOBS_DIR := $(SHARED_ROOT)/core/core_jobs
 CORE_WORKERS_DIR := $(SHARED_ROOT)/core/core_workers
 CORE_WAKE_DIR := $(SHARED_ROOT)/core/core_wake
+CORE_KERNEL_DIR := $(SHARED_ROOT)/core/core_kernel
 CORE_TRACE_DIR := $(SHARED_ROOT)/core/core_trace
 CORE_THEME_DIR := $(SHARED_ROOT)/core/core_theme
 CORE_FONT_DIR := $(SHARED_ROOT)/core/core_font
@@ -32,8 +35,11 @@ CORE_DATA_LIB := $(CORE_DATA_DIR)/build/libcore_data.a
 CORE_PACK_LIB := $(CORE_PACK_DIR)/build/libcore_pack.a
 CORE_TIME_LIB := $(CORE_TIME_DIR)/build/libcore_time.a
 CORE_QUEUE_LIB := $(CORE_QUEUE_DIR)/build/libcore_queue.a
+CORE_SCHED_LIB := $(CORE_SCHED_DIR)/build/libcore_sched.a
+CORE_JOBS_LIB := $(CORE_JOBS_DIR)/build/libcore_jobs.a
 CORE_WORKERS_LIB := $(CORE_WORKERS_DIR)/build/libcore_workers.a
 CORE_WAKE_LIB := $(CORE_WAKE_DIR)/build/libcore_wake.a
+CORE_KERNEL_LIB := $(CORE_KERNEL_DIR)/build/libcore_kernel.a
 CORE_TRACE_LIB := $(CORE_TRACE_DIR)/build/libcore_trace.a
 CORE_THEME_LIB := $(CORE_THEME_DIR)/build/libcore_theme.a
 CORE_FONT_LIB := $(CORE_FONT_DIR)/build/libcore_font.a
@@ -78,8 +84,11 @@ CFLAGS += -I$(CORE_DATA_DIR)/include
 CFLAGS += -I$(CORE_PACK_DIR)/include
 CFLAGS += -I$(CORE_TIME_DIR)/include
 CFLAGS += -I$(CORE_QUEUE_DIR)/include
+CFLAGS += -I$(CORE_SCHED_DIR)/include
+CFLAGS += -I$(CORE_JOBS_DIR)/include
 CFLAGS += -I$(CORE_WORKERS_DIR)/include
 CFLAGS += -I$(CORE_WAKE_DIR)/include
+CFLAGS += -I$(CORE_KERNEL_DIR)/include
 CFLAGS += -I$(CORE_TRACE_DIR)/include
 CFLAGS += -I$(CORE_THEME_DIR)/include
 CFLAGS += -I$(CORE_FONT_DIR)/include
@@ -88,7 +97,7 @@ SRCS := $(shell find src -name '*.c')
 OBJS := $(SRCS:src/%.c=build/%.o)
 DEPS := $(OBJS:.o=.d)
 LINK_OBJS := $(OBJS)
-CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_TIME_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 LINK_OBJS += $(CORE_SHARED_LIBS)
 TARGET := build/mapforge
 TOOL_TARGET := build/tools/mapforge_region
@@ -160,11 +169,20 @@ $(CORE_TIME_LIB): $(CORE_BASE_LIB)
 $(CORE_QUEUE_LIB): $(CORE_BASE_LIB)
 	$(MAKE) -C $(CORE_QUEUE_DIR)
 
+$(CORE_SCHED_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_SCHED_DIR)
+
+$(CORE_JOBS_LIB): $(CORE_BASE_LIB)
+	$(MAKE) -C $(CORE_JOBS_DIR)
+
 $(CORE_WORKERS_LIB): $(CORE_QUEUE_LIB)
 	$(MAKE) -C $(CORE_WORKERS_DIR)
 
 $(CORE_WAKE_LIB): $(CORE_BASE_LIB)
 	$(MAKE) -C $(CORE_WAKE_DIR)
+
+$(CORE_KERNEL_LIB): $(CORE_SCHED_LIB) $(CORE_JOBS_LIB) $(CORE_WAKE_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB)
+	$(MAKE) -C $(CORE_KERNEL_DIR)
 
 $(CORE_TRACE_LIB): $(CORE_PACK_LIB)
 	$(MAKE) -C $(CORE_TRACE_DIR)
@@ -287,7 +305,7 @@ prune-regions:
 
 shared-check:
 	@echo "=== Shared Library Check ==="
-	@for path in "$(CORE_BASE_LIB)" "$(CORE_IO_LIB)" "$(CORE_DATA_LIB)" "$(CORE_SPACE_LIB)" "$(CORE_PACK_LIB)" "$(CORE_TIME_LIB)" "$(CORE_QUEUE_LIB)" "$(CORE_WORKERS_LIB)" "$(CORE_WAKE_LIB)" "$(CORE_TRACE_LIB)"; do \
+	@for path in "$(CORE_BASE_LIB)" "$(CORE_IO_LIB)" "$(CORE_DATA_LIB)" "$(CORE_SPACE_LIB)" "$(CORE_PACK_LIB)" "$(CORE_TIME_LIB)" "$(CORE_QUEUE_LIB)" "$(CORE_SCHED_LIB)" "$(CORE_JOBS_LIB)" "$(CORE_WORKERS_LIB)" "$(CORE_WAKE_LIB)" "$(CORE_KERNEL_LIB)" "$(CORE_TRACE_LIB)"; do \
 		if [ ! -f "$$path" ]; then \
 			echo "missing: $$path"; \
 			exit 1; \
@@ -296,7 +314,7 @@ shared-check:
 	done
 	@echo ""
 	@echo "=== Shared Versions ==="
-	@for path in "$(CORE_BASE_DIR)/VERSION" "$(CORE_IO_DIR)/VERSION" "$(CORE_DATA_DIR)/VERSION" "$(CORE_SPACE_DIR)/VERSION" "$(CORE_PACK_DIR)/VERSION" "$(CORE_TIME_DIR)/VERSION" "$(CORE_QUEUE_DIR)/VERSION" "$(CORE_WORKERS_DIR)/VERSION" "$(CORE_WAKE_DIR)/VERSION" "$(CORE_TRACE_DIR)/VERSION"; do \
+	@for path in "$(CORE_BASE_DIR)/VERSION" "$(CORE_IO_DIR)/VERSION" "$(CORE_DATA_DIR)/VERSION" "$(CORE_SPACE_DIR)/VERSION" "$(CORE_PACK_DIR)/VERSION" "$(CORE_TIME_DIR)/VERSION" "$(CORE_QUEUE_DIR)/VERSION" "$(CORE_SCHED_DIR)/VERSION" "$(CORE_JOBS_DIR)/VERSION" "$(CORE_WORKERS_DIR)/VERSION" "$(CORE_WAKE_DIR)/VERSION" "$(CORE_KERNEL_DIR)/VERSION" "$(CORE_TRACE_DIR)/VERSION"; do \
 		if [ -f "$$path" ]; then \
 			printf "%s: " "$$path"; cat "$$path"; \
 		else \

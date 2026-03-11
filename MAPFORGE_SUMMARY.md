@@ -58,6 +58,10 @@ MapForge is an offline-first map viewer and route explorer for macOS (C99 + SDL)
 
 ## Shared Library Sync
 - Shared libs are vendored in-repo at `third_party/codework_shared/`.
+- As of 2026-03-11, tile-loader path adopts shared execution-core lane:
+  - `core_queue`, `core_sched`, `core_jobs`, `core_workers`, `core_wake`, `core_kernel`
+- As of 2026-03-11 (Slice 2), Vulkan asset worker ready-handoff in `app_tile_pipeline` now uses shared `core_queue` (`CoreQueueMutex`) while preserving existing worker/stage behavior.
+- As of 2026-03-11 (Slice 3), Vulkan polygon prep in/out handoff queues in `app_tile_pipeline` now use shared `core_queue` (`CoreQueueMutex`) while preserving existing worker lifecycle and polygon build behavior.
 - Subtree update flow:
   - `git -C map_forge fetch shared-upstream main`
   - `git -C map_forge subtree pull --prefix=third_party/codework_shared shared-upstream main --squash`

@@ -343,23 +343,33 @@ static bool app_vk_asset_stage_pop_at(AppState *app, uint32_t offset, VkAssetJob
 }
 
 static bool app_vk_asset_ready_push(AppState *app, const VkAssetReadyJob *job) {
-    if (!app || !job || app->vk_asset_ready_count >= APP_VK_ASSET_READY_QUEUE_CAPACITY) {
+    if (!app || !job) {
         return false;
     }
-    app->vk_asset_ready_jobs[app->vk_asset_ready_tail] = *job;
-    app->vk_asset_ready_tail = (app->vk_asset_ready_tail + 1u) % APP_VK_ASSET_READY_QUEUE_CAPACITY;
-    app->vk_asset_ready_count += 1u;
+    uint32_t slot = app->vk_asset_ready_write_seq % APP_VK_ASSET_READY_QUEUE_CAPACITY;
+    app->vk_asset_ready_jobs[slot] = *job;
+    void *token = (void *)(uintptr_t)(slot + 1u);
+    if (!core_queue_mutex_push(&app->vk_asset_ready_queue, token)) {
+        return false;
+    }
+    app->vk_asset_ready_write_seq += 1u;
     return true;
 }
 
 static bool app_vk_asset_ready_pop(AppState *app, VkAssetReadyJob *out_job) {
-    if (!app || !out_job || app->vk_asset_ready_count == 0u) {
+    if (!app || !out_job) {
         return false;
     }
-    *out_job = app->vk_asset_ready_jobs[app->vk_asset_ready_head];
-    memset(&app->vk_asset_ready_jobs[app->vk_asset_ready_head], 0, sizeof(app->vk_asset_ready_jobs[app->vk_asset_ready_head]));
-    app->vk_asset_ready_head = (app->vk_asset_ready_head + 1u) % APP_VK_ASSET_READY_QUEUE_CAPACITY;
-    app->vk_asset_ready_count -= 1u;
+    void *token = NULL;
+    if (!core_queue_mutex_pop(&app->vk_asset_ready_queue, &token)) {
+        return false;
+    }
+    uintptr_t encoded = (uintptr_t)token;
+    if (encoded == 0u || encoded > APP_VK_ASSET_READY_QUEUE_CAPACITY) {
+        return false;
+    }
+    uint32_t slot = (uint32_t)(encoded - 1u);
+    *out_job = app->vk_asset_ready_jobs[slot];
     return true;
 }
 
@@ -391,7 +401,7 @@ static void *app_vk_asset_worker_thread_main(void *userdata) {
             .request_id = stage_job.request_id
         };
         bool pushed = app_vk_asset_ready_push(app, &ready);
-        if (!pushed && app->vk_asset_ready_count > 0u) {
+        if (!pushed && core_queue_mutex_size(&app->vk_asset_ready_queue) > 0u) {
             VkAssetReadyJob dropped = {0};
             app_vk_asset_ready_pop(app, &dropped);
             app->vk_asset_stage_evict_count += 1u;
@@ -453,30 +463,40 @@ static void app_refresh_visible_layer_coverage(AppState *app) {
     }
 }
 
-static bool app_vk_poly_prep_push(TileResult *queue,
-                                  uint32_t *tail,
-                                  uint32_t *count,
-                                  const TileResult *item) {
-    if (!queue || !tail || !count || !item || *count >= APP_VK_POLY_PREP_QUEUE_CAPACITY) {
+static bool app_vk_poly_prep_queue_push(CoreQueueMutex *queue,
+                                        TileResult *storage,
+                                        uint32_t *write_seq,
+                                        const TileResult *item) {
+    if (!queue || !storage || !write_seq || !item) {
         return false;
     }
-    queue[*tail] = *item;
-    *tail = (*tail + 1u) % APP_VK_POLY_PREP_QUEUE_CAPACITY;
-    *count += 1u;
+    uint32_t slot = *write_seq % APP_VK_POLY_PREP_QUEUE_CAPACITY;
+    storage[slot] = *item;
+    void *token = (void *)(uintptr_t)(slot + 1u);
+    if (!core_queue_mutex_push(queue, token)) {
+        return false;
+    }
+    *write_seq += 1u;
     return true;
 }
 
-static bool app_vk_poly_prep_pop(TileResult *queue,
-                                 uint32_t *head,
-                                 uint32_t *count,
-                                 TileResult *out_item) {
-    if (!queue || !head || !count || !out_item || *count == 0u) {
+static bool app_vk_poly_prep_queue_pop(CoreQueueMutex *queue,
+                                       TileResult *storage,
+                                       TileResult *out_item) {
+    if (!queue || !storage || !out_item) {
         return false;
     }
-    *out_item = queue[*head];
-    memset(&queue[*head], 0, sizeof(queue[*head]));
-    *head = (*head + 1u) % APP_VK_POLY_PREP_QUEUE_CAPACITY;
-    *count -= 1u;
+    void *token = NULL;
+    if (!core_queue_mutex_pop(queue, &token)) {
+        return false;
+    }
+    uintptr_t encoded = (uintptr_t)token;
+    if (encoded == 0u || encoded > APP_VK_POLY_PREP_QUEUE_CAPACITY) {
+        return false;
+    }
+    uint32_t slot = (uint32_t)(encoded - 1u);
+    *out_item = storage[slot];
+    memset(&storage[slot], 0, sizeof(storage[slot]));
     return true;
 }
 
@@ -490,17 +510,16 @@ static void *app_vk_poly_prep_thread_main(void *userdata) {
         TileResult job = {0};
 
         pthread_mutex_lock(&app->vk_poly_prep_mutex);
-        while (app->vk_poly_prep_running && app->vk_poly_prep_in_count == 0u) {
+        while (app->vk_poly_prep_running && core_queue_mutex_size(&app->vk_poly_prep_in_queue) == 0u) {
             pthread_cond_wait(&app->vk_poly_prep_cond, &app->vk_poly_prep_mutex);
         }
         if (!app->vk_poly_prep_running) {
             pthread_mutex_unlock(&app->vk_poly_prep_mutex);
             break;
         }
-        bool has_job = app_vk_poly_prep_pop(
-            app->vk_poly_prep_in,
-            &app->vk_poly_prep_in_head,
-            &app->vk_poly_prep_in_count,
+        bool has_job = app_vk_poly_prep_queue_pop(
+            &app->vk_poly_prep_in_queue,
+            app->vk_poly_prep_in_jobs,
             &job);
         pthread_mutex_unlock(&app->vk_poly_prep_mutex);
         if (!has_job) {
@@ -512,10 +531,10 @@ static void *app_vk_poly_prep_thread_main(void *userdata) {
         }
 
         pthread_mutex_lock(&app->vk_poly_prep_mutex);
-        bool pushed = app_vk_poly_prep_push(
-            app->vk_poly_prep_out,
-            &app->vk_poly_prep_out_tail,
-            &app->vk_poly_prep_out_count,
+        bool pushed = app_vk_poly_prep_queue_push(
+            &app->vk_poly_prep_out_queue,
+            app->vk_poly_prep_out_jobs,
+            &app->vk_poly_prep_out_write_seq,
             &job);
         if (pushed) {
             app->vk_poly_prep_done_count += 1u;
@@ -537,20 +556,31 @@ bool app_vk_poly_prep_init(AppState *app) {
     }
     app->vk_poly_prep_enabled = false;
     app->vk_poly_prep_running = false;
-    app->vk_poly_prep_in_head = 0u;
-    app->vk_poly_prep_in_tail = 0u;
-    app->vk_poly_prep_in_count = 0u;
-    app->vk_poly_prep_out_head = 0u;
-    app->vk_poly_prep_out_tail = 0u;
-    app->vk_poly_prep_out_count = 0u;
+    app->vk_poly_prep_in_write_seq = 0u;
+    app->vk_poly_prep_out_write_seq = 0u;
     app->vk_poly_prep_enqueued_count = 0u;
     app->vk_poly_prep_done_count = 0u;
     app->vk_poly_prep_drop_count = 0u;
+    if (!core_queue_mutex_init(&app->vk_poly_prep_in_queue,
+                               app->vk_poly_prep_in_queue_backing,
+                               APP_VK_POLY_PREP_QUEUE_CAPACITY)) {
+        return false;
+    }
+    if (!core_queue_mutex_init(&app->vk_poly_prep_out_queue,
+                               app->vk_poly_prep_out_queue_backing,
+                               APP_VK_POLY_PREP_QUEUE_CAPACITY)) {
+        core_queue_mutex_destroy(&app->vk_poly_prep_in_queue);
+        return false;
+    }
     if (pthread_mutex_init(&app->vk_poly_prep_mutex, NULL) != 0) {
+        core_queue_mutex_destroy(&app->vk_poly_prep_out_queue);
+        core_queue_mutex_destroy(&app->vk_poly_prep_in_queue);
         return false;
     }
     if (pthread_cond_init(&app->vk_poly_prep_cond, NULL) != 0) {
         pthread_mutex_destroy(&app->vk_poly_prep_mutex);
+        core_queue_mutex_destroy(&app->vk_poly_prep_out_queue);
+        core_queue_mutex_destroy(&app->vk_poly_prep_in_queue);
         return false;
     }
     app->vk_poly_prep_running = true;
@@ -558,6 +588,8 @@ bool app_vk_poly_prep_init(AppState *app) {
         app->vk_poly_prep_running = false;
         pthread_cond_destroy(&app->vk_poly_prep_cond);
         pthread_mutex_destroy(&app->vk_poly_prep_mutex);
+        core_queue_mutex_destroy(&app->vk_poly_prep_out_queue);
+        core_queue_mutex_destroy(&app->vk_poly_prep_in_queue);
         return false;
     }
     app->vk_poly_prep_enabled = true;
@@ -576,6 +608,8 @@ void app_vk_poly_prep_shutdown(AppState *app) {
     app_vk_poly_prep_clear(app);
     pthread_cond_destroy(&app->vk_poly_prep_cond);
     pthread_mutex_destroy(&app->vk_poly_prep_mutex);
+    core_queue_mutex_destroy(&app->vk_poly_prep_out_queue);
+    core_queue_mutex_destroy(&app->vk_poly_prep_in_queue);
     app->vk_poly_prep_enabled = false;
 }
 
@@ -584,21 +618,21 @@ void app_vk_poly_prep_clear(AppState *app) {
         return;
     }
     pthread_mutex_lock(&app->vk_poly_prep_mutex);
+    app->vk_poly_prep_in_write_seq = 0u;
+    app->vk_poly_prep_out_write_seq = 0u;
     TileResult item = {0};
-    while (app_vk_poly_prep_pop(
-               app->vk_poly_prep_in,
-               &app->vk_poly_prep_in_head,
-               &app->vk_poly_prep_in_count,
+    while (app_vk_poly_prep_queue_pop(
+               &app->vk_poly_prep_in_queue,
+               app->vk_poly_prep_in_jobs,
                &item)) {
         if (item.ok) {
             mft_free_tile(&item.tile);
         }
         memset(&item, 0, sizeof(item));
     }
-    while (app_vk_poly_prep_pop(
-               app->vk_poly_prep_out,
-               &app->vk_poly_prep_out_head,
-               &app->vk_poly_prep_out_count,
+    while (app_vk_poly_prep_queue_pop(
+               &app->vk_poly_prep_out_queue,
+               app->vk_poly_prep_out_jobs,
                &item)) {
         if (item.ok) {
             mft_free_tile(&item.tile);
@@ -614,10 +648,10 @@ bool app_vk_poly_prep_enqueue(AppState *app, const TileResult *result) {
     }
     bool pushed = false;
     pthread_mutex_lock(&app->vk_poly_prep_mutex);
-    pushed = app_vk_poly_prep_push(
-        app->vk_poly_prep_in,
-        &app->vk_poly_prep_in_tail,
-        &app->vk_poly_prep_in_count,
+    pushed = app_vk_poly_prep_queue_push(
+        &app->vk_poly_prep_in_queue,
+        app->vk_poly_prep_in_jobs,
+        &app->vk_poly_prep_in_write_seq,
         result);
     if (pushed) {
         app->vk_poly_prep_enqueued_count += 1u;
@@ -640,13 +674,10 @@ void app_vk_poly_prep_drain(AppState *app, uint32_t max_results, double max_time
             break;
         }
         TileResult result = {0};
-        pthread_mutex_lock(&app->vk_poly_prep_mutex);
-        bool ok = app_vk_poly_prep_pop(
-            app->vk_poly_prep_out,
-            &app->vk_poly_prep_out_head,
-            &app->vk_poly_prep_out_count,
+        bool ok = app_vk_poly_prep_queue_pop(
+            &app->vk_poly_prep_out_queue,
+            app->vk_poly_prep_out_jobs,
             &result);
-        pthread_mutex_unlock(&app->vk_poly_prep_mutex);
         if (!ok) {
             break;
         }
@@ -678,8 +709,8 @@ void app_vk_poly_prep_get_stats(AppState *app, VkPolyPrepStats *out_stats) {
         return;
     }
     pthread_mutex_lock(&app->vk_poly_prep_mutex);
-    out_stats->in_count = app->vk_poly_prep_in_count;
-    out_stats->out_count = app->vk_poly_prep_out_count;
+    out_stats->in_count = (uint32_t)core_queue_mutex_size(&app->vk_poly_prep_in_queue);
+    out_stats->out_count = (uint32_t)core_queue_mutex_size(&app->vk_poly_prep_out_queue);
     out_stats->enqueued_count = app->vk_poly_prep_enqueued_count;
     out_stats->done_count = app->vk_poly_prep_done_count;
     out_stats->drop_count = app->vk_poly_prep_drop_count;
@@ -698,10 +729,11 @@ void app_vk_asset_queue_clear(AppState *app) {
         app->vk_asset_stage_head = 0u;
         app->vk_asset_stage_tail = 0u;
         app->vk_asset_stage_count = 0u;
-        app->vk_asset_ready_head = 0u;
-        app->vk_asset_ready_tail = 0u;
-        app->vk_asset_ready_count = 0u;
+        app->vk_asset_ready_write_seq = 0u;
         pthread_mutex_unlock(&app->vk_asset_worker_mutex);
+        void *token = NULL;
+        while (core_queue_mutex_pop(&app->vk_asset_ready_queue, &token)) {
+        }
     }
 }
 
@@ -714,18 +746,23 @@ bool app_vk_asset_worker_init(AppState *app) {
     app->vk_asset_stage_head = 0u;
     app->vk_asset_stage_tail = 0u;
     app->vk_asset_stage_count = 0u;
-    app->vk_asset_ready_head = 0u;
-    app->vk_asset_ready_tail = 0u;
-    app->vk_asset_ready_count = 0u;
+    app->vk_asset_ready_write_seq = 0u;
     app->vk_asset_stage_drop_count = 0u;
     app->vk_asset_stage_evict_count = 0u;
     app->vk_asset_stage_enqueued_count = 0u;
     app->vk_asset_stage_prepared_count = 0u;
+    if (!core_queue_mutex_init(&app->vk_asset_ready_queue,
+                               app->vk_asset_ready_queue_backing,
+                               APP_VK_ASSET_READY_QUEUE_CAPACITY)) {
+        return false;
+    }
     if (pthread_mutex_init(&app->vk_asset_worker_mutex, NULL) != 0) {
+        core_queue_mutex_destroy(&app->vk_asset_ready_queue);
         return false;
     }
     if (pthread_cond_init(&app->vk_asset_worker_cond, NULL) != 0) {
         pthread_mutex_destroy(&app->vk_asset_worker_mutex);
+        core_queue_mutex_destroy(&app->vk_asset_ready_queue);
         return false;
     }
     app->vk_asset_worker_running = true;
@@ -733,6 +770,7 @@ bool app_vk_asset_worker_init(AppState *app) {
         app->vk_asset_worker_running = false;
         pthread_cond_destroy(&app->vk_asset_worker_cond);
         pthread_mutex_destroy(&app->vk_asset_worker_mutex);
+        core_queue_mutex_destroy(&app->vk_asset_ready_queue);
         return false;
     }
     app->vk_asset_worker_enabled = true;
@@ -750,6 +788,7 @@ void app_vk_asset_worker_shutdown(AppState *app) {
     pthread_join(app->vk_asset_worker_thread, NULL);
     pthread_cond_destroy(&app->vk_asset_worker_cond);
     pthread_mutex_destroy(&app->vk_asset_worker_mutex);
+    core_queue_mutex_destroy(&app->vk_asset_ready_queue);
     app->vk_asset_worker_enabled = false;
 }
 
@@ -821,8 +860,7 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
         return;
     }
     if (app->vk_asset_worker_enabled) {
-        pthread_mutex_lock(&app->vk_asset_worker_mutex);
-        while (app->vk_asset_ready_count > 0u) {
+        while (true) {
             VkAssetReadyJob ready = {0};
             if (!app_vk_asset_ready_pop(app, &ready)) {
                 break;
@@ -835,7 +873,6 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
             };
             app_vk_asset_main_admit_job(app, &admitted);
         }
-        pthread_mutex_unlock(&app->vk_asset_worker_mutex);
     }
 
     double start = time_now_seconds();

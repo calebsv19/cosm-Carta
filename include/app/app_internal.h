@@ -12,6 +12,7 @@
 #include "render/vk_tile_cache.h"
 #include "route/route.h"
 #include "core_trace.h"
+#include "core_queue.h"
 
 #include <SDL.h>
 #include <stdbool.h>
@@ -203,14 +204,14 @@ typedef struct AppState {
     pthread_t vk_poly_prep_thread;
     pthread_mutex_t vk_poly_prep_mutex;
     pthread_cond_t vk_poly_prep_cond;
-    TileResult vk_poly_prep_in[APP_VK_POLY_PREP_QUEUE_CAPACITY];
-    uint32_t vk_poly_prep_in_head;
-    uint32_t vk_poly_prep_in_tail;
-    uint32_t vk_poly_prep_in_count;
-    TileResult vk_poly_prep_out[APP_VK_POLY_PREP_QUEUE_CAPACITY];
-    uint32_t vk_poly_prep_out_head;
-    uint32_t vk_poly_prep_out_tail;
-    uint32_t vk_poly_prep_out_count;
+    TileResult vk_poly_prep_in_jobs[APP_VK_POLY_PREP_QUEUE_CAPACITY];
+    CoreQueueMutex vk_poly_prep_in_queue;
+    void *vk_poly_prep_in_queue_backing[APP_VK_POLY_PREP_QUEUE_CAPACITY];
+    uint32_t vk_poly_prep_in_write_seq;
+    TileResult vk_poly_prep_out_jobs[APP_VK_POLY_PREP_QUEUE_CAPACITY];
+    CoreQueueMutex vk_poly_prep_out_queue;
+    void *vk_poly_prep_out_queue_backing[APP_VK_POLY_PREP_QUEUE_CAPACITY];
+    uint32_t vk_poly_prep_out_write_seq;
     uint64_t vk_poly_prep_enqueued_count;
     uint64_t vk_poly_prep_done_count;
     uint64_t vk_poly_prep_drop_count;
@@ -231,9 +232,9 @@ typedef struct AppState {
     uint32_t vk_asset_stage_tail;
     uint32_t vk_asset_stage_count;
     VkAssetReadyJob vk_asset_ready_jobs[APP_VK_ASSET_READY_QUEUE_CAPACITY];
-    uint32_t vk_asset_ready_head;
-    uint32_t vk_asset_ready_tail;
-    uint32_t vk_asset_ready_count;
+    CoreQueueMutex vk_asset_ready_queue;
+    void *vk_asset_ready_queue_backing[APP_VK_ASSET_READY_QUEUE_CAPACITY];
+    uint32_t vk_asset_ready_write_seq;
     uint64_t vk_asset_stage_drop_count;
     uint64_t vk_asset_stage_evict_count;
     uint64_t vk_asset_stage_enqueued_count;
