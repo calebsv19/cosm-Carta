@@ -17,6 +17,13 @@ lifecycle management.
   textures, and memory helpers.
 - Offline GLSL shader sources plus a helper script for compiling to SPIR-V.
 - Simple SDL example (`make example`) that demonstrates the render loop.
+- Explicit frame capture API via `vk_renderer_request_capture(...)` (no automatic frame dumps in normal runtime).
+
+## Versioning
+
+- Module version source of truth: `shared/vk_renderer/VERSION`
+- Current version: `1.0.0`
+- `1.0.0` behavior note: debug capture is opt-in only and runs only when `vk_renderer_request_capture(...)` is called.
 
 ## Layout
 
