@@ -75,6 +75,10 @@ Current status:
 - codex run orchestrator now supports locked apply and parity artifacts:
   - `--locked-apply` to apply existing reviewed run dir without reader/review mutation
   - emits `health_after.json` and `run_report.json`
+- codex run orchestrator now records per-run suggestion memory for diagnostics:
+  - writes one suggestion node per run to configurable bucket (`--suggestion-project`, `--suggestion-kind`)
+  - links new suggestion nodes to prior suggestions (`related`) for graph-based issue clustering
+  - emits `codex_rollup_improvement.md` only for major signals by default (or always with `--always-write-suggestion-md`)
 - one-line isolated test harness now exists for full rollup-cycle validation:
   - `tools/mem_nightly_rollup_cycle_test.sh` (copies main DB -> test DB, dry run, auto-approve test plan, locked apply, checksum guard on main DB)
 - one-line official main-db rollup harness now exists for intentional real apply:
