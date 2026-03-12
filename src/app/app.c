@@ -399,7 +399,12 @@ int app_run(void) {
             app.single_line = !app.single_line;
         }
         if (app.input.toggle_region_pressed) {
-            app.region_index = (app.region_index + 1) % region_count();
+            int total_regions = region_count();
+            if (total_regions <= 0) {
+                log_error("No region packs found under '%s'", region_data_root());
+                continue;
+            }
+            app.region_index = (app.region_index + 1) % total_regions;
             const RegionInfo *info = region_get(app.region_index);
             if (info) {
                 app.region = *info;

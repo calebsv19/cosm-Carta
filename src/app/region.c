@@ -1,34 +1,123 @@
 #include "app/region.h"
 
+#include <dirent.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
 static const char *k_default_region_root = "data/regions";
-
-static const RegionInfo kRegions[] = {
-    {"sample", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false},
-    {"seattle_small", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false},
-    {"seattle_medium", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false},
-    {"seattle_large", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false},
-    {"new_york", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false},
-    {"rome", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false},
-    {"poulsbo", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false},
-    {"puyallup", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false},
-    {"puget_sound", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false},
-    {"planet_122_416_47_494_122_214_47_83", "", "", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10, 18, 4096, false, false, false, false, false}
+enum {
+    REGION_CATALOG_MAX = 256,
+    REGION_NAME_CAPACITY = 128
 };
 
+typedef struct RegionCatalogEntry {
+    RegionInfo info;
+    char name[REGION_NAME_CAPACITY];
+} RegionCatalogEntry;
+
+static RegionCatalogEntry g_region_catalog[REGION_CATALOG_MAX];
+static int g_region_catalog_count = 0;
+
+static bool path_is_dir_local(const char *path) {
+    struct stat st;
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+    if (stat(path, &st) != 0) {
+        return false;
+    }
+    return S_ISDIR(st.st_mode);
+}
+
+static int region_catalog_entry_cmp(const void *left, const void *right) {
+    const RegionCatalogEntry *a = (const RegionCatalogEntry *)left;
+    const RegionCatalogEntry *b = (const RegionCatalogEntry *)right;
+    return strcmp(a->name, b->name);
+}
+
+static int region_catalog_rebuild(void) {
+    const char *root = region_data_root();
+    DIR *dir = NULL;
+    struct dirent *entry = NULL;
+
+    g_region_catalog_count = 0;
+    if (!root || root[0] == '\0') {
+        return 0;
+    }
+
+    dir = opendir(root);
+    if (!dir) {
+        return 0;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        if (g_region_catalog_count >= REGION_CATALOG_MAX) {
+            break;
+        }
+
+        RegionCatalogEntry *slot = &g_region_catalog[g_region_catalog_count];
+        memset(slot, 0, sizeof(*slot));
+
+        if (snprintf(slot->name, sizeof(slot->name), "%s", entry->d_name) < 0) {
+            continue;
+        }
+        if (slot->name[0] == '\0') {
+            continue;
+        }
+
+        if (snprintf(slot->info.region_dir, sizeof(slot->info.region_dir), "%s/%s", root, slot->name) < 0) {
+            continue;
+        }
+        if (!path_is_dir_local(slot->info.region_dir)) {
+            continue;
+        }
+
+        if (snprintf(slot->info.tiles_dir, sizeof(slot->info.tiles_dir), "%s/tiles", slot->info.region_dir) < 0) {
+            continue;
+        }
+        if (!path_is_dir_local(slot->info.tiles_dir)) {
+            continue;
+        }
+
+        slot->info.name = slot->name;
+        slot->info.tile_min_zoom = 10u;
+        slot->info.tile_max_zoom = 18u;
+        slot->info.tile_extent = 4096u;
+        slot->info.has_tile_pyramid_roads = false;
+        slot->info.has_tile_pyramid_buildings = false;
+        slot->info.has_center = false;
+        slot->info.has_bounds = false;
+        slot->info.has_tile_range = false;
+
+        g_region_catalog_count += 1;
+    }
+
+    closedir(dir);
+    if (g_region_catalog_count > 1) {
+        qsort(g_region_catalog,
+              (size_t)g_region_catalog_count,
+              sizeof(g_region_catalog[0]),
+              region_catalog_entry_cmp);
+    }
+    return g_region_catalog_count;
+}
+
 int region_count(void) {
-    return (int)(sizeof(kRegions) / sizeof(kRegions[0]));
+    return region_catalog_rebuild();
 }
 
 const RegionInfo *region_get(int index) {
-    if (index < 0 || index >= region_count()) {
+    int count = region_catalog_rebuild();
+    if (index < 0 || index >= count) {
         return NULL;
     }
-
-    return &kRegions[index];
+    return &g_region_catalog[index].info;
 }
 
 const char *region_data_root(void) {
