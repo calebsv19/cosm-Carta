@@ -1,7 +1,7 @@
 # src Overview
 
 This tree contains the runtime application for MapForge.
-The runtime goal is to load offline region packs from `data/regions/<region>/`, render map layers smoothly, and compute local routes.
+The runtime goal is to load offline region packs from `${MAPFORGE_REGIONS_DIR:-data/regions}/<region>/`, render map layers smoothly, and compute local routes.
 
 ## Directory Map
 
@@ -22,4 +22,3 @@ The runtime goal is to load offline region packs from `data/regions/<region>/`, 
 4. Draw calls go through `src/render/` abstraction.
 5. Route graph/path operations run via `src/route/` and are drawn into the same frame.
 6. UI/debug overlays render via `src/ui/`.
-

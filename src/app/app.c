@@ -19,6 +19,8 @@
 #include <sys/types.h>
 #include <time.h>
 
+static const char *kTraceLaneLifecycle = "lifecycle";
+
 static uint32_t app_sum_road_classes(const uint32_t *values, int first_class, int last_class) {
     if (!values || first_class < 0 || last_class < first_class) {
         return 0;
@@ -111,6 +113,14 @@ static void app_trace_emit_queue_markers(AppState *app, double rel_time_s) {
 static void app_trace_shutdown(AppState *app) {
     if (!app || !app->trace_enabled) {
         return;
+    }
+
+    {
+        double rel_time_s = time_now_seconds() - app->trace_start_time;
+        if (rel_time_s < 0.0) {
+            rel_time_s = 0.0;
+        }
+        core_trace_emit_marker(&app->trace_session, kTraceLaneLifecycle, rel_time_s, "trace_end");
     }
 
     CoreResult final_result = core_trace_finalize(&app->trace_session);
@@ -248,6 +258,11 @@ static bool app_init(AppState *app) {
 
     app->region = *info;
     region_load_meta(info, &app->region);
+    if (app->region.tiles_dir[0] == '\0') {
+        log_error("Failed to resolve tiles directory for region: %s", app->region.name);
+        return false;
+    }
+    log_info("Region data root: %s", region_data_root());
 
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         if (!tile_manager_init(&app->tile_managers[i], 256, app->region.tiles_dir)) {
@@ -272,6 +287,7 @@ static bool app_init(AppState *app) {
         tile_loader_get_stats(&app->tile_loader, &trace_stats);
         app->trace_enabled = true;
         app->trace_start_time = time_now_seconds();
+        core_trace_emit_marker(&app->trace_session, kTraceLaneLifecycle, 0.0, "trace_start");
         app->trace_last_tile_enqueue_drop_count = trace_stats.enqueue_drop_count;
         app->trace_last_tile_enqueue_evict_count = trace_stats.enqueue_evict_count;
         app->trace_last_tile_result_drop_count = trace_stats.result_drop_count;
@@ -300,7 +316,7 @@ static bool app_init(AppState *app) {
     app->playback_speed = 1.0f;
     app->show_landuse = false;
     app->building_zoom_bias = app_building_zoom_bias_for_region(&app->region);
-    app->building_fill_enabled = false;
+    app->building_fill_enabled = true;
     app->road_zoom_bias = app_road_zoom_bias_for_region(&app->region);
     app->polygon_outline_only = false;
     app->tile_request_id = 1;
@@ -388,6 +404,10 @@ int app_run(void) {
             if (info) {
                 app.region = *info;
                 region_load_meta(info, &app.region);
+                if (app.region.tiles_dir[0] == '\0') {
+                    log_error("Failed to resolve tiles directory for region: %s", app.region.name);
+                    continue;
+                }
                 for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
                     tile_manager_shutdown(&app.tile_managers[i]);
                     tile_manager_init(&app.tile_managers[i], 256, app.region.tiles_dir);

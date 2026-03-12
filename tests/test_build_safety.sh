@@ -72,6 +72,50 @@ if ! rg -q "map_forge_tile_layer_feature_dataset_v1" "$region_root/meta.dataset.
     echo "meta.dataset.json missing dataset profile" >&2
     exit 1
 fi
+if ! rg -q "\"dataset_schema\": \"map_forge.tile_layer_feature_metrics\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing dataset_schema" >&2
+    exit 1
+fi
+if ! rg -q "\"schema_family\": \"map_forge_diagnostics\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing schema_family" >&2
+    exit 1
+fi
+if ! rg -q "\"schema_variant\": \"tile_layer_feature_metrics_v1\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing schema_variant" >&2
+    exit 1
+fi
+if ! rg -q "\"dataset_contract_version\": 1" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing dataset_contract_version" >&2
+    exit 1
+fi
+if ! rg -q "\"schema_version\": 1" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing schema_version" >&2
+    exit 1
+fi
+if ! rg -q "\"summary_table\": \"map_forge_summary_v1\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing summary table metadata" >&2
+    exit 1
+fi
+if ! rg -q "\"layers_table\": \"map_forge_layers_v1\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing layers table metadata" >&2
+    exit 1
+fi
+if ! rg -q "\"bands_table\": \"map_forge_bands_v1\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing bands table metadata" >&2
+    exit 1
+fi
+if ! rg -q "\"name\": \"map_forge_summary_v1\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing summary table item" >&2
+    exit 1
+fi
+if ! rg -q "\"name\": \"map_forge_layers_v1\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing layers table item" >&2
+    exit 1
+fi
+if ! rg -q "\"name\": \"map_forge_bands_v1\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing bands table item" >&2
+    exit 1
+fi
 
 if "$region_tool" --region test_city --osm "$workspace/does_not_exist.osm" --out "$region_root" --min-z 12 --max-z 12 --keep-old 2 --prune-days 30 --no-legacy-tiles; then
     echo "expected region build failure for missing osm" >&2

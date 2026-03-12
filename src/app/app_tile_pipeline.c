@@ -45,6 +45,9 @@ uint32_t app_tile_integrate_budget(TileLayerKind kind, uint32_t expected) {
         if (expected <= 4u) {
             return expected;
         }
+        if (kind == TILE_LAYER_POLY_BUILDING) {
+            return 2u;
+        }
         return 1u;
     }
     if (expected <= 32) {
@@ -168,10 +171,118 @@ static TileZoomBand app_layer_target_band(const AppState *app, TileLayerKind kin
     if (!app) {
         return TILE_BAND_DEFAULT;
     }
-    if (!app->region.has_tile_pyramid_roads) {
-        return TILE_BAND_DEFAULT;
+    if (kind == TILE_LAYER_ROAD_ARTERY || kind == TILE_LAYER_ROAD_LOCAL) {
+        if (!app->region.has_tile_pyramid_roads) {
+            return TILE_BAND_DEFAULT;
+        }
+    } else if (kind == TILE_LAYER_POLY_BUILDING) {
+        if (!app->region.has_tile_pyramid_buildings) {
+            return TILE_BAND_DEFAULT;
+        }
     }
     return layer_policy_band_for_zoom(kind, app->camera.zoom, app->road_zoom_bias);
+}
+
+static uint32_t app_polygon_fallback_candidates(TileLayerKind kind,
+                                                TileZoomBand target,
+                                                TileZoomBand *out_bands,
+                                                uint32_t out_cap) {
+    if (!out_bands || out_cap == 0u) {
+        return 0u;
+    }
+
+    uint32_t count = 0u;
+    if (kind == TILE_LAYER_POLY_BUILDING) {
+        if (target == TILE_BAND_FINE) {
+            if (count < out_cap) out_bands[count++] = TILE_BAND_FINE;
+            if (count < out_cap) out_bands[count++] = TILE_BAND_MID;
+            if (count < out_cap) out_bands[count++] = TILE_BAND_COARSE;
+            if (count < out_cap) out_bands[count++] = TILE_BAND_DEFAULT;
+            return count;
+        }
+        if (target == TILE_BAND_MID) {
+            if (count < out_cap) out_bands[count++] = TILE_BAND_FINE;
+            if (count < out_cap) out_bands[count++] = TILE_BAND_MID;
+            if (count < out_cap) out_bands[count++] = TILE_BAND_COARSE;
+            if (count < out_cap) out_bands[count++] = TILE_BAND_DEFAULT;
+            return count;
+        }
+        if (target == TILE_BAND_COARSE) {
+            if (count < out_cap) out_bands[count++] = TILE_BAND_MID;
+            if (count < out_cap) out_bands[count++] = TILE_BAND_COARSE;
+            if (count < out_cap) out_bands[count++] = TILE_BAND_DEFAULT;
+            return count;
+        }
+        out_bands[count++] = TILE_BAND_DEFAULT;
+        return count;
+    }
+
+    if (target == TILE_BAND_FINE) {
+        if (count < out_cap) out_bands[count++] = TILE_BAND_FINE;
+        if (count < out_cap) out_bands[count++] = TILE_BAND_MID;
+        if (count < out_cap) out_bands[count++] = TILE_BAND_COARSE;
+        if (count < out_cap) out_bands[count++] = TILE_BAND_DEFAULT;
+        return count;
+    }
+    if (target == TILE_BAND_MID) {
+        if (count < out_cap) out_bands[count++] = TILE_BAND_MID;
+        if (count < out_cap) out_bands[count++] = TILE_BAND_COARSE;
+        if (count < out_cap) out_bands[count++] = TILE_BAND_DEFAULT;
+        return count;
+    }
+    if (target == TILE_BAND_COARSE) {
+        if (count < out_cap) out_bands[count++] = TILE_BAND_COARSE;
+        if (count < out_cap) out_bands[count++] = TILE_BAND_DEFAULT;
+        return count;
+    }
+    out_bands[count++] = TILE_BAND_DEFAULT;
+    return count;
+}
+
+static bool app_has_visible_tile_with_fallback(const AppState *app,
+                                               TileLayerKind kind,
+                                               TileCoord coord,
+                                               TileZoomBand target_band) {
+    if (!app) {
+        return false;
+    }
+
+    if (kind == TILE_LAYER_ROAD_ARTERY || kind == TILE_LAYER_ROAD_LOCAL) {
+        TileZoomBand candidates[4] = {target_band, TILE_BAND_MID, TILE_BAND_COARSE, TILE_BAND_DEFAULT};
+        uint32_t count = 1u;
+        if (target_band == TILE_BAND_FINE) {
+            count = 4u;
+        } else if (target_band == TILE_BAND_MID) {
+            candidates[1] = TILE_BAND_COARSE;
+            candidates[2] = TILE_BAND_DEFAULT;
+            count = 3u;
+        } else if (target_band == TILE_BAND_COARSE) {
+            candidates[1] = TILE_BAND_DEFAULT;
+            count = 2u;
+        }
+        for (uint32_t i = 0u; i < count; ++i) {
+            if (tile_manager_peek_tile(&app->tile_managers[kind], coord, candidates[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (kind == TILE_LAYER_POLY_WATER ||
+        kind == TILE_LAYER_POLY_PARK ||
+        kind == TILE_LAYER_POLY_LANDUSE ||
+        kind == TILE_LAYER_POLY_BUILDING) {
+        TileZoomBand candidates[4] = {TILE_BAND_DEFAULT, TILE_BAND_DEFAULT, TILE_BAND_DEFAULT, TILE_BAND_DEFAULT};
+        uint32_t count = app_polygon_fallback_candidates(kind, target_band, candidates, 4u);
+        for (uint32_t i = 0u; i < count; ++i) {
+            if (tile_manager_peek_tile(&app->tile_managers[kind], coord, candidates[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    return tile_manager_peek_tile(&app->tile_managers[kind], coord, target_band) != NULL;
 }
 
 static uint32_t app_vk_asset_visible_ring_distance(const AppState *app, TileCoord coord) {
@@ -452,7 +563,7 @@ static void app_refresh_visible_layer_coverage(AppState *app) {
                 if ((size_t)band < TILE_BAND_COUNT) {
                     app->band_visible_expected[band] += 1u;
                 }
-                if (tile_manager_peek_tile(&app->tile_managers[kind], coord, band)) {
+                if (app_has_visible_tile_with_fallback(app, kind, coord, band)) {
                     app->layer_visible_loaded[kind] += 1u;
                     if ((size_t)band < TILE_BAND_COUNT) {
                         app->band_visible_loaded[band] += 1u;
@@ -1318,8 +1429,9 @@ void app_update_tile_queue(AppState *app) {
                    policy->kind == TILE_LAYER_POLY_PARK ||
                    policy->kind == TILE_LAYER_POLY_LANDUSE ||
                    policy->kind == TILE_LAYER_POLY_BUILDING) {
-            if (budget > 1u) {
-                budget = 1u;
+            uint32_t polygon_cap = (policy->kind == TILE_LAYER_POLY_BUILDING) ? 2u : 1u;
+            if (budget > polygon_cap) {
+                budget = polygon_cap;
             }
         }
         app_process_tile_queue(app, queue, policy->kind, budget);

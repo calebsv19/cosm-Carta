@@ -6,7 +6,7 @@
 #define LAYER_ZOOM_WATER_START 12.8f
 #define LAYER_ZOOM_PARK_START 13.0f
 #define LAYER_ZOOM_LANDUSE_START 13.4f
-#define LAYER_ZOOM_BUILDING_START 13.5f
+#define LAYER_ZOOM_BUILDING_START 12.8f
 
 // Centralized tier boundaries used by zoom fade logic.
 #define ZOOM_TIER_FAR_MAX 9.5f
@@ -139,15 +139,15 @@ float layer_policy_vk_min_point_spacing_px(float effective_zoom) {
 }
 
 float layer_policy_building_fade_start(float building_zoom_bias, bool vulkan_backend) {
-    float start = layer_policy_zoom_tier_close_max() + 0.9f + building_zoom_bias;
+    float start = layer_policy_zoom_start(TILE_LAYER_POLY_BUILDING, building_zoom_bias) + 0.2f;
     if (vulkan_backend) {
-        start += 0.25f;
+        start += 0.15f;
     }
     return start;
 }
 
 float layer_policy_building_fade_end(float building_zoom_bias, bool vulkan_backend) {
-    return layer_policy_building_fade_start(building_zoom_bias, vulkan_backend) + 0.6f;
+    return layer_policy_building_fade_start(building_zoom_bias, vulkan_backend) + 0.7f;
 }
 
 const char *layer_policy_readiness_label(LayerReadinessState state) {
@@ -189,8 +189,19 @@ TileZoomBand layer_policy_band_for_zoom(TileLayerKind kind, float zoom, float re
         return TILE_BAND_FINE;
     }
 
-    // Phase 7D 4B: polygon overlays participate in pyramid bands (buildings remain fine/default).
-    if (kind == TILE_LAYER_POLY_WATER || kind == TILE_LAYER_POLY_PARK || kind == TILE_LAYER_POLY_LANDUSE) {
+    if (kind == TILE_LAYER_POLY_BUILDING) {
+        if (zoom < 12.9f) {
+            return TILE_BAND_COARSE;
+        }
+        if (zoom < 14.0f) {
+            return TILE_BAND_MID;
+        }
+        return TILE_BAND_FINE;
+    }
+
+    // Phase 7D 4B: non-building polygon overlays participate in pyramid bands.
+    if (kind == TILE_LAYER_POLY_WATER || kind == TILE_LAYER_POLY_PARK ||
+        kind == TILE_LAYER_POLY_LANDUSE) {
         if (zoom < 13.1f) {
             return TILE_BAND_COARSE;
         }

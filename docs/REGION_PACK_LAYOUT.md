@@ -28,7 +28,9 @@ Each region pack is a directory under `data/regions/<region_name>/` and is treat
   - `data/regions/<region_name>/tiles/bands/coarse/<z>/<x>/<y>.landuse.mft`
   - `data/regions/<region_name>/tiles/bands/mid/<z>/<x>/<y>.landuse.mft`
   - `data/regions/<region_name>/tiles/bands/fine/<z>/<x>/<y>.landuse.mft`
-  - `data/regions/<region_name>/tiles/bands/fine/<z>/<x>/<y>.building.mft` (conservative rollout)
+  - `data/regions/<region_name>/tiles/bands/coarse/<z>/<x>/<y>.building.mft`
+  - `data/regions/<region_name>/tiles/bands/mid/<z>/<x>/<y>.building.mft`
+  - `data/regions/<region_name>/tiles/bands/fine/<z>/<x>/<y>.building.mft`
 - `data/regions/<region_name>/meta.json`
 
 ## meta.json
@@ -51,6 +53,9 @@ Example:
     },
     "tile_pyramid": {
         "roads": {
+            "enabled": true
+        },
+        "buildings": {
             "enabled": true
         }
     }

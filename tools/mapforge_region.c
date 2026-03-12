@@ -88,6 +88,9 @@ typedef struct BuildContext {
     uint64_t layer_park_files;
     uint64_t layer_landuse_files;
     uint64_t layer_building_files;
+    uint64_t building_band_coarse_files;
+    uint64_t building_band_mid_files;
+    uint64_t building_band_fine_files;
     uint64_t band_coarse_files;
     uint64_t band_mid_files;
     uint64_t band_fine_files;
@@ -497,6 +500,67 @@ static uint16_t quantize_tile_coord(double value) {
     return (uint16_t)rounded;
 }
 
+// Clips a line segment to an axis-aligned rectangle.
+static bool clip_segment_to_rect(MercatorMeters a,
+                                 MercatorMeters b,
+                                 double min_x,
+                                 double max_x,
+                                 double min_y,
+                                 double max_y,
+                                 MercatorMeters *out_a,
+                                 MercatorMeters *out_b) {
+    if (!out_a || !out_b) {
+        return false;
+    }
+
+    double x0 = a.x;
+    double y0 = a.y;
+    double x1 = b.x;
+    double y1 = b.y;
+    double dx = x1 - x0;
+    double dy = y1 - y0;
+    double t0 = 0.0;
+    double t1 = 1.0;
+
+    double p[4] = {-dx, dx, -dy, dy};
+    double q[4] = {x0 - min_x, max_x - x0, y0 - min_y, max_y - y0};
+
+    for (int i = 0; i < 4; ++i) {
+        if (fabs(p[i]) < 1e-12) {
+            if (q[i] < 0.0) {
+                return false;
+            }
+            continue;
+        }
+        double r = q[i] / p[i];
+        if (p[i] < 0.0) {
+            if (r > t1) {
+                return false;
+            }
+            if (r > t0) {
+                t0 = r;
+            }
+        } else {
+            if (r < t0) {
+                return false;
+            }
+            if (r < t1) {
+                t1 = r;
+            }
+        }
+    }
+
+    if (t1 < t0) {
+        return false;
+    }
+
+    out_a->x = x0 + t0 * dx;
+    out_a->y = y0 + t0 * dy;
+    out_b->x = x0 + t1 * dx;
+    out_b->y = y0 + t1 * dy;
+    return true;
+}
+
 // Returns whether a point is inside a clipping edge.
 static bool polygon_point_inside(MercatorMeters point, int edge, double min_x, double max_x, double min_y, double max_y) {
     switch (edge) {
@@ -641,88 +705,56 @@ static bool add_way_to_tiles(BuildContext *ctx, const MercatorMeters *points, si
         return false;
     }
 
-    TileCoord current_tile = tile_from_meters(z, points[0]);
-    uint16_t *temp_points = NULL;
-    uint32_t temp_count = 0;
-    uint32_t temp_capacity = 0;
-
     double tile_size = tile_size_meters(z);
-
-    for (size_t i = 0; i < count; ++i) {
-        TileCoord tile = tile_from_meters(z, points[i]);
-        if (i > 0 && (tile.x != current_tile.x || tile.y != current_tile.y || tile.z != current_tile.z)) {
-            if (temp_count >= 2) {
-                TileOutput *output = build_context_get_tile(ctx, current_tile);
-                if (!output || !tile_output_add_polyline(output, road_class, temp_points, temp_count)) {
-                    free(temp_points);
-                    return false;
-                }
-            }
-
-            temp_count = 0;
-            current_tile = tile;
-
-            MercatorMeters prev_point = points[i - 1];
-            MercatorMeters curr_point = points[i];
-
-            double origin_x = tile_origin_meters(current_tile).x;
-            double origin_y = tile_origin_meters(current_tile).y;
-            double u = (prev_point.x - origin_x) / tile_size;
-            double v = (origin_y - prev_point.y) / tile_size;
-
-            if (temp_count + 2 > temp_capacity) {
-                uint32_t next = temp_capacity == 0 ? 64 : temp_capacity * 2;
-                uint16_t *next_points = (uint16_t *)realloc(temp_points, next * 2 * sizeof(uint16_t));
-                if (!next_points) {
-                    free(temp_points);
-                    return false;
-                }
-                temp_points = next_points;
-                temp_capacity = next;
-            }
-
-            temp_points[temp_count * 2] = quantize_tile_coord(u);
-            temp_points[temp_count * 2 + 1] = quantize_tile_coord(v);
-            temp_count += 1;
-
-            u = (curr_point.x - origin_x) / tile_size;
-            v = (origin_y - curr_point.y) / tile_size;
-            temp_points[temp_count * 2] = quantize_tile_coord(u);
-            temp_points[temp_count * 2 + 1] = quantize_tile_coord(v);
-            temp_count += 1;
+    for (size_t i = 1; i < count; ++i) {
+        MercatorMeters a = points[i - 1];
+        MercatorMeters b = points[i];
+        if (fabs(b.x - a.x) < 1e-12 && fabs(b.y - a.y) < 1e-12) {
             continue;
         }
 
-        double origin_x = tile_origin_meters(current_tile).x;
-        double origin_y = tile_origin_meters(current_tile).y;
-        double u = (points[i].x - origin_x) / tile_size;
-        double v = (origin_y - points[i].y) / tile_size;
+        double seg_min_x = a.x < b.x ? a.x : b.x;
+        double seg_max_x = a.x > b.x ? a.x : b.x;
+        double seg_min_y = a.y < b.y ? a.y : b.y;
+        double seg_max_y = a.y > b.y ? a.y : b.y;
 
-        if (temp_count + 1 > temp_capacity) {
-            uint32_t next = temp_capacity == 0 ? 64 : temp_capacity * 2;
-            uint16_t *next_points = (uint16_t *)realloc(temp_points, next * 2 * sizeof(uint16_t));
-            if (!next_points) {
-                free(temp_points);
-                return false;
+        TileCoord top_left = tile_from_meters(z, (MercatorMeters){seg_min_x, seg_max_y});
+        TileCoord bottom_right = tile_from_meters(z, (MercatorMeters){seg_max_x, seg_min_y});
+
+        for (uint32_t ty = top_left.y; ty <= bottom_right.y; ++ty) {
+            for (uint32_t tx = top_left.x; tx <= bottom_right.x; ++tx) {
+                TileCoord coord = {z, tx, ty};
+                MercatorMeters origin = tile_origin_meters(coord);
+                double tile_min_x = origin.x;
+                double tile_max_x = origin.x + tile_size;
+                double tile_max_y = origin.y;
+                double tile_min_y = origin.y - tile_size;
+
+                MercatorMeters clipped_a = {0};
+                MercatorMeters clipped_b = {0};
+                if (!clip_segment_to_rect(a, b, tile_min_x, tile_max_x, tile_min_y, tile_max_y,
+                                          &clipped_a, &clipped_b)) {
+                    continue;
+                }
+
+                uint16_t quantized[4];
+                double u0 = (clipped_a.x - tile_min_x) / tile_size;
+                double v0 = (tile_max_y - clipped_a.y) / tile_size;
+                double u1 = (clipped_b.x - tile_min_x) / tile_size;
+                double v1 = (tile_max_y - clipped_b.y) / tile_size;
+                quantized[0] = quantize_tile_coord(u0);
+                quantized[1] = quantize_tile_coord(v0);
+                quantized[2] = quantize_tile_coord(u1);
+                quantized[3] = quantize_tile_coord(v1);
+
+                TileOutput *output = build_context_get_tile(ctx, coord);
+                if (!output || !tile_output_add_polyline(output, road_class, quantized, 2u)) {
+                    return false;
+                }
             }
-            temp_points = next_points;
-            temp_capacity = next;
-        }
-
-        temp_points[temp_count * 2] = quantize_tile_coord(u);
-        temp_points[temp_count * 2 + 1] = quantize_tile_coord(v);
-        temp_count += 1;
-    }
-
-    if (temp_count >= 2) {
-        TileOutput *output = build_context_get_tile(ctx, current_tile);
-        if (!output || !tile_output_add_polyline(output, road_class, temp_points, temp_count)) {
-            free(temp_points);
-            return false;
         }
     }
 
-    free(temp_points);
     return true;
 }
 
@@ -1107,6 +1139,15 @@ static void record_file_write(BuildContext *ctx, const char *suffix, bool is_leg
         } else if (band == TILE_BAND_FINE) {
             ctx->band_fine_files += 1u;
         }
+        if (strcmp(suffix, "building.mft") == 0) {
+            if (band == TILE_BAND_COARSE) {
+                ctx->building_band_coarse_files += 1u;
+            } else if (band == TILE_BAND_MID) {
+                ctx->building_band_mid_files += 1u;
+            } else if (band == TILE_BAND_FINE) {
+                ctx->building_band_fine_files += 1u;
+            }
+        }
     }
 }
 
@@ -1244,7 +1285,40 @@ static bool write_empty_tile_file(const char *base_dir, TileCoord coord, const c
     return true;
 }
 
-static bool write_tile_file_polygons_at_root(const char *root_dir, const TileOutput *tile, const char *suffix, PolygonClass polygon_class) {
+static uint32_t polygon_point_step_for_band(PolygonClass polygon_class, TileZoomBand band) {
+    if (polygon_class != POLYGON_CLASS_BUILDING) {
+        return 1u;
+    }
+    (void)band;
+    // Keep building geometry fidelity intact across bands for now. Coarse/mid
+    // still represent lower zoom tiles, but do not decimate ring points.
+    return 1u;
+}
+
+static uint32_t polygon_reduced_point_count(const TilePolygon *polygon, PolygonClass polygon_class, TileZoomBand band) {
+    if (!polygon) {
+        return 0u;
+    }
+    uint32_t count = polygon->point_count;
+    uint32_t step = polygon_point_step_for_band(polygon_class, band);
+    if (step <= 1u || count <= 3u) {
+        return count;
+    }
+    uint32_t reduced = (count + step - 1u) / step;
+    if (reduced < 3u) {
+        reduced = 3u;
+    }
+    if (reduced > count) {
+        reduced = count;
+    }
+    return reduced;
+}
+
+static bool write_tile_file_polygons_at_root(const char *root_dir,
+                                             const TileOutput *tile,
+                                             const char *suffix,
+                                             PolygonClass polygon_class,
+                                             TileZoomBand band) {
     if (!root_dir || !tile || !suffix) {
         return false;
     }
@@ -1296,7 +1370,8 @@ static bool write_tile_file_polygons_at_root(const char *root_dir, const TileOut
         if (polygon->polygon_class != polygon_class) {
             continue;
         }
-        fwrite(&polygon->point_count, sizeof(uint32_t), 1, file);
+        uint32_t reduced = polygon_reduced_point_count(polygon, polygon_class, band);
+        fwrite(&reduced, sizeof(uint32_t), 1, file);
     }
 
     for (uint32_t i = 0; i < tile->polygon_count; ++i) {
@@ -1304,7 +1379,24 @@ static bool write_tile_file_polygons_at_root(const char *root_dir, const TileOut
         if (polygon->polygon_class != polygon_class) {
             continue;
         }
-        fwrite(polygon->points, sizeof(uint16_t), polygon->point_count * 2, file);
+        uint32_t count = polygon->point_count;
+        uint32_t reduced = polygon_reduced_point_count(polygon, polygon_class, band);
+        uint32_t step = polygon_point_step_for_band(polygon_class, band);
+        if (step <= 1u || count <= 3u || reduced >= count) {
+            fwrite(polygon->points, sizeof(uint16_t), count * 2u, file);
+            continue;
+        }
+        uint32_t written = 0u;
+        for (uint32_t p = 0u; p < count && written < reduced; p += step) {
+            const uint16_t *src = &polygon->points[p * 2u];
+            fwrite(src, sizeof(uint16_t), 2u, file);
+            written += 1u;
+        }
+        while (written < reduced) {
+            const uint16_t *src = &polygon->points[(count - 1u) * 2u];
+            fwrite(src, sizeof(uint16_t), 2u, file);
+            written += 1u;
+        }
     }
 
     if (polygon_class == POLYGON_CLASS_WATER && polygon_count > 0u) {
@@ -1385,7 +1477,8 @@ static bool write_tile_file_polygons(const char *base_dir,
         if (!ensure_dir(legacy_root)) {
             return false;
         }
-        if (!write_tile_file_polygons_at_root(legacy_root, tile, suffix, polygon_class)) {
+        if (!write_tile_file_polygons_at_root(
+                legacy_root, tile, suffix, polygon_class, TILE_BAND_DEFAULT)) {
             return false;
         }
         record_file_write(ctx, suffix, true, TILE_BAND_DEFAULT);
@@ -1400,16 +1493,12 @@ static bool write_tile_file_polygons(const char *base_dir,
     }
 
     TileZoomBand band = road_band_for_tile_z(tile->coord.z, options->min_z, options->max_z);
-    if (polygon_class == POLYGON_CLASS_BUILDING && band != TILE_BAND_FINE) {
-        // Keep building pyramid conservative: fine band only for now.
-        return true;
-    }
     const char *band_label = road_band_label(band);
     char band_root[512];
     if (!ensure_band_root_dir(base_dir, band_label, band_root, sizeof(band_root))) {
         return false;
     }
-    if (!write_tile_file_polygons_at_root(band_root, tile, suffix, polygon_class)) {
+    if (!write_tile_file_polygons_at_root(band_root, tile, suffix, polygon_class, band)) {
         return false;
     }
     record_file_write(ctx, suffix, false, band);
@@ -1497,6 +1586,14 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         "                \"mid\": {\"label\": \"mid\"},\n"
         "                \"fine\": {\"label\": \"fine\"}\n"
         "            }\n"
+        "        },\n"
+        "        \"buildings\": {\n"
+        "            \"enabled\": true,\n"
+        "            \"bands\": {\n"
+        "                \"coarse\": {\"label\": \"coarse\", \"point_step\": 1},\n"
+        "                \"mid\": {\"label\": \"mid\", \"point_step\": 1},\n"
+        "                \"fine\": {\"label\": \"fine\", \"point_step\": 1}\n"
+        "            }\n"
         "        }\n"
         "    },\n"
         "    \"contours\": {\n"
@@ -1528,6 +1625,11 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         "            \"building\": %llu\n"
         "        },\n"
         "        \"bands\": {\n"
+        "            \"coarse\": %llu,\n"
+        "            \"mid\": %llu,\n"
+        "            \"fine\": %llu\n"
+        "        },\n"
+        "        \"building_bands\": {\n"
         "            \"coarse\": %llu,\n"
         "            \"mid\": %llu,\n"
         "            \"fine\": %llu\n"
@@ -1565,7 +1667,10 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         (unsigned long long)ctx->layer_building_files,
         (unsigned long long)ctx->band_coarse_files,
         (unsigned long long)ctx->band_mid_files,
-        (unsigned long long)ctx->band_fine_files);
+        (unsigned long long)ctx->band_fine_files,
+        (unsigned long long)ctx->building_band_coarse_files,
+        (unsigned long long)ctx->building_band_mid_files,
+        (unsigned long long)ctx->building_band_fine_files);
     if (n <= 0 || (size_t)n >= sizeof(json)) {
         return false;
     }
@@ -1588,6 +1693,10 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
     CoreResult r = core_dataset_add_metadata_string(&dataset, "profile", "map_forge_tile_layer_feature_dataset_v1");
     if (r.code != CORE_OK) goto fail;
     r = core_dataset_add_metadata_string(&dataset, "dataset_schema", "map_forge.tile_layer_feature_metrics");
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "schema_family", "map_forge_diagnostics");
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "schema_variant", "tile_layer_feature_metrics_v1");
     if (r.code != CORE_OK) goto fail;
     r = core_dataset_add_metadata_i64(&dataset, "dataset_contract_version", 1);
     if (r.code != CORE_OK) goto fail;
@@ -1690,6 +1799,9 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
         "{\n"
         "  \"profile\": \"map_forge_tile_layer_feature_dataset_v1\",\n"
         "  \"dataset_schema\": \"map_forge.tile_layer_feature_metrics\",\n"
+        "  \"schema_family\": \"map_forge_diagnostics\",\n"
+        "  \"schema_variant\": \"tile_layer_feature_metrics_v1\",\n"
+        "  \"dataset_contract_version\": 1,\n"
         "  \"schema_version\": 1,\n"
         "  \"metadata\": {\n"
         "    \"region\": \"%s\",\n"

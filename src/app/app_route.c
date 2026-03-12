@@ -30,7 +30,9 @@ static void app_route_graph_path_for_region(const AppState *app, char *out_path,
     if (!app || !out_path || out_size == 0u) {
         return;
     }
-    snprintf(out_path, out_size, "data/regions/%s/graph/graph.bin", app->region.name);
+    if (!region_graph_path(&app->region, out_path, out_size)) {
+        out_path[0] = '\0';
+    }
 }
 
 bool app_load_route_graph(AppState *app) {
@@ -40,6 +42,10 @@ bool app_load_route_graph(AppState *app) {
 
     char path[512];
     app_route_graph_path_for_region(app, path, sizeof(path));
+    if (path[0] == '\0') {
+        log_error("Failed to resolve graph path for region: %s", app->region.name);
+        return false;
+    }
     if (!route_state_load_graph(&app->route, path)) {
         log_error("Missing route graph for region: %s", app->region.name);
         return false;

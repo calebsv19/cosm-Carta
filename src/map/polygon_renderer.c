@@ -11,6 +11,7 @@
 #include <stdlib.h>
 
 #define POLYGON_MAX_OUTLINE_POINTS 2048u
+#define POLYGON_TILE_EXTENT_Q 4096u
 
 typedef struct PolygonStyle {
     uint8_t r;
@@ -19,16 +20,6 @@ typedef struct PolygonStyle {
     uint8_t a;
     bool outline;
 } PolygonStyle;
-
-static float clampf_local(float value, float min_value, float max_value) {
-    if (value < min_value) {
-        return min_value;
-    }
-    if (value > max_value) {
-        return max_value;
-    }
-    return value;
-}
 
 static ZoomTier polygon_class_min_tier(PolygonClass polygon_class) {
     switch (polygon_class) {
@@ -104,6 +95,43 @@ static void draw_polygon_outline(Renderer *renderer, const SDL_FPoint *points, i
     renderer_draw_line(renderer, points[count - 1].x, points[count - 1].y, points[0].x, points[0].y);
 }
 
+static bool polygon_edge_on_tile_boundary(const uint16_t *ring_points, uint32_t count, uint32_t index) {
+    if (!ring_points || count < 2u) {
+        return false;
+    }
+    uint32_t next = (index + 1u) % count;
+    uint16_t x0 = ring_points[index * 2u];
+    uint16_t y0 = ring_points[index * 2u + 1u];
+    uint16_t x1 = ring_points[next * 2u];
+    uint16_t y1 = ring_points[next * 2u + 1u];
+    return (x0 == 0u && x1 == 0u) ||
+           (x0 == POLYGON_TILE_EXTENT_Q && x1 == POLYGON_TILE_EXTENT_Q) ||
+           (y0 == 0u && y1 == 0u) ||
+           (y0 == POLYGON_TILE_EXTENT_Q && y1 == POLYGON_TILE_EXTENT_Q);
+}
+
+static void draw_polygon_outline_filtered(Renderer *renderer,
+                                          const SDL_FPoint *points,
+                                          const uint16_t *ring_points,
+                                          int count,
+                                          bool suppress_tile_boundary_edges) {
+    if (!renderer || !points || count < 2) {
+        return;
+    }
+    if (!suppress_tile_boundary_edges || !ring_points) {
+        draw_polygon_outline(renderer, points, count);
+        return;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        int next = (i + 1) % count;
+        if (polygon_edge_on_tile_boundary(ring_points, (uint32_t)count, (uint32_t)i)) {
+            continue;
+        }
+        renderer_draw_line(renderer, points[i].x, points[i].y, points[next].x, points[next].y);
+    }
+}
+
 static bool polygon_allow_under_vk_pressure(const Renderer *renderer, PolygonClass polygon_class, float zoom) {
     if (!renderer || renderer->backend != RENDERER_BACKEND_VULKAN || renderer->vk_line_budget == 0u) {
         return true;
@@ -111,8 +139,8 @@ static bool polygon_allow_under_vk_pressure(const Renderer *renderer, PolygonCla
 
     float usage = (float)renderer->vk_lines_drawn / (float)renderer->vk_line_budget;
     if (polygon_class == POLYGON_CLASS_BUILDING) {
-        if (zoom < 15.0f) {
-            return false;
+        if (zoom < 13.8f) {
+            return usage < 0.55f;
         }
         return usage < 0.75f;
     }
@@ -139,6 +167,9 @@ static int polygon_compact_outline_points(SDL_FPoint *points, int count, int ste
     }
     points[write++] = points[count - 1];
     if (write < 3) {
+        // Guarantee a valid minimal ring from existing vertices.
+        points[1] = points[count / 2];
+        points[2] = points[count - 1];
         return 3;
     }
     return write;
@@ -146,13 +177,9 @@ static int polygon_compact_outline_points(SDL_FPoint *points, int count, int ste
 
 static int polygon_vk_outline_step(PolygonClass polygon_class, float zoom) {
     if (polygon_class == POLYGON_CLASS_BUILDING) {
-        if (zoom < 15.5f) {
-            return 5;
-        }
-        if (zoom < 16.5f) {
-            return 3;
-        }
-        return 2;
+        (void)zoom;
+        // Preserve building footprint fidelity in fallback polygon path.
+        return 1;
     }
     if (polygon_class == POLYGON_CLASS_LANDUSE) {
         return zoom < 14.5f ? 4 : 3;
@@ -306,24 +333,6 @@ void polygon_renderer_draw_tile(Renderer *renderer,
                 points[p] = (SDL_FPoint){sx, sy};
             }
 
-            if (polygon->polygon_class == POLYGON_CLASS_BUILDING) {
-                float scale = 0.80f + 0.20f * clampf_local((camera->zoom - 14.0f) / 2.0f, 0.0f, 1.0f);
-                if (scale < 0.999f) {
-                    float cx = 0.0f;
-                    float cy = 0.0f;
-                    for (uint32_t p = 0; p < ring_count; ++p) {
-                        cx += points[p].x;
-                        cy += points[p].y;
-                    }
-                    cx /= (float)ring_count;
-                    cy /= (float)ring_count;
-                    for (uint32_t p = 0; p < ring_count; ++p) {
-                        points[p].x = cx + (points[p].x - cx) * scale;
-                        points[p].y = cy + (points[p].y - cy) * scale;
-                    }
-                }
-            }
-
         bool draw_fill = convex || polygon->polygon_class != POLYGON_CLASS_LANDUSE;
         if (renderer->backend == RENDERER_BACKEND_VULKAN) {
             // Vulkan backend currently keeps polygon rendering in outline mode to avoid
@@ -357,14 +366,15 @@ void polygon_renderer_draw_tile(Renderer *renderer,
                 outline_count = polygon_compact_outline_points(points, outline_count, outline_step);
             }
 
+            bool suppress_tile_edges = true;
             if (style.outline) {
                 SDL_Color stroke = {style.r, style.g, style.b, (uint8_t)SDL_max(alpha - 40, 40)};
                 renderer_set_draw_color(renderer, stroke.r, stroke.g, stroke.b, stroke.a);
-                draw_polygon_outline(renderer, points, outline_count);
+                draw_polygon_outline_filtered(renderer, points, ring_points, outline_count, suppress_tile_edges);
             } else if (!draw_fill) {
                 SDL_Color stroke = {style.r, style.g, style.b, (uint8_t)SDL_max(alpha - 40, 40)};
                 renderer_set_draw_color(renderer, stroke.r, stroke.g, stroke.b, stroke.a);
-                draw_polygon_outline(renderer, points, outline_count);
+                draw_polygon_outline_filtered(renderer, points, ring_points, outline_count, suppress_tile_edges);
             }
 
             SDL_free(points);

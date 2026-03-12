@@ -224,15 +224,37 @@ static uint32_t polygon_outline_base_step(uint32_t ring_count) {
     return 1u;
 }
 
-static uint32_t polygon_outline_segment_count(uint32_t ring_count, uint32_t step_scale) {
-    if (ring_count < 2u) {
-        return 0u;
-    }
+static uint32_t polygon_outline_step_for_ring(uint32_t ring_count,
+                                              uint32_t step_scale,
+                                              bool preserve_small_rings) {
     uint32_t step = polygon_outline_base_step(ring_count) * (step_scale == 0u ? 1u : step_scale);
     if (step == 0u) {
         step = 1u;
     }
-    return (ring_count + step - 1u) / step;
+    if (preserve_small_rings && ring_count <= 16u) {
+        return 1u;
+    }
+    if (ring_count > 1u && step >= ring_count) {
+        step = ring_count - 1u;
+    }
+    return step;
+}
+
+static bool polygon_edge_on_tile_boundary_q(const uint16_t *polygon_points,
+                                            uint32_t p0,
+                                            uint32_t p1) {
+    if (!polygon_points) {
+        return false;
+    }
+    const uint32_t kExtent = 4096u;
+    uint16_t x0 = polygon_points[p0 * 2u];
+    uint16_t y0 = polygon_points[p0 * 2u + 1u];
+    uint16_t x1 = polygon_points[p1 * 2u];
+    uint16_t y1 = polygon_points[p1 * 2u + 1u];
+    return (x0 == 0u && x1 == 0u) ||
+           (x0 == kExtent && x1 == kExtent) ||
+           (y0 == 0u && y1 == 0u) ||
+           (y0 == kExtent && y1 == kExtent);
 }
 
 static bool polygon_get_cached_indices(const MftTile *tile,
@@ -373,7 +395,14 @@ static bool build_polygon_outline_mesh_points(VkTileCache *cache,
             }
             uint32_t ring_count = polygon_rings[ring_index];
             if (ring_count >= 2u) {
-                segment_count += polygon_outline_segment_count(ring_count, 1u);
+                for (uint32_t p = 0; p < ring_count; ++p) {
+                    uint32_t p0 = ring_point_offsets[ring_index] + p;
+                    uint32_t p1 = ring_point_offsets[ring_index] + ((p + 1u) % ring_count);
+                    if (polygon_edge_on_tile_boundary_q(polygon_points, p0, p1)) {
+                        continue;
+                    }
+                    segment_count += 1u;
+                }
             }
         }
     }
@@ -397,7 +426,19 @@ static bool build_polygon_outline_mesh_points(VkTileCache *cache,
                         }
                         uint32_t ring_count = polygon_rings[ring_index];
                         if (ring_count >= 2u) {
-                            segment_count += polygon_outline_segment_count(ring_count, polygon_step_scale);
+                            uint32_t step = polygon_outline_step_for_ring(ring_count, polygon_step_scale, false);
+                            for (uint32_t p = 0; p < ring_count; p += step) {
+                                uint32_t p0 = ring_point_offsets[ring_index] + p;
+                                uint32_t next = p + step;
+                                if (next >= ring_count) {
+                                    next = 0u;
+                                }
+                                uint32_t p1 = ring_point_offsets[ring_index] + next;
+                                if (polygon_edge_on_tile_boundary_q(polygon_points, p0, p1)) {
+                                    continue;
+                                }
+                                segment_count += 1u;
+                            }
                     }
                 }
             }
@@ -435,6 +476,9 @@ static bool build_polygon_outline_mesh_points(VkTileCache *cache,
                     next = 0u;
                 }
                 uint32_t p1 = point_offset + next;
+                if (polygon_edge_on_tile_boundary_q(polygon_points, p0, p1)) {
+                    continue;
+                }
                 uint32_t idx0 = p0 * 2u;
                 uint32_t idx1 = p1 * 2u;
                 verts[v++] = (SDL_FPoint){(float)polygon_points[idx0], (float)polygon_points[idx0 + 1u]};
@@ -611,14 +655,22 @@ static bool build_entry_mesh(VkTileCache *cache, void *vk_renderer, VkTileCacheE
                         }
                         return false;
                     }
-                    segment_count += polygon_outline_segment_count(ring_count, 1u);
+                    for (uint32_t p = 0; p < ring_count; ++p) {
+                        uint32_t p0 = point_offset + p;
+                        uint32_t p1 = point_offset + ((p + 1u) % ring_count);
+                        if (polygon_edge_on_tile_boundary_q(tile->polygon_points, p0, p1)) {
+                            continue;
+                        }
+                        segment_count += 1u;
+                    }
                 }
                 point_offset += ring_count;
             }
         }
         {
             const uint32_t kPolygonOutlineSegmentCap = 24000u;
-            if (segment_count > kPolygonOutlineSegmentCap) {
+            if (entry->kind != TILE_LAYER_POLY_BUILDING &&
+                segment_count > kPolygonOutlineSegmentCap) {
                 polygon_step_scale = (segment_count + kPolygonOutlineSegmentCap - 1u) / kPolygonOutlineSegmentCap;
                 if (polygon_step_scale > 32u) {
                     polygon_step_scale = 32u;
@@ -644,7 +696,20 @@ static bool build_entry_mesh(VkTileCache *cache, void *vk_renderer, VkTileCacheE
                                 }
                                 return false;
                             }
-                            segment_count += polygon_outline_segment_count(ring_count, polygon_step_scale);
+                            uint32_t step = polygon_outline_step_for_ring(
+                                ring_count, polygon_step_scale, entry->kind == TILE_LAYER_POLY_BUILDING);
+                            for (uint32_t p = 0; p < ring_count; p += step) {
+                                uint32_t p0 = point_offset + p;
+                                uint32_t next = p + step;
+                                if (next >= ring_count) {
+                                    next = 0u;
+                                }
+                                uint32_t p1 = point_offset + next;
+                                if (polygon_edge_on_tile_boundary_q(tile->polygon_points, p0, p1)) {
+                                    continue;
+                                }
+                                segment_count += 1u;
+                            }
                         }
                         point_offset += ring_count;
                     }
@@ -690,10 +755,8 @@ static bool build_entry_mesh(VkTileCache *cache, void *vk_renderer, VkTileCacheE
                     }
                     return false;
                 }
-                uint32_t step = polygon_outline_base_step(ring_count) * polygon_step_scale;
-                if (step == 0u) {
-                    step = 1u;
-                }
+                uint32_t step = polygon_outline_step_for_ring(
+                    ring_count, polygon_step_scale, entry->kind == TILE_LAYER_POLY_BUILDING);
                 for (uint32_t p = 0; p < ring_count; p += step) {
                     uint32_t p0 = point_offset + p;
                     uint32_t next = p + step;
@@ -701,6 +764,9 @@ static bool build_entry_mesh(VkTileCache *cache, void *vk_renderer, VkTileCacheE
                         next = 0u;
                     }
                     uint32_t p1 = point_offset + next;
+                    if (polygon_edge_on_tile_boundary_q(tile->polygon_points, p0, p1)) {
+                        continue;
+                    }
                     uint32_t idx0 = p0 * 2u;
                     uint32_t idx1 = p1 * 2u;
                     if (idx1 + 1u >= tile->polygon_point_total * 2u) {

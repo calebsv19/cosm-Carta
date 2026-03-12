@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 This repository is currently in an early planning phase. You will find project direction in:
 - `MAPFORGE_SUMMARY.md`: high-level goals and behavior.
-- `MAPFORGE_NORTHSTAR_PLAN.md`: phased roadmap and long-term layers.
+- `../docs/private_program_docs/map_forge/migrated_private_docs_2026-03-12/MAPFORGE_NORTHSTAR_PLAN.md`: phased roadmap and long-term layers (private planning doc).
 
 Once implementation starts, expected structure (from the spec) is:
 - `include/` and `src/` mirror one-to-one by module (e.g., `include/map/`, `src/map/`).
@@ -16,7 +16,7 @@ Planned Makefile targets (from the spec):
 - `make` or `make app`: build the main app binary.
 - `make run`: run the app with the default region.
 - `make tools`: build offline tooling binaries.
-- `make region REGION=seattle OSM=path/to/file.osm.pbf`: build a region pack.
+- `make region REGION=seattle OSM=/absolute/path/to/file.osm`: build a region pack.
 - `make clean`: remove build artifacts.
 
 If these targets are not yet implemented, create or update the Makefile accordingly.
@@ -44,6 +44,5 @@ Never Do a commit or pull request only ever recommend that I should do one after
 - When Making Plans for working through large updates default to making a .md summary plan and physically using it as a reference to check off each steps for long winded processes. Adding in date stamped completion messages after each completed step in the .md plan docs.
 
 ## Agent Notes
-When in doubt, follow the spec in `MAPFORGE_NORTHSTAR_PLAN.md` and keep rendering, routing, and tooling decoupled.
+When in doubt, follow the spec in `../docs/private_program_docs/map_forge/migrated_private_docs_2026-03-12/MAPFORGE_NORTHSTAR_PLAN.md` and keep rendering, routing, and tooling decoupled.
 Also if you ever have any confusions related to what you need to do, or want to double check read through the docs we store in the docs/ directory to allow for easy context building of past completed work, and next steps to work on.
-

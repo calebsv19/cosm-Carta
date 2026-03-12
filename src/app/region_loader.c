@@ -48,9 +48,14 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
     }
 
     *out_info = *info;
+    if (!region_resolve_paths(out_info)) {
+        return false;
+    }
 
     char path[512];
-    snprintf(path, sizeof(path), "data/regions/%s/meta.json", info->name);
+    if (!region_meta_path(out_info, path, sizeof(path))) {
+        return false;
+    }
 
     struct json_object *root = json_object_from_file(path);
     if (!root || !json_object_is_type(root, json_type_object)) {
@@ -75,6 +80,7 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
     bool got_tile_max_z = false;
     bool got_tile_extent = false;
     bool roads_pyramid_enabled = false;
+    bool buildings_pyramid_enabled = false;
 
     struct json_object *bounds = NULL;
     if (json_object_object_get_ex(root, "bounds", &bounds) &&
@@ -103,6 +109,15 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
             if (json_object_object_get_ex(roads, "enabled", &enabled) &&
                 json_object_is_type(enabled, json_type_boolean)) {
                 roads_pyramid_enabled = json_object_get_boolean(enabled);
+            }
+        }
+        struct json_object *buildings = NULL;
+        if (json_object_object_get_ex(tile_pyramid, "buildings", &buildings) &&
+            json_object_is_type(buildings, json_type_object)) {
+            struct json_object *enabled = NULL;
+            if (json_object_object_get_ex(buildings, "enabled", &enabled) &&
+                json_object_is_type(enabled, json_type_boolean)) {
+                buildings_pyramid_enabled = json_object_get_boolean(enabled);
             }
         }
     }
@@ -143,6 +158,7 @@ bool region_load_meta(const RegionInfo *info, RegionInfo *out_info) {
         out_info->tile_extent = tile_extent;
     }
     out_info->has_tile_pyramid_roads = roads_pyramid_enabled;
+    out_info->has_tile_pyramid_buildings = buildings_pyramid_enabled;
 
     json_object_put(root);
     return out_info->has_bounds || out_info->has_tile_range;

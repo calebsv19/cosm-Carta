@@ -1,10 +1,12 @@
 #include "app/app_internal.h"
 
+#include "core/log.h"
 #include "map/mercator.h"
 #include "map/map_space.h"
 #include "map/polygon_renderer.h"
 #include "map/road_renderer.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static void app_init_vk_poly_fill_budget(AppState *app, VkPolyFillBudget *budget) {
@@ -122,6 +124,88 @@ static void app_draw_vk_tri_mesh_for_coord(AppState *app,
 #endif
 }
 
+static uint32_t app_visible_ring_distance(const AppState *app, TileCoord coord) {
+    if (!app || !app->visible_valid || coord.z != app->visible_zoom) {
+        return UINT32_MAX / 4u;
+    }
+
+    TileCoord center = {
+        app->visible_zoom,
+        (app->visible_top_left.x + app->visible_bottom_right.x) / 2u,
+        (app->visible_top_left.y + app->visible_bottom_right.y) / 2u
+    };
+    uint32_t dx = (coord.x > center.x) ? (coord.x - center.x) : (center.x - coord.x);
+    uint32_t dy = (coord.y > center.y) ? (coord.y - center.y) : (center.y - coord.y);
+    return dx + dy;
+}
+
+static bool app_allow_immediate_building_fallback(const AppState *app, TileCoord coord) {
+    // Keep Vulkan immediate fallback constrained to center/near-center tiles to
+    // avoid wide-frame fallback spikes while preserving progressive building visibility.
+    return app_visible_ring_distance(app, coord) <= 1u;
+}
+
+typedef struct BuildingTileDebugStats {
+    uint32_t tiles;
+    uint32_t polygons;
+    uint32_t rings;
+    uint32_t points_total;
+    uint32_t points_min;
+    uint32_t points_max;
+    uint32_t rings_lt3;
+    uint32_t rings_eq3;
+    uint32_t rings_eq4;
+} BuildingTileDebugStats;
+
+static bool app_building_debug_enabled(void) {
+    static int cached = -1;
+    if (cached >= 0) {
+        return cached != 0;
+    }
+    const char *value = getenv("MAPFORGE_BUILDING_DEBUG");
+    cached = 0;
+    if (value && value[0] != '\0' &&
+        (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "TRUE") == 0 ||
+         strcmp(value, "yes") == 0 || strcmp(value, "YES") == 0 || strcmp(value, "on") == 0 ||
+         strcmp(value, "ON") == 0)) {
+        cached = 1;
+    }
+    return cached != 0;
+}
+
+static void app_accumulate_building_debug_stats(const MftTile *tile, BuildingTileDebugStats *stats) {
+    if (!tile || !stats || !tile->polygons || !tile->polygon_rings) {
+        return;
+    }
+    stats->tiles += 1u;
+    for (uint32_t i = 0; i < tile->polygon_count; ++i) {
+        const MftPolygon *polygon = &tile->polygons[i];
+        stats->polygons += 1u;
+        for (uint16_t r = 0; r < polygon->ring_count; ++r) {
+            uint32_t ring_index = polygon->ring_offset + r;
+            if (ring_index >= tile->polygon_ring_total) {
+                continue;
+            }
+            uint32_t ring_points = tile->polygon_rings[ring_index];
+            stats->rings += 1u;
+            stats->points_total += ring_points;
+            if (stats->points_min == 0u || ring_points < stats->points_min) {
+                stats->points_min = ring_points;
+            }
+            if (ring_points > stats->points_max) {
+                stats->points_max = ring_points;
+            }
+            if (ring_points < 3u) {
+                stats->rings_lt3 += 1u;
+            } else if (ring_points == 3u) {
+                stats->rings_eq3 += 1u;
+            } else if (ring_points == 4u) {
+                stats->rings_eq4 += 1u;
+            }
+        }
+    }
+}
+
 static bool app_pick_road_tile_with_fallback(const AppState *app,
                                              TileLayerKind kind,
                                              TileCoord coord,
@@ -181,10 +265,28 @@ static bool app_pick_polygon_tile_with_fallback(const AppState *app,
     };
     uint32_t count = 1u;
     if (kind == TILE_LAYER_POLY_BUILDING) {
-        // Buildings are intentionally conservative in band rollout.
-        candidates[0] = target;
-        candidates[1] = TILE_BAND_DEFAULT;
-        count = (target == TILE_BAND_DEFAULT) ? 1u : 2u;
+        // Prefer highest-fidelity buildings first, then progressively fallback.
+        if (target == TILE_BAND_FINE) {
+            candidates[0] = TILE_BAND_FINE;
+            candidates[1] = TILE_BAND_MID;
+            candidates[2] = TILE_BAND_COARSE;
+            candidates[3] = TILE_BAND_DEFAULT;
+            count = 4u;
+        } else if (target == TILE_BAND_MID) {
+            candidates[0] = TILE_BAND_FINE;
+            candidates[1] = TILE_BAND_MID;
+            candidates[2] = TILE_BAND_COARSE;
+            candidates[3] = TILE_BAND_DEFAULT;
+            count = 4u;
+        } else if (target == TILE_BAND_COARSE) {
+            candidates[0] = TILE_BAND_MID;
+            candidates[1] = TILE_BAND_COARSE;
+            candidates[2] = TILE_BAND_DEFAULT;
+            count = 3u;
+        } else {
+            candidates[0] = TILE_BAND_DEFAULT;
+            count = 1u;
+        }
     } else if (target == TILE_BAND_FINE) {
         count = 4u;
     } else if (target == TILE_BAND_MID) {
@@ -355,6 +457,7 @@ uint32_t app_draw_visible_tiles(AppState *app) {
     app->vk_poly_fill_fail = 0u;
     app->vk_poly_fill_indices = 0u;
     app->vk_road_band_fallback_draws = 0u;
+    BuildingTileDebugStats building_debug = {0};
     uint32_t expected = 0;
     uint32_t done = 0;
     for (size_t i = 0; i < layer_policy_count(); ++i) {
@@ -442,14 +545,6 @@ uint32_t app_draw_visible_tiles(AppState *app) {
     for (uint32_t y = app->visible_top_left.y; y <= app->visible_bottom_right.y; ++y) {
         for (uint32_t x = app->visible_top_left.x; x <= app->visible_bottom_right.x; ++x) {
             TileCoord coord = {app->visible_zoom, x, y};
-            bool water_ready = !layer_policy_requires_full_ready(TILE_LAYER_POLY_WATER) ||
-                app->layer_state[TILE_LAYER_POLY_WATER] == LAYER_READINESS_READY;
-            bool park_ready = !layer_policy_requires_full_ready(TILE_LAYER_POLY_PARK) ||
-                app->layer_state[TILE_LAYER_POLY_PARK] == LAYER_READINESS_READY;
-            bool landuse_ready = !layer_policy_requires_full_ready(TILE_LAYER_POLY_LANDUSE) ||
-                app->layer_state[TILE_LAYER_POLY_LANDUSE] == LAYER_READINESS_READY;
-            bool building_ready = !layer_policy_requires_full_ready(TILE_LAYER_POLY_BUILDING) ||
-                app->layer_state[TILE_LAYER_POLY_BUILDING] == LAYER_READINESS_READY;
             const MftTile *water = NULL;
             const MftTile *park = NULL;
             const MftTile *landuse = NULL;
@@ -458,16 +553,16 @@ uint32_t app_draw_visible_tiles(AppState *app) {
             TileZoomBand park_band = app->layer_target_band[TILE_LAYER_POLY_PARK];
             TileZoomBand landuse_band = app->layer_target_band[TILE_LAYER_POLY_LANDUSE];
             TileZoomBand building_band = app->layer_target_band[TILE_LAYER_POLY_BUILDING];
-            if (app_layer_active_runtime(app, TILE_LAYER_POLY_WATER) && water_ready) {
+            if (app_layer_active_runtime(app, TILE_LAYER_POLY_WATER)) {
                 app_pick_polygon_tile_with_fallback(app, TILE_LAYER_POLY_WATER, coord, &water, &water_band);
             }
-            if (app_layer_active_runtime(app, TILE_LAYER_POLY_PARK) && park_ready) {
+            if (app_layer_active_runtime(app, TILE_LAYER_POLY_PARK)) {
                 app_pick_polygon_tile_with_fallback(app, TILE_LAYER_POLY_PARK, coord, &park, &park_band);
             }
-            if (app_layer_active_runtime(app, TILE_LAYER_POLY_LANDUSE) && landuse_ready) {
+            if (app_layer_active_runtime(app, TILE_LAYER_POLY_LANDUSE)) {
                 app_pick_polygon_tile_with_fallback(app, TILE_LAYER_POLY_LANDUSE, coord, &landuse, &landuse_band);
             }
-            if (app_layer_active_runtime(app, TILE_LAYER_POLY_BUILDING) && building_ready) {
+            if (app_layer_active_runtime(app, TILE_LAYER_POLY_BUILDING)) {
                 app_pick_polygon_tile_with_fallback(app, TILE_LAYER_POLY_BUILDING, coord, &building, &building_band);
             }
             if (water) {
@@ -510,13 +605,16 @@ uint32_t app_draw_visible_tiles(AppState *app) {
                 }
             }
             if (building) {
+                if (app_building_debug_enabled()) {
+                    app_accumulate_building_debug_stats(building, &building_debug);
+                }
                 if (!app_try_draw_vk_cached_polygon_tile(
                         app, TILE_LAYER_POLY_BUILDING, coord, building_band, &poly_fill_budget, &poly_asset_build_budget)) {
                     if (vk_backend && app->vk_assets_enabled) {
                         vk_asset_misses += 1u;
                         app_vk_asset_enqueue(app, TILE_LAYER_POLY_BUILDING, coord, building_band);
                     }
-                    if (allow_immediate_polygon_fallback) {
+                    if (allow_immediate_polygon_fallback || app_allow_immediate_building_fallback(app, coord)) {
                         polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)building, app->show_landuse,
                             app->building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only);
                     }
@@ -532,6 +630,25 @@ uint32_t app_draw_visible_tiles(AppState *app) {
     app->loading_expected = expected;
     app->loading_done = done;
     app->vk_asset_misses = vk_asset_misses;
+    if (app_building_debug_enabled() && building_debug.tiles > 0u) {
+        static uint64_t next_log_ms = 0u;
+        uint64_t now_ms = SDL_GetTicks64();
+        if (now_ms >= next_log_ms) {
+            uint32_t avg_points = building_debug.rings > 0u ? (building_debug.points_total / building_debug.rings) : 0u;
+            log_info("building_debug tiles=%u polygons=%u rings=%u points(avg=%u min=%u max=%u) "
+                     "rings_lt3=%u rings_eq3=%u rings_eq4=%u",
+                     building_debug.tiles,
+                     building_debug.polygons,
+                     building_debug.rings,
+                     avg_points,
+                     building_debug.points_min,
+                     building_debug.points_max,
+                     building_debug.rings_lt3,
+                     building_debug.rings_eq3,
+                     building_debug.rings_eq4);
+            next_log_ms = now_ms + 1000u;
+        }
+    }
 
     return visible;
 }

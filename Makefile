@@ -108,6 +108,8 @@ MAP_SPACE_TEST_TARGET := build/tests/map_space_test
 MAP_SPACE_TEST_SRCS := tests/map_space_test.c src/map/map_space.c src/map/tile_math.c src/map/mercator.c src/camera/camera.c
 SHARED_THEME_FONT_ADAPTER_TEST_TARGET := build/tests/shared_theme_font_adapter_test
 SHARED_THEME_FONT_ADAPTER_TEST_SRCS := tests/shared_theme_font_adapter_test.c src/ui/shared_theme_font_adapter.c $(CORE_THEME_DIR)/src/core_theme.c $(CORE_FONT_DIR)/src/core_font.c $(CORE_BASE_DIR)/src/core_base.c
+MAP_TRACE_CONTRACT_TEST_TARGET := build/tests/map_trace_contract_test
+MAP_TRACE_CONTRACT_TEST_SRCS := tests/map_trace_contract_test.c
 
 ifeq ($(VK_APP_ENABLED),1)
 CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
@@ -121,6 +123,7 @@ RENDER_BACKEND ?= vulkan
 VK_DEBUG ?= 0
 OSM_DIR ?= $(HOME)/Desktop/osm_maps
 REGIONS_DIR ?= data/regions
+MAPFORGE_REGIONS_DIR ?= $(REGIONS_DIR)
 BATCH_MODE ?= missing
 BATCH_REGION ?=
 BATCH_OSM ?=
@@ -205,15 +208,17 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
 run: app
-	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) ./$(TARGET)
+	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
 run-ide-theme: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
+	MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" \
 	MAPFORGE_USE_SHARED_THEME_FONT=1 MAPFORGE_USE_SHARED_THEME=1 MAPFORGE_USE_SHARED_FONT=1 \
 	MAPFORGE_THEME_PRESET=ide_gray MAPFORGE_FONT_PRESET=ide ./$(TARGET)
 
 run-daw-theme: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
+	MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" \
 	MAPFORGE_USE_SHARED_THEME_FONT=1 MAPFORGE_USE_SHARED_THEME=1 MAPFORGE_USE_SHARED_FONT=1 \
 	MAPFORGE_THEME_PRESET=daw_default MAPFORGE_FONT_PRESET=daw_default ./$(TARGET)
 
@@ -236,9 +241,13 @@ build-safety-check: tools graph
 	./tests/test_build_safety.sh
 
 test: test-space build-safety-check
+test: test-trace-contract
 
 test-shared-theme-font-adapter: $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
 	./$(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
+
+test-trace-contract: $(MAP_TRACE_CONTRACT_TEST_TARGET)
+	./$(MAP_TRACE_CONTRACT_TEST_TARGET)
 
 $(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -248,17 +257,21 @@ $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET): $(SHARED_THEME_FONT_ADAPTER_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(SHARED_THEME_FONT_ADAPTER_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
+$(MAP_TRACE_CONTRACT_TEST_TARGET): $(MAP_TRACE_CONTRACT_TEST_SRCS) $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(MAP_TRACE_CONTRACT_TEST_SRCS) -o $@ $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB) -lm
+
 route: graph
-	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out data/regions/$(REGION) $(GRAPH_TOOL_FLAGS)
+	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" $(GRAPH_TOOL_FLAGS)
 
 region: tools
-	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out data/regions/$(REGION) --min-z $(MIN_Z) --max-z $(MAX_Z) $(REGION_TOOL_FLAGS)
+	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out "$(REGIONS_DIR)/$(REGION)" --min-z $(MIN_Z) --max-z $(MAX_Z) $(REGION_TOOL_FLAGS)
 
 region-rebuild: tools
-	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out data/regions/$(REGION) --min-z $(MIN_Z) --max-z $(MAX_Z) --replace $(REGION_TOOL_FLAGS)
+	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out "$(REGIONS_DIR)/$(REGION)" --min-z $(MIN_Z) --max-z $(MAX_Z) --replace $(REGION_TOOL_FLAGS)
 
 route-rebuild: graph
-	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out data/regions/$(REGION) --replace $(GRAPH_TOOL_FLAGS)
+	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" --replace $(GRAPH_TOOL_FLAGS)
 
 tools-progress:
 	tools/run_with_progress.sh --label "make tools" make tools
@@ -267,10 +280,10 @@ graph-progress:
 	tools/run_with_progress.sh --label "make graph" make graph
 
 region-progress:
-	tools/run_with_progress.sh --label "region $(REGION)" ./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out data/regions/$(REGION) --min-z $(MIN_Z) --max-z $(MAX_Z) $(REGION_TOOL_FLAGS)
+	tools/run_with_progress.sh --label "region $(REGION)" ./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out "$(REGIONS_DIR)/$(REGION)" --min-z $(MIN_Z) --max-z $(MAX_Z) $(REGION_TOOL_FLAGS)
 
 route-progress:
-	tools/run_with_progress.sh --label "route $(REGION)" ./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out data/regions/$(REGION) $(GRAPH_TOOL_FLAGS)
+	tools/run_with_progress.sh --label "route $(REGION)" ./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" $(GRAPH_TOOL_FLAGS)
 
 batch-regions:
 	tools/build_regions.sh --osm-dir "$(OSM_DIR)" --regions-dir "$(REGIONS_DIR)" --min-z $(MIN_Z) --max-z $(MAX_Z) --keep-old $(KEEP_OLD) --prune-days $(PRUNE_DAYS) \
@@ -281,7 +294,7 @@ batch-regions:
 
 disk-usage:
 	@echo "=== MapForge Disk Usage ==="
-	@du -sh build data/regions ide_files 2>/dev/null || true
+	@du -sh build "$(REGIONS_DIR)" ide_files 2>/dev/null || true
 	@echo ""
 	@echo "=== Top Region Dirs ==="
 	@if [ -d "$(REGIONS_DIR)" ] && [ -n "$$(ls -A "$(REGIONS_DIR)" 2>/dev/null)" ]; then \
@@ -360,6 +373,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)
