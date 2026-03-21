@@ -1,5 +1,7 @@
 # Graph v1 Format (Routing)
 
+Legacy reference. New region graph builds emit v2 (`docs/GRAPH_V2.md`), while runtime still supports v1 for compatibility.
+
 Binary file: `data/regions/<region>/graph/graph.bin`
 
 All values are little-endian.
@@ -28,3 +30,4 @@ All values are little-endian.
 - `edge_start[i]..edge_start[i+1]` gives outgoing edges for node i.
 - Shortest route uses edge_length_m as cost.
 - Fastest route uses edge_length_m / edge_speed_mps as cost.
+- Graph build sets `edge_speed_mps` from OSM `maxspeed` when parseable; otherwise it falls back to road-class defaults.

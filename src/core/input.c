@@ -30,6 +30,8 @@ void input_init(InputState *input) {
     input->playback_step_back = false;
     input->playback_speed_up = false;
     input->playback_speed_down = false;
+    input->shift_down = false;
+    input->alt_down = false;
     input->left_click_pressed = false;
     input->right_click_pressed = false;
     input->middle_click_pressed = false;
@@ -133,6 +135,8 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
                 input->copy_overlay_pressed = true;
             } else if (event->key.keysym.sym == SDLK_LSHIFT || event->key.keysym.sym == SDLK_RSHIFT) {
                 input->shift_down = true;
+            } else if (event->key.keysym.sym == SDLK_LALT || event->key.keysym.sym == SDLK_RALT) {
+                input->alt_down = true;
             } else if (event->key.keysym.sym == SDLK_a || event->key.keysym.sym == SDLK_LEFT) {
                 input->pan_left = true;
             } else if (event->key.keysym.sym == SDLK_d || event->key.keysym.sym == SDLK_RIGHT) {
@@ -146,6 +150,8 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
         case SDL_KEYUP:
             if (event->key.keysym.sym == SDLK_LSHIFT || event->key.keysym.sym == SDLK_RSHIFT) {
                 input->shift_down = false;
+            } else if (event->key.keysym.sym == SDLK_LALT || event->key.keysym.sym == SDLK_RALT) {
+                input->alt_down = false;
             } else if (event->key.keysym.sym == SDLK_a || event->key.keysym.sym == SDLK_LEFT) {
                 input->pan_left = false;
             } else if (event->key.keysym.sym == SDLK_d || event->key.keysym.sym == SDLK_RIGHT) {

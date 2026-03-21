@@ -1,1 +1,1 @@
-standard_grey
+soft_light

@@ -6,6 +6,7 @@
 
 // Stores a routing graph loaded from disk.
 typedef struct RouteGraph {
+    uint32_t version;
     uint32_t node_count;
     uint32_t edge_count;
     double *node_x;
@@ -14,6 +15,9 @@ typedef struct RouteGraph {
     uint32_t *edge_to;
     float *edge_length;
     float *edge_speed;
+    float *edge_speed_limit;
+    float *edge_grade;
+    float *edge_penalty;
     uint8_t *edge_class;
 } RouteGraph;
 

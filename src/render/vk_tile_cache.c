@@ -158,7 +158,7 @@ static void mesh_fill_color_for_kind(TileLayerKind kind, float *r, float *g, flo
     }
     switch (kind) {
         case TILE_LAYER_POLY_WATER:
-            *r = 0.30f; *g = 0.42f; *b = 0.58f; *a = 0.14f;
+            *r = 0.30f; *g = 0.42f; *b = 0.58f; *a = 0.24f;
             break;
         case TILE_LAYER_POLY_PARK:
             *r = 0.35f; *g = 0.53f; *b = 0.36f; *a = 0.12f;
@@ -823,9 +823,12 @@ static bool build_polygon_fill_mesh(VkTileCache *cache,
     if (tile->polygon_count == 0u || !tile->polygons || !tile->polygon_rings || !tile->polygon_points) {
         return false;
     }
+    uint32_t max_ring_points = 8192u;
+    uint32_t max_ring_indices = 24576u;
     if (entry->kind == TILE_LAYER_POLY_WATER) {
-        // Skip retained water fills to avoid long triangulation stalls on dense coastal tiles.
-        return false;
+        /* Water rings can be much larger than zoning/building rings on coastal tiles. */
+        max_ring_points = 32768u;
+        max_ring_indices = 98304u;
     }
 
     uint32_t total_vertices = 0u;
@@ -862,7 +865,7 @@ static bool build_polygon_fill_mesh(VkTileCache *cache,
                 }
                 if (has_indices && cached_count >= 3u) {
                     // Guard against pathological rings in dense regions.
-                    if (ring_count <= 8192u && cached_count <= 24576u) {
+                    if (ring_count <= max_ring_points && cached_count <= max_ring_indices) {
                         total_vertices += ring_count;
                         total_indices += cached_count;
                     }
@@ -919,7 +922,7 @@ static bool build_polygon_fill_mesh(VkTileCache *cache,
                 point_offset += ring_count;
                 continue;
             }
-            if (ring_count > 8192u || ring_index_count > 24576u) {
+            if (ring_count > max_ring_points || ring_index_count > max_ring_indices) {
                 free(fallback_indices);
                 point_offset += ring_count;
                 continue;
@@ -990,8 +993,15 @@ static void fill_entry_from_tile(VkTileCacheEntry *entry,
 
     entry->polyline_count = tile->polyline_count;
     if (kind_is_road(kind)) {
+        if (!tile->polylines) {
+            return;
+        }
         for (uint32_t i = 0; i < tile->polyline_count; ++i) {
             const MftPolyline *polyline = &tile->polylines[i];
+            if (polyline->point_offset >= tile->point_total ||
+                polyline->point_offset + polyline->point_count > tile->point_total) {
+                continue;
+            }
             if (polyline->point_count >= 2u) {
                 entry->segment_count += (polyline->point_count - 1u);
             }
@@ -1000,18 +1010,26 @@ static void fill_entry_from_tile(VkTileCacheEntry *entry,
             }
         }
     } else if (kind_is_polygon(kind)) {
+        if (!tile->polygons || !tile->polygon_rings) {
+            return;
+        }
         entry->polygon_count = tile->polygon_count;
         for (uint32_t i = 0; i < tile->polygon_count; ++i) {
             const MftPolygon *polygon = &tile->polygons[i];
-            entry->polygon_ring_count += polygon->ring_count;
-            uint32_t point_offset = polygon->point_offset;
-            for (uint16_t r = 0; r < polygon->ring_count; ++r) {
+            if (polygon->ring_offset >= tile->polygon_ring_total) {
+                continue;
+            }
+            uint32_t available_rings = tile->polygon_ring_total - polygon->ring_offset;
+            uint16_t safe_ring_count = polygon->ring_count;
+            if ((uint32_t)safe_ring_count > available_rings) {
+                safe_ring_count = (uint16_t)available_rings;
+            }
+            entry->polygon_ring_count += safe_ring_count;
+            for (uint16_t r = 0; r < safe_ring_count; ++r) {
                 uint32_t ring_count = tile->polygon_rings[polygon->ring_offset + r];
-                (void)point_offset;
                 if (ring_count >= 2u) {
                     entry->segment_count += ring_count;
                 }
-                point_offset += ring_count;
             }
         }
     }

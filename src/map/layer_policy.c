@@ -103,7 +103,8 @@ bool layer_policy_vk_road_class_allowed(RoadClass road_class, float effective_zo
         return road_class == ROAD_CLASS_MOTORWAY ||
                road_class == ROAD_CLASS_TRUNK ||
                road_class == ROAD_CLASS_PRIMARY ||
-               road_class == ROAD_CLASS_SECONDARY;
+               road_class == ROAD_CLASS_SECONDARY ||
+               road_class == ROAD_CLASS_TERTIARY;
     }
     if (effective_zoom < 13.6f) {
         return road_class != ROAD_CLASS_FOOTWAY &&

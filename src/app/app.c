@@ -11,7 +11,9 @@
 
 #include <SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <json-c/json.h>
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +22,7 @@
 #include <time.h>
 
 static const char *kTraceLaneLifecycle = "lifecycle";
+static const char *kAppConfigPath = "config/app.config.json";
 
 static uint32_t app_sum_road_classes(const uint32_t *values, int first_class, int last_class) {
     if (!values || first_class < 0 || last_class < first_class) {
@@ -50,6 +53,234 @@ static bool app_env_flag_enabled(const char *name) {
         return true;
     }
     return false;
+}
+
+static float app_clamp_float(float value, float min_value, float max_value) {
+    if (value < min_value) {
+        return min_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
+
+static uint16_t app_clamp_milli(int value) {
+    if (value < 0) {
+        return 0u;
+    }
+    if (value > 1000) {
+        return 1000u;
+    }
+    return (uint16_t)value;
+}
+
+static bool app_json_get_bool(struct json_object *obj, const char *key, bool *out_value) {
+    struct json_object *value = NULL;
+    if (!obj || !key || !out_value) {
+        return false;
+    }
+    if (!json_object_object_get_ex(obj, key, &value) || !value) {
+        return false;
+    }
+    if (!json_object_is_type(value, json_type_boolean)) {
+        return false;
+    }
+    *out_value = json_object_get_boolean(value) ? true : false;
+    return true;
+}
+
+static bool app_json_get_float(struct json_object *obj, const char *key, float *out_value) {
+    struct json_object *value = NULL;
+    if (!obj || !key || !out_value) {
+        return false;
+    }
+    if (!json_object_object_get_ex(obj, key, &value) || !value) {
+        return false;
+    }
+    if (!json_object_is_type(value, json_type_double) &&
+        !json_object_is_type(value, json_type_int)) {
+        return false;
+    }
+    *out_value = (float)json_object_get_double(value);
+    return true;
+}
+
+static bool app_json_get_u16_array(struct json_object *obj, const char *key,
+                                   uint16_t *out_values, size_t out_count) {
+    struct json_object *value = NULL;
+    if (!obj || !key || !out_values || out_count == 0u) {
+        return false;
+    }
+    if (!json_object_object_get_ex(obj, key, &value) || !value ||
+        !json_object_is_type(value, json_type_array)) {
+        return false;
+    }
+    size_t n = json_object_array_length(value);
+    if (n < out_count) {
+        return false;
+    }
+    for (size_t i = 0; i < out_count; ++i) {
+        struct json_object *item = json_object_array_get_idx(value, (int)i);
+        if (!item || !json_object_is_type(item, json_type_int)) {
+            return false;
+        }
+        out_values[i] = app_clamp_milli(json_object_get_int(item));
+    }
+    return true;
+}
+
+static bool app_json_get_bool_array(struct json_object *obj, const char *key,
+                                    bool *out_values, size_t out_count) {
+    struct json_object *value = NULL;
+    if (!obj || !key || !out_values || out_count == 0u) {
+        return false;
+    }
+    if (!json_object_object_get_ex(obj, key, &value) || !value ||
+        !json_object_is_type(value, json_type_array)) {
+        return false;
+    }
+    size_t n = json_object_array_length(value);
+    if (n < out_count) {
+        return false;
+    }
+    for (size_t i = 0; i < out_count; ++i) {
+        struct json_object *item = json_object_array_get_idx(value, (int)i);
+        if (!item || !json_object_is_type(item, json_type_boolean)) {
+            return false;
+        }
+        out_values[i] = json_object_get_boolean(item) ? true : false;
+    }
+    return true;
+}
+
+static void app_load_persisted_view_state(AppState *app) {
+    if (!app) {
+        return;
+    }
+    struct json_object *root = json_object_from_file(kAppConfigPath);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) {
+            json_object_put(root);
+        }
+        return;
+    }
+
+    struct json_object *view = NULL;
+    if (!json_object_object_get_ex(root, "map_view", &view) ||
+        !view || !json_object_is_type(view, json_type_object)) {
+        json_object_put(root);
+        return;
+    }
+
+    float zoom = 0.0f;
+    if (app_json_get_float(view, "zoom", &zoom)) {
+        float clamped_zoom = app_clamp_float(zoom, 10.0f, 18.0f);
+        app->camera.zoom = clamped_zoom;
+        app->camera.zoom_target = clamped_zoom;
+    }
+
+    bool zoom_logic_enabled = false;
+    if (app_json_get_bool(view, "zoom_logic_enabled", &zoom_logic_enabled)) {
+        app->zoom_logic_enabled = zoom_logic_enabled;
+    }
+
+    bool layer_enabled[TILE_LAYER_COUNT] = {0};
+    uint16_t layer_opacity[TILE_LAYER_COUNT] = {0};
+    uint16_t layer_fade_start[TILE_LAYER_COUNT] = {0};
+    uint16_t layer_fade_speed[TILE_LAYER_COUNT] = {0};
+    if (app_json_get_bool_array(view, "layer_enabled", layer_enabled, TILE_LAYER_COUNT)) {
+        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+            app->layer_user_enabled[i] = layer_enabled[i];
+        }
+    }
+    if (app_json_get_u16_array(view, "layer_opacity_milli", layer_opacity, TILE_LAYER_COUNT)) {
+        bool all_zero = true;
+        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+            if (layer_opacity[i] > 0u) {
+                all_zero = false;
+                break;
+            }
+        }
+        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+            app->layer_opacity_milli[i] = all_zero ? 1000u : layer_opacity[i];
+        }
+    }
+    if (app_json_get_u16_array(view, "layer_fade_start_milli", layer_fade_start, TILE_LAYER_COUNT)) {
+        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+            app->layer_fade_start_milli[i] = layer_fade_start[i];
+        }
+    }
+    if (app_json_get_u16_array(view, "layer_fade_speed_milli", layer_fade_speed, TILE_LAYER_COUNT)) {
+        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+            uint16_t speed = layer_fade_speed[i];
+            if (speed < 1u) {
+                speed = 1u;
+            }
+            app->layer_fade_speed_milli[i] = speed;
+        }
+    }
+
+    json_object_put(root);
+}
+
+static void app_save_persisted_view_state(const AppState *app) {
+    if (!app) {
+        return;
+    }
+
+    struct json_object *root = json_object_from_file(kAppConfigPath);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) {
+            json_object_put(root);
+        }
+        root = json_object_new_object();
+    }
+    if (!root) {
+        return;
+    }
+
+    struct json_object *view = json_object_new_object();
+    if (!view) {
+        json_object_put(root);
+        return;
+    }
+
+    json_object_object_add(view, "zoom", json_object_new_double((double)app->camera.zoom_target));
+    json_object_object_add(view, "zoom_logic_enabled", json_object_new_boolean(app->zoom_logic_enabled ? 1 : 0));
+
+    struct json_object *enabled_arr = json_object_new_array();
+    struct json_object *opacity_arr = json_object_new_array();
+    struct json_object *fade_start_arr = json_object_new_array();
+    struct json_object *fade_speed_arr = json_object_new_array();
+    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+        json_object_array_add(enabled_arr, json_object_new_boolean(app->layer_user_enabled[i] ? 1 : 0));
+        json_object_array_add(opacity_arr, json_object_new_int((int)app->layer_opacity_milli[i]));
+        json_object_array_add(fade_start_arr, json_object_new_int((int)app->layer_fade_start_milli[i]));
+        json_object_array_add(fade_speed_arr, json_object_new_int((int)app->layer_fade_speed_milli[i]));
+    }
+    json_object_object_add(view, "layer_enabled", enabled_arr);
+    json_object_object_add(view, "layer_opacity_milli", opacity_arr);
+    json_object_object_add(view, "layer_fade_start_milli", fade_start_arr);
+    json_object_object_add(view, "layer_fade_speed_milli", fade_speed_arr);
+
+    json_object_object_add(root, "map_view", view);
+
+    if (json_object_to_file_ext(kAppConfigPath, root, JSON_C_TO_STRING_PRETTY) != 0) {
+        log_error("Failed to persist map view state to %s", kAppConfigPath);
+    }
+    json_object_put(root);
+}
+
+static int app_find_first_routable_region_index(void) {
+    int total = region_count();
+    for (int i = 0; i < total; ++i) {
+        const RegionInfo *info = region_get(i);
+        if (info && region_has_graph(info)) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 static bool app_trace_ensure_dirs(void) {
@@ -249,7 +480,17 @@ static bool app_init(AppState *app) {
         }
     }
 
-    app->region_index = 0;
+    int total_regions = region_count();
+    if (total_regions <= 0) {
+        log_error("No region configured");
+        return false;
+    }
+
+    app->region_index = app_find_first_routable_region_index();
+    if (app->region_index < 0) {
+        app->region_index = 0;
+        log_error("No routable region found (missing graph/graph.bin in all regions); route placement is disabled until graph build completes");
+    }
     const RegionInfo *info = region_get(app->region_index);
     if (!info) {
         log_error("No region configured");
@@ -305,12 +546,47 @@ static bool app_init(AppState *app) {
     }
     app_center_camera_on_region(&app->camera, &app->region, app->width, app->height);
     debug_overlay_init(&app->overlay);
+    app->hud_layer_debug_collapsed = false;
+    memset(&app->hud_layer_debug_panel_rect, 0, sizeof(app->hud_layer_debug_panel_rect));
+    memset(&app->hud_layer_debug_collapse_rect, 0, sizeof(app->hud_layer_debug_collapse_rect));
+    memset(&app->hud_layer_debug_handle_rect, 0, sizeof(app->hud_layer_debug_handle_rect));
+    app->hud_layer_debug_layout_dirty = true;
+    app->hud_layer_debug_layout_hash = 0u;
+    app->hud_layer_debug_cached_w = 0.0f;
+    app->hud_layer_debug_cached_h = 0.0f;
+    app->hud_layer_debug_cached_line_count = 0;
+    app->hud_layer_debug_cached_max_text_w = 0;
+    app->hud_route_panel_collapsed = false;
+    memset(&app->hud_route_panel_rect, 0, sizeof(app->hud_route_panel_rect));
+    memset(&app->hud_route_panel_collapse_rect, 0, sizeof(app->hud_route_panel_collapse_rect));
+    memset(&app->hud_route_panel_handle_rect, 0, sizeof(app->hud_route_panel_handle_rect));
+    memset(&app->hud_route_panel_row_rects, 0, sizeof(app->hud_route_panel_row_rects));
+    memset(&app->hud_route_panel_toggle_rects, 0, sizeof(app->hud_route_panel_toggle_rects));
+    app->hud_route_panel_layout_dirty = true;
+    app->hud_route_panel_layout_hash = 0u;
+    app->hud_route_panel_cached_w = 0.0f;
+    app->hud_route_panel_cached_h = 0.0f;
+    app->hud_route_panel_cached_row_count = 0;
+    app->hud_route_panel_cached_max_text_w = 0;
+    memset(&app->hud_route_panel_summary_text, 0, sizeof(app->hud_route_panel_summary_text));
+    memset(&app->hud_route_panel_row_text, 0, sizeof(app->hud_route_panel_row_text));
+    for (uint32_t i = 0; i < ROUTE_ALTERNATIVE_MAX; ++i) {
+        app->route_alt_visible[i] = true;
+    }
     app->single_line = false;
     route_state_init(&app->route);
-    app_load_route_graph(app);
+    if (!app_load_route_graph(app)) {
+        log_error("Route graph unavailable for startup region '%s'; build graph with: make graph && ./build/tools/mapforge_graph --region %s --osm data/osm_sources/%s.osm --out data/regions/%s",
+                  app->region.name, app->region.name, app->region.name, app->region.name);
+    }
     app->dragging_start = false;
     app->dragging_goal = false;
     app->has_hover = false;
+    memset(&app->hover_anchor, 0, sizeof(app->hover_anchor));
+    memset(&app->start_anchor, 0, sizeof(app->start_anchor));
+    memset(&app->goal_anchor, 0, sizeof(app->goal_anchor));
+    app->route_edge_snap_enabled = app_env_flag_enabled("MAPFORGE_ROUTE_EDGE_SNAP");
+    app->route_edge_snap_debug = app_env_flag_enabled("MAPFORGE_ROUTE_EDGE_SNAP_DEBUG");
     app->playback_playing = false;
     app->playback_time_s = 0.0f;
     app->playback_speed = 1.0f;
@@ -319,9 +595,35 @@ static bool app_init(AppState *app) {
     app->building_fill_enabled = true;
     app->road_zoom_bias = app_road_zoom_bias_for_region(&app->region);
     app->polygon_outline_only = false;
+    memset(&app->header_layer_row_rects, 0, sizeof(app->header_layer_row_rects));
+    memset(&app->header_layer_label_rects, 0, sizeof(app->header_layer_label_rects));
+    memset(&app->header_layer_toggle_rects, 0, sizeof(app->header_layer_toggle_rects));
+    memset(&app->header_zoom_toggle_rect, 0, sizeof(app->header_zoom_toggle_rect));
+    memset(&app->header_layer_opacity_panel_rect, 0, sizeof(app->header_layer_opacity_panel_rect));
+    memset(&app->header_layer_opacity_track_rect, 0, sizeof(app->header_layer_opacity_track_rect));
+    memset(&app->header_layer_fade_panel_rect, 0, sizeof(app->header_layer_fade_panel_rect));
+    memset(&app->header_layer_fade_start_track_rect, 0, sizeof(app->header_layer_fade_start_track_rect));
+    memset(&app->header_layer_fade_speed_track_rect, 0, sizeof(app->header_layer_fade_speed_track_rect));
+    app->header_layer_opacity_dragging = false;
+    app->header_layer_fade_drag_target = 0;
+    app->header_layer_panel_mode = 0;
+    app->header_layer_selected_valid = false;
+    app->header_layer_selected_kind = TILE_LAYER_ROAD_ARTERY;
+    app->zoom_logic_enabled = true;
     app->tile_request_id = 1;
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         memset(&app->tile_queues[i], 0, sizeof(app->tile_queues[i]));
+        app->layer_user_enabled[i] = true;
+        app->layer_opacity_milli[i] = 1000u;
+        float zoom_start = app_layer_zoom_start(app, (TileLayerKind)i);
+        if (zoom_start < 0.0f) {
+            zoom_start = 0.0f;
+        }
+        if (zoom_start > 20.0f) {
+            zoom_start = 20.0f;
+        }
+        app->layer_fade_start_milli[i] = (uint16_t)(zoom_start * 50.0f);
+        app->layer_fade_speed_milli[i] = 170u;
     }
     app->queue_valid = false;
     app->visible_valid = false;
@@ -329,6 +631,8 @@ static bool app_init(AppState *app) {
     app->loading_done = 0;
     app->loading_no_data_time = 0.0f;
     app->loading_layer_index = 0;
+    app_load_persisted_view_state(app);
+    app_refresh_layer_states(app);
 
     return true;
 }
@@ -338,6 +642,7 @@ static void app_shutdown(AppState *app) {
         return;
     }
 
+    app_save_persisted_view_state(app);
     mapforge_shared_theme_save_persisted();
 
     if (TTF_WasInit()) {
@@ -354,6 +659,7 @@ static void app_shutdown(AppState *app) {
     app_vk_poly_prep_shutdown(app);
     app_vk_asset_worker_shutdown(app);
     app_route_worker_shutdown(app);
+    app_route_release_snap_index(app);
     app_trace_shutdown(app);
     vk_tile_cache_shutdown(&app->vk_tile_cache);
     route_state_shutdown(&app->route);
@@ -382,337 +688,32 @@ int app_run(void) {
     bool vk_debug_logs = app_env_flag_enabled("MAPFORGE_VK_DEBUG");
 
     while (!app.input.quit) {
-        double frame_begin = time_now_seconds();
-        memset(&app.frame_timings, 0, sizeof(app.frame_timings));
-        input_begin_frame(&app.input);
+        double frame_begin = 0.0;
+        double after_events = 0.0;
+        app_runtime_begin_frame(&app, &frame_begin, &after_events);
 
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            input_handle_event(&app.input, &event);
-        }
-        double after_events = time_now_seconds();
-
-        if (app.input.toggle_debug_pressed) {
-            app.overlay.enabled = !app.overlay.enabled;
-        }
-        if (app.input.toggle_single_line_pressed) {
-            app.single_line = !app.single_line;
-        }
-        if (app.input.toggle_region_pressed) {
-            int total_regions = region_count();
-            if (total_regions <= 0) {
-                log_error("No region packs found under '%s'", region_data_root());
-                continue;
-            }
-            app.region_index = (app.region_index + 1) % total_regions;
-            const RegionInfo *info = region_get(app.region_index);
-            if (info) {
-                app.region = *info;
-                region_load_meta(info, &app.region);
-                if (app.region.tiles_dir[0] == '\0') {
-                    log_error("Failed to resolve tiles directory for region: %s", app.region.name);
-                    continue;
-                }
-                for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-                    tile_manager_shutdown(&app.tile_managers[i]);
-                    tile_manager_init(&app.tile_managers[i], 256, app.region.tiles_dir);
-                }
-                tile_loader_shutdown(&app.tile_loader);
-                tile_loader_init(&app.tile_loader, app.region.tiles_dir);
-                vk_tile_cache_clear_with_renderer(&app.vk_tile_cache, app.renderer.vk);
-                app_clear_tile_queue(&app);
-                app.visible_valid = false;
-                app.loading_expected = 0;
-                app.loading_done = 0;
-                app.loading_no_data_time = 0.0f;
-                app.tile_request_id += 1;
-                app_load_route_graph(&app);
-                route_state_clear(&app.route);
-                app_route_worker_clear(&app);
-                app_playback_reset(&app);
-                app.building_zoom_bias = app_building_zoom_bias_for_region(&app.region);
-                app.road_zoom_bias = app_road_zoom_bias_for_region(&app.region);
-                app_center_camera_on_region(&app.camera, &app.region, app.width, app.height);
-            }
-        }
-        if (app.input.toggle_profile_pressed) {
-            app.route.fastest = !app.route.fastest;
-            if (app.route.has_start && app.route.has_goal) {
-                app_route_schedule_recompute(&app, 0.0);
-            }
-        }
-        if (app.input.toggle_landuse_pressed) {
-            app.show_landuse = !app.show_landuse;
-        }
-        if (app.input.toggle_building_fill_pressed) {
-            app.building_fill_enabled = !app.building_fill_enabled;
-        }
-        if (app.input.toggle_polygon_outline_pressed) {
-            app.polygon_outline_only = !app.polygon_outline_only;
-        }
-        if (app.input.theme_cycle_next_pressed) {
-            mapforge_shared_theme_cycle_next();
-            mapforge_shared_theme_save_persisted();
-        }
-        if (app.input.theme_cycle_prev_pressed) {
-            mapforge_shared_theme_cycle_prev();
-            mapforge_shared_theme_save_persisted();
-        }
-        if (app.input.toggle_playback_pressed && app.route.path.count >= 2) {
-            app.playback_playing = !app.playback_playing;
-        }
-        if (app.input.playback_step_forward && app.route.path.total_time_s > 0.0f) {
-            app.playback_time_s += 5.0f;
-            if (app.playback_time_s > app.route.path.total_time_s) {
-                app.playback_time_s = app.route.path.total_time_s;
-            }
-        }
-        if (app.input.playback_step_back && app.route.path.total_time_s > 0.0f) {
-            app.playback_time_s -= 5.0f;
-            if (app.playback_time_s < 0.0f) {
-                app.playback_time_s = 0.0f;
-            }
-        }
-        if (app.input.playback_speed_up) {
-            app.playback_speed = app_next_playback_speed(app.playback_speed, 1);
-        }
-        if (app.input.playback_speed_down) {
-            app.playback_speed = app_next_playback_speed(app.playback_speed, -1);
+        if (app_runtime_handle_global_controls(&app)) {
+            continue;
         }
 
-        double now = time_now_seconds();
-        float dt = (float)(now - last_time);
-        last_time = now;
+        float dt = 0.0f;
+        double after_update = 0.0;
+        double after_queue = 0.0;
+        double after_integrate = 0.0;
+        double after_route = 0.0;
+        app_runtime_update_frame(&app, &last_time, &dt, &after_update, &after_queue, &after_integrate, &after_route);
 
-        if (!app.dragging_start && !app.dragging_goal && app.input.left_click_pressed) {
-            bool over_start = app.route.has_start && app_mouse_over_node(&app, app.route.start_node, 7.0f);
-            bool over_goal = app.route.has_goal && app_mouse_over_node(&app, app.route.goal_node, 7.0f);
-            if (over_goal && !over_start) {
-                app.dragging_goal = true;
-            } else if (over_start) {
-                app.dragging_start = true;
-            }
-        }
-        if (!app.dragging_goal && app.input.right_click_pressed && app.route.has_goal &&
-            app_mouse_over_node(&app, app.route.goal_node, 7.0f)) {
-            app.dragging_goal = true;
-        }
-
-        bool over_start = app.route.has_start && app_mouse_over_node(&app, app.route.start_node, 7.0f);
-        bool over_goal = app.route.has_goal && app_mouse_over_node(&app, app.route.goal_node, 7.0f);
-        bool allow_mouse_pan = !(app.dragging_start || app.dragging_goal) &&
-            !((app.input.mouse_buttons & SDL_BUTTON_LMASK) && (over_start || over_goal));
-        camera_handle_input(&app.camera, &app.input, app.width, app.height, dt, allow_mouse_pan);
-        camera_update(&app.camera, dt);
-        debug_overlay_update(&app.overlay, dt);
-
-        app_update_hover(&app);
-        double after_update = time_now_seconds();
-
-        app_route_poll_result(&app);
-        app_update_tile_queue(&app);
-        double after_queue = time_now_seconds();
-        uint32_t integrate_budget = app.active_layer_valid
-            ? app_tile_integrate_budget(app.active_layer_kind, app.active_layer_expected)
-            : APP_TILE_INTEGRATE_BUDGET;
-        app_drain_tile_results(&app, integrate_budget);
-        app_vk_poly_prep_drain(
-            &app,
-            APP_VK_POLY_PREP_INTEGRATE_BUDGET,
-            APP_VK_POLY_PREP_INTEGRATE_TIME_SLICE_SEC);
-        app_process_vk_asset_queue(&app, APP_VK_ASSET_BUILD_BUDGET, APP_VK_ASSET_BUILD_TIME_SLICE_SEC);
-        app_refresh_layer_states(&app);
-        app_update_vk_line_budget(&app);
-        if (app.input.copy_overlay_pressed) {
-            app_copy_overlay_text(&app);
-        }
-        double after_integrate = time_now_seconds();
-
-        bool consumed_click = false;
-        if (app.input.left_click_pressed && app_header_button_hit(&app, app.input.mouse_x, app.input.mouse_y)) {
-            app.route.mode = (app.route.mode == ROUTE_MODE_CAR) ? ROUTE_MODE_WALK : ROUTE_MODE_CAR;
-            if (app.route.has_start && app.route.has_goal) {
-                app_route_schedule_recompute(&app, 0.0);
-            }
-            consumed_click = true;
-        } else if ((app.input.left_click_pressed || app.input.right_click_pressed || app.input.middle_click_pressed) &&
-                   app.input.mouse_y <= (int)APP_HEADER_HEIGHT) {
-            consumed_click = true;
-        }
-
-        if (!consumed_click && (app.input.left_click_pressed || app.input.right_click_pressed || app.input.middle_click_pressed)) {
-            if (app.input.middle_click_pressed) {
-                route_state_clear(&app.route);
-                app_playback_reset(&app);
-                app.dragging_start = false;
-                app.dragging_goal = false;
-            } else if (app.route.loaded) {
-                float world_x = 0.0f;
-                float world_y = 0.0f;
-                camera_screen_to_world(&app.camera, (float)app.input.mouse_x, (float)app.input.mouse_y, app.width, app.height, &world_x, &world_y);
-                if (app.input.left_click_pressed) {
-                    if (app.has_hover && app.route.has_start && app.hover_node == app.route.start_node) {
-                        app.dragging_start = true;
-                    } else if (app.input.shift_down) {
-                        uint32_t node = 0;
-                        if (app_is_near_node(&app, world_x, world_y, &node)) {
-                            app.route.start_node = node;
-                            app.route.has_start = true;
-                        }
-                    }
-                }
-                if (app.input.right_click_pressed) {
-                    if (app.has_hover && app.route.has_goal && app.hover_node == app.route.goal_node) {
-                        app.dragging_goal = true;
-                    } else {
-                        uint32_t node = 0;
-                        if (app_is_near_node(&app, world_x, world_y, &node)) {
-                            app.route.goal_node = node;
-                            app.route.has_goal = true;
-                        }
-                    }
-                }
-            }
-        }
-        if (app.input.enter_pressed && app.route.has_start && app.route.has_goal) {
-            app_route_schedule_recompute(&app, 0.0);
-        }
-
-        if (app.dragging_start || app.dragging_goal) {
-            uint32_t node = 0;
-            if (app.has_hover) {
-                node = app.hover_node;
-            }
-            if (app.has_hover) {
-                bool changed = false;
-                if (app.dragging_start && node != app.route.start_node) {
-                    app.route.start_node = node;
-                    app.route.has_start = true;
-                    changed = true;
-                }
-                if (app.dragging_goal && node != app.route.goal_node) {
-                    app.route.goal_node = node;
-                    app.route.has_goal = true;
-                    changed = true;
-                }
-                if (changed && app.route.has_start && app.route.has_goal) {
-                    app_route_schedule_recompute(&app, APP_ROUTE_DRAG_DEBOUNCE_SEC);
-                }
-            }
-        }
-
-        if (app.input.left_click_released) {
-            if (app.dragging_start) {
-                app.dragging_start = false;
-                if (app.route.has_start && app.route.has_goal) {
-                    app_route_schedule_recompute(&app, 0.0);
-                }
-            }
-            if (app.dragging_goal) {
-                app.dragging_goal = false;
-                if (app.route.has_start && app.route.has_goal) {
-                    app_route_schedule_recompute(&app, 0.0);
-                }
-            }
-        }
-        if (app.input.right_click_released) {
-            if (app.dragging_goal) {
-                app.dragging_goal = false;
-                if (app.route.has_start && app.route.has_goal) {
-                    app_route_schedule_recompute(&app, 0.0);
-                }
-            }
-        }
-        app_route_poll_result(&app);
-        double after_route = time_now_seconds();
-
-        app_playback_update(&app, dt);
-
-        renderer_begin_frame(&app.renderer);
-        RendererBackend frame_backend = renderer_get_backend(&app.renderer);
-        if (frame_backend != last_backend) {
-            ui_font_invalidate_cache(&app.renderer);
-            app.vk_assets_enabled = frame_backend == RENDERER_BACKEND_VULKAN;
-            if (!app.vk_assets_enabled) {
-                vk_tile_cache_clear_with_renderer(&app.vk_tile_cache, app.renderer.vk);
-                app_vk_poly_prep_clear(&app);
-                app_vk_asset_queue_clear(&app);
-            }
-            last_backend = frame_backend;
-        }
-        {
-            MapForgeThemePalette palette = {0};
-            if (mapforge_shared_theme_resolve_palette(&palette)) {
-                renderer_clear(&app.renderer,
-                               palette.background_clear.r,
-                               palette.background_clear.g,
-                               palette.background_clear.b,
-                               palette.background_clear.a);
-            } else {
-                renderer_clear(&app.renderer, 20, 20, 28, 255);
-            }
-        }
-        road_renderer_stats_reset();
         uint32_t visible_tiles = 0;
-        visible_tiles = app_draw_visible_tiles(&app);
-        RoadRenderStats road_stats = {0};
-        road_renderer_stats_get(&road_stats);
+        double before_present = 0.0;
+        double after_render = 0.0;
         if (app.loading_expected > 0 && app.loading_done == 0) {
             app.loading_no_data_time += dt;
         } else {
             app.loading_no_data_time = 0.0f;
         }
-        app_draw_region_bounds(&app);
-        route_render_draw(&app.renderer, &app.camera, &app.route.graph, &app.route.path, &app.route.drive_path, &app.route.walk_path,
-            app.route.has_start, app.route.start_node,
-            app.route.has_goal, app.route.goal_node,
-            app.route.has_transfer, app.route.transfer_node);
-        app_draw_hover_marker(&app);
-        app_draw_playback_marker(&app);
-        app_draw_route_panel(&app);
-        app_draw_header_bar(&app);
-        app_draw_layer_debug(&app);
-        debug_overlay_render(&app.overlay, &app.renderer);
-        double before_present = time_now_seconds();
-        renderer_end_frame(&app.renderer);
-        double after_render = time_now_seconds();
-
-        app.overlay.visible_tiles = visible_tiles;
-        uint32_t cached_total = 0;
-        uint32_t capacity_total = 0;
-        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-            cached_total += tile_manager_count(&app.tile_managers[i]);
-            capacity_total += tile_manager_capacity(&app.tile_managers[i]);
-        }
-        app.overlay.cached_tiles = cached_total;
-        app.overlay.cache_capacity = capacity_total;
-
-        if (app.overlay.enabled) {
-            char title[128];
-            const char *profile = app.route.fastest ? "fastest" : "shortest";
-            const char *tier = road_renderer_zoom_tier_label(app.camera.zoom);
-            const char *mode = app.route.mode == ROUTE_MODE_CAR ? "car" : "walk";
-            if (app.route.path.count > 1) {
-                float km = app.route.path.total_length_m / 1000.0f;
-                float minutes = app.route.path.total_time_s / 60.0f;
-                if (app.route.drive_path.count > 1 && app.route.walk_path.count > 1) {
-                    float drive_minutes = app.route.drive_path.total_time_s / 60.0f;
-                    float walk_minutes = app.route.walk_path.total_time_s / 60.0f;
-                    snprintf(title, sizeof(title), "MapForge | %s | %s | %s | %s | %.2f km | drive %.1f min + walk %.1f min | %.1fx | FPS: %.1f | Tiles: %u | Cache: %u/%u",
-                             app.region.name, mode, profile, tier, km, drive_minutes, walk_minutes, app.playback_speed, app.overlay.fps, app.overlay.visible_tiles, app.overlay.cached_tiles, app.overlay.cache_capacity);
-                } else {
-                    snprintf(title, sizeof(title), "MapForge | %s | %s | %s | %s | %.2f km | %.1f min | %.1fx | FPS: %.1f | Tiles: %u | Cache: %u/%u",
-                             app.region.name, mode, profile, tier, km, minutes, app.playback_speed, app.overlay.fps, app.overlay.visible_tiles, app.overlay.cached_tiles, app.overlay.cache_capacity);
-                }
-            } else {
-                const char *graph_status = app.route.loaded ? "graph ok" : "graph missing";
-                snprintf(title, sizeof(title), "MapForge | %s | %s | %s | %s | %s | %.1fx | FPS: %.1f | Tiles: %u | Cache: %u/%u",
-                         app.region.name, mode, profile, tier, graph_status, app.playback_speed, app.overlay.fps, app.overlay.visible_tiles, app.overlay.cached_tiles, app.overlay.cache_capacity);
-            }
-            SDL_SetWindowTitle(app.window, title);
-        } else {
-            SDL_SetWindowTitle(app.window, "MapForge");
-        }
+        app_runtime_render_frame(&app, &last_backend, &visible_tiles, &before_present, &after_render);
+        RoadRenderStats road_stats = {0};
+        road_renderer_stats_get(&road_stats);
 
         if (app.loading_done != last_loading_done) {
             last_loading_done = app.loading_done;

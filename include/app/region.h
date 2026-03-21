@@ -45,5 +45,7 @@ bool region_meta_path(const RegionInfo *info, char *out_path, size_t out_size);
 
 // Builds a path to the region graph file.
 bool region_graph_path(const RegionInfo *info, char *out_path, size_t out_size);
+// Returns true when the region has a readable graph/graph.bin payload.
+bool region_has_graph(const RegionInfo *info);
 
 #endif

@@ -7,14 +7,23 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define ROUTE_ALTERNATIVE_MAX ROUTE_OBJECTIVE_COUNT
+
+typedef struct RouteAlternativeSet {
+    uint32_t count;
+    RouteObjective objectives[ROUTE_ALTERNATIVE_MAX];
+    RoutePath paths[ROUTE_ALTERNATIVE_MAX];
+} RouteAlternativeSet;
+
 // Stores routing state and the current route path.
 typedef struct RouteState {
     RouteGraph graph;
     RoutePath path;
     RoutePath drive_path;
     RoutePath walk_path;
+    RouteAlternativeSet alternatives;
     bool loaded;
-    bool fastest;
+    RouteObjective objective;
     RouteTravelMode mode;
     bool has_transfer;
     bool has_start;
@@ -38,5 +47,8 @@ bool route_state_route(RouteState *state, uint32_t start_node, uint32_t goal_nod
 
 // Frees routing state data.
 void route_state_shutdown(RouteState *state);
+
+// Human-readable objective label.
+const char *route_objective_label(RouteObjective objective);
 
 #endif

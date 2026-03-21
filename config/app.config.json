@@ -1,6 +1,42 @@
 {
-    "window": {
-        "width": 1280,
-        "height": 720
-    }
+  "map_view":{
+    "zoom":12.75,
+    "zoom_logic_enabled":true,
+    "layer_enabled":[
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "layer_opacity_milli":[
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000,
+      1000
+    ],
+    "layer_fade_start_milli":[
+      0,
+      500,
+      610,
+      640,
+      650,
+      670,
+      662
+    ],
+    "layer_fade_speed_milli":[
+      170,
+      170,
+      170,
+      170,
+      170,
+      170,
+      170
+    ]
+  }
 }

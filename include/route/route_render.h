@@ -3,13 +3,17 @@
 
 #include "camera/camera.h"
 #include "render/renderer.h"
-#include "route/astar.h"
-#include "route/graph.h"
+#include "route/route.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
 // Renders computed route paths with optional start/end markers.
-void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGraph *graph, const RoutePath *path, const RoutePath *drive_path, const RoutePath *walk_path, bool has_start, uint32_t start_node, bool has_goal, uint32_t goal_node, bool has_transfer, uint32_t transfer_node);
+void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGraph *graph, const RoutePath *path,
+                       const RoutePath *drive_path, const RoutePath *walk_path, const RouteAlternativeSet *alternatives,
+                       RouteObjective selected_objective, const bool *alternative_visible,
+                       bool has_start, uint32_t start_node, bool has_start_world, float start_world_x, float start_world_y,
+                       bool has_goal, uint32_t goal_node, bool has_goal_world, float goal_world_x, float goal_world_y,
+                       bool has_transfer, uint32_t transfer_node);
 
 #endif

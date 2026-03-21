@@ -19,7 +19,8 @@ void road_renderer_draw_tile(Renderer *renderer,
                              const Camera *camera,
                              const MftTile *tile,
                              bool single_line,
-                             float zoom_bias);
+                             float zoom_bias,
+                             float opacity_scale);
 
 // Returns a short label for the current zoom tier.
 const char *road_renderer_zoom_tier_label(float zoom);

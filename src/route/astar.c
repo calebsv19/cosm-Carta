@@ -18,6 +18,8 @@ typedef struct MinHeap {
     uint32_t capacity;
 } MinHeap;
 
+static bool edge_allowed(RouteTravelMode mode, uint8_t road_class);
+
 static void heap_init(MinHeap *heap) {
     heap->items = NULL;
     heap->count = 0;
@@ -98,10 +100,89 @@ static bool heap_pop(MinHeap *heap, uint32_t *out_node) {
     return true;
 }
 
-static float heuristic(const RouteGraph *graph, uint32_t a, uint32_t b) {
+static float objective_min_time_multiplier(RouteObjective objective) {
+    if (objective == ROUTE_OBJECTIVE_MOST_TIME_ABOVE_SPEED_THRESHOLD) {
+        return 0.6f;
+    }
+    return 1.0f;
+}
+
+static float heuristic(const RouteGraph *graph,
+                       uint32_t a,
+                       uint32_t b,
+                       RouteObjective objective,
+                       float max_speed_mps) {
     double dx = graph->node_x[a] - graph->node_x[b];
     double dy = graph->node_y[a] - graph->node_y[b];
-    return (float)sqrt(dx * dx + dy * dy);
+    float distance_m = (float)sqrt(dx * dx + dy * dy);
+    if (objective == ROUTE_OBJECTIVE_SHORTEST_DISTANCE) {
+        return distance_m;
+    }
+    if (objective == ROUTE_OBJECTIVE_LOWEST_ELEVATION_GAIN) {
+        /* Keep heuristic admissible for elevation objective by using Dijkstra behavior. */
+        return 0.0f;
+    }
+    if (max_speed_mps <= 0.1f) {
+        return 0.0f;
+    }
+    return (distance_m / max_speed_mps) * objective_min_time_multiplier(objective);
+}
+
+static float max_edge_speed_for_mode(const RouteGraph *graph, RouteTravelMode mode) {
+    if (!graph || graph->edge_count == 0) {
+        return 0.0f;
+    }
+
+    float max_speed = 0.0f;
+    for (uint32_t e = 0; e < graph->edge_count; ++e) {
+        if (!edge_allowed(mode, graph->edge_class[e])) {
+            continue;
+        }
+        float speed = graph->edge_speed[e];
+        if (speed > max_speed) {
+            max_speed = speed;
+        }
+    }
+
+    return max_speed;
+}
+
+static float edge_cost_for_objective(const RouteGraph *graph, uint32_t edge_index, RouteObjective objective) {
+    if (!graph || edge_index >= graph->edge_count) {
+        return FLT_MAX;
+    }
+
+    float length_m = graph->edge_length[edge_index];
+    float speed_mps = graph->edge_speed[edge_index];
+    if (speed_mps <= 0.1f) {
+        speed_mps = 0.1f;
+    }
+    float base_time_s = length_m / speed_mps;
+
+    switch (objective) {
+        case ROUTE_OBJECTIVE_SHORTEST_DISTANCE:
+            return length_m;
+        case ROUTE_OBJECTIVE_LOWEST_TIME:
+            return base_time_s;
+        case ROUTE_OBJECTIVE_LOWEST_ELEVATION_GAIN: {
+            float grade = graph->edge_grade ? graph->edge_grade[edge_index] : 0.0f;
+            float uphill_gain_m = 0.0f;
+            if (grade > 0.0f) {
+                uphill_gain_m = grade * length_m;
+            }
+            float penalty = graph->edge_penalty ? graph->edge_penalty[edge_index] : 0.0f;
+            return length_m + uphill_gain_m * 8.0f + penalty * length_m * 0.5f;
+        }
+        case ROUTE_OBJECTIVE_MOST_TIME_ABOVE_SPEED_THRESHOLD: {
+            const float threshold_mps = 13.4112f; /* 30 mph */
+            float speed_limit = graph->edge_speed_limit ? graph->edge_speed_limit[edge_index] : 0.0f;
+            bool above_threshold = speed_limit >= threshold_mps;
+            float time_weight = above_threshold ? 0.6f : 1.8f;
+            return base_time_s * time_weight;
+        }
+        default:
+            return base_time_s;
+    }
 }
 
 void route_path_free(RoutePath *path) {
@@ -122,7 +203,12 @@ static bool edge_allowed(RouteTravelMode mode, uint8_t road_class) {
     return road_class != ROAD_CLASS_FOOTWAY && road_class != ROAD_CLASS_PATH;
 }
 
-bool route_astar(const RouteGraph *graph, uint32_t start, uint32_t goal, bool fastest, RouteTravelMode mode, RoutePath *out_path) {
+bool route_astar(const RouteGraph *graph,
+                 uint32_t start,
+                 uint32_t goal,
+                 RouteObjective objective,
+                 RouteTravelMode mode,
+                 RoutePath *out_path) {
     if (!graph || !out_path || start >= graph->node_count || goal >= graph->node_count) {
         return false;
     }
@@ -145,8 +231,12 @@ bool route_astar(const RouteGraph *graph, uint32_t start, uint32_t goal, bool fa
         came_from[i] = -1;
     }
 
+    float max_speed_mps = (objective == ROUTE_OBJECTIVE_SHORTEST_DISTANCE ||
+                           objective == ROUTE_OBJECTIVE_LOWEST_ELEVATION_GAIN)
+        ? 0.0f
+        : max_edge_speed_for_mode(graph, mode);
     g_score[start] = 0.0f;
-    f_score[start] = heuristic(graph, start, goal);
+    f_score[start] = heuristic(graph, start, goal, objective, max_speed_mps);
 
     MinHeap open;
     heap_init(&open);
@@ -169,20 +259,13 @@ bool route_astar(const RouteGraph *graph, uint32_t start, uint32_t goal, bool fa
                 continue;
             }
             uint32_t neighbor = graph->edge_to[e];
-            float edge_cost = graph->edge_length[e];
-            if (fastest) {
-                float speed = graph->edge_speed[e];
-                if (speed <= 0.1f) {
-                    speed = 0.1f;
-                }
-                edge_cost = edge_cost / speed;
-            }
+            float edge_cost = edge_cost_for_objective(graph, e, objective);
 
             float tentative = g_score[current] + edge_cost;
             if (tentative < g_score[neighbor]) {
                 came_from[neighbor] = (int32_t)current;
                 g_score[neighbor] = tentative;
-                float h = heuristic(graph, neighbor, goal);
+                float h = heuristic(graph, neighbor, goal, objective, max_speed_mps);
                 f_score[neighbor] = tentative + h;
                 heap_push(&open, neighbor, f_score[neighbor]);
             }

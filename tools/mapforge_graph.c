@@ -6,17 +6,21 @@
 
 #include <errno.h>
 #include <dirent.h>
+#include <ctype.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
 #define GRAPH_MAGIC "MFG1"
+#define GRAPH_VERSION_V1 1u
+#define GRAPH_VERSION_V2 2u
 
 // Stores a node ID and coordinates.
 typedef struct NodeEntry {
@@ -45,6 +49,9 @@ typedef struct Edge {
     int64_t to_id;
     float length_m;
     float speed_mps;
+    float speed_limit_mps;
+    float grade;
+    float objective_penalty;
     uint8_t road_class;
 } Edge;
 
@@ -427,6 +434,99 @@ static float speed_for_class(RoadClass road_class) {
     }
 }
 
+static bool parse_maxspeed_mps(const char *value, float *out_speed_mps) {
+    if (!value || !out_speed_mps || value[0] == '\0') {
+        return false;
+    }
+
+    while (*value != '\0' && isspace((unsigned char)*value)) {
+        value++;
+    }
+    if (*value == '\0') {
+        return false;
+    }
+
+    char *end_ptr = NULL;
+    double parsed = strtod(value, &end_ptr);
+    if (end_ptr == value || parsed <= 0.0) {
+        return false;
+    }
+
+    while (*end_ptr != '\0' && isspace((unsigned char)*end_ptr)) {
+        end_ptr++;
+    }
+
+    /* OSM maxspeed without units is conventionally km/h. */
+    double speed_mps = parsed / 3.6;
+    if (strncasecmp(end_ptr, "mph", 3) == 0) {
+        speed_mps = parsed * 0.44704;
+    } else if (strncasecmp(end_ptr, "km/h", 4) == 0 || strncasecmp(end_ptr, "kph", 3) == 0) {
+        speed_mps = parsed / 3.6;
+    }
+
+    if (speed_mps <= 0.1) {
+        return false;
+    }
+
+    *out_speed_mps = (float)speed_mps;
+    return true;
+}
+
+static bool parse_incline_grade(const char *value, float *out_grade) {
+    if (!value || !out_grade || value[0] == '\0') {
+        return false;
+    }
+
+    while (*value != '\0' && isspace((unsigned char)*value)) {
+        value++;
+    }
+    if (*value == '\0' || strcasecmp(value, "up") == 0 || strcasecmp(value, "down") == 0) {
+        return false;
+    }
+
+    char *end_ptr = NULL;
+    double parsed = strtod(value, &end_ptr);
+    if (end_ptr == value) {
+        return false;
+    }
+    while (*end_ptr != '\0' && isspace((unsigned char)*end_ptr)) {
+        end_ptr++;
+    }
+
+    double grade = parsed;
+    if (*end_ptr == '%') {
+        grade = parsed / 100.0;
+    } else if (fabs(parsed) > 1.0) {
+        /* Treat unqualified values above +/-1 as percent-like. */
+        grade = parsed / 100.0;
+    }
+
+    if (!isfinite(grade)) {
+        return false;
+    }
+    *out_grade = (float)grade;
+    return true;
+}
+
+static float objective_penalty_for_surface(const char *value) {
+    if (!value || value[0] == '\0') {
+        return 0.0f;
+    }
+    if (strcasecmp(value, "unpaved") == 0 || strcasecmp(value, "ground") == 0) {
+        return 0.12f;
+    }
+    if (strcasecmp(value, "gravel") == 0 || strcasecmp(value, "compacted") == 0) {
+        return 0.18f;
+    }
+    if (strcasecmp(value, "dirt") == 0 || strcasecmp(value, "earth") == 0 || strcasecmp(value, "mud") == 0) {
+        return 0.25f;
+    }
+    if (strcasecmp(value, "sand") == 0) {
+        return 0.35f;
+    }
+    return 0.0f;
+}
+
 static bool graph_build_init(GraphBuild *build) {
     if (!build) {
         return false;
@@ -483,7 +583,15 @@ static bool graph_add_node(GraphBuild *build, int64_t id) {
     return true;
 }
 
-static bool graph_add_edge(GraphBuild *build, int64_t from_id, int64_t to_id, float length_m, float speed_mps, uint8_t road_class) {
+static bool graph_add_edge(GraphBuild *build,
+                           int64_t from_id,
+                           int64_t to_id,
+                           float length_m,
+                           float speed_mps,
+                           float speed_limit_mps,
+                           float grade,
+                           float objective_penalty,
+                           uint8_t road_class) {
     if (!build) {
         return false;
     }
@@ -503,6 +611,9 @@ static bool graph_add_edge(GraphBuild *build, int64_t from_id, int64_t to_id, fl
     edge->to_id = to_id;
     edge->length_m = length_m;
     edge->speed_mps = speed_mps;
+    edge->speed_limit_mps = speed_limit_mps;
+    edge->grade = grade;
+    edge->objective_penalty = objective_penalty;
     edge->road_class = road_class;
     return true;
 }
@@ -549,6 +660,9 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
     bool in_way = false;
     char highway_tag[64] = {0};
     char oneway_tag[16] = {0};
+    char maxspeed_tag[64] = {0};
+    char incline_tag[64] = {0};
+    char surface_tag[64] = {0};
 
     char line[8192];
     while (fgets(line, sizeof(line), file)) {
@@ -556,6 +670,9 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
             in_way = true;
             highway_tag[0] = '\0';
             oneway_tag[0] = '\0';
+            maxspeed_tag[0] = '\0';
+            incline_tag[0] = '\0';
+            surface_tag[0] = '\0';
             way_nodes_clear(&way_nodes);
             continue;
         }
@@ -579,6 +696,12 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
                         snprintf(highway_tag, sizeof(highway_tag), "%s", val_buf);
                     } else if (strcmp(key_buf, "oneway") == 0) {
                         snprintf(oneway_tag, sizeof(oneway_tag), "%s", val_buf);
+                    } else if (strcmp(key_buf, "maxspeed") == 0) {
+                        snprintf(maxspeed_tag, sizeof(maxspeed_tag), "%s", val_buf);
+                    } else if (strcmp(key_buf, "incline") == 0) {
+                        snprintf(incline_tag, sizeof(incline_tag), "%s", val_buf);
+                    } else if (strcmp(key_buf, "surface") == 0) {
+                        snprintf(surface_tag, sizeof(surface_tag), "%s", val_buf);
                     }
                 }
                 continue;
@@ -592,6 +715,14 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
 
                     RoadClass road_class = road_class_from_highway(highway_tag);
                     float speed = speed_for_class(road_class);
+                    float maxspeed_mps = 0.0f;
+                    if (parse_maxspeed_mps(maxspeed_tag, &maxspeed_mps)) {
+                        speed = maxspeed_mps;
+                    }
+                    float speed_limit_mps = maxspeed_mps;
+                    float grade = 0.0f;
+                    parse_incline_grade(incline_tag, &grade);
+                    float objective_penalty = objective_penalty_for_surface(surface_tag);
                     int oneway = 0;
                     if (strcmp(oneway_tag, "yes") == 0 || strcmp(oneway_tag, "true") == 0 || strcmp(oneway_tag, "1") == 0) {
                         oneway = 1;
@@ -619,10 +750,10 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
                         float length_m = (float)sqrt(dx * dx + dy * dy);
 
                         if (oneway >= 0) {
-                            graph_add_edge(build, a_id, b_id, length_m, speed, (uint8_t)road_class);
+                            graph_add_edge(build, a_id, b_id, length_m, speed, speed_limit_mps, grade, objective_penalty, (uint8_t)road_class);
                         }
                         if (oneway <= 0) {
-                            graph_add_edge(build, b_id, a_id, length_m, speed, (uint8_t)road_class);
+                            graph_add_edge(build, b_id, a_id, length_m, speed, speed_limit_mps, -grade, objective_penalty, (uint8_t)road_class);
                         }
                     }
                 }
@@ -897,7 +1028,8 @@ static bool validate_staged_graph(const char *stage_root) {
     memcpy(magic, buffer.data, 4u);
     memcpy(&version, buffer.data + 4u, sizeof(uint32_t));
     core_io_buffer_free(&buffer);
-    if (memcmp(magic, GRAPH_MAGIC, 4) != 0 || version != 1u) {
+    if (memcmp(magic, GRAPH_MAGIC, 4) != 0 ||
+        (version != GRAPH_VERSION_V1 && version != GRAPH_VERSION_V2)) {
         log_error("unexpected staged graph magic/version: %s", path);
         return false;
     }
@@ -979,6 +1111,9 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
     uint32_t *edge_to = NULL;
     float *edge_length = NULL;
     float *edge_speed = NULL;
+    float *edge_speed_limit = NULL;
+    float *edge_grade = NULL;
+    float *edge_penalty = NULL;
     uint8_t *edge_class = NULL;
 
     if (!node_x || !node_y || !edge_start) {
@@ -1023,6 +1158,9 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
         edges[edge_count].to_id = (int64_t)to_index;
         edges[edge_count].length_m = edge.length_m;
         edges[edge_count].speed_mps = edge.speed_mps;
+        edges[edge_count].speed_limit_mps = edge.speed_limit_mps;
+        edges[edge_count].grade = edge.grade;
+        edges[edge_count].objective_penalty = edge.objective_penalty;
         edges[edge_count].road_class = edge.road_class;
         edge_start[from_index + 1] += 1;
         edge_count += 1;
@@ -1035,14 +1173,20 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
     edge_to = (uint32_t *)malloc(sizeof(uint32_t) * edge_count);
     edge_length = (float *)malloc(sizeof(float) * edge_count);
     edge_speed = (float *)malloc(sizeof(float) * edge_count);
+    edge_speed_limit = (float *)malloc(sizeof(float) * edge_count);
+    edge_grade = (float *)malloc(sizeof(float) * edge_count);
+    edge_penalty = (float *)malloc(sizeof(float) * edge_count);
     edge_class = (uint8_t *)malloc(sizeof(uint8_t) * edge_count);
-    if (!edge_to || !edge_length || !edge_speed || !edge_class) {
+    if (!edge_to || !edge_length || !edge_speed || !edge_speed_limit || !edge_grade || !edge_penalty || !edge_class) {
         free(node_x);
         free(node_y);
         free(edge_start);
         free(edge_to);
         free(edge_length);
         free(edge_speed);
+        free(edge_speed_limit);
+        free(edge_grade);
+        free(edge_penalty);
         free(edge_class);
         free(edges);
         return false;
@@ -1056,6 +1200,9 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
         free(edge_to);
         free(edge_length);
         free(edge_speed);
+        free(edge_speed_limit);
+        free(edge_grade);
+        free(edge_penalty);
         free(edge_class);
         free(edges);
         return false;
@@ -1068,6 +1215,9 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
         edge_to[slot] = (uint32_t)edges[i].to_id;
         edge_length[slot] = edges[i].length_m;
         edge_speed[slot] = edges[i].speed_mps;
+        edge_speed_limit[slot] = edges[i].speed_limit_mps;
+        edge_grade[slot] = edges[i].grade;
+        edge_penalty[slot] = edges[i].objective_penalty;
         edge_class[slot] = edges[i].road_class;
     }
 
@@ -1083,8 +1233,12 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
     const size_t edge_length_bytes = (size_t)out_edge_count * sizeof(float);
     const size_t edge_speed_bytes = (size_t)out_edge_count * sizeof(float);
     const size_t edge_class_bytes = (size_t)out_edge_count * sizeof(uint8_t);
+    const size_t edge_speed_limit_bytes = (size_t)out_edge_count * sizeof(float);
+    const size_t edge_grade_bytes = (size_t)out_edge_count * sizeof(float);
+    const size_t edge_penalty_bytes = (size_t)out_edge_count * sizeof(float);
     const size_t total_bytes = header_bytes + node_bytes + edge_start_bytes + edge_to_bytes +
-                               edge_length_bytes + edge_speed_bytes + edge_class_bytes;
+                               edge_length_bytes + edge_speed_bytes + edge_class_bytes +
+                               edge_speed_limit_bytes + edge_grade_bytes + edge_penalty_bytes;
 
     uint8_t *blob = (uint8_t *)malloc(total_bytes);
     if (!blob) {
@@ -1094,11 +1248,14 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
         free(edge_to);
         free(edge_length);
         free(edge_speed);
+        free(edge_speed_limit);
+        free(edge_grade);
+        free(edge_penalty);
         free(edge_class);
         return false;
     }
     uint8_t *out_ptr = blob;
-    uint32_t version = 1u;
+    uint32_t version = GRAPH_VERSION_V2;
     memcpy(out_ptr, GRAPH_MAGIC, 4u);
     out_ptr += 4u;
     memcpy(out_ptr, &version, sizeof(uint32_t));
@@ -1120,6 +1277,12 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
     memcpy(out_ptr, edge_speed, (size_t)out_edge_count * sizeof(float));
     out_ptr += (size_t)out_edge_count * sizeof(float);
     memcpy(out_ptr, edge_class, (size_t)out_edge_count * sizeof(uint8_t));
+    out_ptr += (size_t)out_edge_count * sizeof(uint8_t);
+    memcpy(out_ptr, edge_speed_limit, (size_t)out_edge_count * sizeof(float));
+    out_ptr += (size_t)out_edge_count * sizeof(float);
+    memcpy(out_ptr, edge_grade, (size_t)out_edge_count * sizeof(float));
+    out_ptr += (size_t)out_edge_count * sizeof(float);
+    memcpy(out_ptr, edge_penalty, (size_t)out_edge_count * sizeof(float));
 
     CoreResult write_r = core_io_write_all(path, blob, total_bytes);
     free(blob);
@@ -1130,6 +1293,9 @@ static bool write_graph(const GraphBuild *build, const char *out_dir) {
     free(edge_to);
     free(edge_length);
     free(edge_speed);
+    free(edge_speed_limit);
+    free(edge_grade);
+    free(edge_penalty);
     free(edge_class);
 
     return write_r.code == CORE_OK;

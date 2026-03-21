@@ -143,6 +143,18 @@ void vk_renderer_draw_line_mesh_affine(VkRenderer* renderer,
                                        float t1x,
                                        float t1y,
                                        float t1z);
+void vk_renderer_draw_line_mesh_affine_tinted(VkRenderer* renderer,
+                                              const VkRendererLineMesh* mesh,
+                                              float t0x,
+                                              float t0y,
+                                              float t0z,
+                                              float t1x,
+                                              float t1y,
+                                              float t1z,
+                                              float tint_r,
+                                              float tint_g,
+                                              float tint_b,
+                                              float tint_a);
 
 VkResult vk_renderer_create_tri_mesh(VkRenderer* renderer,
                                      const SDL_FPoint* vertices,

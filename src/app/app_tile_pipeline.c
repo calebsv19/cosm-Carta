@@ -67,15 +67,39 @@ bool app_layer_runtime_enabled(const AppState *app, TileLayerKind kind) {
     if (!app) {
         return false;
     }
-    (void)kind;
-    return true;
+    if (kind < 0 || kind >= TILE_LAYER_COUNT) {
+        return false;
+    }
+    return app->layer_user_enabled[kind];
+}
+
+float app_layer_fade_multiplier(const AppState *app, TileLayerKind kind) {
+    if (!app || kind < 0 || kind >= TILE_LAYER_COUNT) {
+        return 1.0f;
+    }
+    if (!app->zoom_logic_enabled) {
+        return 1.0f;
+    }
+    float start_zoom = ((float)app->layer_fade_start_milli[kind] / 1000.0f) * 20.0f;
+    float span_zoom = 0.15f + ((float)app->layer_fade_speed_milli[kind] / 1000.0f) * 6.0f;
+    float z = app->camera.zoom;
+    if (z >= start_zoom) {
+        return 1.0f;
+    }
+    if (z <= start_zoom - span_zoom) {
+        return 0.0f;
+    }
+    return app_clampf((z - (start_zoom - span_zoom)) / span_zoom, 0.0f, 1.0f);
 }
 
 bool app_layer_active_runtime(const AppState *app, TileLayerKind kind) {
     if (!app_layer_runtime_enabled(app, kind)) {
         return false;
     }
-    return layer_policy_layer_active(kind, app->camera.zoom, app->building_zoom_bias);
+    if (!app->zoom_logic_enabled) {
+        return true;
+    }
+    return app_layer_fade_multiplier(app, kind) > 0.001f;
 }
 
 void app_update_vk_line_budget(AppState *app) {
@@ -179,6 +203,9 @@ static TileZoomBand app_layer_target_band(const AppState *app, TileLayerKind kin
         if (!app->region.has_tile_pyramid_buildings) {
             return TILE_BAND_DEFAULT;
         }
+    }
+    if (!app->zoom_logic_enabled) {
+        return TILE_BAND_FINE;
     }
     return layer_policy_band_for_zoom(kind, app->camera.zoom, app->road_zoom_bias);
 }

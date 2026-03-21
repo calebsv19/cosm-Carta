@@ -12,6 +12,7 @@ void polygon_renderer_draw_tile(Renderer *renderer,
                                 bool show_landuse,
                                 float building_zoom_bias,
                                 bool building_fill_enabled,
-                                bool polygon_outline_only);
+                                bool polygon_outline_only,
+                                float opacity_scale);
 
 #endif

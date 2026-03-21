@@ -174,3 +174,15 @@ bool region_graph_path(const RegionInfo *info, char *out_path, size_t out_size) 
     }
     return true;
 }
+
+bool region_has_graph(const RegionInfo *info) {
+    char path[MAPFORGE_REGION_PATH_CAPACITY];
+    struct stat st;
+    if (!region_graph_path(info, path, sizeof(path))) {
+        return false;
+    }
+    if (stat(path, &st) != 0) {
+        return false;
+    }
+    return S_ISREG(st.st_mode);
+}

@@ -33,6 +33,7 @@ typedef struct InputState {
     bool playback_speed_up;
     bool playback_speed_down;
     bool shift_down;
+    bool alt_down;
     bool left_click_pressed;
     bool right_click_pressed;
     bool middle_click_pressed;

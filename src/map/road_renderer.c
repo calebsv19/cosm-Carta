@@ -35,32 +35,43 @@ void road_renderer_stats_get(RoadRenderStats *out_stats) {
     *out_stats = g_road_stats;
 }
 
-static ZoomTier road_class_min_tier(RoadClass road_class) {
-    switch (road_class) {
-        case ROAD_CLASS_MOTORWAY:
-        case ROAD_CLASS_TRUNK:
-            return ZOOM_TIER_FAR;
-        case ROAD_CLASS_PRIMARY:
-        case ROAD_CLASS_SECONDARY:
-        case ROAD_CLASS_TERTIARY:
-            return ZOOM_TIER_MID;
-        case ROAD_CLASS_RESIDENTIAL:
-            return ZOOM_TIER_NEAR;
-        case ROAD_CLASS_SERVICE:
-        case ROAD_CLASS_FOOTWAY:
-            return ZOOM_TIER_CLOSE;
-        case ROAD_CLASS_PATH:
-        default:
-            return ZOOM_TIER_PATH;
-    }
-}
-
 static float clamp_width_for_tier(float width, ZoomTier tier) {
     if (tier == ZOOM_TIER_FAR && width > 2.0f) {
         return 2.0f;
     }
     if (tier == ZOOM_TIER_MID && width > 3.0f) {
         return 3.0f;
+    }
+    return width;
+}
+
+static float clamp_width_for_class(float width, RoadClass road_class) {
+    float max_width = 4.8f;
+    switch (road_class) {
+        case ROAD_CLASS_MOTORWAY:
+            max_width = 5.2f;
+            break;
+        case ROAD_CLASS_TRUNK:
+        case ROAD_CLASS_PRIMARY:
+            max_width = 4.8f;
+            break;
+        case ROAD_CLASS_SECONDARY:
+        case ROAD_CLASS_TERTIARY:
+            max_width = 4.2f;
+            break;
+        case ROAD_CLASS_RESIDENTIAL:
+        case ROAD_CLASS_SERVICE:
+            max_width = 3.2f;
+            break;
+        case ROAD_CLASS_FOOTWAY:
+        case ROAD_CLASS_PATH:
+            max_width = 2.2f;
+            break;
+        default:
+            break;
+    }
+    if (width > max_width) {
+        return max_width;
     }
     return width;
 }
@@ -81,30 +92,115 @@ static float zoom_width_scale(float zoom) {
     return 1.8f;
 }
 
+static float road_zoom_alpha_scale(RoadClass road_class, float zoom) {
+    switch (road_class) {
+        case ROAD_CLASS_SECONDARY:
+            if (zoom <= 10.0f) return 0.68f;
+            if (zoom <= 11.0f) return 0.80f;
+            if (zoom <= 12.0f) return 0.92f;
+            return 1.0f;
+        case ROAD_CLASS_TERTIARY:
+            if (zoom <= 10.0f) return 0.52f;
+            if (zoom <= 11.0f) return 0.64f;
+            if (zoom <= 12.0f) return 0.76f;
+            if (zoom <= 13.0f) return 0.88f;
+            return 1.0f;
+        case ROAD_CLASS_RESIDENTIAL:
+            if (zoom <= 10.0f) return 0.26f;
+            if (zoom <= 11.0f) return 0.38f;
+            if (zoom <= 12.0f) return 0.52f;
+            if (zoom <= 13.0f) return 0.70f;
+            return 1.0f;
+        case ROAD_CLASS_SERVICE:
+            if (zoom <= 10.0f) return 0.18f;
+            if (zoom <= 11.0f) return 0.28f;
+            if (zoom <= 12.0f) return 0.40f;
+            if (zoom <= 13.0f) return 0.58f;
+            return 1.0f;
+        case ROAD_CLASS_FOOTWAY:
+            if (zoom <= 10.0f) return 0.12f;
+            if (zoom <= 11.0f) return 0.20f;
+            if (zoom <= 12.0f) return 0.30f;
+            if (zoom <= 13.0f) return 0.50f;
+            return 0.80f;
+        case ROAD_CLASS_PATH:
+            if (zoom <= 10.0f) return 0.10f;
+            if (zoom <= 11.0f) return 0.16f;
+            if (zoom <= 12.0f) return 0.24f;
+            if (zoom <= 13.0f) return 0.42f;
+            return 0.70f;
+        default:
+            return 1.0f;
+    }
+}
+
+static float road_zoom_luma_scale(RoadClass road_class, float zoom) {
+    switch (road_class) {
+        case ROAD_CLASS_SECONDARY:
+            if (zoom <= 10.0f) return 0.84f;
+            if (zoom <= 11.0f) return 0.90f;
+            if (zoom <= 12.0f) return 0.96f;
+            return 1.0f;
+        case ROAD_CLASS_TERTIARY:
+            if (zoom <= 10.0f) return 0.70f;
+            if (zoom <= 11.0f) return 0.78f;
+            if (zoom <= 12.0f) return 0.86f;
+            if (zoom <= 13.0f) return 0.92f;
+            return 1.0f;
+        case ROAD_CLASS_RESIDENTIAL:
+            if (zoom <= 10.0f) return 0.52f;
+            if (zoom <= 11.0f) return 0.62f;
+            if (zoom <= 12.0f) return 0.74f;
+            if (zoom <= 13.0f) return 0.86f;
+            return 1.0f;
+        case ROAD_CLASS_SERVICE:
+            if (zoom <= 10.0f) return 0.42f;
+            if (zoom <= 11.0f) return 0.54f;
+            if (zoom <= 12.0f) return 0.66f;
+            if (zoom <= 13.0f) return 0.80f;
+            return 1.0f;
+        case ROAD_CLASS_FOOTWAY:
+            if (zoom <= 10.0f) return 0.36f;
+            if (zoom <= 11.0f) return 0.48f;
+            if (zoom <= 12.0f) return 0.60f;
+            if (zoom <= 13.0f) return 0.74f;
+            return 0.88f;
+        case ROAD_CLASS_PATH:
+            if (zoom <= 10.0f) return 0.32f;
+            if (zoom <= 11.0f) return 0.42f;
+            if (zoom <= 12.0f) return 0.54f;
+            if (zoom <= 13.0f) return 0.70f;
+            return 0.84f;
+        default:
+            return 1.0f;
+    }
+}
+
 static RoadStyle road_style_for_class(RoadClass road_class, float zoom, ZoomTier tier) {
     float scale = zoom_width_scale(zoom);
+    float major_min = (zoom <= 12.0f) ? 1.2f : 0.0f;
 
     switch (road_class) {
         case ROAD_CLASS_MOTORWAY:
-            return (RoadStyle){230, 160, 50, 255, clamp_width_for_tier(3.0f * scale, tier)};
+            return (RoadStyle){230, 160, 50, 255, clamp_width_for_class(SDL_max(clamp_width_for_tier(3.0f * scale, tier), major_min), road_class)};
         case ROAD_CLASS_TRUNK:
-            return (RoadStyle){220, 140, 60, 255, clamp_width_for_tier(2.6f * scale, tier)};
+            return (RoadStyle){220, 140, 60, 255, clamp_width_for_class(SDL_max(clamp_width_for_tier(2.6f * scale, tier), major_min), road_class)};
         case ROAD_CLASS_PRIMARY:
-            return (RoadStyle){210, 120, 70, 255, clamp_width_for_tier(2.2f * scale, tier)};
+            return (RoadStyle){210, 120, 70, 255, clamp_width_for_class(SDL_max(clamp_width_for_tier(2.2f * scale, tier), major_min), road_class)};
         case ROAD_CLASS_SECONDARY:
-            return (RoadStyle){200, 200, 200, 255, clamp_width_for_tier(1.8f * scale, tier)};
+            return (RoadStyle){200, 200, 200, 255, clamp_width_for_class(clamp_width_for_tier(1.8f * scale, tier), road_class)};
         case ROAD_CLASS_TERTIARY:
-            return (RoadStyle){180, 180, 180, 255, clamp_width_for_tier(1.4f * scale, tier)};
+            return (RoadStyle){180, 180, 180, 255, clamp_width_for_class(clamp_width_for_tier(1.4f * scale, tier), road_class)};
         case ROAD_CLASS_RESIDENTIAL:
-            return (RoadStyle){160, 160, 160, 255, clamp_width_for_tier(1.1f * scale, tier)};
+            return (RoadStyle){160, 160, 160, 255, clamp_width_for_class(clamp_width_for_tier(1.1f * scale, tier), road_class)};
         case ROAD_CLASS_SERVICE:
-            return (RoadStyle){130, 130, 130, 255, clamp_width_for_tier(0.9f * scale, tier)};
+            return (RoadStyle){130, 130, 130, 255, clamp_width_for_class(clamp_width_for_tier(0.9f * scale, tier), road_class)};
         case ROAD_CLASS_FOOTWAY:
-            return (RoadStyle){110, 110, 110, 200, clamp_width_for_tier(0.75f * scale, tier)};
+            return (RoadStyle){110, 110, 110, 200, clamp_width_for_class(clamp_width_for_tier(0.75f * scale, tier), road_class)};
         case ROAD_CLASS_PATH:
-            return (RoadStyle){90, 90, 90, 180, clamp_width_for_tier(0.55f * scale, tier)};
+            return (RoadStyle){90, 90, 90, 180, clamp_width_for_class(clamp_width_for_tier(0.55f * scale, tier), road_class)};
         default:
-            return (RoadStyle){130, 130, 130, 255, clamp_width_for_tier(0.9f * scale, tier)};
+            return (RoadStyle){130, 130, 130, 255, clamp_width_for_class(clamp_width_for_tier(0.9f * scale, tier), road_class)};
     }
 }
 
@@ -273,9 +369,16 @@ void road_renderer_draw_tile(Renderer *renderer,
                              const Camera *camera,
                              const MftTile *tile,
                              bool single_line,
-                             float zoom_bias) {
+                             float zoom_bias,
+                             float opacity_scale) {
     if (!renderer || !camera || !tile || tile->polyline_count == 0) {
         return;
+    }
+    if (opacity_scale <= 0.0f) {
+        return;
+    }
+    if (opacity_scale > 1.0f) {
+        opacity_scale = 1.0f;
     }
 
     float effective_zoom = camera->zoom - zoom_bias;
@@ -298,14 +401,7 @@ void road_renderer_draw_tile(Renderer *renderer,
                 continue;
             }
             if (renderer->backend == RENDERER_BACKEND_VULKAN &&
-                !layer_policy_vk_road_class_allowed(polyline->road_class, effective_zoom)) {
-                int cls = road_class_index(polyline->road_class);
-                if (cls >= 0) {
-                    g_road_stats.filtered_by_class[cls] += 1;
-                }
-                continue;
-            }
-            if (!road_class_allowed_under_pressure(renderer, polyline->road_class)) {
+                !road_class_allowed_under_pressure(renderer, polyline->road_class)) {
                 int cls = road_class_index(polyline->road_class);
                 if (cls >= 0) {
                     g_road_stats.filtered_by_class[cls] += 1;
@@ -320,10 +416,10 @@ void road_renderer_draw_tile(Renderer *renderer,
                 }
             }
 
-            ZoomTier min_tier = road_class_min_tier(polyline->road_class);
             RoadStyle style = road_style_for_class(polyline->road_class, effective_zoom, tier);
-            float fade = zoom_tier_fade_in_alpha(effective_zoom, min_tier);
-            float alpha = (float)style.a * fade;
+            float alpha_scale = road_zoom_alpha_scale(polyline->road_class, effective_zoom);
+            float luma_scale = road_zoom_luma_scale(polyline->road_class, effective_zoom);
+            float alpha = (float)style.a * alpha_scale * opacity_scale;
             if (alpha > 255.0f) {
                 alpha = 255.0f;
             }
@@ -331,6 +427,18 @@ void road_renderer_draw_tile(Renderer *renderer,
             if (alpha_i <= 0) {
                 continue;
             }
+            int r_i = (int)lroundf((float)style.r * luma_scale);
+            int g_i = (int)lroundf((float)style.g * luma_scale);
+            int b_i = (int)lroundf((float)style.b * luma_scale);
+            if (r_i < 0) r_i = 0;
+            if (g_i < 0) g_i = 0;
+            if (b_i < 0) b_i = 0;
+            if (r_i > 255) r_i = 255;
+            if (g_i > 255) g_i = 255;
+            if (b_i > 255) b_i = 255;
+            style.r = (uint8_t)r_i;
+            style.g = (uint8_t)g_i;
+            style.b = (uint8_t)b_i;
             style.a = (uint8_t)alpha_i;
             renderer_set_draw_color(renderer, style.r, style.g, style.b, style.a);
 

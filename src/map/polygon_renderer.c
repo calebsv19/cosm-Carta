@@ -1,9 +1,7 @@
 #include "map/polygon_renderer.h"
 
 #include "map/polygon_cache.h"
-#include "map/layer_policy.h"
 #include "map/map_space.h"
-#include "map/zoom_fade.h"
 
 #include <SDL.h>
 #include <stdbool.h>
@@ -20,19 +18,6 @@ typedef struct PolygonStyle {
     uint8_t a;
     bool outline;
 } PolygonStyle;
-
-static ZoomTier polygon_class_min_tier(PolygonClass polygon_class) {
-    switch (polygon_class) {
-        case POLYGON_CLASS_WATER:
-            return ZOOM_TIER_MID;
-        case POLYGON_CLASS_PARK:
-        case POLYGON_CLASS_LANDUSE:
-            return ZOOM_TIER_NEAR;
-        case POLYGON_CLASS_BUILDING:
-        default:
-            return ZOOM_TIER_CLOSE;
-    }
-}
 
 static PolygonStyle polygon_style_for_class(PolygonClass polygon_class) {
     switch (polygon_class) {
@@ -244,10 +229,18 @@ void polygon_renderer_draw_tile(Renderer *renderer,
                                 bool show_landuse,
                                 float building_zoom_bias,
                                 bool building_fill_enabled,
-                                bool polygon_outline_only) {
+                                bool polygon_outline_only,
+                                float opacity_scale) {
     if (!renderer || !camera || !tile || tile->polygon_count == 0) {
         return;
     }
+    if (opacity_scale <= 0.0f) {
+        return;
+    }
+    if (opacity_scale > 1.0f) {
+        opacity_scale = 1.0f;
+    }
+    (void)building_zoom_bias;
 
     MapTileTransform transform;
     map_tile_transform_init(tile->coord, &transform);
@@ -258,24 +251,6 @@ void polygon_renderer_draw_tile(Renderer *renderer,
             continue;
         }
 
-        ZoomTier min_tier = polygon_class_min_tier(polygon->polygon_class);
-        float fade = zoom_tier_fade_in_alpha(camera->zoom, min_tier);
-        if (polygon->polygon_class == POLYGON_CLASS_BUILDING) {
-            float start = layer_policy_building_fade_start(
-                building_zoom_bias, renderer->backend == RENDERER_BACKEND_VULKAN);
-            float end = layer_policy_building_fade_end(
-                building_zoom_bias, renderer->backend == RENDERER_BACKEND_VULKAN);
-            float building_fade = (camera->zoom - start) / (end - start);
-            if (building_fade < 0.0f) {
-                building_fade = 0.0f;
-            } else if (building_fade > 1.0f) {
-                building_fade = 1.0f;
-            }
-            fade *= building_fade;
-        }
-        if (fade <= 0.0f) {
-            continue;
-        }
         if (!polygon_allow_under_vk_pressure(renderer, polygon->polygon_class, camera->zoom)) {
             continue;
         }
@@ -291,7 +266,7 @@ void polygon_renderer_draw_tile(Renderer *renderer,
         if (polygon->polygon_class == POLYGON_CLASS_LANDUSE) {
             style.outline = true;
         }
-        int alpha = (int)SDL_roundf((float)style.a * fade);
+        int alpha = (int)SDL_roundf((float)style.a * opacity_scale);
         if (alpha <= 0) {
             continue;
         }
@@ -340,9 +315,6 @@ void polygon_renderer_draw_tile(Renderer *renderer,
             draw_fill = false;
         }
         if (polygon_outline_only) {
-            draw_fill = false;
-        }
-        if (polygon->polygon_class == POLYGON_CLASS_WATER) {
             draw_fill = false;
         }
         if (polygon->polygon_class == POLYGON_CLASS_BUILDING && !building_fill_enabled) {

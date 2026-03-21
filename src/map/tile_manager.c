@@ -194,13 +194,11 @@ bool tile_manager_put_tile(TileManager *manager, TileCoord coord, TileZoomBand b
 
     TileEntry *entry = tile_manager_find(manager, coord, band);
     if (entry) {
-        mft_free_tile(tile);
         return false;
     }
 
     entry = tile_manager_pick_slot(manager);
     if (!entry) {
-        mft_free_tile(tile);
         return false;
     }
 

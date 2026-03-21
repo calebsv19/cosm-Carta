@@ -124,6 +124,25 @@ static bool node_has_drive_edge(const RouteGraph *graph, uint32_t node) {
     return false;
 }
 
+static const RouteObjective kAlternativeObjectiveOrder[] = {
+    ROUTE_OBJECTIVE_SHORTEST_DISTANCE,
+    ROUTE_OBJECTIVE_LOWEST_TIME,
+    ROUTE_OBJECTIVE_MOST_TIME_ABOVE_SPEED_THRESHOLD,
+    ROUTE_OBJECTIVE_LOWEST_ELEVATION_GAIN
+};
+
+static bool route_path_copy(const RouteGraph *graph, const RoutePath *src, RoutePath *dst);
+
+static void route_alternatives_clear(RouteAlternativeSet *set) {
+    if (!set) {
+        return;
+    }
+    for (uint32_t i = 0; i < ROUTE_ALTERNATIVE_MAX; ++i) {
+        route_path_free(&set->paths[i]);
+    }
+    memset(set, 0, sizeof(*set));
+}
+
 static bool route_path_compute_totals(const RouteGraph *graph, RoutePath *path) {
     if (!graph || !path || path->count < 2) {
         return false;
@@ -209,7 +228,26 @@ static bool route_path_apply_walk_speed(const RouteGraph *graph, RoutePath *path
     return true;
 }
 
-static bool route_find_walk_to_drive(const RouteGraph *graph, uint32_t goal, bool fastest, RoutePath *out_walk_path, uint32_t *out_drive_node) {
+static float route_walk_edge_cost(const RouteGraph *graph, uint32_t edge_index, RouteObjective objective) {
+    if (!graph || edge_index >= graph->edge_count) {
+        return FLT_MAX;
+    }
+    float length_m = graph->edge_length[edge_index];
+    if (objective == ROUTE_OBJECTIVE_SHORTEST_DISTANCE) {
+        return length_m;
+    }
+    float speed = graph->edge_speed[edge_index];
+    if (speed <= 0.1f) {
+        speed = 0.1f;
+    }
+    return length_m / speed;
+}
+
+static bool route_find_walk_to_drive(const RouteGraph *graph,
+                                     uint32_t goal,
+                                     RouteObjective objective,
+                                     RoutePath *out_walk_path,
+                                     uint32_t *out_drive_node) {
     if (!graph || !out_walk_path || goal >= graph->node_count) {
         return false;
     }
@@ -258,14 +296,7 @@ static bool route_find_walk_to_drive(const RouteGraph *graph, uint32_t goal, boo
                 continue;
             }
             uint32_t neighbor = graph->edge_to[e];
-            float edge_cost = graph->edge_length[e];
-            if (fastest) {
-                float speed = graph->edge_speed[e];
-                if (speed <= 0.1f) {
-                    speed = 0.1f;
-                }
-                edge_cost = edge_cost / speed;
-            }
+            float edge_cost = route_walk_edge_cost(graph, e, objective);
             float next = dist[current] + edge_cost;
             if (next < dist[neighbor]) {
                 dist[neighbor] = next;
@@ -323,6 +354,39 @@ static bool route_find_walk_to_drive(const RouteGraph *graph, uint32_t goal, boo
     return true;
 }
 
+static void route_state_build_alternatives(RouteState *state, uint32_t start_node, uint32_t goal_node) {
+    if (!state || !state->loaded || state->path.count < 2) {
+        return;
+    }
+
+    route_alternatives_clear(&state->alternatives);
+
+    for (size_t i = 0; i < sizeof(kAlternativeObjectiveOrder) / sizeof(kAlternativeObjectiveOrder[0]); ++i) {
+        if (state->alternatives.count >= ROUTE_ALTERNATIVE_MAX) {
+            break;
+        }
+        RouteObjective candidate_objective = kAlternativeObjectiveOrder[i];
+        RoutePath candidate = {0};
+
+        if (candidate_objective == state->objective) {
+            if (!route_path_copy(&state->graph, &state->path, &candidate)) {
+                continue;
+            }
+        } else {
+            if (!route_astar(&state->graph, start_node, goal_node, candidate_objective, state->mode, &candidate)) {
+                continue;
+            }
+            if (state->mode == ROUTE_MODE_WALK) {
+                route_path_apply_walk_speed(&state->graph, &candidate, 1.4f);
+            }
+        }
+        uint32_t slot = state->alternatives.count;
+        state->alternatives.paths[slot] = candidate;
+        state->alternatives.objectives[slot] = candidate_objective;
+        state->alternatives.count += 1u;
+    }
+}
+
 static bool route_path_copy(const RouteGraph *graph, const RoutePath *src, RoutePath *dst) {
     if (!graph || !src || !dst || src->count < 2) {
         return false;
@@ -343,32 +407,88 @@ static bool route_path_copy(const RouteGraph *graph, const RoutePath *src, Route
     return true;
 }
 
-static bool route_path_build_combined(const RouteGraph *graph, const RoutePath *drive_path, const RoutePath *walk_path, RoutePath *out_path) {
+static bool route_path_reverse_copy(const RouteGraph *graph, const RoutePath *src, RoutePath *dst) {
+    if (!graph || !src || !dst || src->count < 2) {
+        return false;
+    }
+
+    dst->nodes = (uint32_t *)malloc(sizeof(uint32_t) * src->count);
+    if (!dst->nodes) {
+        return false;
+    }
+
+    dst->count = src->count;
+    for (uint32_t i = 0; i < src->count; ++i) {
+        dst->nodes[i] = src->nodes[src->count - 1u - i];
+    }
+    if (!route_path_compute_totals(graph, dst)) {
+        route_path_free(dst);
+        return false;
+    }
+    return true;
+}
+
+static bool route_path_build_combined(const RouteGraph *graph,
+                                      const RoutePath *start_walk_path,
+                                      const RoutePath *drive_path,
+                                      const RoutePath *goal_walk_path,
+                                      RoutePath *out_path) {
     if (!graph || !out_path) {
         return false;
     }
 
-    if (drive_path && drive_path->count >= 2 && (!walk_path || walk_path->count < 2)) {
-        return route_path_copy(graph, drive_path, out_path);
+    const RoutePath *segments[3] = {start_walk_path, drive_path, goal_walk_path};
+    uint32_t combined_count = 0;
+    uint32_t last_node = 0;
+    bool have_last = false;
+
+    for (size_t s = 0; s < 3; ++s) {
+        const RoutePath *segment = segments[s];
+        if (!segment || segment->count == 0 || !segment->nodes) {
+            continue;
+        }
+        uint32_t copy_start = 0;
+        if (have_last && segment->nodes[0] == last_node) {
+            copy_start = 1;
+        }
+        if (segment->count <= copy_start) {
+            continue;
+        }
+        combined_count += segment->count - copy_start;
+        last_node = segment->nodes[segment->count - 1u];
+        have_last = true;
     }
-    if (walk_path && walk_path->count >= 2 && (!drive_path || drive_path->count < 2)) {
-        return route_path_copy(graph, walk_path, out_path);
-    }
-    if (!drive_path || !walk_path || drive_path->count < 2 || walk_path->count < 2) {
+
+    if (combined_count < 2) {
         return false;
     }
 
-    uint32_t combined_count = drive_path->count + walk_path->count - 1;
     out_path->nodes = (uint32_t *)malloc(sizeof(uint32_t) * combined_count);
     if (!out_path->nodes) {
         return false;
     }
-
-    memcpy(out_path->nodes, drive_path->nodes, sizeof(uint32_t) * drive_path->count);
-    memcpy(out_path->nodes + drive_path->count, walk_path->nodes + 1, sizeof(uint32_t) * (walk_path->count - 1));
     out_path->count = combined_count;
 
-    if (!route_path_compute_totals(graph, out_path)) {
+    uint32_t dst = 0;
+    have_last = false;
+    last_node = 0;
+    for (size_t s = 0; s < 3; ++s) {
+        const RoutePath *segment = segments[s];
+        if (!segment || segment->count == 0 || !segment->nodes) {
+            continue;
+        }
+        uint32_t copy_start = 0;
+        if (have_last && segment->nodes[0] == last_node) {
+            copy_start = 1;
+        }
+        for (uint32_t i = copy_start; i < segment->count; ++i) {
+            out_path->nodes[dst++] = segment->nodes[i];
+        }
+        last_node = segment->nodes[segment->count - 1u];
+        have_last = true;
+    }
+
+    if (dst != combined_count || !route_path_compute_totals(graph, out_path)) {
         route_path_free(out_path);
         return false;
     }
@@ -383,6 +503,7 @@ void route_state_init(RouteState *state) {
 
     memset(state, 0, sizeof(*state));
     state->mode = ROUTE_MODE_CAR;
+    state->objective = ROUTE_OBJECTIVE_SHORTEST_DISTANCE;
 }
 
 bool route_state_load_graph(RouteState *state, const char *path) {
@@ -394,6 +515,7 @@ bool route_state_load_graph(RouteState *state, const char *path) {
     route_path_free(&state->path);
     route_path_free(&state->drive_path);
     route_path_free(&state->walk_path);
+    route_alternatives_clear(&state->alternatives);
     state->loaded = route_graph_load(path, &state->graph);
     state->has_start = false;
     state->has_goal = false;
@@ -409,6 +531,7 @@ void route_state_clear(RouteState *state) {
     route_path_free(&state->path);
     route_path_free(&state->drive_path);
     route_path_free(&state->walk_path);
+    route_alternatives_clear(&state->alternatives);
     state->has_start = false;
     state->has_goal = false;
     state->has_transfer = false;
@@ -423,6 +546,7 @@ bool route_state_route(RouteState *state, uint32_t start_node, uint32_t goal_nod
     route_path_free(&state->path);
     route_path_free(&state->drive_path);
     route_path_free(&state->walk_path);
+    route_alternatives_clear(&state->alternatives);
     state->has_transfer = false;
 
     state->start_node = start_node;
@@ -432,32 +556,101 @@ bool route_state_route(RouteState *state, uint32_t start_node, uint32_t goal_nod
 
     const float walk_speed_mps = 1.4f;
 
-    if (state->mode == ROUTE_MODE_CAR && !node_has_drive_edge(&state->graph, goal_node)) {
-        uint32_t transfer_node = goal_node;
-        if (!route_find_walk_to_drive(&state->graph, goal_node, state->fastest, &state->walk_path, &transfer_node)) {
+    if (state->mode == ROUTE_MODE_CAR) {
+        RoutePath start_walk_rev = {0};
+        RoutePath start_walk = {0};
+        RoutePath goal_walk = {0};
+        RoutePath drive_leg = {0};
+
+        uint32_t drive_start = start_node;
+        uint32_t drive_goal = goal_node;
+        bool has_start_walk = false;
+        bool has_goal_walk = false;
+        bool has_drive_leg = false;
+
+        if (!node_has_drive_edge(&state->graph, start_node)) {
+            if (!route_find_walk_to_drive(&state->graph, start_node, state->objective, &start_walk_rev, &drive_start)) {
+                return false;
+            }
+            if (start_walk_rev.count >= 2) {
+                if (!route_path_reverse_copy(&state->graph, &start_walk_rev, &start_walk)) {
+                    route_path_free(&start_walk_rev);
+                    return false;
+                }
+                route_path_apply_walk_speed(&state->graph, &start_walk, walk_speed_mps);
+                has_start_walk = true;
+            }
+            route_path_free(&start_walk_rev);
+        }
+
+        if (!node_has_drive_edge(&state->graph, goal_node)) {
+            if (!route_find_walk_to_drive(&state->graph, goal_node, state->objective, &goal_walk, &drive_goal)) {
+                route_path_free(&start_walk);
+                return false;
+            }
+            if (goal_walk.count >= 2) {
+                route_path_apply_walk_speed(&state->graph, &goal_walk, walk_speed_mps);
+                has_goal_walk = true;
+            } else {
+                route_path_free(&goal_walk);
+            }
+        }
+
+        if (drive_start != drive_goal || (!has_start_walk && !has_goal_walk)) {
+            if (!route_astar(&state->graph, drive_start, drive_goal, state->objective, ROUTE_MODE_CAR, &drive_leg)) {
+                route_path_free(&start_walk);
+                route_path_free(&goal_walk);
+                return false;
+            }
+            if (drive_leg.count >= 2) {
+                has_drive_leg = true;
+            } else {
+                route_path_free(&drive_leg);
+            }
+        }
+
+        if (!route_path_build_combined(&state->graph,
+                                       has_start_walk ? &start_walk : NULL,
+                                       has_drive_leg ? &drive_leg : NULL,
+                                       has_goal_walk ? &goal_walk : NULL,
+                                       &state->path)) {
+            route_path_free(&start_walk);
+            route_path_free(&goal_walk);
+            route_path_free(&drive_leg);
             return false;
         }
-        route_path_apply_walk_speed(&state->graph, &state->walk_path, walk_speed_mps);
-        if (!route_astar(&state->graph, start_node, transfer_node, state->fastest, ROUTE_MODE_CAR, &state->drive_path)) {
-            route_path_free(&state->walk_path);
-            return false;
+
+        if (!has_start_walk && has_goal_walk && has_drive_leg) {
+            state->drive_path = drive_leg;
+            memset(&drive_leg, 0, sizeof(drive_leg));
+            state->walk_path = goal_walk;
+            memset(&goal_walk, 0, sizeof(goal_walk));
+            state->has_transfer = true;
+            state->transfer_node = drive_goal;
+        } else if (has_start_walk && !has_goal_walk && has_drive_leg) {
+            state->drive_path = drive_leg;
+            memset(&drive_leg, 0, sizeof(drive_leg));
+            state->walk_path = start_walk;
+            memset(&start_walk, 0, sizeof(start_walk));
+            state->has_transfer = true;
+            state->transfer_node = drive_start;
+        } else if (!has_start_walk && !has_goal_walk && has_drive_leg) {
+            state->drive_path = drive_leg;
+            memset(&drive_leg, 0, sizeof(drive_leg));
         }
-        if (!route_path_build_combined(&state->graph, &state->drive_path, &state->walk_path, &state->path)) {
-            route_path_free(&state->drive_path);
-            route_path_free(&state->walk_path);
-            return false;
-        }
-        state->has_transfer = true;
-        state->transfer_node = transfer_node;
+
+        route_path_free(&start_walk);
+        route_path_free(&goal_walk);
+        route_path_free(&drive_leg);
+        route_state_build_alternatives(state, start_node, goal_node);
         return true;
     }
 
-    if (!route_astar(&state->graph, start_node, goal_node, state->fastest, state->mode, &state->path)) {
+    if (!route_astar(&state->graph, start_node, goal_node, state->objective, ROUTE_MODE_WALK, &state->path)) {
         return false;
     }
-    if (state->mode == ROUTE_MODE_WALK) {
-        route_path_apply_walk_speed(&state->graph, &state->path, walk_speed_mps);
-    }
+    route_path_apply_walk_speed(&state->graph, &state->path, walk_speed_mps);
+    route_state_build_alternatives(state, start_node, goal_node);
     return true;
 }
 
@@ -470,5 +663,21 @@ void route_state_shutdown(RouteState *state) {
     route_path_free(&state->path);
     route_path_free(&state->drive_path);
     route_path_free(&state->walk_path);
+    route_alternatives_clear(&state->alternatives);
     memset(state, 0, sizeof(*state));
+}
+
+const char *route_objective_label(RouteObjective objective) {
+    switch (objective) {
+        case ROUTE_OBJECTIVE_SHORTEST_DISTANCE:
+            return "shortest";
+        case ROUTE_OBJECTIVE_LOWEST_TIME:
+            return "lowest_time";
+        case ROUTE_OBJECTIVE_LOWEST_ELEVATION_GAIN:
+            return "lowest_elev_gain";
+        case ROUTE_OBJECTIVE_MOST_TIME_ABOVE_SPEED_THRESHOLD:
+            return "time_above_speed";
+        default:
+            return "unknown";
+    }
 }

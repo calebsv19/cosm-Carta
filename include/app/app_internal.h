@@ -46,6 +46,7 @@
 /* Runtime trace sample/marker ring capacities. */
 #define APP_TRACE_SAMPLE_CAPACITY 262144u
 #define APP_TRACE_MARKER_CAPACITY 4096u
+#define APP_HUD_ROUTE_LINE_CAPACITY 192u
 
 /* Per-tile queue entry sorted by distance from camera center tile. */
 typedef struct TileQueueItem {
@@ -104,12 +105,64 @@ typedef struct FramePhaseTimings {
     double present_ms;
 } FramePhaseTimings;
 
+/* Endpoint anchor used for route placement (node snap or edge projection). */
+typedef struct RouteEndpointAnchor {
+    bool valid;
+    bool on_edge;
+    uint32_t node;
+    uint32_t edge_from;
+    uint32_t edge_to;
+    float world_x;
+    float world_y;
+    float dist_to_from_m;
+    float dist_to_to_m;
+} RouteEndpointAnchor;
+
+/* Route segment stored for proximity snapping queries. */
+typedef struct RouteSnapSegment {
+    uint32_t from;
+    uint32_t to;
+} RouteSnapSegment;
+
+/* Cell->segment membership entry used while building snap index. */
+typedef struct RouteSnapCellEntry {
+    uint64_t key;
+    uint32_t segment_index;
+} RouteSnapCellEntry;
+
+/* Compacted cell span for fast key lookup in snap index. */
+typedef struct RouteSnapCellSpan {
+    uint64_t key;
+    uint32_t start;
+    uint32_t count;
+} RouteSnapCellSpan;
+
+/* Per-region route edge spatial index for bounded nearest-segment picking. */
+typedef struct RouteSnapIndex {
+    bool ready;
+    float cell_size_m;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    RouteSnapSegment *segments;
+    uint32_t segment_count;
+    RouteSnapCellEntry *entries;
+    uint32_t entry_count;
+    RouteSnapCellSpan *cells;
+    uint32_t cell_count;
+    uint32_t *segment_seen;
+    uint32_t query_seq;
+} RouteSnapIndex;
+
 /* Route worker request payload. */
 typedef struct RouteComputeJob {
     uint32_t request_id;
     uint32_t start_node;
     uint32_t goal_node;
-    bool fastest;
+    RouteEndpointAnchor start_anchor;
+    RouteEndpointAnchor goal_anchor;
+    RouteObjective objective;
     RouteTravelMode mode;
 } RouteComputeJob;
 
@@ -119,13 +172,14 @@ typedef struct RouteComputeResult {
     bool ok;
     uint32_t start_node;
     uint32_t goal_node;
-    bool fastest;
+    RouteObjective objective;
     RouteTravelMode mode;
     bool has_transfer;
     uint32_t transfer_node;
     RoutePath path;
     RoutePath drive_path;
     RoutePath walk_path;
+    RouteAlternativeSet alternatives;
 } RouteComputeResult;
 
 /* Thread-safe snapshot for polygon prep worker diagnostics. */
@@ -144,6 +198,16 @@ typedef struct AppState {
     Camera camera;
     InputState input;
     DebugOverlay overlay;
+    bool hud_layer_debug_collapsed;
+    SDL_FRect hud_layer_debug_panel_rect;
+    SDL_FRect hud_layer_debug_collapse_rect;
+    SDL_FRect hud_layer_debug_handle_rect;
+    bool hud_layer_debug_layout_dirty;
+    uint64_t hud_layer_debug_layout_hash;
+    float hud_layer_debug_cached_w;
+    float hud_layer_debug_cached_h;
+    int hud_layer_debug_cached_line_count;
+    int hud_layer_debug_cached_max_text_w;
     TileManager tile_managers[TILE_LAYER_COUNT];
     TileLoader tile_loader;
     VkTileCache vk_tile_cache;
@@ -155,14 +219,54 @@ typedef struct AppState {
     bool dragging_goal;
     bool has_hover;
     uint32_t hover_node;
+    RouteEndpointAnchor hover_anchor;
+    RouteEndpointAnchor start_anchor;
+    RouteEndpointAnchor goal_anchor;
+    RouteSnapIndex route_snap_index;
+    bool route_edge_snap_enabled;
+    bool route_edge_snap_debug;
     bool playback_playing;
     float playback_time_s;
     float playback_speed;
+    bool hud_route_panel_collapsed;
+    SDL_FRect hud_route_panel_rect;
+    SDL_FRect hud_route_panel_collapse_rect;
+    SDL_FRect hud_route_panel_handle_rect;
+    SDL_FRect hud_route_panel_row_rects[ROUTE_ALTERNATIVE_MAX];
+    SDL_FRect hud_route_panel_toggle_rects[ROUTE_ALTERNATIVE_MAX];
+    SDL_FRect header_layer_row_rects[TILE_LAYER_COUNT];
+    SDL_FRect header_layer_label_rects[TILE_LAYER_COUNT];
+    SDL_FRect header_layer_toggle_rects[TILE_LAYER_COUNT];
+    SDL_FRect header_zoom_toggle_rect;
+    SDL_FRect header_layer_opacity_panel_rect;
+    SDL_FRect header_layer_opacity_track_rect;
+    SDL_FRect header_layer_fade_panel_rect;
+    SDL_FRect header_layer_fade_start_track_rect;
+    SDL_FRect header_layer_fade_speed_track_rect;
+    bool header_layer_opacity_dragging;
+    int header_layer_fade_drag_target;
+    int header_layer_panel_mode;
+    bool header_layer_selected_valid;
+    TileLayerKind header_layer_selected_kind;
+    bool route_alt_visible[ROUTE_ALTERNATIVE_MAX];
+    bool hud_route_panel_layout_dirty;
+    uint64_t hud_route_panel_layout_hash;
+    float hud_route_panel_cached_w;
+    float hud_route_panel_cached_h;
+    int hud_route_panel_cached_row_count;
+    int hud_route_panel_cached_max_text_w;
+    char hud_route_panel_summary_text[APP_HUD_ROUTE_LINE_CAPACITY];
+    char hud_route_panel_row_text[ROUTE_ALTERNATIVE_MAX][APP_HUD_ROUTE_LINE_CAPACITY];
     bool show_landuse;
     float building_zoom_bias;
     bool building_fill_enabled;
     float road_zoom_bias;
     bool polygon_outline_only;
+    bool layer_user_enabled[TILE_LAYER_COUNT];
+    bool zoom_logic_enabled;
+    uint16_t layer_opacity_milli[TILE_LAYER_COUNT];
+    uint16_t layer_fade_start_milli[TILE_LAYER_COUNT];
+    uint16_t layer_fade_speed_milli[TILE_LAYER_COUNT];
     uint32_t tile_request_id;
     TileQueue tile_queues[TILE_LAYER_COUNT];
     TileZoomBand queue_band[TILE_LAYER_COUNT];
@@ -253,6 +357,10 @@ typedef struct AppState {
     uint32_t route_latest_requested_id;
     uint32_t route_latest_submitted_id;
     uint32_t route_latest_applied_id;
+    uint32_t route_snap_debug_cells;
+    uint32_t route_snap_debug_segments;
+    uint32_t route_snap_debug_hits;
+    float route_snap_debug_query_ms;
     bool route_recompute_scheduled;
     double route_recompute_due_time;
     FramePhaseTimings frame_timings;
@@ -278,6 +386,7 @@ void app_center_camera_on_region(Camera *camera, const RegionInfo *region, int s
 float app_layer_zoom_start(const AppState *app, TileLayerKind kind);
 bool app_layer_runtime_enabled(const AppState *app, TileLayerKind kind);
 bool app_layer_active_runtime(const AppState *app, TileLayerKind kind);
+float app_layer_fade_multiplier(const AppState *app, TileLayerKind kind);
 void app_update_vk_line_budget(AppState *app);
 uint32_t app_tile_load_budget(TileLayerKind kind, uint32_t expected);
 uint32_t app_tile_integrate_budget(TileLayerKind kind, uint32_t expected);
@@ -301,26 +410,50 @@ uint32_t app_draw_visible_tiles(AppState *app);
 void app_draw_region_bounds(AppState *app);
 
 bool app_load_route_graph(AppState *app);
+void app_route_release_snap_index(AppState *app);
 void app_route_schedule_recompute(AppState *app, double debounce_sec);
 void app_route_poll_result(AppState *app);
 bool app_route_worker_init(AppState *app);
 void app_route_worker_shutdown(AppState *app);
 void app_route_worker_clear(AppState *app);
 bool app_is_near_node(const AppState *app, float world_x, float world_y, uint32_t *out_node);
+bool app_pick_route_anchor(AppState *app, float world_x, float world_y, RouteEndpointAnchor *out_anchor);
+bool app_pick_route_anchor_unbounded(AppState *app, float world_x, float world_y, RouteEndpointAnchor *out_anchor);
 bool app_mouse_over_node(const AppState *app, uint32_t node, float radius);
+bool app_mouse_over_anchor(const AppState *app, const RouteEndpointAnchor *anchor, float radius);
 void app_update_hover(AppState *app);
 void app_draw_hover_marker(AppState *app);
 bool app_recompute_route(AppState *app);
+const RoutePath *app_route_primary_path(const AppState *app, uint32_t *out_alt_index);
 
 void app_playback_reset(AppState *app);
 void app_playback_update(AppState *app, float dt);
 float app_next_playback_speed(float current, int direction);
 void app_draw_playback_marker(AppState *app);
 void app_draw_route_panel(AppState *app);
+bool app_route_panel_handle_click(AppState *app);
 
 bool app_header_button_hit(const AppState *app, int x, int y);
+bool app_header_layer_toggle_click(AppState *app, int x, int y);
+bool app_header_layer_slider_update(AppState *app);
 void app_draw_header_bar(AppState *app);
 void app_draw_layer_debug(AppState *app);
 void app_copy_overlay_text(AppState *app);
+bool app_handle_hud_clicks(AppState *app);
+
+void app_runtime_begin_frame(AppState *app, double *out_frame_begin, double *out_after_events);
+bool app_runtime_handle_global_controls(AppState *app);
+void app_runtime_update_frame(AppState *app,
+                              double *io_last_time,
+                              float *out_dt,
+                              double *out_after_update,
+                              double *out_after_queue,
+                              double *out_after_integrate,
+                              double *out_after_route);
+void app_runtime_render_frame(AppState *app,
+                              RendererBackend *io_last_backend,
+                              uint32_t *out_visible_tiles,
+                              double *out_before_present,
+                              double *out_after_render);
 
 #endif
