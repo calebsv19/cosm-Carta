@@ -13,14 +13,14 @@ static float app_policy_zoom(const AppState *app) {
     if (!app) {
         return 0.0f;
     }
-    return app->zoom_logic_enabled ? app->camera.zoom : 16.0f;
+    return app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.camera.zoom : 16.0f;
 }
 
 static float app_layer_opacity_scale(const AppState *app, TileLayerKind kind) {
     if (!app || kind < 0 || kind >= TILE_LAYER_COUNT) {
         return 1.0f;
     }
-    float value = (float)app->layer_opacity_milli[kind] / 1000.0f;
+    float value = (float)app->view_state_bridge.layer_opacity_milli[kind] / 1000.0f;
     if (value < 0.0f) {
         value = 0.0f;
     }
@@ -35,11 +35,11 @@ static bool app_has_custom_layer_opacity(const AppState *app) {
         return false;
     }
     for (int i = 0; i < TILE_LAYER_COUNT; ++i) {
-        if (app->layer_opacity_milli[i] < 1000u) {
+        if (app->view_state_bridge.layer_opacity_milli[i] < 1000u) {
             return true;
         }
     }
-    if (app->zoom_logic_enabled) {
+    if (app->view_state_bridge.zoom_logic_enabled) {
         const TileLayerKind polygon_layers[] = {
             TILE_LAYER_POLY_WATER,
             TILE_LAYER_POLY_PARK,
@@ -64,7 +64,7 @@ static void app_init_vk_poly_fill_budget(AppState *app, VkPolyFillBudget *budget
         return;
     }
     budget->enabled = true;
-    budget->total_cap = layer_policy_vk_polygon_fill_index_budget(app_policy_zoom(app), app->visible_tile_count);
+    budget->total_cap = layer_policy_vk_polygon_fill_index_budget(app_policy_zoom(app), app->tile_state_bridge.visible_tile_count);
     budget->layer_cap[TILE_LAYER_POLY_WATER] =
         layer_policy_vk_polygon_fill_layer_budget(TILE_LAYER_POLY_WATER, budget->total_cap);
     budget->layer_cap[TILE_LAYER_POLY_PARK] =
@@ -81,12 +81,12 @@ static void app_init_vk_poly_asset_build_budget(AppState *app, VkPolyAssetBuildB
     }
     budget->cap = 0u;
     budget->used = 0u;
-    if (!app || renderer_get_backend(&app->renderer) != RENDERER_BACKEND_VULKAN || !app->vk_assets_enabled) {
+    if (!app || renderer_get_backend(&app->renderer) != RENDERER_BACKEND_VULKAN || !app->tile_state_bridge.vk_assets_enabled) {
         return;
     }
 
     // Keep polygon asset creation tightly bounded to avoid frame hitches on dense tiles.
-    if (app->visible_tile_count <= 2u) {
+    if (app->tile_state_bridge.visible_tile_count <= 2u) {
         budget->cap = 2u;
     } else {
         budget->cap = 1u;
@@ -105,8 +105,8 @@ void app_draw_region_bounds(AppState *app) {
     float y0 = 0.0f;
     float x1 = 0.0f;
     float y1 = 0.0f;
-    map_world_to_screen(&app->camera, app->width, app->height, (float)min_m.x, (float)max_m.y, &x0, &y0);
-    map_world_to_screen(&app->camera, app->width, app->height, (float)max_m.x, (float)min_m.y, &x1, &y1);
+    map_world_to_screen(&app->view_state_bridge.camera, app->width, app->height, (float)min_m.x, (float)max_m.y, &x0, &y0);
+    map_world_to_screen(&app->view_state_bridge.camera, app->width, app->height, (float)max_m.x, (float)min_m.y, &x1, &y1);
 
     float left = x0 < x1 ? x0 : x1;
     float right = x0 < x1 ? x1 : x0;
@@ -126,7 +126,7 @@ static void app_draw_vk_mesh_for_coord(AppState *app,
         return;
     }
     MapTileAffine affine;
-    if (!map_tile_affine_from_camera(&app->camera, app->renderer.width, app->renderer.height, coord, &affine)) {
+    if (!map_tile_affine_from_camera(&app->view_state_bridge.camera, app->renderer.width, app->renderer.height, coord, &affine)) {
         return;
     }
     vk_renderer_draw_line_mesh_affine((VkRenderer *)app->renderer.vk,
@@ -156,7 +156,7 @@ static void app_draw_vk_mesh_for_coord_tinted(AppState *app,
         return;
     }
     MapTileAffine affine;
-    if (!map_tile_affine_from_camera(&app->camera, app->renderer.width, app->renderer.height, coord, &affine)) {
+    if (!map_tile_affine_from_camera(&app->view_state_bridge.camera, app->renderer.width, app->renderer.height, coord, &affine)) {
         return;
     }
     if (tint_r < 0.0f) tint_r = 0.0f;
@@ -282,7 +282,7 @@ static void app_draw_vk_tri_mesh_for_coord(AppState *app,
         return;
     }
     MapTileAffine affine;
-    if (!map_tile_affine_from_camera(&app->camera, app->renderer.width, app->renderer.height, coord, &affine)) {
+    if (!map_tile_affine_from_camera(&app->view_state_bridge.camera, app->renderer.width, app->renderer.height, coord, &affine)) {
         return;
     }
     vk_renderer_draw_tri_mesh_affine((VkRenderer *)app->renderer.vk,
@@ -301,14 +301,14 @@ static void app_draw_vk_tri_mesh_for_coord(AppState *app,
 }
 
 static uint32_t app_visible_ring_distance(const AppState *app, TileCoord coord) {
-    if (!app || !app->visible_valid || coord.z != app->visible_zoom) {
+    if (!app || !app->tile_state_bridge.visible_valid || coord.z != app->tile_state_bridge.visible_zoom) {
         return UINT32_MAX / 4u;
     }
 
     TileCoord center = {
-        app->visible_zoom,
-        (app->visible_top_left.x + app->visible_bottom_right.x) / 2u,
-        (app->visible_top_left.y + app->visible_bottom_right.y) / 2u
+        app->tile_state_bridge.visible_zoom,
+        (app->tile_state_bridge.visible_top_left.x + app->tile_state_bridge.visible_bottom_right.x) / 2u,
+        (app->tile_state_bridge.visible_top_left.y + app->tile_state_bridge.visible_bottom_right.y) / 2u
     };
     uint32_t dx = (coord.x > center.x) ? (coord.x - center.x) : (center.x - coord.x);
     uint32_t dy = (coord.y > center.y) ? (coord.y - center.y) : (center.y - coord.y);
@@ -390,7 +390,7 @@ static bool app_pick_road_tile_with_fallback(const AppState *app,
     if (!app || !out_tile || !out_band) {
         return false;
     }
-    TileZoomBand target = app->layer_target_band[kind];
+    TileZoomBand target = app->tile_state_bridge.layer_target_band[kind];
     TileZoomBand candidates[4] = {
         target,
         TILE_BAND_MID,
@@ -413,7 +413,7 @@ static bool app_pick_road_tile_with_fallback(const AppState *app,
     }
     for (uint32_t i = 0u; i < count; ++i) {
         TileZoomBand band = candidates[i];
-        const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[kind], coord, band);
+        const MftTile *tile = tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, band);
         if (!tile) {
             continue;
         }
@@ -432,7 +432,7 @@ static bool app_pick_polygon_tile_with_fallback(const AppState *app,
     if (!app || !out_tile || !out_band) {
         return false;
     }
-    TileZoomBand target = app->layer_target_band[kind];
+    TileZoomBand target = app->tile_state_bridge.layer_target_band[kind];
     TileZoomBand candidates[4] = {
         target,
         TILE_BAND_MID,
@@ -475,7 +475,7 @@ static bool app_pick_polygon_tile_with_fallback(const AppState *app,
     }
     for (uint32_t i = 0u; i < count; ++i) {
         TileZoomBand band = candidates[i];
-        const MftTile *tile = tile_manager_peek_tile(&app->tile_managers[kind], coord, band);
+        const MftTile *tile = tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, band);
         if (!tile) {
             continue;
         }
@@ -487,17 +487,17 @@ static bool app_pick_polygon_tile_with_fallback(const AppState *app,
 }
 
 static bool app_try_draw_vk_cached_tile(AppState *app, TileLayerKind kind, TileCoord coord, TileZoomBand band) {
-    if (!app || renderer_get_backend(&app->renderer) != RENDERER_BACKEND_VULKAN || !app->vk_assets_enabled) {
+    if (!app || renderer_get_backend(&app->renderer) != RENDERER_BACKEND_VULKAN || !app->tile_state_bridge.vk_assets_enabled) {
         return false;
     }
 #if defined(MAPFORGE_HAVE_VK)
-    const VkTileCacheEntry *asset = vk_tile_cache_peek(&app->vk_tile_cache, kind, coord, band);
+    const VkTileCacheEntry *asset = vk_tile_cache_peek(&app->tile_state_bridge.vk_tile_cache, kind, coord, band);
     if (!asset) {
         return false;
     }
     if (kind == TILE_LAYER_ROAD_ARTERY || kind == TILE_LAYER_ROAD_LOCAL) {
         bool drew_any = false;
-        float effective_zoom = app_policy_zoom(app) - (app->zoom_logic_enabled ? app->road_zoom_bias : -1000.0f);
+        float effective_zoom = app_policy_zoom(app) - (app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.road_zoom_bias : -1000.0f);
         float layer_opacity = app_layer_opacity_scale(app, kind);
         if (effective_zoom < 0.0f) {
             effective_zoom = 0.0f;
@@ -537,11 +537,11 @@ static bool app_try_draw_vk_cached_polygon_tile(AppState *app,
                                                 TileZoomBand band,
                                                 VkPolyFillBudget *budget,
                                                 VkPolyAssetBuildBudget *asset_build_budget) {
-    if (!app || renderer_get_backend(&app->renderer) != RENDERER_BACKEND_VULKAN || !app->vk_assets_enabled) {
+    if (!app || renderer_get_backend(&app->renderer) != RENDERER_BACKEND_VULKAN || !app->tile_state_bridge.vk_assets_enabled) {
         return false;
     }
 #if defined(MAPFORGE_HAVE_VK)
-    const VkTileCacheEntry *asset = vk_tile_cache_peek(&app->vk_tile_cache, kind, coord, band);
+    const VkTileCacheEntry *asset = vk_tile_cache_peek(&app->tile_state_bridge.vk_tile_cache, kind, coord, band);
     (void)asset_build_budget;
     if (app_layer_opacity_scale(app, kind) < 0.999f) {
         return false;
@@ -551,8 +551,8 @@ static bool app_try_draw_vk_cached_polygon_tile(AppState *app,
     }
 
     bool drew_any = false;
-    bool allow_fill = !app->polygon_outline_only;
-    if (kind == TILE_LAYER_POLY_BUILDING && !app->building_fill_enabled) {
+    bool allow_fill = !app->view_state_bridge.polygon_outline_only;
+    if (kind == TILE_LAYER_POLY_BUILDING && !app->view_state_bridge.building_fill_enabled) {
         allow_fill = false;
     }
     if (allow_fill) {
@@ -569,8 +569,8 @@ static bool app_try_draw_vk_cached_polygon_tile(AppState *app,
             }
             if (budget_ok) {
                 app_draw_vk_tri_mesh_for_coord(app, &asset->fill_mesh, coord);
-                app->vk_poly_fill_drawn += 1u;
-                app->vk_poly_fill_indices += need;
+                app->tile_state_bridge.vk_poly_fill_drawn += 1u;
+                app->tile_state_bridge.vk_poly_fill_indices += need;
                 if (budget && budget->enabled) {
                     budget->total_used += need;
                     if (kind < TILE_LAYER_COUNT) {
@@ -579,10 +579,10 @@ static bool app_try_draw_vk_cached_polygon_tile(AppState *app,
                 }
                 drew_any = true;
             } else {
-                app->vk_poly_fill_skip += 1u;
+                app->tile_state_bridge.vk_poly_fill_skip += 1u;
             }
         } else {
-            app->vk_poly_fill_fail += 1u;
+            app->tile_state_bridge.vk_poly_fill_fail += 1u;
         }
     }
 
@@ -621,13 +621,13 @@ static bool app_try_draw_vk_cached_polygon_tile(AppState *app,
 }
 
 uint32_t app_draw_visible_tiles(AppState *app) {
-    if (!app || !app->visible_valid) {
+    if (!app || !app->tile_state_bridge.visible_valid) {
         return 0;
     }
 
     uint32_t visible = 0;
     bool vk_backend = renderer_get_backend(&app->renderer) == RENDERER_BACKEND_VULKAN;
-    bool allow_immediate_polygon_fallback = !(vk_backend && app->vk_assets_enabled) || app_has_custom_layer_opacity(app);
+    bool allow_immediate_polygon_fallback = !(vk_backend && app->tile_state_bridge.vk_assets_enabled) || app_has_custom_layer_opacity(app);
     uint32_t vk_asset_misses = 0u;
     uint32_t total_line_budget = app->renderer.vk_line_budget;
     uint32_t reserve_line_budget = 0u;
@@ -645,11 +645,11 @@ uint32_t app_draw_visible_tiles(AppState *app) {
     VkPolyAssetBuildBudget poly_asset_build_budget = {0};
     app_init_vk_poly_fill_budget(app, &poly_fill_budget);
     app_init_vk_poly_asset_build_budget(app, &poly_asset_build_budget);
-    app->vk_poly_fill_drawn = 0u;
-    app->vk_poly_fill_skip = 0u;
-    app->vk_poly_fill_fail = 0u;
-    app->vk_poly_fill_indices = 0u;
-    app->vk_road_band_fallback_draws = 0u;
+    app->tile_state_bridge.vk_poly_fill_drawn = 0u;
+    app->tile_state_bridge.vk_poly_fill_skip = 0u;
+    app->tile_state_bridge.vk_poly_fill_fail = 0u;
+    app->tile_state_bridge.vk_poly_fill_indices = 0u;
+    app->tile_state_bridge.vk_road_band_fallback_draws = 0u;
     BuildingTileDebugStats building_debug = {0};
     uint32_t expected = 0;
     uint32_t done = 0;
@@ -659,73 +659,73 @@ uint32_t app_draw_visible_tiles(AppState *app) {
             continue;
         }
         if (layer_policy_requires_full_ready(policy->kind)) {
-            expected += app->layer_expected[policy->kind];
-            done += app->layer_done[policy->kind];
+            expected += app->tile_state_bridge.layer_expected[policy->kind];
+            done += app->tile_state_bridge.layer_done[policy->kind];
         } else {
-            expected += app->layer_visible_expected[policy->kind];
-            done += app->layer_visible_loaded[policy->kind];
+            expected += app->tile_state_bridge.layer_visible_expected[policy->kind];
+            done += app->tile_state_bridge.layer_visible_loaded[policy->kind];
         }
     }
 
-    for (uint32_t y = app->visible_top_left.y; y <= app->visible_bottom_right.y; ++y) {
-        for (uint32_t x = app->visible_top_left.x; x <= app->visible_bottom_right.x; ++x) {
-            TileCoord coord = {app->visible_zoom, x, y};
+    for (uint32_t y = app->tile_state_bridge.visible_top_left.y; y <= app->tile_state_bridge.visible_bottom_right.y; ++y) {
+        for (uint32_t x = app->tile_state_bridge.visible_top_left.x; x <= app->tile_state_bridge.visible_bottom_right.x; ++x) {
+            TileCoord coord = {app->tile_state_bridge.visible_zoom, x, y};
             bool local_ready = !layer_policy_requires_full_ready(TILE_LAYER_ROAD_LOCAL) ||
-                app->layer_state[TILE_LAYER_ROAD_LOCAL] == LAYER_READINESS_READY;
+                app->tile_state_bridge.layer_state[TILE_LAYER_ROAD_LOCAL] == LAYER_READINESS_READY;
             bool contour_ready = !layer_policy_requires_full_ready(TILE_LAYER_CONTOUR) ||
-                app->layer_state[TILE_LAYER_CONTOUR] == LAYER_READINESS_READY;
-            TileZoomBand local_band = app->layer_target_band[TILE_LAYER_ROAD_LOCAL];
-            TileZoomBand contour_band = app->layer_target_band[TILE_LAYER_CONTOUR];
-            TileZoomBand artery_band = app->layer_target_band[TILE_LAYER_ROAD_ARTERY];
+                app->tile_state_bridge.layer_state[TILE_LAYER_CONTOUR] == LAYER_READINESS_READY;
+            TileZoomBand local_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL];
+            TileZoomBand contour_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_CONTOUR];
+            TileZoomBand artery_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_ARTERY];
             const MftTile *local = NULL;
             if (app_layer_active_runtime(app, TILE_LAYER_ROAD_LOCAL) && local_ready) {
                 app_pick_road_tile_with_fallback(app, TILE_LAYER_ROAD_LOCAL, coord, &local, &local_band);
             }
             const MftTile *contour = (app_layer_active_runtime(app, TILE_LAYER_CONTOUR) &&
                 contour_ready)
-                ? tile_manager_peek_tile(&app->tile_managers[TILE_LAYER_CONTOUR], coord, contour_band) : NULL;
+                ? tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[TILE_LAYER_CONTOUR], coord, contour_band) : NULL;
             const MftTile *artery = NULL;
             app_pick_road_tile_with_fallback(app, TILE_LAYER_ROAD_ARTERY, coord, &artery, &artery_band);
-            if (local && local_band != app->layer_target_band[TILE_LAYER_ROAD_LOCAL]) {
-                app->vk_road_band_fallback_draws += 1u;
+            if (local && local_band != app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL]) {
+                app->tile_state_bridge.vk_road_band_fallback_draws += 1u;
             }
-            if (artery && artery_band != app->layer_target_band[TILE_LAYER_ROAD_ARTERY]) {
-                app->vk_road_band_fallback_draws += 1u;
+            if (artery && artery_band != app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_ARTERY]) {
+                app->tile_state_bridge.vk_road_band_fallback_draws += 1u;
             }
             if (local) {
                 if (app_try_draw_vk_cached_tile(app, TILE_LAYER_ROAD_LOCAL, coord, local_band)) {
                 } else {
-                    if (vk_backend && app->vk_assets_enabled) {
+                    if (vk_backend && app->tile_state_bridge.vk_assets_enabled) {
                         vk_asset_misses += 1u;
                         app_vk_asset_enqueue(app, TILE_LAYER_ROAD_LOCAL, coord, local_band);
                     }
-                    float road_zoom_bias = app->zoom_logic_enabled ? app->road_zoom_bias : -1000.0f;
+                    float road_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.road_zoom_bias : -1000.0f;
                     float road_opacity = app_layer_opacity_scale(app, TILE_LAYER_ROAD_LOCAL);
-                    road_renderer_draw_tile(&app->renderer, &app->camera, local, app->single_line, road_zoom_bias, road_opacity);
+                    road_renderer_draw_tile(&app->renderer, &app->view_state_bridge.camera, local, app->single_line, road_zoom_bias, road_opacity);
                 }
                 visible += 1;
             }
             if (artery) {
-                if (vk_backend && app->vk_assets_enabled &&
-                    !vk_tile_cache_peek(&app->vk_tile_cache, TILE_LAYER_ROAD_ARTERY, coord, artery_band)) {
+                if (vk_backend && app->tile_state_bridge.vk_assets_enabled &&
+                    !vk_tile_cache_peek(&app->tile_state_bridge.vk_tile_cache, TILE_LAYER_ROAD_ARTERY, coord, artery_band)) {
                     vk_asset_misses += 1u;
                     continue;
                 }
                 if (app_try_draw_vk_cached_tile(app, TILE_LAYER_ROAD_ARTERY, coord, artery_band)) {
                 } else {
-                    if (vk_backend && app->vk_assets_enabled) {
+                    if (vk_backend && app->tile_state_bridge.vk_assets_enabled) {
                         vk_asset_misses += 1u;
                         app_vk_asset_enqueue(app, TILE_LAYER_ROAD_ARTERY, coord, artery_band);
                     }
-                    float road_zoom_bias = app->zoom_logic_enabled ? app->road_zoom_bias : -1000.0f;
+                    float road_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.road_zoom_bias : -1000.0f;
                     float road_opacity = app_layer_opacity_scale(app, TILE_LAYER_ROAD_ARTERY);
-                    road_renderer_draw_tile(&app->renderer, &app->camera, artery, app->single_line, road_zoom_bias, road_opacity);
+                    road_renderer_draw_tile(&app->renderer, &app->view_state_bridge.camera, artery, app->single_line, road_zoom_bias, road_opacity);
                 }
                 visible += 1;
             }
             if (contour) {
                 float contour_opacity = app_layer_opacity_scale(app, TILE_LAYER_CONTOUR);
-                road_renderer_draw_tile(&app->renderer, &app->camera, contour, true, 0.0f, contour_opacity);
+                road_renderer_draw_tile(&app->renderer, &app->view_state_bridge.camera, contour, true, 0.0f, contour_opacity);
                 visible += 1;
             }
         }
@@ -740,17 +740,17 @@ uint32_t app_draw_visible_tiles(AppState *app) {
         app->renderer.vk_line_budget = polygon_cap;
     }
 
-    for (uint32_t y = app->visible_top_left.y; y <= app->visible_bottom_right.y; ++y) {
-        for (uint32_t x = app->visible_top_left.x; x <= app->visible_bottom_right.x; ++x) {
-            TileCoord coord = {app->visible_zoom, x, y};
+    for (uint32_t y = app->tile_state_bridge.visible_top_left.y; y <= app->tile_state_bridge.visible_bottom_right.y; ++y) {
+        for (uint32_t x = app->tile_state_bridge.visible_top_left.x; x <= app->tile_state_bridge.visible_bottom_right.x; ++x) {
+            TileCoord coord = {app->tile_state_bridge.visible_zoom, x, y};
             const MftTile *water = NULL;
             const MftTile *park = NULL;
             const MftTile *landuse = NULL;
             const MftTile *building = NULL;
-            TileZoomBand water_band = app->layer_target_band[TILE_LAYER_POLY_WATER];
-            TileZoomBand park_band = app->layer_target_band[TILE_LAYER_POLY_PARK];
-            TileZoomBand landuse_band = app->layer_target_band[TILE_LAYER_POLY_LANDUSE];
-            TileZoomBand building_band = app->layer_target_band[TILE_LAYER_POLY_BUILDING];
+            TileZoomBand water_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_WATER];
+            TileZoomBand park_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_PARK];
+            TileZoomBand landuse_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_LANDUSE];
+            TileZoomBand building_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_BUILDING];
             if (app_layer_active_runtime(app, TILE_LAYER_POLY_WATER)) {
                 app_pick_polygon_tile_with_fallback(app, TILE_LAYER_POLY_WATER, coord, &water, &water_band);
             }
@@ -766,45 +766,45 @@ uint32_t app_draw_visible_tiles(AppState *app) {
             if (water) {
                 if (!app_try_draw_vk_cached_polygon_tile(
                         app, TILE_LAYER_POLY_WATER, coord, water_band, &poly_fill_budget, &poly_asset_build_budget)) {
-                    if (vk_backend && app->vk_assets_enabled) {
+                    if (vk_backend && app->tile_state_bridge.vk_assets_enabled) {
                         vk_asset_misses += 1u;
                         app_vk_asset_enqueue(app, TILE_LAYER_POLY_WATER, coord, water_band);
                     }
                     if (allow_immediate_polygon_fallback) {
-                        float building_zoom_bias = app->zoom_logic_enabled ? app->building_zoom_bias : -1000.0f;
+                        float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;
                         float layer_opacity = app_layer_opacity_scale(app, TILE_LAYER_POLY_WATER);
-                        polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)water, app->show_landuse,
-                            building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only, layer_opacity);
+                        polygon_renderer_draw_tile(&app->renderer, &app->view_state_bridge.camera, (MftTile *)water, app->view_state_bridge.show_landuse,
+                            building_zoom_bias, app->view_state_bridge.building_fill_enabled, app->view_state_bridge.polygon_outline_only, layer_opacity);
                     }
                 }
             }
             if (park) {
                 if (!app_try_draw_vk_cached_polygon_tile(
                         app, TILE_LAYER_POLY_PARK, coord, park_band, &poly_fill_budget, &poly_asset_build_budget)) {
-                    if (vk_backend && app->vk_assets_enabled) {
+                    if (vk_backend && app->tile_state_bridge.vk_assets_enabled) {
                         vk_asset_misses += 1u;
                         app_vk_asset_enqueue(app, TILE_LAYER_POLY_PARK, coord, park_band);
                     }
                     if (allow_immediate_polygon_fallback) {
-                        float building_zoom_bias = app->zoom_logic_enabled ? app->building_zoom_bias : -1000.0f;
+                        float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;
                         float layer_opacity = app_layer_opacity_scale(app, TILE_LAYER_POLY_PARK);
-                        polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)park, app->show_landuse,
-                            building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only, layer_opacity);
+                        polygon_renderer_draw_tile(&app->renderer, &app->view_state_bridge.camera, (MftTile *)park, app->view_state_bridge.show_landuse,
+                            building_zoom_bias, app->view_state_bridge.building_fill_enabled, app->view_state_bridge.polygon_outline_only, layer_opacity);
                     }
                 }
             }
             if (landuse) {
                 if (!app_try_draw_vk_cached_polygon_tile(
                         app, TILE_LAYER_POLY_LANDUSE, coord, landuse_band, &poly_fill_budget, &poly_asset_build_budget)) {
-                    if (vk_backend && app->vk_assets_enabled) {
+                    if (vk_backend && app->tile_state_bridge.vk_assets_enabled) {
                         vk_asset_misses += 1u;
                         app_vk_asset_enqueue(app, TILE_LAYER_POLY_LANDUSE, coord, landuse_band);
                     }
                     if (allow_immediate_polygon_fallback) {
-                        float building_zoom_bias = app->zoom_logic_enabled ? app->building_zoom_bias : -1000.0f;
+                        float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;
                         float layer_opacity = app_layer_opacity_scale(app, TILE_LAYER_POLY_LANDUSE);
-                        polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)landuse, app->show_landuse,
-                            building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only, layer_opacity);
+                        polygon_renderer_draw_tile(&app->renderer, &app->view_state_bridge.camera, (MftTile *)landuse, app->view_state_bridge.show_landuse,
+                            building_zoom_bias, app->view_state_bridge.building_fill_enabled, app->view_state_bridge.polygon_outline_only, layer_opacity);
                     }
                 }
             }
@@ -814,15 +814,15 @@ uint32_t app_draw_visible_tiles(AppState *app) {
                 }
                 if (!app_try_draw_vk_cached_polygon_tile(
                         app, TILE_LAYER_POLY_BUILDING, coord, building_band, &poly_fill_budget, &poly_asset_build_budget)) {
-                    if (vk_backend && app->vk_assets_enabled) {
+                    if (vk_backend && app->tile_state_bridge.vk_assets_enabled) {
                         vk_asset_misses += 1u;
                         app_vk_asset_enqueue(app, TILE_LAYER_POLY_BUILDING, coord, building_band);
                     }
                     if (allow_immediate_polygon_fallback || app_allow_immediate_building_fallback(app, coord)) {
-                        float building_zoom_bias = app->zoom_logic_enabled ? app->building_zoom_bias : -1000.0f;
+                        float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;
                         float layer_opacity = app_layer_opacity_scale(app, TILE_LAYER_POLY_BUILDING);
-                        polygon_renderer_draw_tile(&app->renderer, &app->camera, (MftTile *)building, app->show_landuse,
-                            building_zoom_bias, app->building_fill_enabled, app->polygon_outline_only, layer_opacity);
+                        polygon_renderer_draw_tile(&app->renderer, &app->view_state_bridge.camera, (MftTile *)building, app->view_state_bridge.show_landuse,
+                            building_zoom_bias, app->view_state_bridge.building_fill_enabled, app->view_state_bridge.polygon_outline_only, layer_opacity);
                     }
                 }
             }
@@ -833,9 +833,9 @@ uint32_t app_draw_visible_tiles(AppState *app) {
         app->renderer.vk_line_budget = total_line_budget;
     }
 
-    app->loading_expected = expected;
-    app->loading_done = done;
-    app->vk_asset_misses = vk_asset_misses;
+    app->tile_state_bridge.loading_expected = expected;
+    app->tile_state_bridge.loading_done = done;
+    app->tile_state_bridge.vk_asset_misses = vk_asset_misses;
     if (app_building_debug_enabled() && building_debug.tiles > 0u) {
         static uint64_t next_log_ms = 0u;
         uint64_t now_ms = SDL_GetTicks64();

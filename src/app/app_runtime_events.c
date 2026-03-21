@@ -15,12 +15,14 @@ void app_runtime_begin_frame(AppState *app, double *out_frame_begin, double *out
 
     double frame_begin = time_now_seconds();
     memset(&app->frame_timings, 0, sizeof(app->frame_timings));
-    input_begin_frame(&app->input);
+    input_begin_frame(&app->ui_state_bridge.input);
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        input_handle_event(&app->input, &event);
+        input_handle_event(&app->ui_state_bridge.input, &event);
     }
+    app_bridge_sync_to_legacy(app);
+    app_bridge_sync_from_legacy(app);
     double after_events = time_now_seconds();
 
     if (out_frame_begin) {

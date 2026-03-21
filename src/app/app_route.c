@@ -282,7 +282,7 @@ bool app_load_route_graph(AppState *app) {
         return false;
     }
 
-    app_route_snap_index_free(&app->route_snap_index);
+    app_route_snap_index_free(&app->route_state_bridge.route_snap_index);
 
     char path[512];
     app_route_graph_path_for_region(app, path, sizeof(path));
@@ -290,27 +290,27 @@ bool app_load_route_graph(AppState *app) {
         log_error("Failed to resolve graph path for region: %s", app->region.name);
         return false;
     }
-    if (!route_state_load_graph(&app->route, path)) {
+    if (!route_state_load_graph(&app->route_state_bridge.route, path)) {
         log_error("Missing route graph for region: %s", app->region.name);
         return false;
     }
-    if (!app_route_snap_index_build(&app->route.graph, &app->route_snap_index)) {
+    if (!app_route_snap_index_build(&app->route_state_bridge.route.graph, &app->route_state_bridge.route_snap_index)) {
         log_error("Failed to build route snap index for region: %s", app->region.name);
     }
-    if (app->route_worker_enabled) {
-        pthread_mutex_lock(&app->route_worker_mutex);
-        while (app->route_worker_busy) {
-            pthread_cond_wait(&app->route_worker_cond, &app->route_worker_mutex);
+    if (app->worker_state_bridge.route_worker_enabled) {
+        pthread_mutex_lock(&app->worker_state_bridge.route_worker_mutex);
+        while (app->worker_state_bridge.route_worker_busy) {
+            pthread_cond_wait(&app->worker_state_bridge.route_worker_cond, &app->worker_state_bridge.route_worker_mutex);
         }
-        route_state_load_graph(&app->route_worker_state, path);
-        app->route_job_pending = false;
-        app_route_result_clear(&app->route_result);
-        app->route_result_pending = false;
-        app->route_recompute_scheduled = false;
-        app->route_latest_requested_id = 0u;
-        app->route_latest_submitted_id = 0u;
-        app->route_latest_applied_id = 0u;
-        pthread_mutex_unlock(&app->route_worker_mutex);
+        route_state_load_graph(&app->worker_state_bridge.route_worker_state, path);
+        app->worker_state_bridge.route_job_pending = false;
+        app_route_result_clear(&app->worker_state_bridge.route_result);
+        app->worker_state_bridge.route_result_pending = false;
+        app->route_state_bridge.route_recompute_scheduled = false;
+        app->worker_state_bridge.route_latest_requested_id = 0u;
+        app->worker_state_bridge.route_latest_submitted_id = 0u;
+        app->worker_state_bridge.route_latest_applied_id = 0u;
+        pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
     }
     return true;
 }
@@ -341,7 +341,7 @@ static float app_route_snap_radius_m_for_pixels(const AppState *app, float pixel
     if (!app || pixels <= 0.0f) {
         return 0.0f;
     }
-    float ppm = camera_pixels_per_meter(&app->camera);
+    float ppm = camera_pixels_per_meter(&app->view_state_bridge.camera);
     if (ppm <= 0.0f) {
         return 0.0f;
     }
@@ -353,7 +353,7 @@ static float app_route_snap_radius_m(const AppState *app) {
 }
 
 static bool app_anchor_from_node(const AppState *app, uint32_t node, RouteEndpointAnchor *out_anchor) {
-    if (!app || !out_anchor || !app->route.loaded || node >= app->route.graph.node_count) {
+    if (!app || !out_anchor || !app->route_state_bridge.route.loaded || node >= app->route_state_bridge.route.graph.node_count) {
         return false;
     }
 
@@ -363,22 +363,22 @@ static bool app_anchor_from_node(const AppState *app, uint32_t node, RouteEndpoi
     out_anchor->node = node;
     out_anchor->edge_from = node;
     out_anchor->edge_to = node;
-    out_anchor->world_x = (float)app->route.graph.node_x[node];
-    out_anchor->world_y = (float)app->route.graph.node_y[node];
+    out_anchor->world_x = (float)app->route_state_bridge.route.graph.node_x[node];
+    out_anchor->world_y = (float)app->route_state_bridge.route.graph.node_y[node];
     return true;
 }
 
 static bool app_find_nearest_edge_anchor(AppState *app, float world_x, float world_y, float snap_radius_m, RouteEndpointAnchor *out_anchor) {
-    if (!app || !out_anchor || !app->route.loaded || app->route.graph.node_count == 0 || app->route.graph.edge_count == 0) {
+    if (!app || !out_anchor || !app->route_state_bridge.route.loaded || app->route_state_bridge.route.graph.node_count == 0 || app->route_state_bridge.route.graph.edge_count == 0) {
         return false;
     }
     if (snap_radius_m <= 0.0f) {
         return false;
     }
 
-    const RouteGraph *graph = &app->route.graph;
+    const RouteGraph *graph = &app->route_state_bridge.route.graph;
     float snap_radius_sq = snap_radius_m * snap_radius_m;
-    const RouteSnapIndex *index = &app->route_snap_index;
+    const RouteSnapIndex *index = &app->route_state_bridge.route_snap_index;
     double query_begin = time_now_seconds();
     uint32_t cells_visited = 0u;
     uint32_t segments_tested = 0u;
@@ -394,12 +394,12 @@ static bool app_find_nearest_edge_anchor(AppState *app, float world_x, float wor
         int32_t cx1 = (int32_t)floorf((world_x + snap_radius_m - index->min_x) / index->cell_size_m);
         int32_t cy1 = (int32_t)floorf((world_y + snap_radius_m - index->min_y) / index->cell_size_m);
 
-        app->route_snap_index.query_seq += 1u;
-        if (app->route_snap_index.query_seq == 0u) {
-            memset(app->route_snap_index.segment_seen, 0, sizeof(uint32_t) * app->route_snap_index.segment_count);
-            app->route_snap_index.query_seq = 1u;
+        app->route_state_bridge.route_snap_index.query_seq += 1u;
+        if (app->route_state_bridge.route_snap_index.query_seq == 0u) {
+            memset(app->route_state_bridge.route_snap_index.segment_seen, 0, sizeof(uint32_t) * app->route_state_bridge.route_snap_index.segment_count);
+            app->route_state_bridge.route_snap_index.query_seq = 1u;
         }
-        uint32_t query_seq = app->route_snap_index.query_seq;
+        uint32_t query_seq = app->route_state_bridge.route_snap_index.query_seq;
 
         for (int32_t cy = cy0; cy <= cy1; ++cy) {
             for (int32_t cx = cx0; cx <= cx1; ++cx) {
@@ -416,10 +416,10 @@ static bool app_find_nearest_edge_anchor(AppState *app, float world_x, float wor
                     if (segment_index >= index->segment_count) {
                         continue;
                     }
-                    if (app->route_snap_index.segment_seen[segment_index] == query_seq) {
+                    if (app->route_state_bridge.route_snap_index.segment_seen[segment_index] == query_seq) {
                         continue;
                     }
-                    app->route_snap_index.segment_seen[segment_index] = query_seq;
+                    app->route_state_bridge.route_snap_index.segment_seen[segment_index] = query_seq;
 
                     uint32_t from = index->segments[segment_index].from;
                     uint32_t to = index->segments[segment_index].to;
@@ -546,10 +546,10 @@ static bool app_find_nearest_edge_anchor(AppState *app, float world_x, float wor
         }
     }
 
-    app->route_snap_debug_cells = cells_visited;
-    app->route_snap_debug_segments = segments_tested;
-    app->route_snap_debug_hits = segment_hits;
-    app->route_snap_debug_query_ms = (float)((time_now_seconds() - query_begin) * 1000.0);
+    app->route_state_bridge.route_snap_debug_cells = cells_visited;
+    app->route_state_bridge.route_snap_debug_segments = segments_tested;
+    app->route_state_bridge.route_snap_debug_hits = segment_hits;
+    app->route_state_bridge.route_snap_debug_query_ms = (float)((time_now_seconds() - query_begin) * 1000.0);
 
     if (!found) {
         return false;
@@ -560,13 +560,13 @@ static bool app_find_nearest_edge_anchor(AppState *app, float world_x, float wor
 }
 
 static bool app_is_near_node_with_radius(const AppState *app, float world_x, float world_y, float snap_radius_m, uint32_t *out_node) {
-    if (!app || !app->route.loaded || app->route.graph.node_count == 0 || !out_node || snap_radius_m <= 0.0f) {
+    if (!app || !app->route_state_bridge.route.loaded || app->route_state_bridge.route.graph.node_count == 0 || !out_node || snap_radius_m <= 0.0f) {
         return false;
     }
 
     uint32_t node = 0;
     double dist = 0.0;
-    if (!app_find_nearest_node(&app->route.graph, world_x, world_y, &node, &dist)) {
+    if (!app_find_nearest_node(&app->route_state_bridge.route.graph, world_x, world_y, &node, &dist)) {
         return false;
     }
 
@@ -583,7 +583,7 @@ bool app_is_near_node(const AppState *app, float world_x, float world_y, uint32_
 }
 
 bool app_pick_route_anchor(AppState *app, float world_x, float world_y, RouteEndpointAnchor *out_anchor) {
-    if (!app || !out_anchor || !app->route.loaded) {
+    if (!app || !out_anchor || !app->route_state_bridge.route.loaded) {
         return false;
     }
 
@@ -600,7 +600,7 @@ bool app_pick_route_anchor(AppState *app, float world_x, float world_y, RouteEnd
 }
 
 bool app_pick_route_anchor_unbounded(AppState *app, float world_x, float world_y, RouteEndpointAnchor *out_anchor) {
-    if (!app || !out_anchor || !app->route.loaded) {
+    if (!app || !out_anchor || !app->route_state_bridge.route.loaded) {
         return false;
     }
 
@@ -620,45 +620,45 @@ void app_route_release_snap_index(AppState *app) {
     if (!app) {
         return;
     }
-    app_route_snap_index_free(&app->route_snap_index);
+    app_route_snap_index_free(&app->route_state_bridge.route_snap_index);
 }
 
 void app_update_hover(AppState *app) {
-    if (!app || !app->route.loaded) {
+    if (!app || !app->route_state_bridge.route.loaded) {
         if (app) {
-            app->has_hover = false;
+            app->route_state_bridge.has_hover = false;
         }
         return;
     }
 
     float world_x = 0.0f;
     float world_y = 0.0f;
-    camera_screen_to_world(&app->camera, (float)app->input.mouse_x, (float)app->input.mouse_y, app->width, app->height, &world_x, &world_y);
+    camera_screen_to_world(&app->view_state_bridge.camera, (float)app->ui_state_bridge.input.mouse_x, (float)app->ui_state_bridge.input.mouse_y, app->width, app->height, &world_x, &world_y);
 
     RouteEndpointAnchor hover = {0};
     if (app_pick_route_anchor(app, world_x, world_y, &hover)) {
-        app->hover_node = hover.node;
-        app->hover_anchor = hover;
-        app->has_hover = true;
+        app->route_state_bridge.hover_node = hover.node;
+        app->route_state_bridge.hover_anchor = hover;
+        app->route_state_bridge.has_hover = true;
     } else {
-        memset(&app->hover_anchor, 0, sizeof(app->hover_anchor));
-        app->has_hover = false;
+        memset(&app->route_state_bridge.hover_anchor, 0, sizeof(app->route_state_bridge.hover_anchor));
+        app->route_state_bridge.has_hover = false;
     }
 }
 
 bool app_mouse_over_node(const AppState *app, uint32_t node, float radius) {
-    if (!app || !app->route.loaded || node >= app->route.graph.node_count) {
+    if (!app || !app->route_state_bridge.route.loaded || node >= app->route_state_bridge.route.graph.node_count) {
         return false;
     }
 
     float sx = 0.0f;
     float sy = 0.0f;
-    camera_world_to_screen(&app->camera,
-                           (float)app->route.graph.node_x[node],
-                           (float)app->route.graph.node_y[node],
+    camera_world_to_screen(&app->view_state_bridge.camera,
+                           (float)app->route_state_bridge.route.graph.node_x[node],
+                           (float)app->route_state_bridge.route.graph.node_y[node],
                            app->width, app->height, &sx, &sy);
-    float dx = (float)app->input.mouse_x - sx;
-    float dy = (float)app->input.mouse_y - sy;
+    float dx = (float)app->ui_state_bridge.input.mouse_x - sx;
+    float dy = (float)app->ui_state_bridge.input.mouse_y - sy;
     return (dx * dx + dy * dy) <= radius * radius;
 }
 
@@ -669,43 +669,43 @@ bool app_mouse_over_anchor(const AppState *app, const RouteEndpointAnchor *ancho
 
     float sx = 0.0f;
     float sy = 0.0f;
-    camera_world_to_screen(&app->camera, anchor->world_x, anchor->world_y, app->width, app->height, &sx, &sy);
-    float dx = (float)app->input.mouse_x - sx;
-    float dy = (float)app->input.mouse_y - sy;
+    camera_world_to_screen(&app->view_state_bridge.camera, anchor->world_x, anchor->world_y, app->width, app->height, &sx, &sy);
+    float dx = (float)app->ui_state_bridge.input.mouse_x - sx;
+    float dy = (float)app->ui_state_bridge.input.mouse_y - sy;
     return (dx * dx + dy * dy) <= radius * radius;
 }
 
 void app_draw_hover_marker(AppState *app) {
-    if (!app || !app->has_hover || !app->route.loaded || !app->hover_anchor.valid) {
+    if (!app || !app->route_state_bridge.has_hover || !app->route_state_bridge.route.loaded || !app->route_state_bridge.hover_anchor.valid) {
         return;
     }
 
-    if ((app->start_anchor.valid && app_mouse_over_anchor(app, &app->start_anchor, 4.5f)) ||
-        (app->goal_anchor.valid && app_mouse_over_anchor(app, &app->goal_anchor, 4.5f))) {
+    if ((app->route_state_bridge.start_anchor.valid && app_mouse_over_anchor(app, &app->route_state_bridge.start_anchor, 4.5f)) ||
+        (app->route_state_bridge.goal_anchor.valid && app_mouse_over_anchor(app, &app->route_state_bridge.goal_anchor, 4.5f))) {
         return;
     }
 
     float sx = 0.0f;
     float sy = 0.0f;
-    camera_world_to_screen(&app->camera, app->hover_anchor.world_x, app->hover_anchor.world_y, app->width, app->height, &sx, &sy);
+    camera_world_to_screen(&app->view_state_bridge.camera, app->route_state_bridge.hover_anchor.world_x, app->route_state_bridge.hover_anchor.world_y, app->width, app->height, &sx, &sy);
     renderer_set_draw_color(&app->renderer, 80, 200, 255, 220);
     SDL_FRect rect = {sx - 5.0f, sy - 5.0f, 10.0f, 10.0f};
     renderer_draw_rect(&app->renderer, &rect);
 
-    if (app->route_edge_snap_debug && app->hover_anchor.on_edge &&
-        app->hover_anchor.edge_from < app->route.graph.node_count &&
-        app->hover_anchor.edge_to < app->route.graph.node_count) {
+    if (app->route_state_bridge.route_edge_snap_debug && app->route_state_bridge.hover_anchor.on_edge &&
+        app->route_state_bridge.hover_anchor.edge_from < app->route_state_bridge.route.graph.node_count &&
+        app->route_state_bridge.hover_anchor.edge_to < app->route_state_bridge.route.graph.node_count) {
         float ax = 0.0f;
         float ay = 0.0f;
         float bx = 0.0f;
         float by = 0.0f;
-        camera_world_to_screen(&app->camera,
-                               (float)app->route.graph.node_x[app->hover_anchor.edge_from],
-                               (float)app->route.graph.node_y[app->hover_anchor.edge_from],
+        camera_world_to_screen(&app->view_state_bridge.camera,
+                               (float)app->route_state_bridge.route.graph.node_x[app->route_state_bridge.hover_anchor.edge_from],
+                               (float)app->route_state_bridge.route.graph.node_y[app->route_state_bridge.hover_anchor.edge_from],
                                app->width, app->height, &ax, &ay);
-        camera_world_to_screen(&app->camera,
-                               (float)app->route.graph.node_x[app->hover_anchor.edge_to],
-                               (float)app->route.graph.node_y[app->hover_anchor.edge_to],
+        camera_world_to_screen(&app->view_state_bridge.camera,
+                               (float)app->route_state_bridge.route.graph.node_x[app->route_state_bridge.hover_anchor.edge_to],
+                               (float)app->route_state_bridge.route.graph.node_y[app->route_state_bridge.hover_anchor.edge_to],
                                app->width, app->height, &bx, &by);
         renderer_set_draw_color(&app->renderer, 255, 210, 70, 220);
         renderer_draw_line(&app->renderer, ax, ay, bx, by);
@@ -720,48 +720,48 @@ const RoutePath *app_route_primary_path(const AppState *app, uint32_t *out_alt_i
         return NULL;
     }
 
-    bool has_any_alternatives = app->route.alternatives.count > 0;
-    for (uint32_t i = 0; i < app->route.alternatives.count && i < ROUTE_ALTERNATIVE_MAX; ++i) {
-        if (app->route.alternatives.objectives[i] != app->route.objective) {
+    bool has_any_alternatives = app->route_state_bridge.route.alternatives.count > 0;
+    for (uint32_t i = 0; i < app->route_state_bridge.route.alternatives.count && i < ROUTE_ALTERNATIVE_MAX; ++i) {
+        if (app->route_state_bridge.route.alternatives.objectives[i] != app->route_state_bridge.route.objective) {
             continue;
         }
-        if (!app->route_alt_visible[i]) {
+        if (!app->route_state_bridge.route_alt_visible[i]) {
             continue;
         }
-        if (app->route.alternatives.paths[i].count < 2) {
+        if (app->route_state_bridge.route.alternatives.paths[i].count < 2) {
             continue;
         }
         if (out_alt_index) {
             *out_alt_index = i;
         }
-        return &app->route.alternatives.paths[i];
+        return &app->route_state_bridge.route.alternatives.paths[i];
     }
 
-    for (uint32_t i = 0; i < app->route.alternatives.count && i < ROUTE_ALTERNATIVE_MAX; ++i) {
-        if (!app->route_alt_visible[i]) {
+    for (uint32_t i = 0; i < app->route_state_bridge.route.alternatives.count && i < ROUTE_ALTERNATIVE_MAX; ++i) {
+        if (!app->route_state_bridge.route_alt_visible[i]) {
             continue;
         }
-        if (app->route.alternatives.paths[i].count < 2) {
+        if (app->route_state_bridge.route.alternatives.paths[i].count < 2) {
             continue;
         }
         if (out_alt_index) {
             *out_alt_index = i;
         }
-        return &app->route.alternatives.paths[i];
+        return &app->route_state_bridge.route.alternatives.paths[i];
     }
 
     if (has_any_alternatives) {
         return NULL;
     }
 
-    if (app->route.path.count >= 2) {
-        return &app->route.path;
+    if (app->route_state_bridge.route.path.count >= 2) {
+        return &app->route_state_bridge.route.path;
     }
     return NULL;
 }
 
 bool app_recompute_route(AppState *app) {
-    if (!app || !app->route.has_start || !app->route.has_goal) {
+    if (!app || !app->route_state_bridge.route.has_start || !app->route_state_bridge.route.has_goal) {
         return false;
     }
 
@@ -1017,18 +1017,18 @@ static void *app_route_worker_thread_main(void *userdata) {
 
     for (;;) {
         RouteComputeJob job = {0};
-        pthread_mutex_lock(&app->route_worker_mutex);
-        while (app->route_worker_running && !app->route_job_pending) {
-            pthread_cond_wait(&app->route_worker_cond, &app->route_worker_mutex);
+        pthread_mutex_lock(&app->worker_state_bridge.route_worker_mutex);
+        while (app->worker_state_bridge.route_worker_running && !app->worker_state_bridge.route_job_pending) {
+            pthread_cond_wait(&app->worker_state_bridge.route_worker_cond, &app->worker_state_bridge.route_worker_mutex);
         }
-        if (!app->route_worker_running) {
-            pthread_mutex_unlock(&app->route_worker_mutex);
+        if (!app->worker_state_bridge.route_worker_running) {
+            pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
             break;
         }
-        job = app->route_job;
-        app->route_job_pending = false;
-        app->route_worker_busy = true;
-        pthread_mutex_unlock(&app->route_worker_mutex);
+        job = app->worker_state_bridge.route_job;
+        app->worker_state_bridge.route_job_pending = false;
+        app->worker_state_bridge.route_worker_busy = true;
+        pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
 
         RouteComputeResult result = {0};
         result.request_id = job.request_id;
@@ -1037,9 +1037,9 @@ static void *app_route_worker_thread_main(void *userdata) {
         result.objective = job.objective;
         result.mode = job.mode;
 
-        app->route_worker_state.objective = job.objective;
-        app->route_worker_state.mode = job.mode;
-        bool ok = app_route_run_phase2_endpoint_solve(&app->route_worker_state,
+        app->worker_state_bridge.route_worker_state.objective = job.objective;
+        app->worker_state_bridge.route_worker_state.mode = job.mode;
+        bool ok = app_route_run_phase2_endpoint_solve(&app->worker_state_bridge.route_worker_state,
                                                       &job.start_anchor,
                                                       &job.goal_anchor,
                                                       job.start_node,
@@ -1050,25 +1050,25 @@ static void *app_route_worker_thread_main(void *userdata) {
                                                       &result.goal_node);
         result.ok = ok;
         if (ok) {
-            result.has_transfer = app->route_worker_state.has_transfer;
-            result.transfer_node = app->route_worker_state.transfer_node;
-            result.path = app->route_worker_state.path;
-            result.drive_path = app->route_worker_state.drive_path;
-            result.walk_path = app->route_worker_state.walk_path;
-            result.alternatives = app->route_worker_state.alternatives;
-            memset(&app->route_worker_state.path, 0, sizeof(app->route_worker_state.path));
-            memset(&app->route_worker_state.drive_path, 0, sizeof(app->route_worker_state.drive_path));
-            memset(&app->route_worker_state.walk_path, 0, sizeof(app->route_worker_state.walk_path));
-            memset(&app->route_worker_state.alternatives, 0, sizeof(app->route_worker_state.alternatives));
+            result.has_transfer = app->worker_state_bridge.route_worker_state.has_transfer;
+            result.transfer_node = app->worker_state_bridge.route_worker_state.transfer_node;
+            result.path = app->worker_state_bridge.route_worker_state.path;
+            result.drive_path = app->worker_state_bridge.route_worker_state.drive_path;
+            result.walk_path = app->worker_state_bridge.route_worker_state.walk_path;
+            result.alternatives = app->worker_state_bridge.route_worker_state.alternatives;
+            memset(&app->worker_state_bridge.route_worker_state.path, 0, sizeof(app->worker_state_bridge.route_worker_state.path));
+            memset(&app->worker_state_bridge.route_worker_state.drive_path, 0, sizeof(app->worker_state_bridge.route_worker_state.drive_path));
+            memset(&app->worker_state_bridge.route_worker_state.walk_path, 0, sizeof(app->worker_state_bridge.route_worker_state.walk_path));
+            memset(&app->worker_state_bridge.route_worker_state.alternatives, 0, sizeof(app->worker_state_bridge.route_worker_state.alternatives));
         }
 
-        pthread_mutex_lock(&app->route_worker_mutex);
-        app_route_result_clear(&app->route_result);
-        app->route_result = result;
-        app->route_result_pending = true;
-        app->route_worker_busy = false;
-        pthread_cond_broadcast(&app->route_worker_cond);
-        pthread_mutex_unlock(&app->route_worker_mutex);
+        pthread_mutex_lock(&app->worker_state_bridge.route_worker_mutex);
+        app_route_result_clear(&app->worker_state_bridge.route_result);
+        app->worker_state_bridge.route_result = result;
+        app->worker_state_bridge.route_result_pending = true;
+        app->worker_state_bridge.route_worker_busy = false;
+        pthread_cond_broadcast(&app->worker_state_bridge.route_worker_cond);
+        pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
     }
 
     return NULL;
@@ -1078,79 +1078,79 @@ bool app_route_worker_init(AppState *app) {
     if (!app) {
         return false;
     }
-    app->route_worker_enabled = false;
-    app->route_worker_running = false;
-    app->route_worker_busy = false;
-    app->route_job_pending = false;
-    app->route_result_pending = false;
-    app->route_latest_requested_id = 0u;
-    app->route_latest_submitted_id = 0u;
-    app->route_latest_applied_id = 0u;
-    app->route_recompute_scheduled = false;
-    app->route_recompute_due_time = 0.0;
-    memset(&app->route_job, 0, sizeof(app->route_job));
-    memset(&app->route_result, 0, sizeof(app->route_result));
-    route_state_init(&app->route_worker_state);
-    if (pthread_mutex_init(&app->route_worker_mutex, NULL) != 0) {
+    app->worker_state_bridge.route_worker_enabled = false;
+    app->worker_state_bridge.route_worker_running = false;
+    app->worker_state_bridge.route_worker_busy = false;
+    app->worker_state_bridge.route_job_pending = false;
+    app->worker_state_bridge.route_result_pending = false;
+    app->worker_state_bridge.route_latest_requested_id = 0u;
+    app->worker_state_bridge.route_latest_submitted_id = 0u;
+    app->worker_state_bridge.route_latest_applied_id = 0u;
+    app->route_state_bridge.route_recompute_scheduled = false;
+    app->route_state_bridge.route_recompute_due_time = 0.0;
+    memset(&app->worker_state_bridge.route_job, 0, sizeof(app->worker_state_bridge.route_job));
+    memset(&app->worker_state_bridge.route_result, 0, sizeof(app->worker_state_bridge.route_result));
+    route_state_init(&app->worker_state_bridge.route_worker_state);
+    if (pthread_mutex_init(&app->worker_state_bridge.route_worker_mutex, NULL) != 0) {
         return false;
     }
-    if (pthread_cond_init(&app->route_worker_cond, NULL) != 0) {
-        pthread_mutex_destroy(&app->route_worker_mutex);
+    if (pthread_cond_init(&app->worker_state_bridge.route_worker_cond, NULL) != 0) {
+        pthread_mutex_destroy(&app->worker_state_bridge.route_worker_mutex);
         return false;
     }
-    app->route_worker_running = true;
-    if (pthread_create(&app->route_worker_thread, NULL, app_route_worker_thread_main, app) != 0) {
-        app->route_worker_running = false;
-        pthread_cond_destroy(&app->route_worker_cond);
-        pthread_mutex_destroy(&app->route_worker_mutex);
-        route_state_shutdown(&app->route_worker_state);
+    app->worker_state_bridge.route_worker_running = true;
+    if (pthread_create(&app->worker_state_bridge.route_worker_thread, NULL, app_route_worker_thread_main, app) != 0) {
+        app->worker_state_bridge.route_worker_running = false;
+        pthread_cond_destroy(&app->worker_state_bridge.route_worker_cond);
+        pthread_mutex_destroy(&app->worker_state_bridge.route_worker_mutex);
+        route_state_shutdown(&app->worker_state_bridge.route_worker_state);
         return false;
     }
-    app->route_worker_enabled = true;
+    app->worker_state_bridge.route_worker_enabled = true;
     return true;
 }
 
 void app_route_worker_shutdown(AppState *app) {
-    if (!app || !app->route_worker_enabled) {
+    if (!app || !app->worker_state_bridge.route_worker_enabled) {
         return;
     }
-    pthread_mutex_lock(&app->route_worker_mutex);
-    app->route_worker_running = false;
-    pthread_cond_broadcast(&app->route_worker_cond);
-    pthread_mutex_unlock(&app->route_worker_mutex);
-    pthread_join(app->route_worker_thread, NULL);
-    pthread_mutex_lock(&app->route_worker_mutex);
-    app_route_result_clear(&app->route_result);
-    app->route_result_pending = false;
-    app->route_job_pending = false;
-    pthread_mutex_unlock(&app->route_worker_mutex);
-    pthread_cond_destroy(&app->route_worker_cond);
-    pthread_mutex_destroy(&app->route_worker_mutex);
-    route_state_shutdown(&app->route_worker_state);
-    app->route_worker_enabled = false;
+    pthread_mutex_lock(&app->worker_state_bridge.route_worker_mutex);
+    app->worker_state_bridge.route_worker_running = false;
+    pthread_cond_broadcast(&app->worker_state_bridge.route_worker_cond);
+    pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
+    pthread_join(app->worker_state_bridge.route_worker_thread, NULL);
+    pthread_mutex_lock(&app->worker_state_bridge.route_worker_mutex);
+    app_route_result_clear(&app->worker_state_bridge.route_result);
+    app->worker_state_bridge.route_result_pending = false;
+    app->worker_state_bridge.route_job_pending = false;
+    pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
+    pthread_cond_destroy(&app->worker_state_bridge.route_worker_cond);
+    pthread_mutex_destroy(&app->worker_state_bridge.route_worker_mutex);
+    route_state_shutdown(&app->worker_state_bridge.route_worker_state);
+    app->worker_state_bridge.route_worker_enabled = false;
 }
 
 void app_route_worker_clear(AppState *app) {
-    if (!app || !app->route_worker_enabled) {
+    if (!app || !app->worker_state_bridge.route_worker_enabled) {
         return;
     }
-    pthread_mutex_lock(&app->route_worker_mutex);
-    while (app->route_worker_busy) {
-        pthread_cond_wait(&app->route_worker_cond, &app->route_worker_mutex);
+    pthread_mutex_lock(&app->worker_state_bridge.route_worker_mutex);
+    while (app->worker_state_bridge.route_worker_busy) {
+        pthread_cond_wait(&app->worker_state_bridge.route_worker_cond, &app->worker_state_bridge.route_worker_mutex);
     }
-    app->route_job_pending = false;
-    app_route_result_clear(&app->route_result);
-    app->route_result_pending = false;
-    app->route_recompute_scheduled = false;
-    app->route_latest_requested_id = 0u;
-    app->route_latest_submitted_id = 0u;
-    app->route_latest_applied_id = 0u;
-    route_state_clear(&app->route_worker_state);
-    pthread_mutex_unlock(&app->route_worker_mutex);
+    app->worker_state_bridge.route_job_pending = false;
+    app_route_result_clear(&app->worker_state_bridge.route_result);
+    app->worker_state_bridge.route_result_pending = false;
+    app->route_state_bridge.route_recompute_scheduled = false;
+    app->worker_state_bridge.route_latest_requested_id = 0u;
+    app->worker_state_bridge.route_latest_submitted_id = 0u;
+    app->worker_state_bridge.route_latest_applied_id = 0u;
+    route_state_clear(&app->worker_state_bridge.route_worker_state);
+    pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
 }
 
 void app_route_schedule_recompute(AppState *app, double debounce_sec) {
-    if (!app || !app->route_worker_enabled || !app->route.has_start || !app->route.has_goal) {
+    if (!app || !app->worker_state_bridge.route_worker_enabled || !app->route_state_bridge.route.has_start || !app->route_state_bridge.route.has_goal) {
         return;
     }
     if (debounce_sec < 0.0) {
@@ -1158,15 +1158,15 @@ void app_route_schedule_recompute(AppState *app, double debounce_sec) {
     }
 
     double now = time_now_seconds();
-    pthread_mutex_lock(&app->route_worker_mutex);
-    app->route_recompute_scheduled = true;
-    app->route_recompute_due_time = now + debounce_sec;
-    app->route_latest_requested_id += 1u;
-    pthread_mutex_unlock(&app->route_worker_mutex);
+    pthread_mutex_lock(&app->worker_state_bridge.route_worker_mutex);
+    app->route_state_bridge.route_recompute_scheduled = true;
+    app->route_state_bridge.route_recompute_due_time = now + debounce_sec;
+    app->worker_state_bridge.route_latest_requested_id += 1u;
+    pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
 }
 
 void app_route_poll_result(AppState *app) {
-    if (!app || !app->route_worker_enabled) {
+    if (!app || !app->worker_state_bridge.route_worker_enabled) {
         return;
     }
 
@@ -1176,37 +1176,37 @@ void app_route_poll_result(AppState *app) {
     bool should_submit = false;
     double now = time_now_seconds();
 
-    pthread_mutex_lock(&app->route_worker_mutex);
-    if (app->route_result_pending) {
-        result = app->route_result;
-        memset(&app->route_result, 0, sizeof(app->route_result));
-        app->route_result_pending = false;
+    pthread_mutex_lock(&app->worker_state_bridge.route_worker_mutex);
+    if (app->worker_state_bridge.route_result_pending) {
+        result = app->worker_state_bridge.route_result;
+        memset(&app->worker_state_bridge.route_result, 0, sizeof(app->worker_state_bridge.route_result));
+        app->worker_state_bridge.route_result_pending = false;
         have_result = true;
     }
-    if (app->route_recompute_scheduled && now >= app->route_recompute_due_time &&
-        app->route.loaded && app->route.has_start && app->route.has_goal) {
-        submit_job.request_id = app->route_latest_requested_id;
-        submit_job.start_node = app->route.start_node;
-        submit_job.goal_node = app->route.goal_node;
-        submit_job.start_anchor = app->start_anchor;
-        submit_job.goal_anchor = app->goal_anchor;
-        submit_job.objective = app->route.objective;
-        submit_job.mode = app->route.mode;
-        app->route_job = submit_job;
-        app->route_job_pending = true;
-        app->route_recompute_scheduled = false;
-        app->route_latest_submitted_id = submit_job.request_id;
+    if (app->route_state_bridge.route_recompute_scheduled && now >= app->route_state_bridge.route_recompute_due_time &&
+        app->route_state_bridge.route.loaded && app->route_state_bridge.route.has_start && app->route_state_bridge.route.has_goal) {
+        submit_job.request_id = app->worker_state_bridge.route_latest_requested_id;
+        submit_job.start_node = app->route_state_bridge.route.start_node;
+        submit_job.goal_node = app->route_state_bridge.route.goal_node;
+        submit_job.start_anchor = app->route_state_bridge.start_anchor;
+        submit_job.goal_anchor = app->route_state_bridge.goal_anchor;
+        submit_job.objective = app->route_state_bridge.route.objective;
+        submit_job.mode = app->route_state_bridge.route.mode;
+        app->worker_state_bridge.route_job = submit_job;
+        app->worker_state_bridge.route_job_pending = true;
+        app->route_state_bridge.route_recompute_scheduled = false;
+        app->worker_state_bridge.route_latest_submitted_id = submit_job.request_id;
         should_submit = true;
     }
     if (should_submit) {
-        pthread_cond_signal(&app->route_worker_cond);
+        pthread_cond_signal(&app->worker_state_bridge.route_worker_cond);
     }
-    pthread_mutex_unlock(&app->route_worker_mutex);
+    pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
 
     if (!have_result) {
         return;
     }
-    if (result.request_id != app->route_latest_submitted_id || result.request_id < app->route_latest_applied_id) {
+    if (result.request_id != app->worker_state_bridge.route_latest_submitted_id || result.request_id < app->worker_state_bridge.route_latest_applied_id) {
         app_route_result_clear(&result);
         return;
     }
@@ -1219,34 +1219,34 @@ void app_route_poll_result(AppState *app) {
     for (uint32_t i = 0; i < ROUTE_OBJECTIVE_COUNT; ++i) {
         visible_by_objective[i] = true;
     }
-    for (uint32_t i = 0; i < app->route.alternatives.count && i < ROUTE_ALTERNATIVE_MAX; ++i) {
-        int objective_idx = app_route_objective_index(app->route.alternatives.objectives[i]);
+    for (uint32_t i = 0; i < app->route_state_bridge.route.alternatives.count && i < ROUTE_ALTERNATIVE_MAX; ++i) {
+        int objective_idx = app_route_objective_index(app->route_state_bridge.route.alternatives.objectives[i]);
         if (objective_idx >= 0) {
-            visible_by_objective[objective_idx] = app->route_alt_visible[i];
+            visible_by_objective[objective_idx] = app->route_state_bridge.route_alt_visible[i];
         }
     }
 
-    app_route_path_move(&app->route.path, &result.path);
-    app_route_path_move(&app->route.drive_path, &result.drive_path);
-    app_route_path_move(&app->route.walk_path, &result.walk_path);
-    app_route_alternatives_move(&app->route.alternatives, &result.alternatives);
-    app->hud_route_panel_layout_dirty = true;
+    app_route_path_move(&app->route_state_bridge.route.path, &result.path);
+    app_route_path_move(&app->route_state_bridge.route.drive_path, &result.drive_path);
+    app_route_path_move(&app->route_state_bridge.route.walk_path, &result.walk_path);
+    app_route_alternatives_move(&app->route_state_bridge.route.alternatives, &result.alternatives);
+    app->ui_state_bridge.hud_route_panel_layout_dirty = true;
     for (uint32_t i = 0; i < ROUTE_ALTERNATIVE_MAX; ++i) {
-        if (i < app->route.alternatives.count) {
-            int objective_idx = app_route_objective_index(app->route.alternatives.objectives[i]);
-            app->route_alt_visible[i] = objective_idx >= 0 ? visible_by_objective[objective_idx] : true;
+        if (i < app->route_state_bridge.route.alternatives.count) {
+            int objective_idx = app_route_objective_index(app->route_state_bridge.route.alternatives.objectives[i]);
+            app->route_state_bridge.route_alt_visible[i] = objective_idx >= 0 ? visible_by_objective[objective_idx] : true;
         } else {
-            app->route_alt_visible[i] = false;
+            app->route_state_bridge.route_alt_visible[i] = false;
         }
     }
-    app->route.start_node = result.start_node;
-    app->route.goal_node = result.goal_node;
-    app->route.has_start = true;
-    app->route.has_goal = true;
-    app->route.objective = result.objective;
-    app->route.mode = result.mode;
-    app->route.has_transfer = result.has_transfer;
-    app->route.transfer_node = result.transfer_node;
-    app->route_latest_applied_id = result.request_id;
+    app->route_state_bridge.route.start_node = result.start_node;
+    app->route_state_bridge.route.goal_node = result.goal_node;
+    app->route_state_bridge.route.has_start = true;
+    app->route_state_bridge.route.has_goal = true;
+    app->route_state_bridge.route.objective = result.objective;
+    app->route_state_bridge.route.mode = result.mode;
+    app->route_state_bridge.route.has_transfer = result.has_transfer;
+    app->route_state_bridge.route.transfer_node = result.transfer_node;
+    app->worker_state_bridge.route_latest_applied_id = result.request_id;
     app_playback_reset(app);
 }

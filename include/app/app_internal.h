@@ -191,72 +191,9 @@ typedef struct VkPolyPrepStats {
     uint64_t drop_count;
 } VkPolyPrepStats;
 
-/* Owns core application state for the main loop. */
-typedef struct AppState {
-    SDL_Window *window;
-    Renderer renderer;
+/* Phase 2 bridge: target ownership bucket for view/persisted runtime controls. */
+typedef struct AppViewState {
     Camera camera;
-    InputState input;
-    DebugOverlay overlay;
-    bool hud_layer_debug_collapsed;
-    SDL_FRect hud_layer_debug_panel_rect;
-    SDL_FRect hud_layer_debug_collapse_rect;
-    SDL_FRect hud_layer_debug_handle_rect;
-    bool hud_layer_debug_layout_dirty;
-    uint64_t hud_layer_debug_layout_hash;
-    float hud_layer_debug_cached_w;
-    float hud_layer_debug_cached_h;
-    int hud_layer_debug_cached_line_count;
-    int hud_layer_debug_cached_max_text_w;
-    TileManager tile_managers[TILE_LAYER_COUNT];
-    TileLoader tile_loader;
-    VkTileCache vk_tile_cache;
-    bool single_line;
-    RegionInfo region;
-    int region_index;
-    RouteState route;
-    bool dragging_start;
-    bool dragging_goal;
-    bool has_hover;
-    uint32_t hover_node;
-    RouteEndpointAnchor hover_anchor;
-    RouteEndpointAnchor start_anchor;
-    RouteEndpointAnchor goal_anchor;
-    RouteSnapIndex route_snap_index;
-    bool route_edge_snap_enabled;
-    bool route_edge_snap_debug;
-    bool playback_playing;
-    float playback_time_s;
-    float playback_speed;
-    bool hud_route_panel_collapsed;
-    SDL_FRect hud_route_panel_rect;
-    SDL_FRect hud_route_panel_collapse_rect;
-    SDL_FRect hud_route_panel_handle_rect;
-    SDL_FRect hud_route_panel_row_rects[ROUTE_ALTERNATIVE_MAX];
-    SDL_FRect hud_route_panel_toggle_rects[ROUTE_ALTERNATIVE_MAX];
-    SDL_FRect header_layer_row_rects[TILE_LAYER_COUNT];
-    SDL_FRect header_layer_label_rects[TILE_LAYER_COUNT];
-    SDL_FRect header_layer_toggle_rects[TILE_LAYER_COUNT];
-    SDL_FRect header_zoom_toggle_rect;
-    SDL_FRect header_layer_opacity_panel_rect;
-    SDL_FRect header_layer_opacity_track_rect;
-    SDL_FRect header_layer_fade_panel_rect;
-    SDL_FRect header_layer_fade_start_track_rect;
-    SDL_FRect header_layer_fade_speed_track_rect;
-    bool header_layer_opacity_dragging;
-    int header_layer_fade_drag_target;
-    int header_layer_panel_mode;
-    bool header_layer_selected_valid;
-    TileLayerKind header_layer_selected_kind;
-    bool route_alt_visible[ROUTE_ALTERNATIVE_MAX];
-    bool hud_route_panel_layout_dirty;
-    uint64_t hud_route_panel_layout_hash;
-    float hud_route_panel_cached_w;
-    float hud_route_panel_cached_h;
-    int hud_route_panel_cached_row_count;
-    int hud_route_panel_cached_max_text_w;
-    char hud_route_panel_summary_text[APP_HUD_ROUTE_LINE_CAPACITY];
-    char hud_route_panel_row_text[ROUTE_ALTERNATIVE_MAX][APP_HUD_ROUTE_LINE_CAPACITY];
     bool show_landuse;
     float building_zoom_bias;
     bool building_fill_enabled;
@@ -267,6 +204,13 @@ typedef struct AppState {
     uint16_t layer_opacity_milli[TILE_LAYER_COUNT];
     uint16_t layer_fade_start_milli[TILE_LAYER_COUNT];
     uint16_t layer_fade_speed_milli[TILE_LAYER_COUNT];
+} AppViewState;
+
+/* Phase 2 bridge: target ownership bucket for tile/cache/runtime coverage state. */
+typedef struct AppTileState {
+    TileManager tile_managers[TILE_LAYER_COUNT];
+    TileLoader tile_loader;
+    VkTileCache vk_tile_cache;
     uint32_t tile_request_id;
     TileQueue tile_queues[TILE_LAYER_COUNT];
     TileZoomBand queue_band[TILE_LAYER_COUNT];
@@ -303,6 +247,35 @@ typedef struct AppState {
     uint32_t vk_poly_fill_fail;
     uint32_t vk_poly_fill_indices;
     uint32_t vk_road_band_fallback_draws;
+} AppTileState;
+
+/* Phase 2 bridge: target ownership bucket for route/path interaction state. */
+typedef struct AppRouteRuntimeState {
+    RouteState route;
+    bool dragging_start;
+    bool dragging_goal;
+    bool has_hover;
+    uint32_t hover_node;
+    RouteEndpointAnchor hover_anchor;
+    RouteEndpointAnchor start_anchor;
+    RouteEndpointAnchor goal_anchor;
+    RouteSnapIndex route_snap_index;
+    bool route_edge_snap_enabled;
+    bool route_edge_snap_debug;
+    bool playback_playing;
+    float playback_time_s;
+    float playback_speed;
+    bool route_alt_visible[ROUTE_ALTERNATIVE_MAX];
+    uint32_t route_snap_debug_cells;
+    uint32_t route_snap_debug_segments;
+    uint32_t route_snap_debug_hits;
+    float route_snap_debug_query_ms;
+    bool route_recompute_scheduled;
+    double route_recompute_due_time;
+} AppRouteRuntimeState;
+
+/* Phase 2 bridge: target ownership bucket for worker/thread synchronization state. */
+typedef struct AppWorkerState {
     bool vk_poly_prep_enabled;
     bool vk_poly_prep_running;
     pthread_t vk_poly_prep_thread;
@@ -357,12 +330,66 @@ typedef struct AppState {
     uint32_t route_latest_requested_id;
     uint32_t route_latest_submitted_id;
     uint32_t route_latest_applied_id;
-    uint32_t route_snap_debug_cells;
-    uint32_t route_snap_debug_segments;
-    uint32_t route_snap_debug_hits;
-    float route_snap_debug_query_ms;
-    bool route_recompute_scheduled;
-    double route_recompute_due_time;
+} AppWorkerState;
+
+/* Phase 2 bridge: target ownership bucket for HUD/header layout/cache state. */
+typedef struct AppUiState {
+    InputState input;
+    DebugOverlay overlay;
+    bool hud_layer_debug_collapsed;
+    SDL_FRect hud_layer_debug_panel_rect;
+    SDL_FRect hud_layer_debug_collapse_rect;
+    SDL_FRect hud_layer_debug_handle_rect;
+    bool hud_layer_debug_layout_dirty;
+    uint64_t hud_layer_debug_layout_hash;
+    float hud_layer_debug_cached_w;
+    float hud_layer_debug_cached_h;
+    int hud_layer_debug_cached_line_count;
+    int hud_layer_debug_cached_max_text_w;
+    bool hud_route_panel_collapsed;
+    SDL_FRect hud_route_panel_rect;
+    SDL_FRect hud_route_panel_collapse_rect;
+    SDL_FRect hud_route_panel_handle_rect;
+    SDL_FRect hud_route_panel_row_rects[ROUTE_ALTERNATIVE_MAX];
+    SDL_FRect hud_route_panel_toggle_rects[ROUTE_ALTERNATIVE_MAX];
+    SDL_FRect header_layer_row_rects[TILE_LAYER_COUNT];
+    SDL_FRect header_layer_label_rects[TILE_LAYER_COUNT];
+    SDL_FRect header_layer_toggle_rects[TILE_LAYER_COUNT];
+    SDL_FRect header_zoom_toggle_rect;
+    SDL_FRect header_layer_opacity_panel_rect;
+    SDL_FRect header_layer_opacity_track_rect;
+    SDL_FRect header_layer_fade_panel_rect;
+    SDL_FRect header_layer_fade_start_track_rect;
+    SDL_FRect header_layer_fade_speed_track_rect;
+    bool header_layer_opacity_dragging;
+    int header_layer_fade_drag_target;
+    int header_layer_panel_mode;
+    bool header_layer_selected_valid;
+    TileLayerKind header_layer_selected_kind;
+    bool hud_route_panel_layout_dirty;
+    uint64_t hud_route_panel_layout_hash;
+    float hud_route_panel_cached_w;
+    float hud_route_panel_cached_h;
+    int hud_route_panel_cached_row_count;
+    int hud_route_panel_cached_max_text_w;
+    char hud_route_panel_summary_text[APP_HUD_ROUTE_LINE_CAPACITY];
+    char hud_route_panel_row_text[ROUTE_ALTERNATIVE_MAX][APP_HUD_ROUTE_LINE_CAPACITY];
+} AppUiState;
+
+/* Owns core application state for the main loop. */
+typedef struct AppState {
+    /* Phase 2 ownership buckets (canonical state). */
+    AppViewState view_state_bridge;
+    AppTileState tile_state_bridge;
+    AppRouteRuntimeState route_state_bridge;
+    AppWorkerState worker_state_bridge;
+    AppUiState ui_state_bridge;
+
+    SDL_Window *window;
+    Renderer renderer;
+    bool single_line;
+    RegionInfo region;
+    int region_index;
     FramePhaseTimings frame_timings;
     bool trace_enabled;
     CoreTraceSession trace_session;
@@ -376,6 +403,9 @@ typedef struct AppState {
     int width;
     int height;
 } AppState;
+
+void app_bridge_sync_from_legacy(AppState *app);
+void app_bridge_sync_to_legacy(AppState *app);
 
 float app_clampf(float value, float min_value, float max_value);
 uint16_t app_zoom_to_tile_level(float zoom, const RegionInfo *region);

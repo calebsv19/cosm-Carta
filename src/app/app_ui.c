@@ -108,9 +108,9 @@ static float app_draw_header_layer_chips(AppState *app,
     const float progress_h = 3.0f;
     SDL_Color text_color = palette ? palette->text_primary : (SDL_Color){225, 230, 240, 255};
 
-    memset(&app->header_layer_row_rects, 0, sizeof(app->header_layer_row_rects));
-    memset(&app->header_layer_label_rects, 0, sizeof(app->header_layer_label_rects));
-    memset(&app->header_layer_toggle_rects, 0, sizeof(app->header_layer_toggle_rects));
+    memset(&app->ui_state_bridge.header_layer_row_rects, 0, sizeof(app->ui_state_bridge.header_layer_row_rects));
+    memset(&app->ui_state_bridge.header_layer_label_rects, 0, sizeof(app->ui_state_bridge.header_layer_label_rects));
+    memset(&app->ui_state_bridge.header_layer_toggle_rects, 0, sizeof(app->ui_state_bridge.header_layer_toggle_rects));
 
     float available_w = ((float)app->width - right_pad) - left_limit;
     if (available_w < chip_w) {
@@ -133,20 +133,20 @@ static float app_draw_header_layer_chips(AppState *app,
         SDL_FRect row_rect = (SDL_FRect){chip_x, box_y, chip_w, box_h};
         SDL_FRect label_rect = (SDL_FRect){chip_x + 1.0f, box_y + 1.0f, chip_w - toggle_w - 2.0f, box_h - 2.0f};
         SDL_FRect toggle_rect = (SDL_FRect){chip_x + chip_w - toggle_w, box_y + 1.0f, toggle_w - 1.0f, box_h - 2.0f};
-        app->header_layer_row_rects[kind] = row_rect;
-        app->header_layer_label_rects[kind] = label_rect;
-        app->header_layer_toggle_rects[kind] = toggle_rect;
+        app->ui_state_bridge.header_layer_row_rects[kind] = row_rect;
+        app->ui_state_bridge.header_layer_label_rects[kind] = label_rect;
+        app->ui_state_bridge.header_layer_toggle_rects[kind] = toggle_rect;
 
         uint32_t expected = layer_policy_requires_full_ready(kind)
-            ? app->layer_expected[kind]
-            : app->layer_visible_expected[kind];
+            ? app->tile_state_bridge.layer_expected[kind]
+            : app->tile_state_bridge.layer_visible_expected[kind];
         uint32_t done = layer_policy_requires_full_ready(kind)
-            ? app->layer_done[kind]
-            : app->layer_visible_loaded[kind];
+            ? app->tile_state_bridge.layer_done[kind]
+            : app->tile_state_bridge.layer_visible_loaded[kind];
         bool runtime_enabled = app_layer_runtime_enabled(app, kind);
         bool runtime_active = app_layer_active_runtime(app, kind);
-        bool is_ready = app->layer_state[kind] == LAYER_READINESS_READY;
-        bool is_loading = app->layer_state[kind] == LAYER_READINESS_LOADING && expected > 0;
+        bool is_ready = app->tile_state_bridge.layer_state[kind] == LAYER_READINESS_READY;
+        bool is_loading = app->tile_state_bridge.layer_state[kind] == LAYER_READINESS_LOADING && expected > 0;
 
         renderer_set_draw_color(&app->renderer,
                                 palette->chip_idle_outline.r, palette->chip_idle_outline.g, palette->chip_idle_outline.b, palette->chip_idle_outline.a);
@@ -159,7 +159,7 @@ static float app_draw_header_layer_chips(AppState *app,
             renderer_set_draw_color(&app->renderer,
                                     palette->chip_idle_outline.r, palette->chip_idle_outline.g, palette->chip_idle_outline.b, palette->chip_idle_outline.a);
             renderer_draw_rect(&app->renderer, &label_rect);
-        } else if (!runtime_active || app->layer_state[kind] == LAYER_READINESS_HIDDEN) {
+        } else if (!runtime_active || app->tile_state_bridge.layer_state[kind] == LAYER_READINESS_HIDDEN) {
             renderer_set_draw_color(&app->renderer,
                                     palette->badge_fill.r, palette->badge_fill.g, palette->badge_fill.b, palette->badge_fill.a);
             renderer_fill_rect(&app->renderer, &label_rect);
@@ -255,7 +255,7 @@ void app_draw_header_bar(AppState *app) {
     SDL_FRect left = {button.x + 1.0f, button.y + 1.0f, (button.w * 0.5f) - 2.0f, button.h - 2.0f};
     SDL_FRect right = {button.x + button.w * 0.5f + 1.0f, button.y + 1.0f, (button.w * 0.5f) - 2.0f, button.h - 2.0f};
 
-    if (app->route.mode == ROUTE_MODE_CAR) {
+    if (app->route_state_bridge.route.mode == ROUTE_MODE_CAR) {
         renderer_set_draw_color(&app->renderer,
                                 palette.button_active_primary.r, palette.button_active_primary.g,
                                 palette.button_active_primary.b, palette.button_active_primary.a);
@@ -285,7 +285,7 @@ void app_draw_header_bar(AppState *app) {
 
     float cursor_x = button.x + button.w + 12.0f;
     char speed_text[32];
-    snprintf(speed_text, sizeof(speed_text), "Speed: %.1fx", app->playback_speed);
+    snprintf(speed_text, sizeof(speed_text), "Speed: %.1fx", app->route_state_bridge.playback_speed);
     char distance_text[48];
     char zoom_text[24];
     float km = 0.0f;
@@ -295,19 +295,19 @@ void app_draw_header_bar(AppState *app) {
         km = primary_path->total_length_m / 1000.0f;
         minutes = primary_path->total_time_s / 60.0f;
     }
-    if (app->route.mode == ROUTE_MODE_CAR &&
-        app->route.drive_path.count > 1 &&
-        app->route.walk_path.count > 1) {
+    if (app->route_state_bridge.route.mode == ROUTE_MODE_CAR &&
+        app->route_state_bridge.route.drive_path.count > 1 &&
+        app->route_state_bridge.route.walk_path.count > 1) {
         snprintf(distance_text, sizeof(distance_text), "Route: %.2f km | drive %.1f + walk %.1f min",
                  km,
-                 app->route.drive_path.total_time_s / 60.0f,
-                 app->route.walk_path.total_time_s / 60.0f);
-    } else if (app->route.mode == ROUTE_MODE_WALK) {
+                 app->route_state_bridge.route.drive_path.total_time_s / 60.0f,
+                 app->route_state_bridge.route.walk_path.total_time_s / 60.0f);
+    } else if (app->route_state_bridge.route.mode == ROUTE_MODE_WALK) {
         snprintf(distance_text, sizeof(distance_text), "Route: %.2f km | %.1f min walk", km, minutes);
     } else {
         snprintf(distance_text, sizeof(distance_text), "Route: %.2f km | %.1f min", km, minutes);
     }
-    snprintf(zoom_text, sizeof(zoom_text), "Zoom: %.2f", app->camera.zoom);
+    snprintf(zoom_text, sizeof(zoom_text), "Zoom: %.2f", app->view_state_bridge.camera.zoom);
 
     SDL_Color badge_fill = palette.badge_fill;
     SDL_Color badge_outline = palette.badge_outline;
@@ -350,38 +350,38 @@ void app_draw_header_bar(AppState *app) {
     float zoom_toggle_gap = 6.0f;
     float zoom_toggle_x = chip_left_cursor - zoom_toggle_w - zoom_toggle_gap;
     if (zoom_toggle_x >= cursor_x + 8.0f) {
-        app->header_zoom_toggle_rect = (SDL_FRect){zoom_toggle_x, box_y, zoom_toggle_w, box_h};
+        app->ui_state_bridge.header_zoom_toggle_rect = (SDL_FRect){zoom_toggle_x, box_y, zoom_toggle_w, box_h};
         renderer_set_draw_color(&app->renderer,
                                 palette.button_outline.r, palette.button_outline.g, palette.button_outline.b, palette.button_outline.a);
-        renderer_draw_rect(&app->renderer, &app->header_zoom_toggle_rect);
+        renderer_draw_rect(&app->renderer, &app->ui_state_bridge.header_zoom_toggle_rect);
         renderer_set_draw_color(&app->renderer,
-                                app->zoom_logic_enabled ? palette.button_active_primary.r : palette.button_fill.r,
-                                app->zoom_logic_enabled ? palette.button_active_primary.g : palette.button_fill.g,
-                                app->zoom_logic_enabled ? palette.button_active_primary.b : palette.button_fill.b,
-                                app->zoom_logic_enabled ? palette.button_active_primary.a : palette.button_fill.a);
+                                app->view_state_bridge.zoom_logic_enabled ? palette.button_active_primary.r : palette.button_fill.r,
+                                app->view_state_bridge.zoom_logic_enabled ? palette.button_active_primary.g : palette.button_fill.g,
+                                app->view_state_bridge.zoom_logic_enabled ? palette.button_active_primary.b : palette.button_fill.b,
+                                app->view_state_bridge.zoom_logic_enabled ? palette.button_active_primary.a : palette.button_fill.a);
         renderer_fill_rect(&app->renderer, &(SDL_FRect){
-            app->header_zoom_toggle_rect.x + 1.0f,
-            app->header_zoom_toggle_rect.y + 1.0f,
-            app->header_zoom_toggle_rect.w - 2.0f,
-            app->header_zoom_toggle_rect.h - 2.0f
+            app->ui_state_bridge.header_zoom_toggle_rect.x + 1.0f,
+            app->ui_state_bridge.header_zoom_toggle_rect.y + 1.0f,
+            app->ui_state_bridge.header_zoom_toggle_rect.w - 2.0f,
+            app->ui_state_bridge.header_zoom_toggle_rect.h - 2.0f
         });
         ui_draw_text(&app->renderer,
-                     (int)(app->header_zoom_toggle_rect.x + 7.0f),
-                     (int)(app->header_zoom_toggle_rect.y + (box_h - (float)text_h) * 0.5f),
-                     app->zoom_logic_enabled ? "ZOOM ON" : "ZOOM OFF",
+                     (int)(app->ui_state_bridge.header_zoom_toggle_rect.x + 7.0f),
+                     (int)(app->ui_state_bridge.header_zoom_toggle_rect.y + (box_h - (float)text_h) * 0.5f),
+                     app->view_state_bridge.zoom_logic_enabled ? "ZOOM ON" : "ZOOM OFF",
                      label_color,
                      1.0f);
     } else {
-        memset(&app->header_zoom_toggle_rect, 0, sizeof(app->header_zoom_toggle_rect));
+        memset(&app->ui_state_bridge.header_zoom_toggle_rect, 0, sizeof(app->ui_state_bridge.header_zoom_toggle_rect));
     }
 
-    if (app->header_layer_selected_valid &&
-        app->header_layer_selected_kind >= 0 &&
-        app->header_layer_selected_kind < TILE_LAYER_COUNT) {
-        SDL_FRect anchor = app->header_layer_row_rects[app->header_layer_selected_kind];
+    if (app->ui_state_bridge.header_layer_selected_valid &&
+        app->ui_state_bridge.header_layer_selected_kind >= 0 &&
+        app->ui_state_bridge.header_layer_selected_kind < TILE_LAYER_COUNT) {
+        SDL_FRect anchor = app->ui_state_bridge.header_layer_row_rects[app->ui_state_bridge.header_layer_selected_kind];
         if (anchor.w > 0.0f && anchor.h > 0.0f) {
             float panel_w = 220.0f;
-            float panel_h = (app->header_layer_panel_mode == 2) ? 66.0f : 44.0f;
+            float panel_h = (app->ui_state_bridge.header_layer_panel_mode == 2) ? 66.0f : 44.0f;
             float panel_x = anchor.x;
             float panel_y = anchor.y + anchor.h + 3.0f;
             if (panel_x + panel_w > (float)app->width - 8.0f) {
@@ -395,23 +395,23 @@ void app_draw_header_bar(AppState *app) {
             renderer_set_draw_color(&app->renderer, palette.overlay_outline.r, palette.overlay_outline.g, palette.overlay_outline.b, palette.overlay_outline.a);
             renderer_draw_rect(&app->renderer, &(SDL_FRect){panel_x, panel_y, panel_w, panel_h});
 
-            if (app->header_layer_panel_mode == 2) {
-                app->header_layer_fade_panel_rect = (SDL_FRect){panel_x, panel_y, panel_w, panel_h};
-                app->header_layer_fade_start_track_rect = (SDL_FRect){panel_x + 10.0f, panel_y + 24.0f, panel_w - 20.0f, 8.0f};
-                app->header_layer_fade_speed_track_rect = (SDL_FRect){panel_x + 10.0f, panel_y + 44.0f, panel_w - 20.0f, 8.0f};
-                memset(&app->header_layer_opacity_panel_rect, 0, sizeof(app->header_layer_opacity_panel_rect));
-                memset(&app->header_layer_opacity_track_rect, 0, sizeof(app->header_layer_opacity_track_rect));
+            if (app->ui_state_bridge.header_layer_panel_mode == 2) {
+                app->ui_state_bridge.header_layer_fade_panel_rect = (SDL_FRect){panel_x, panel_y, panel_w, panel_h};
+                app->ui_state_bridge.header_layer_fade_start_track_rect = (SDL_FRect){panel_x + 10.0f, panel_y + 24.0f, panel_w - 20.0f, 8.0f};
+                app->ui_state_bridge.header_layer_fade_speed_track_rect = (SDL_FRect){panel_x + 10.0f, panel_y + 44.0f, panel_w - 20.0f, 8.0f};
+                memset(&app->ui_state_bridge.header_layer_opacity_panel_rect, 0, sizeof(app->ui_state_bridge.header_layer_opacity_panel_rect));
+                memset(&app->ui_state_bridge.header_layer_opacity_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_opacity_track_rect));
 
-                uint16_t start_milli = app->layer_fade_start_milli[app->header_layer_selected_kind];
-                uint16_t speed_milli = app->layer_fade_speed_milli[app->header_layer_selected_kind];
+                uint16_t start_milli = app->view_state_bridge.layer_fade_start_milli[app->ui_state_bridge.header_layer_selected_kind];
+                uint16_t speed_milli = app->view_state_bridge.layer_fade_speed_milli[app->ui_state_bridge.header_layer_selected_kind];
 
                 renderer_set_draw_color(&app->renderer, palette.progress_bg.r, palette.progress_bg.g, palette.progress_bg.b, palette.progress_bg.a);
-                renderer_fill_rect(&app->renderer, &app->header_layer_fade_start_track_rect);
-                renderer_fill_rect(&app->renderer, &app->header_layer_fade_speed_track_rect);
+                renderer_fill_rect(&app->renderer, &app->ui_state_bridge.header_layer_fade_start_track_rect);
+                renderer_fill_rect(&app->renderer, &app->ui_state_bridge.header_layer_fade_speed_track_rect);
 
-                SDL_FRect start_fill = app->header_layer_fade_start_track_rect;
+                SDL_FRect start_fill = app->ui_state_bridge.header_layer_fade_start_track_rect;
                 start_fill.w *= ((float)start_milli / 1000.0f);
-                SDL_FRect speed_fill = app->header_layer_fade_speed_track_rect;
+                SDL_FRect speed_fill = app->ui_state_bridge.header_layer_fade_speed_track_rect;
                 speed_fill.w *= ((float)speed_milli / 1000.0f);
                 renderer_set_draw_color(&app->renderer, palette.progress_fill.r, palette.progress_fill.g, palette.progress_fill.b, palette.progress_fill.a);
                 renderer_fill_rect(&app->renderer, &start_fill);
@@ -428,59 +428,59 @@ void app_draw_header_bar(AppState *app) {
                 char line2[64];
                 float start_zoom = ((float)start_milli / 1000.0f) * 20.0f;
                 float span_zoom = 0.15f + ((float)speed_milli / 1000.0f) * 6.0f;
-                snprintf(line0, sizeof(line0), "%s fade controls", app_header_layer_chip_label(app->header_layer_selected_kind));
+                snprintf(line0, sizeof(line0), "%s fade controls", app_header_layer_chip_label(app->ui_state_bridge.header_layer_selected_kind));
                 snprintf(line1, sizeof(line1), "Begin: %.2f", start_zoom);
                 snprintf(line2, sizeof(line2), "Speed: %.2f", span_zoom);
                 ui_draw_text(&app->renderer, (int)(panel_x + 10.0f), (int)(panel_y + 6.0f), line0, label_color, 1.0f);
                 ui_draw_text(&app->renderer, (int)(panel_x + 150.0f), (int)(panel_y + 19.0f), line1, label_color, 1.0f);
                 ui_draw_text(&app->renderer, (int)(panel_x + 150.0f), (int)(panel_y + 39.0f), line2, label_color, 1.0f);
             } else {
-                app->header_layer_opacity_panel_rect = (SDL_FRect){panel_x, panel_y, panel_w, panel_h};
-                app->header_layer_opacity_track_rect = (SDL_FRect){panel_x + 10.0f, panel_y + 24.0f, panel_w - 20.0f, 9.0f};
-                memset(&app->header_layer_fade_panel_rect, 0, sizeof(app->header_layer_fade_panel_rect));
-                memset(&app->header_layer_fade_start_track_rect, 0, sizeof(app->header_layer_fade_start_track_rect));
-                memset(&app->header_layer_fade_speed_track_rect, 0, sizeof(app->header_layer_fade_speed_track_rect));
+                app->ui_state_bridge.header_layer_opacity_panel_rect = (SDL_FRect){panel_x, panel_y, panel_w, panel_h};
+                app->ui_state_bridge.header_layer_opacity_track_rect = (SDL_FRect){panel_x + 10.0f, panel_y + 24.0f, panel_w - 20.0f, 9.0f};
+                memset(&app->ui_state_bridge.header_layer_fade_panel_rect, 0, sizeof(app->ui_state_bridge.header_layer_fade_panel_rect));
+                memset(&app->ui_state_bridge.header_layer_fade_start_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_fade_start_track_rect));
+                memset(&app->ui_state_bridge.header_layer_fade_speed_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_fade_speed_track_rect));
 
                 renderer_set_draw_color(&app->renderer, palette.progress_bg.r, palette.progress_bg.g, palette.progress_bg.b, palette.progress_bg.a);
-                renderer_fill_rect(&app->renderer, &app->header_layer_opacity_track_rect);
+                renderer_fill_rect(&app->renderer, &app->ui_state_bridge.header_layer_opacity_track_rect);
 
-                uint16_t milli = app->layer_opacity_milli[app->header_layer_selected_kind];
-                float fill_w = app->header_layer_opacity_track_rect.w * ((float)milli / 1000.0f);
-                SDL_FRect fill = app->header_layer_opacity_track_rect;
+                uint16_t milli = app->view_state_bridge.layer_opacity_milli[app->ui_state_bridge.header_layer_selected_kind];
+                float fill_w = app->ui_state_bridge.header_layer_opacity_track_rect.w * ((float)milli / 1000.0f);
+                SDL_FRect fill = app->ui_state_bridge.header_layer_opacity_track_rect;
                 fill.w = fill_w;
                 renderer_set_draw_color(&app->renderer, palette.progress_fill.r, palette.progress_fill.g, palette.progress_fill.b, palette.progress_fill.a);
                 renderer_fill_rect(&app->renderer, &fill);
 
-                float knob_x = app->header_layer_opacity_track_rect.x + fill_w - 3.0f;
-                if (knob_x < app->header_layer_opacity_track_rect.x - 3.0f) {
-                    knob_x = app->header_layer_opacity_track_rect.x - 3.0f;
+                float knob_x = app->ui_state_bridge.header_layer_opacity_track_rect.x + fill_w - 3.0f;
+                if (knob_x < app->ui_state_bridge.header_layer_opacity_track_rect.x - 3.0f) {
+                    knob_x = app->ui_state_bridge.header_layer_opacity_track_rect.x - 3.0f;
                 }
-                if (knob_x > app->header_layer_opacity_track_rect.x + app->header_layer_opacity_track_rect.w - 3.0f) {
-                    knob_x = app->header_layer_opacity_track_rect.x + app->header_layer_opacity_track_rect.w - 3.0f;
+                if (knob_x > app->ui_state_bridge.header_layer_opacity_track_rect.x + app->ui_state_bridge.header_layer_opacity_track_rect.w - 3.0f) {
+                    knob_x = app->ui_state_bridge.header_layer_opacity_track_rect.x + app->ui_state_bridge.header_layer_opacity_track_rect.w - 3.0f;
                 }
-                SDL_FRect knob = {knob_x, app->header_layer_opacity_track_rect.y - 2.0f, 6.0f, app->header_layer_opacity_track_rect.h + 4.0f};
+                SDL_FRect knob = {knob_x, app->ui_state_bridge.header_layer_opacity_track_rect.y - 2.0f, 6.0f, app->ui_state_bridge.header_layer_opacity_track_rect.h + 4.0f};
                 renderer_set_draw_color(&app->renderer, palette.text_primary.r, palette.text_primary.g, palette.text_primary.b, palette.text_primary.a);
                 renderer_fill_rect(&app->renderer, &knob);
 
                 char line[64];
                 snprintf(line, sizeof(line), "%s opacity: %u",
-                         app_header_layer_chip_label(app->header_layer_selected_kind),
+                         app_header_layer_chip_label(app->ui_state_bridge.header_layer_selected_kind),
                          (unsigned)milli);
                 ui_draw_text(&app->renderer, (int)(panel_x + 10.0f), (int)(panel_y + 8.0f), line, label_color, 1.0f);
             }
         } else {
-            memset(&app->header_layer_opacity_panel_rect, 0, sizeof(app->header_layer_opacity_panel_rect));
-            memset(&app->header_layer_opacity_track_rect, 0, sizeof(app->header_layer_opacity_track_rect));
-            memset(&app->header_layer_fade_panel_rect, 0, sizeof(app->header_layer_fade_panel_rect));
-            memset(&app->header_layer_fade_start_track_rect, 0, sizeof(app->header_layer_fade_start_track_rect));
-            memset(&app->header_layer_fade_speed_track_rect, 0, sizeof(app->header_layer_fade_speed_track_rect));
+            memset(&app->ui_state_bridge.header_layer_opacity_panel_rect, 0, sizeof(app->ui_state_bridge.header_layer_opacity_panel_rect));
+            memset(&app->ui_state_bridge.header_layer_opacity_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_opacity_track_rect));
+            memset(&app->ui_state_bridge.header_layer_fade_panel_rect, 0, sizeof(app->ui_state_bridge.header_layer_fade_panel_rect));
+            memset(&app->ui_state_bridge.header_layer_fade_start_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_fade_start_track_rect));
+            memset(&app->ui_state_bridge.header_layer_fade_speed_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_fade_speed_track_rect));
         }
     } else {
-        memset(&app->header_layer_opacity_panel_rect, 0, sizeof(app->header_layer_opacity_panel_rect));
-        memset(&app->header_layer_opacity_track_rect, 0, sizeof(app->header_layer_opacity_track_rect));
-        memset(&app->header_layer_fade_panel_rect, 0, sizeof(app->header_layer_fade_panel_rect));
-        memset(&app->header_layer_fade_start_track_rect, 0, sizeof(app->header_layer_fade_start_track_rect));
-        memset(&app->header_layer_fade_speed_track_rect, 0, sizeof(app->header_layer_fade_speed_track_rect));
+        memset(&app->ui_state_bridge.header_layer_opacity_panel_rect, 0, sizeof(app->ui_state_bridge.header_layer_opacity_panel_rect));
+        memset(&app->ui_state_bridge.header_layer_opacity_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_opacity_track_rect));
+        memset(&app->ui_state_bridge.header_layer_fade_panel_rect, 0, sizeof(app->ui_state_bridge.header_layer_fade_panel_rect));
+        memset(&app->ui_state_bridge.header_layer_fade_start_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_fade_start_track_rect));
+        memset(&app->ui_state_bridge.header_layer_fade_speed_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_fade_speed_track_rect));
     }
 }
 
@@ -516,8 +516,8 @@ bool app_header_layer_toggle_click(AppState *app, int x, int y) {
         return false;
     }
 
-    if (app_point_in_rect(x, y, &app->header_zoom_toggle_rect)) {
-        app->zoom_logic_enabled = !app->zoom_logic_enabled;
+    if (app_point_in_rect(x, y, &app->ui_state_bridge.header_zoom_toggle_rect)) {
+        app->view_state_bridge.zoom_logic_enabled = !app->view_state_bridge.zoom_logic_enabled;
         app_refresh_layer_states(app);
         return true;
     }
@@ -531,27 +531,27 @@ bool app_header_layer_toggle_click(AppState *app, int x, int y) {
         if (kind < 0 || kind >= TILE_LAYER_COUNT) {
             continue;
         }
-        if (app_point_in_rect(x, y, &app->header_layer_toggle_rects[kind])) {
-            app->layer_user_enabled[kind] = !app->layer_user_enabled[kind];
+        if (app_point_in_rect(x, y, &app->ui_state_bridge.header_layer_toggle_rects[kind])) {
+            app->view_state_bridge.layer_user_enabled[kind] = !app->view_state_bridge.layer_user_enabled[kind];
             app_refresh_layer_states(app);
             return true;
         }
-        if (app_point_in_rect(x, y, &app->header_layer_label_rects[kind]) ||
-            app_point_in_rect(x, y, &app->header_layer_row_rects[kind])) {
-            if (app->input.shift_down) {
-                app->header_layer_selected_valid = true;
-                app->header_layer_selected_kind = kind;
-                app->header_layer_panel_mode = 1;
-            } else if (app->input.alt_down) {
-                app->header_layer_selected_valid = true;
-                app->header_layer_selected_kind = kind;
-                app->header_layer_panel_mode = 2;
+        if (app_point_in_rect(x, y, &app->ui_state_bridge.header_layer_label_rects[kind]) ||
+            app_point_in_rect(x, y, &app->ui_state_bridge.header_layer_row_rects[kind])) {
+            if (app->ui_state_bridge.input.shift_down) {
+                app->ui_state_bridge.header_layer_selected_valid = true;
+                app->ui_state_bridge.header_layer_selected_kind = kind;
+                app->ui_state_bridge.header_layer_panel_mode = 1;
+            } else if (app->ui_state_bridge.input.alt_down) {
+                app->ui_state_bridge.header_layer_selected_valid = true;
+                app->ui_state_bridge.header_layer_selected_kind = kind;
+                app->ui_state_bridge.header_layer_panel_mode = 2;
             } else {
-                app->layer_user_enabled[kind] = !app->layer_user_enabled[kind];
+                app->view_state_bridge.layer_user_enabled[kind] = !app->view_state_bridge.layer_user_enabled[kind];
                 app_refresh_layer_states(app);
-                if (app->header_layer_selected_valid && app->header_layer_selected_kind == kind) {
-                    app->header_layer_selected_valid = false;
-                    app->header_layer_panel_mode = 0;
+                if (app->ui_state_bridge.header_layer_selected_valid && app->ui_state_bridge.header_layer_selected_kind == kind) {
+                    app->ui_state_bridge.header_layer_selected_valid = false;
+                    app->ui_state_bridge.header_layer_panel_mode = 0;
                 }
             }
             return true;
@@ -562,31 +562,31 @@ bool app_header_layer_toggle_click(AppState *app, int x, int y) {
 }
 
 static void app_header_layer_slider_set_from_mouse(AppState *app, int mouse_x) {
-    if (!app || !app->header_layer_selected_valid) {
+    if (!app || !app->ui_state_bridge.header_layer_selected_valid) {
         return;
     }
-    if (app->header_layer_selected_kind < 0 || app->header_layer_selected_kind >= TILE_LAYER_COUNT) {
+    if (app->ui_state_bridge.header_layer_selected_kind < 0 || app->ui_state_bridge.header_layer_selected_kind >= TILE_LAYER_COUNT) {
         return;
     }
-    const SDL_FRect *track = &app->header_layer_opacity_track_rect;
+    const SDL_FRect *track = &app->ui_state_bridge.header_layer_opacity_track_rect;
     if (track->w <= 0.0f) {
         return;
     }
     float t = ((float)mouse_x - track->x) / track->w;
     t = app_clampf(t, 0.0f, 1.0f);
-    app->layer_opacity_milli[app->header_layer_selected_kind] = (uint16_t)(t * 1000.0f + 0.5f);
+    app->view_state_bridge.layer_opacity_milli[app->ui_state_bridge.header_layer_selected_kind] = (uint16_t)(t * 1000.0f + 0.5f);
 }
 
 static void app_header_layer_fade_set_from_mouse(AppState *app, int mouse_x, int target) {
-    if (!app || !app->header_layer_selected_valid) {
+    if (!app || !app->ui_state_bridge.header_layer_selected_valid) {
         return;
     }
-    if (app->header_layer_selected_kind < 0 || app->header_layer_selected_kind >= TILE_LAYER_COUNT) {
+    if (app->ui_state_bridge.header_layer_selected_kind < 0 || app->ui_state_bridge.header_layer_selected_kind >= TILE_LAYER_COUNT) {
         return;
     }
     const SDL_FRect *track = (target == 1)
-        ? &app->header_layer_fade_start_track_rect
-        : &app->header_layer_fade_speed_track_rect;
+        ? &app->ui_state_bridge.header_layer_fade_start_track_rect
+        : &app->ui_state_bridge.header_layer_fade_speed_track_rect;
     if (track->w <= 0.0f) {
         return;
     }
@@ -594,66 +594,66 @@ static void app_header_layer_fade_set_from_mouse(AppState *app, int mouse_x, int
     t = app_clampf(t, 0.0f, 1.0f);
     uint16_t value = (uint16_t)(t * 1000.0f + 0.5f);
     if (target == 1) {
-        app->layer_fade_start_milli[app->header_layer_selected_kind] = value;
+        app->view_state_bridge.layer_fade_start_milli[app->ui_state_bridge.header_layer_selected_kind] = value;
     } else {
         if (value < 1u) {
             value = 1u;
         }
-        app->layer_fade_speed_milli[app->header_layer_selected_kind] = value;
+        app->view_state_bridge.layer_fade_speed_milli[app->ui_state_bridge.header_layer_selected_kind] = value;
     }
     app_refresh_layer_states(app);
 }
 
 bool app_header_layer_slider_update(AppState *app) {
-    if (!app || !app->header_layer_selected_valid) {
+    if (!app || !app->ui_state_bridge.header_layer_selected_valid) {
         return false;
     }
-    int mx = app->input.mouse_x;
-    int my = app->input.mouse_y;
-    bool on_opacity_panel = app_point_in_rect(mx, my, &app->header_layer_opacity_panel_rect);
-    bool on_fade_panel = app_point_in_rect(mx, my, &app->header_layer_fade_panel_rect);
+    int mx = app->ui_state_bridge.input.mouse_x;
+    int my = app->ui_state_bridge.input.mouse_y;
+    bool on_opacity_panel = app_point_in_rect(mx, my, &app->ui_state_bridge.header_layer_opacity_panel_rect);
+    bool on_fade_panel = app_point_in_rect(mx, my, &app->ui_state_bridge.header_layer_fade_panel_rect);
     bool on_panel = on_opacity_panel || on_fade_panel;
     bool on_selected_row = false;
-    if (app->header_layer_selected_kind >= 0 && app->header_layer_selected_kind < TILE_LAYER_COUNT) {
-        on_selected_row = app_point_in_rect(mx, my, &app->header_layer_row_rects[app->header_layer_selected_kind]);
+    if (app->ui_state_bridge.header_layer_selected_kind >= 0 && app->ui_state_bridge.header_layer_selected_kind < TILE_LAYER_COUNT) {
+        on_selected_row = app_point_in_rect(mx, my, &app->ui_state_bridge.header_layer_row_rects[app->ui_state_bridge.header_layer_selected_kind]);
     }
 
-    if (app->input.left_click_pressed && on_panel) {
-        if (app->header_layer_panel_mode == 2) {
-            if (app_point_in_rect(mx, my, &app->header_layer_fade_start_track_rect)) {
-                app->header_layer_fade_drag_target = 1;
-            } else if (app_point_in_rect(mx, my, &app->header_layer_fade_speed_track_rect)) {
-                app->header_layer_fade_drag_target = 2;
+    if (app->ui_state_bridge.input.left_click_pressed && on_panel) {
+        if (app->ui_state_bridge.header_layer_panel_mode == 2) {
+            if (app_point_in_rect(mx, my, &app->ui_state_bridge.header_layer_fade_start_track_rect)) {
+                app->ui_state_bridge.header_layer_fade_drag_target = 1;
+            } else if (app_point_in_rect(mx, my, &app->ui_state_bridge.header_layer_fade_speed_track_rect)) {
+                app->ui_state_bridge.header_layer_fade_drag_target = 2;
             } else {
-                app->header_layer_fade_drag_target = 0;
+                app->ui_state_bridge.header_layer_fade_drag_target = 0;
             }
-            if (app->header_layer_fade_drag_target != 0) {
-                app_header_layer_fade_set_from_mouse(app, mx, app->header_layer_fade_drag_target);
+            if (app->ui_state_bridge.header_layer_fade_drag_target != 0) {
+                app_header_layer_fade_set_from_mouse(app, mx, app->ui_state_bridge.header_layer_fade_drag_target);
             }
         } else {
-            app->header_layer_opacity_dragging = true;
+            app->ui_state_bridge.header_layer_opacity_dragging = true;
             app_header_layer_slider_set_from_mouse(app, mx);
         }
         return true;
     }
-    if (app->header_layer_opacity_dragging) {
-        if (app->input.mouse_buttons & SDL_BUTTON_LMASK) {
+    if (app->ui_state_bridge.header_layer_opacity_dragging) {
+        if (app->ui_state_bridge.input.mouse_buttons & SDL_BUTTON_LMASK) {
             app_header_layer_slider_set_from_mouse(app, mx);
             return true;
         }
-        app->header_layer_opacity_dragging = false;
+        app->ui_state_bridge.header_layer_opacity_dragging = false;
     }
-    if (app->header_layer_fade_drag_target != 0) {
-        if (app->input.mouse_buttons & SDL_BUTTON_LMASK) {
-            app_header_layer_fade_set_from_mouse(app, mx, app->header_layer_fade_drag_target);
+    if (app->ui_state_bridge.header_layer_fade_drag_target != 0) {
+        if (app->ui_state_bridge.input.mouse_buttons & SDL_BUTTON_LMASK) {
+            app_header_layer_fade_set_from_mouse(app, mx, app->ui_state_bridge.header_layer_fade_drag_target);
             return true;
         }
-        app->header_layer_fade_drag_target = 0;
+        app->ui_state_bridge.header_layer_fade_drag_target = 0;
     }
-    if (app->input.left_click_pressed && !on_panel && !on_selected_row &&
-        !app_point_in_rect(mx, my, &app->header_zoom_toggle_rect)) {
-        app->header_layer_selected_valid = false;
-        app->header_layer_panel_mode = 0;
+    if (app->ui_state_bridge.input.left_click_pressed && !on_panel && !on_selected_row &&
+        !app_point_in_rect(mx, my, &app->ui_state_bridge.header_zoom_toggle_rect)) {
+        app->ui_state_bridge.header_layer_selected_valid = false;
+        app->ui_state_bridge.header_layer_panel_mode = 0;
         return false;
     }
     return false;
@@ -685,26 +685,26 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     uint64_t hash = 1469598103934665603ull;
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->width);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->height);
-    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->visible_tile_count);
-    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->active_layer_kind);
-    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->active_layer_valid);
-    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->loading_done));
-    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->loading_expected));
-    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->route_snap_debug_cells));
-    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->route_snap_debug_segments));
-    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->route_snap_debug_hits));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.visible_tile_count);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.active_layer_kind);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.active_layer_valid);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.loading_done));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.loading_expected));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->route_state_bridge.route_snap_debug_cells));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->route_state_bridge.route_snap_debug_segments));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->route_state_bridge.route_snap_debug_hits));
 
     for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
-        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->band_visible_loaded[i]));
-        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->band_visible_expected[i]));
-        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->band_queue_depth[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_visible_loaded[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_visible_expected[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_queue_depth[i]));
     }
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->layer_expected[i]));
-        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->layer_done[i]));
-        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->layer_visible_loaded[i]));
-        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->layer_visible_expected[i]));
-        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->layer_inflight[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_expected[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_done[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_visible_loaded[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_visible_expected[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_inflight[i]));
     }
     return hash;
 }
@@ -714,12 +714,12 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return false;
     }
     if (index == 0) {
-        snprintf(line, line_size, "Visible tiles: %u", app->visible_tile_count);
+        snprintf(line, line_size, "Visible tiles: %u", app->tile_state_bridge.visible_tile_count);
         return true;
     }
     if (index == 1) {
-        if (app->active_layer_valid) {
-            snprintf(line, line_size, "Active layer: %s", app_layer_label(app->active_layer_kind));
+        if (app->tile_state_bridge.active_layer_valid) {
+            snprintf(line, line_size, "Active layer: %s", app_layer_label(app->tile_state_bridge.active_layer_kind));
         } else {
             snprintf(line, line_size, "Active layer: none");
         }
@@ -727,26 +727,26 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
     }
     if (index == 2) {
         snprintf(line, line_size, "Load total: %u/%u no_data=%.1fs",
-                 app->loading_done, app->loading_expected, app->loading_no_data_time);
+                 app->tile_state_bridge.loading_done, app->tile_state_bridge.loading_expected, app->tile_state_bridge.loading_no_data_time);
         return true;
     }
     if (index == 3) {
         snprintf(line, line_size, "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u",
-                 app->band_visible_loaded[TILE_BAND_COARSE], app->band_visible_expected[TILE_BAND_COARSE],
-                 app->band_visible_loaded[TILE_BAND_MID], app->band_visible_expected[TILE_BAND_MID],
-                 app->band_visible_loaded[TILE_BAND_FINE], app->band_visible_expected[TILE_BAND_FINE],
-                 app->band_visible_loaded[TILE_BAND_DEFAULT], app->band_visible_expected[TILE_BAND_DEFAULT],
-                 app->band_queue_depth[TILE_BAND_COARSE], app->band_queue_depth[TILE_BAND_MID],
-                 app->band_queue_depth[TILE_BAND_FINE], app->band_queue_depth[TILE_BAND_DEFAULT],
-                 app->vk_road_band_fallback_draws);
+                 app->tile_state_bridge.band_visible_loaded[TILE_BAND_COARSE], app->tile_state_bridge.band_visible_expected[TILE_BAND_COARSE],
+                 app->tile_state_bridge.band_visible_loaded[TILE_BAND_MID], app->tile_state_bridge.band_visible_expected[TILE_BAND_MID],
+                 app->tile_state_bridge.band_visible_loaded[TILE_BAND_FINE], app->tile_state_bridge.band_visible_expected[TILE_BAND_FINE],
+                 app->tile_state_bridge.band_visible_loaded[TILE_BAND_DEFAULT], app->tile_state_bridge.band_visible_expected[TILE_BAND_DEFAULT],
+                 app->tile_state_bridge.band_queue_depth[TILE_BAND_COARSE], app->tile_state_bridge.band_queue_depth[TILE_BAND_MID],
+                 app->tile_state_bridge.band_queue_depth[TILE_BAND_FINE], app->tile_state_bridge.band_queue_depth[TILE_BAND_DEFAULT],
+                 app->tile_state_bridge.vk_road_band_fallback_draws);
         return true;
     }
     if (index == 4) {
         snprintf(line, line_size, "Route snap cells=%u seg=%u hits=%u q=%.2fms",
-                 app->route_snap_debug_cells,
-                 app->route_snap_debug_segments,
-                 app->route_snap_debug_hits,
-                 app->route_snap_debug_query_ms);
+                 app->route_state_bridge.route_snap_debug_cells,
+                 app->route_state_bridge.route_snap_debug_segments,
+                 app->route_state_bridge.route_snap_debug_hits,
+                 app->route_state_bridge.route_snap_debug_query_ms);
         return true;
     }
 
@@ -763,24 +763,24 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
     snprintf(line, line_size, "%s z>=%.2f band=%s exp %u done %u vis %u/%u in %u state=%s runtime=%s",
              app_layer_label(kind),
              start,
-             layer_policy_band_label(app->layer_target_band[kind]),
-             app->layer_expected[kind],
-             app->layer_done[kind],
-             app->layer_visible_loaded[kind],
-             app->layer_visible_expected[kind],
-             app->layer_inflight[kind],
-             layer_policy_readiness_label(app->layer_state[kind]),
+             layer_policy_band_label(app->tile_state_bridge.layer_target_band[kind]),
+             app->tile_state_bridge.layer_expected[kind],
+             app->tile_state_bridge.layer_done[kind],
+             app->tile_state_bridge.layer_visible_loaded[kind],
+             app->tile_state_bridge.layer_visible_expected[kind],
+             app->tile_state_bridge.layer_inflight[kind],
+             layer_policy_readiness_label(app->tile_state_bridge.layer_state[kind]),
              app_layer_runtime_state_label(app, kind));
     return true;
 }
 
 void app_draw_layer_debug(AppState *app) {
-    if (!app || !app->overlay.enabled) {
+    if (!app || !app->ui_state_bridge.overlay.enabled) {
         if (app) {
-            memset(&app->hud_layer_debug_panel_rect, 0, sizeof(app->hud_layer_debug_panel_rect));
-            memset(&app->hud_layer_debug_collapse_rect, 0, sizeof(app->hud_layer_debug_collapse_rect));
-            memset(&app->hud_layer_debug_handle_rect, 0, sizeof(app->hud_layer_debug_handle_rect));
-            app->hud_layer_debug_layout_dirty = true;
+            memset(&app->ui_state_bridge.hud_layer_debug_panel_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_panel_rect));
+            memset(&app->ui_state_bridge.hud_layer_debug_collapse_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_collapse_rect));
+            memset(&app->ui_state_bridge.hud_layer_debug_handle_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_handle_rect));
+            app->ui_state_bridge.hud_layer_debug_layout_dirty = true;
         }
         return;
     }
@@ -797,9 +797,9 @@ void app_draw_layer_debug(AppState *app) {
     int total_lines = app_layer_debug_line_count();
     char line[256];
     uint64_t layout_hash = app_layer_debug_layout_hash(app);
-    if (app->hud_layer_debug_layout_dirty ||
-        app->hud_layer_debug_layout_hash != layout_hash ||
-        app->hud_layer_debug_cached_line_count != total_lines) {
+    if (app->ui_state_bridge.hud_layer_debug_layout_dirty ||
+        app->ui_state_bridge.hud_layer_debug_layout_hash != layout_hash ||
+        app->ui_state_bridge.hud_layer_debug_cached_line_count != total_lines) {
         int max_line_w = 0;
         for (int i = 0; i < total_lines; ++i) {
             if (!app_layer_debug_format_line(app, i, line, sizeof(line))) {
@@ -810,15 +810,15 @@ void app_draw_layer_debug(AppState *app) {
                 max_line_w = width;
             }
         }
-        app->hud_layer_debug_cached_max_text_w = max_line_w;
-        app->hud_layer_debug_cached_w = (float)(max_line_w + 22 + 18);
-        app->hud_layer_debug_cached_h = (float)(total_lines * (line_h + 2) + 14);
-        app->hud_layer_debug_cached_line_count = total_lines;
-        app->hud_layer_debug_layout_hash = layout_hash;
-        app->hud_layer_debug_layout_dirty = false;
+        app->ui_state_bridge.hud_layer_debug_cached_max_text_w = max_line_w;
+        app->ui_state_bridge.hud_layer_debug_cached_w = (float)(max_line_w + 22 + 18);
+        app->ui_state_bridge.hud_layer_debug_cached_h = (float)(total_lines * (line_h + 2) + 14);
+        app->ui_state_bridge.hud_layer_debug_cached_line_count = total_lines;
+        app->ui_state_bridge.hud_layer_debug_layout_hash = layout_hash;
+        app->ui_state_bridge.hud_layer_debug_layout_dirty = false;
     }
 
-    float panel_w = app->hud_layer_debug_cached_w;
+    float panel_w = app->ui_state_bridge.hud_layer_debug_cached_w;
     float panel_w_max = (float)(app->width - 20);
     if (panel_w < 220.0f) {
         panel_w = 220.0f;
@@ -826,14 +826,14 @@ void app_draw_layer_debug(AppState *app) {
     if (panel_w > panel_w_max) {
         panel_w = panel_w_max;
     }
-    float panel_h = app->hud_layer_debug_cached_h;
+    float panel_h = app->ui_state_bridge.hud_layer_debug_cached_h;
     SDL_FRect panel = {(float)(x - 6), (float)(y - 4), panel_w, panel_h};
-    app->hud_layer_debug_panel_rect = panel;
+    app->ui_state_bridge.hud_layer_debug_panel_rect = panel;
 
-    if (app->hud_layer_debug_collapsed) {
+    if (app->ui_state_bridge.hud_layer_debug_collapsed) {
         SDL_FRect handle = {6.0f, APP_HEADER_HEIGHT + 8.0f, 20.0f, 20.0f};
-        app->hud_layer_debug_handle_rect = handle;
-        memset(&app->hud_layer_debug_collapse_rect, 0, sizeof(app->hud_layer_debug_collapse_rect));
+        app->ui_state_bridge.hud_layer_debug_handle_rect = handle;
+        memset(&app->ui_state_bridge.hud_layer_debug_collapse_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_collapse_rect));
         renderer_set_draw_color(&app->renderer, palette.overlay_fill.r, palette.overlay_fill.g, palette.overlay_fill.b, palette.overlay_fill.a);
         renderer_fill_rect(&app->renderer, &handle);
         renderer_set_draw_color(&app->renderer, palette.overlay_outline.r, palette.overlay_outline.g, palette.overlay_outline.b, palette.overlay_outline.a);
@@ -842,9 +842,9 @@ void app_draw_layer_debug(AppState *app) {
         return;
     }
 
-    memset(&app->hud_layer_debug_handle_rect, 0, sizeof(app->hud_layer_debug_handle_rect));
+    memset(&app->ui_state_bridge.hud_layer_debug_handle_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_handle_rect));
     SDL_FRect collapse = {panel.x + panel.w - 18.0f, panel.y + 3.0f, 14.0f, 14.0f};
-    app->hud_layer_debug_collapse_rect = collapse;
+    app->ui_state_bridge.hud_layer_debug_collapse_rect = collapse;
 
     renderer_set_draw_color(&app->renderer, palette.overlay_fill.r, palette.overlay_fill.g, palette.overlay_fill.b, palette.overlay_fill.a);
     renderer_fill_rect(&app->renderer, &panel);
@@ -874,7 +874,7 @@ bool app_handle_hud_clicks(AppState *app) {
     if (!app) {
         return false;
     }
-    bool any_click = app->input.left_click_pressed || app->input.right_click_pressed || app->input.middle_click_pressed;
+    bool any_click = app->ui_state_bridge.input.left_click_pressed || app->ui_state_bridge.input.right_click_pressed || app->ui_state_bridge.input.middle_click_pressed;
     if (!any_click) {
         return false;
     }
@@ -882,26 +882,26 @@ bool app_handle_hud_clicks(AppState *app) {
     if (app_route_panel_handle_click(app)) {
         return true;
     }
-    if (!app->overlay.enabled) {
+    if (!app->ui_state_bridge.overlay.enabled) {
         return false;
     }
 
-    int mx = app->input.mouse_x;
-    int my = app->input.mouse_y;
+    int mx = app->ui_state_bridge.input.mouse_x;
+    int my = app->ui_state_bridge.input.mouse_y;
 
-    if (app->hud_layer_debug_collapsed) {
-        if (app->input.left_click_pressed && app_point_in_rect(mx, my, &app->hud_layer_debug_handle_rect)) {
-            app->hud_layer_debug_collapsed = false;
+    if (app->ui_state_bridge.hud_layer_debug_collapsed) {
+        if (app->ui_state_bridge.input.left_click_pressed && app_point_in_rect(mx, my, &app->ui_state_bridge.hud_layer_debug_handle_rect)) {
+            app->ui_state_bridge.hud_layer_debug_collapsed = false;
             return true;
         }
-        return app_point_in_rect(mx, my, &app->hud_layer_debug_handle_rect);
+        return app_point_in_rect(mx, my, &app->ui_state_bridge.hud_layer_debug_handle_rect);
     }
 
-    if (app->input.left_click_pressed && app_point_in_rect(mx, my, &app->hud_layer_debug_collapse_rect)) {
-        app->hud_layer_debug_collapsed = true;
+    if (app->ui_state_bridge.input.left_click_pressed && app_point_in_rect(mx, my, &app->ui_state_bridge.hud_layer_debug_collapse_rect)) {
+        app->ui_state_bridge.hud_layer_debug_collapsed = true;
         return true;
     }
-    return app_point_in_rect(mx, my, &app->hud_layer_debug_panel_rect);
+    return app_point_in_rect(mx, my, &app->ui_state_bridge.hud_layer_debug_panel_rect);
 }
 
 void app_copy_overlay_text(AppState *app) {
@@ -915,27 +915,27 @@ void app_copy_overlay_text(AppState *app) {
                            "Region: %s\nZoom: %.2f\nVisible tiles: %u\nLoad total: %u/%u no_data=%.1fs\n"
                            "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u\n",
                            app->region.name,
-                           app->camera.zoom,
-                           app->visible_tile_count,
-                           app->loading_done,
-                           app->loading_expected,
-                           app->loading_no_data_time,
-                           app->band_visible_loaded[TILE_BAND_COARSE], app->band_visible_expected[TILE_BAND_COARSE],
-                           app->band_visible_loaded[TILE_BAND_MID], app->band_visible_expected[TILE_BAND_MID],
-                           app->band_visible_loaded[TILE_BAND_FINE], app->band_visible_expected[TILE_BAND_FINE],
-                           app->band_visible_loaded[TILE_BAND_DEFAULT], app->band_visible_expected[TILE_BAND_DEFAULT],
-                           app->band_queue_depth[TILE_BAND_COARSE], app->band_queue_depth[TILE_BAND_MID],
-                           app->band_queue_depth[TILE_BAND_FINE], app->band_queue_depth[TILE_BAND_DEFAULT],
-                           app->vk_road_band_fallback_draws);
+                           app->view_state_bridge.camera.zoom,
+                           app->tile_state_bridge.visible_tile_count,
+                           app->tile_state_bridge.loading_done,
+                           app->tile_state_bridge.loading_expected,
+                           app->tile_state_bridge.loading_no_data_time,
+                           app->tile_state_bridge.band_visible_loaded[TILE_BAND_COARSE], app->tile_state_bridge.band_visible_expected[TILE_BAND_COARSE],
+                           app->tile_state_bridge.band_visible_loaded[TILE_BAND_MID], app->tile_state_bridge.band_visible_expected[TILE_BAND_MID],
+                           app->tile_state_bridge.band_visible_loaded[TILE_BAND_FINE], app->tile_state_bridge.band_visible_expected[TILE_BAND_FINE],
+                           app->tile_state_bridge.band_visible_loaded[TILE_BAND_DEFAULT], app->tile_state_bridge.band_visible_expected[TILE_BAND_DEFAULT],
+                           app->tile_state_bridge.band_queue_depth[TILE_BAND_COARSE], app->tile_state_bridge.band_queue_depth[TILE_BAND_MID],
+                           app->tile_state_bridge.band_queue_depth[TILE_BAND_FINE], app->tile_state_bridge.band_queue_depth[TILE_BAND_DEFAULT],
+                           app->tile_state_bridge.vk_road_band_fallback_draws);
     if (written < 0) {
         return;
     }
     offset += (size_t)written;
 
-    if (app->active_layer_valid) {
+    if (app->tile_state_bridge.active_layer_valid) {
         written = snprintf(buffer + offset, sizeof(buffer) - offset,
                            "Active layer: %s\n",
-                           app_layer_label(app->active_layer_kind));
+                           app_layer_label(app->tile_state_bridge.active_layer_kind));
     } else {
         written = snprintf(buffer + offset, sizeof(buffer) - offset, "Active layer: none\n");
     }
@@ -955,13 +955,13 @@ void app_copy_overlay_text(AppState *app) {
                            "%s z>=%.2f band=%s exp %u done %u vis %u/%u in %u state=%s runtime=%s\n",
                            app_layer_label(kind),
                            start,
-                           layer_policy_band_label(app->layer_target_band[kind]),
-                           app->layer_expected[kind],
-                           app->layer_done[kind],
-                           app->layer_visible_loaded[kind],
-                           app->layer_visible_expected[kind],
-                           app->layer_inflight[kind],
-                           layer_policy_readiness_label(app->layer_state[kind]),
+                           layer_policy_band_label(app->tile_state_bridge.layer_target_band[kind]),
+                           app->tile_state_bridge.layer_expected[kind],
+                           app->tile_state_bridge.layer_done[kind],
+                           app->tile_state_bridge.layer_visible_loaded[kind],
+                           app->tile_state_bridge.layer_visible_expected[kind],
+                           app->tile_state_bridge.layer_inflight[kind],
+                           layer_policy_readiness_label(app->tile_state_bridge.layer_state[kind]),
                            app_layer_runtime_state_label(app, kind));
         if (written < 0) {
             return;
