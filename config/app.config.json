@@ -1,6 +1,6 @@
 {
   "map_view":{
-    "zoom":13.5,
+    "zoom":11.25,
     "zoom_logic_enabled":false,
     "layer_enabled":[
       true,
@@ -9,7 +9,7 @@
       false,
       false,
       false,
-      true
+      false
     ],
     "layer_opacity_milli":[
       1000,

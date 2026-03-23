@@ -54,7 +54,8 @@ int main(void) {
     };
     const char *queue_markers[] = {
         "tile_enq_drop", "tile_enq_evict", "tile_res_drop",
-        "tile_res_evict", "vk_job_drop", "vk_job_evict"
+        "tile_res_evict", "vk_job_drop", "vk_job_evict",
+        "vk_stage_drop", "vk_stage_evict"
     };
 
     char pack_path[] = "/tmp/mapforge_trace_contract_XXXXXX";

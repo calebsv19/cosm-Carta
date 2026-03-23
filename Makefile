@@ -110,6 +110,12 @@ SHARED_THEME_FONT_ADAPTER_TEST_TARGET := build/tests/shared_theme_font_adapter_t
 SHARED_THEME_FONT_ADAPTER_TEST_SRCS := tests/shared_theme_font_adapter_test.c src/ui/shared_theme_font_adapter.c $(CORE_THEME_DIR)/src/core_theme.c $(CORE_FONT_DIR)/src/core_font.c $(CORE_BASE_DIR)/src/core_base.c
 MAP_TRACE_CONTRACT_TEST_TARGET := build/tests/map_trace_contract_test
 MAP_TRACE_CONTRACT_TEST_SRCS := tests/map_trace_contract_test.c
+APP_WORKER_CONTRACT_TEST_TARGET := build/tests/app_worker_contract_test
+APP_WORKER_CONTRACT_TEST_SRCS := tests/app_worker_contract_test.c src/app/app_worker_contract.c
+TILE_LOADER_SHUTDOWN_TEST_TARGET := build/tests/tile_loader_shutdown_test
+TILE_LOADER_SHUTDOWN_TEST_SRCS := tests/tile_loader_shutdown_test.c src/map/tile_loader.c src/map/mft_loader.c src/map/polygon_cache.c src/map/polygon_triangulator.c src/core/log.c
+APP_ROUTE_SERVICE_TEST_TARGET := build/tests/app_route_service_test
+APP_ROUTE_SERVICE_TEST_SRCS := tests/app_route_service_test.c src/app/app_route_service.c
 
 ifeq ($(VK_APP_ENABLED),1)
 CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
@@ -242,12 +248,24 @@ build-safety-check: tools graph
 
 test: test-space build-safety-check
 test: test-trace-contract
+test: test-worker-contract
+test: test-tile-loader-shutdown
+test: test-route-service
 
 test-shared-theme-font-adapter: $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
 	./$(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
 
 test-trace-contract: $(MAP_TRACE_CONTRACT_TEST_TARGET)
 	./$(MAP_TRACE_CONTRACT_TEST_TARGET)
+
+test-worker-contract: $(APP_WORKER_CONTRACT_TEST_TARGET)
+	./$(APP_WORKER_CONTRACT_TEST_TARGET)
+
+test-tile-loader-shutdown: $(TILE_LOADER_SHUTDOWN_TEST_TARGET)
+	./$(TILE_LOADER_SHUTDOWN_TEST_TARGET)
+
+test-route-service: $(APP_ROUTE_SERVICE_TEST_TARGET)
+	./$(APP_ROUTE_SERVICE_TEST_TARGET)
 
 $(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -260,6 +278,18 @@ $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET): $(SHARED_THEME_FONT_ADAPTER_TEST_SRCS)
 $(MAP_TRACE_CONTRACT_TEST_TARGET): $(MAP_TRACE_CONTRACT_TEST_SRCS) $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(MAP_TRACE_CONTRACT_TEST_SRCS) -o $@ $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB) -lm
+
+$(APP_WORKER_CONTRACT_TEST_TARGET): $(APP_WORKER_CONTRACT_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(APP_WORKER_CONTRACT_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(TILE_LOADER_SHUTDOWN_TEST_TARGET): $(TILE_LOADER_SHUTDOWN_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(TILE_LOADER_SHUTDOWN_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
+
+$(APP_ROUTE_SERVICE_TEST_TARGET): $(APP_ROUTE_SERVICE_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(APP_ROUTE_SERVICE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 route: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" $(GRAPH_TOOL_FLAGS)
@@ -373,6 +403,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

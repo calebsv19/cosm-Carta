@@ -332,6 +332,12 @@ static void app_trace_emit_queue_markers(AppState *app, double rel_time_s) {
     if (app->worker_state_bridge.vk_asset_job_evict_count > app->trace_last_vk_asset_evict_count) {
         core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "vk_job_evict");
     }
+    if (app->worker_state_bridge.vk_asset_stage_drop_count > app->trace_last_vk_asset_stage_drop_count) {
+        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "vk_stage_drop");
+    }
+    if (app->worker_state_bridge.vk_asset_stage_evict_count > app->trace_last_vk_asset_stage_evict_count) {
+        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "vk_stage_evict");
+    }
 
     app->trace_last_tile_enqueue_drop_count = stats.enqueue_drop_count;
     app->trace_last_tile_enqueue_evict_count = stats.enqueue_evict_count;
@@ -339,6 +345,8 @@ static void app_trace_emit_queue_markers(AppState *app, double rel_time_s) {
     app->trace_last_tile_result_evict_count = stats.result_evict_count;
     app->trace_last_vk_asset_drop_count = app->worker_state_bridge.vk_asset_job_drop_count;
     app->trace_last_vk_asset_evict_count = app->worker_state_bridge.vk_asset_job_evict_count;
+    app->trace_last_vk_asset_stage_drop_count = app->worker_state_bridge.vk_asset_stage_drop_count;
+    app->trace_last_vk_asset_stage_evict_count = app->worker_state_bridge.vk_asset_stage_evict_count;
 }
 
 static void app_trace_shutdown(AppState *app) {
@@ -381,6 +389,8 @@ static bool app_init(AppState *app) {
     if (!app) {
         return false;
     }
+
+    app_worker_contract_init(app);
 
     mapforge_shared_theme_load_persisted();
     app->width = 1280;
@@ -535,6 +545,8 @@ static bool app_init(AppState *app) {
         app->trace_last_tile_result_evict_count = trace_stats.result_evict_count;
         app->trace_last_vk_asset_drop_count = app->worker_state_bridge.vk_asset_job_drop_count;
         app->trace_last_vk_asset_evict_count = app->worker_state_bridge.vk_asset_job_evict_count;
+        app->trace_last_vk_asset_stage_drop_count = app->worker_state_bridge.vk_asset_stage_drop_count;
+        app->trace_last_vk_asset_stage_evict_count = app->worker_state_bridge.vk_asset_stage_evict_count;
     }
 
     input_init(&app->ui_state_bridge.input);
@@ -610,7 +622,6 @@ static bool app_init(AppState *app) {
     app->ui_state_bridge.header_layer_selected_valid = false;
     app->ui_state_bridge.header_layer_selected_kind = TILE_LAYER_ROAD_ARTERY;
     app->view_state_bridge.zoom_logic_enabled = true;
-    app->tile_state_bridge.tile_request_id = 1;
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         memset(&app->tile_state_bridge.tile_queues[i], 0, sizeof(app->tile_state_bridge.tile_queues[i]));
         app->view_state_bridge.layer_user_enabled[i] = true;

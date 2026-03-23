@@ -61,6 +61,7 @@ void app_runtime_update_frame(AppState *app,
     double after_update = time_now_seconds();
 
     app_route_poll_result(app);
+    app_route_panel_model_update(app);
     app_update_tile_queue(app);
     double after_queue = time_now_seconds();
     uint32_t integrate_budget = app->tile_state_bridge.active_layer_valid
@@ -190,6 +191,7 @@ void app_runtime_update_frame(AppState *app,
         }
     }
     app_route_poll_result(app);
+    app_route_panel_model_update(app);
     double after_route = time_now_seconds();
 
     app_playback_update(app, dt);

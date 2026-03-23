@@ -70,7 +70,8 @@ bool app_runtime_handle_global_controls(AppState *app) {
                 return true;
             }
             // Invalidate in-flight work first, then teardown/re-init loader+managers in a safe order.
-            app->tile_state_bridge.tile_request_id += 1u;
+            app_worker_contract_bump_world_generation(app);
+            app_worker_contract_bump_tile_generation(app);
             app_clear_tile_queue(app);
             tile_loader_shutdown(&app->tile_state_bridge.tile_loader);
             vk_tile_cache_clear_with_renderer(&app->tile_state_bridge.vk_tile_cache, app->renderer.vk);

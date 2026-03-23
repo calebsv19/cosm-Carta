@@ -403,24 +403,16 @@ static bool app_vk_asset_main_admit_job(AppState *app, const VkAssetJob *in_job)
     }
 
     if (app->worker_state_bridge.vk_asset_job_count >= APP_VK_ASSET_QUEUE_CAPACITY) {
-        bool evicted = false;
-        uint64_t evict_score = 0u;
-        uint32_t evict_offset = 0u;
+        uint32_t request_ids[APP_VK_ASSET_QUEUE_CAPACITY];
         for (uint32_t i = 0u; i < app->worker_state_bridge.vk_asset_job_count; ++i) {
             uint32_t idx = (app->worker_state_bridge.vk_asset_job_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
-            const VkAssetJob *job = &app->worker_state_bridge.vk_asset_jobs[idx];
-            uint32_t stale = (job->request_id == app->tile_state_bridge.tile_request_id) ? 0u : 1u;
-            uint32_t ring = app_vk_asset_visible_ring_distance(app, job->coord);
-            uint64_t score = ((uint64_t)stale << 63) |
-                             ((uint64_t)ring << 24) |
-                             (uint64_t)i;
-            if (!evicted || score > evict_score) {
-                evicted = true;
-                evict_score = score;
-                evict_offset = i;
-            }
+            request_ids[i] = app->worker_state_bridge.vk_asset_jobs[idx].request_id;
         }
-        if (evicted) {
+        uint32_t evict_offset = 0u;
+        if (app_worker_contract_choose_evict_offset(request_ids,
+                                                    app->worker_state_bridge.vk_asset_job_count,
+                                                    app->worker_state_bridge.tile_generation,
+                                                    &evict_offset)) {
             VkAssetJob dropped = {0};
             if (app_vk_asset_pop_job_at(app, evict_offset, &dropped)) {
                 app->worker_state_bridge.vk_asset_job_evict_count += 1u;
@@ -820,7 +812,7 @@ void app_vk_poly_prep_drain(AppState *app, uint32_t max_results, double max_time
             break;
         }
 
-        if (result.request_id != app->tile_state_bridge.tile_request_id) {
+        if (!app_worker_contract_tile_request_is_current(app, result.request_id)) {
             if (result.ok) {
                 mft_free_tile(&result.tile);
             }
@@ -941,7 +933,7 @@ bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord, Ti
         .coord = coord,
         .kind = kind,
         .band = band,
-        .request_id = app->tile_state_bridge.tile_request_id
+        .request_id = app->worker_state_bridge.tile_generation
     };
 
     if (!app->worker_state_bridge.vk_asset_worker_enabled) {
@@ -965,16 +957,18 @@ bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord, Ti
     }
     if (!accepted) {
         if (app->worker_state_bridge.vk_asset_stage_count >= APP_VK_ASSET_QUEUE_CAPACITY) {
-            bool evicted = false;
+            uint32_t request_ids[APP_VK_ASSET_QUEUE_CAPACITY];
             for (uint32_t i = 0u; i < app->worker_state_bridge.vk_asset_stage_count; ++i) {
                 uint32_t idx = (app->worker_state_bridge.vk_asset_stage_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
-                if (app->worker_state_bridge.vk_asset_stage_jobs[idx].request_id != in_job.request_id) {
-                    evicted = app_vk_asset_stage_pop_at(app, i, NULL);
-                    break;
-                }
+                request_ids[i] = app->worker_state_bridge.vk_asset_stage_jobs[idx].request_id;
             }
-            if (!evicted) {
-                evicted = app_vk_asset_stage_pop_at(app, 0u, NULL);
+            uint32_t evict_offset = 0u;
+            bool evicted = false;
+            if (app_worker_contract_choose_evict_offset(request_ids,
+                                                        app->worker_state_bridge.vk_asset_stage_count,
+                                                        app->worker_state_bridge.tile_generation,
+                                                        &evict_offset)) {
+                evicted = app_vk_asset_stage_pop_at(app, evict_offset, NULL);
             }
             if (evicted) {
                 app->worker_state_bridge.vk_asset_stage_evict_count += 1u;
@@ -987,7 +981,7 @@ bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord, Ti
         }
     }
     if (!accepted) {
-        app->worker_state_bridge.vk_asset_job_drop_count += 1u;
+        app->worker_state_bridge.vk_asset_stage_drop_count += 1u;
     }
     pthread_mutex_unlock(&app->worker_state_bridge.vk_asset_worker_mutex);
     return accepted;
@@ -1030,7 +1024,7 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
         for (uint32_t i = 0u; i < app->worker_state_bridge.vk_asset_job_count; ++i) {
             uint32_t idx = (app->worker_state_bridge.vk_asset_job_head + i) % APP_VK_ASSET_QUEUE_CAPACITY;
             const VkAssetJob *job = &app->worker_state_bridge.vk_asset_jobs[idx];
-            if (job->request_id != app->tile_state_bridge.tile_request_id) {
+            if (!app_worker_contract_tile_request_is_current(app, job->request_id)) {
                 if (!have_stale) {
                     have_stale = true;
                     stale_offset = i;
@@ -1084,7 +1078,7 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
             break;
         }
 
-        if (job.request_id != app->tile_state_bridge.tile_request_id) {
+        if (!app_worker_contract_tile_request_is_current(app, job.request_id)) {
             continue;
         }
         const MftTile *tile = tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[job.kind], job.coord, job.band);
@@ -1196,7 +1190,7 @@ static void app_process_tile_queue(AppState *app, TileQueue *queue, TileLayerKin
     for (uint32_t i = 0; i < load_count; ++i) {
         TileQueueItem item = queue->items[queue->index++];
         TileZoomBand band = app->tile_state_bridge.queue_band[kind];
-        if (!tile_loader_enqueue(&app->tile_state_bridge.tile_loader, item.coord, kind, band, app->tile_state_bridge.tile_request_id)) {
+        if (!tile_loader_enqueue(&app->tile_state_bridge.tile_loader, item.coord, kind, band, app->worker_state_bridge.tile_generation)) {
             queue->index -= 1;
             break;
         }
@@ -1219,7 +1213,7 @@ void app_drain_tile_results(AppState *app, uint32_t budget) {
             break;
         }
 
-        if (result.request_id != app->tile_state_bridge.tile_request_id) {
+        if (!app_worker_contract_tile_request_is_current(app, result.request_id)) {
             if (result.ok) {
                 mft_free_tile(&result.tile);
             }
@@ -1367,7 +1361,7 @@ void app_update_tile_queue(AppState *app) {
     }
 
     if (bounds_changed) {
-        app->tile_state_bridge.tile_request_id += 1;
+        app_worker_contract_bump_tile_generation(app);
         for (size_t i = 0; i < layer_policy_count(); ++i) {
             const LayerPolicy *policy = layer_policy_at(i);
             if (!policy) {

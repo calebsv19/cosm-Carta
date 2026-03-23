@@ -307,9 +307,7 @@ bool app_load_route_graph(AppState *app) {
         app_route_result_clear(&app->worker_state_bridge.route_result);
         app->worker_state_bridge.route_result_pending = false;
         app->route_state_bridge.route_recompute_scheduled = false;
-        app->worker_state_bridge.route_latest_requested_id = 0u;
-        app->worker_state_bridge.route_latest_submitted_id = 0u;
-        app->worker_state_bridge.route_latest_applied_id = 0u;
+        app_worker_contract_reset_route_pipeline(app);
         pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
     }
     return true;
@@ -1083,9 +1081,7 @@ bool app_route_worker_init(AppState *app) {
     app->worker_state_bridge.route_worker_busy = false;
     app->worker_state_bridge.route_job_pending = false;
     app->worker_state_bridge.route_result_pending = false;
-    app->worker_state_bridge.route_latest_requested_id = 0u;
-    app->worker_state_bridge.route_latest_submitted_id = 0u;
-    app->worker_state_bridge.route_latest_applied_id = 0u;
+    app_worker_contract_reset_route_pipeline(app);
     app->route_state_bridge.route_recompute_scheduled = false;
     app->route_state_bridge.route_recompute_due_time = 0.0;
     memset(&app->worker_state_bridge.route_job, 0, sizeof(app->worker_state_bridge.route_job));
@@ -1142,9 +1138,7 @@ void app_route_worker_clear(AppState *app) {
     app_route_result_clear(&app->worker_state_bridge.route_result);
     app->worker_state_bridge.route_result_pending = false;
     app->route_state_bridge.route_recompute_scheduled = false;
-    app->worker_state_bridge.route_latest_requested_id = 0u;
-    app->worker_state_bridge.route_latest_submitted_id = 0u;
-    app->worker_state_bridge.route_latest_applied_id = 0u;
+    app_worker_contract_reset_route_pipeline(app);
     route_state_clear(&app->worker_state_bridge.route_worker_state);
     pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
 }
@@ -1161,7 +1155,7 @@ void app_route_schedule_recompute(AppState *app, double debounce_sec) {
     pthread_mutex_lock(&app->worker_state_bridge.route_worker_mutex);
     app->route_state_bridge.route_recompute_scheduled = true;
     app->route_state_bridge.route_recompute_due_time = now + debounce_sec;
-    app->worker_state_bridge.route_latest_requested_id += 1u;
+    app_worker_contract_next_route_request(app);
     pthread_mutex_unlock(&app->worker_state_bridge.route_worker_mutex);
 }
 
@@ -1195,7 +1189,7 @@ void app_route_poll_result(AppState *app) {
         app->worker_state_bridge.route_job = submit_job;
         app->worker_state_bridge.route_job_pending = true;
         app->route_state_bridge.route_recompute_scheduled = false;
-        app->worker_state_bridge.route_latest_submitted_id = submit_job.request_id;
+        app_worker_contract_note_route_submitted(app, submit_job.request_id);
         should_submit = true;
     }
     if (should_submit) {
@@ -1206,7 +1200,7 @@ void app_route_poll_result(AppState *app) {
     if (!have_result) {
         return;
     }
-    if (result.request_id != app->worker_state_bridge.route_latest_submitted_id || result.request_id < app->worker_state_bridge.route_latest_applied_id) {
+    if (!app_worker_contract_route_result_is_current(app, result.request_id)) {
         app_route_result_clear(&result);
         return;
     }
@@ -1247,6 +1241,6 @@ void app_route_poll_result(AppState *app) {
     app->route_state_bridge.route.mode = result.mode;
     app->route_state_bridge.route.has_transfer = result.has_transfer;
     app->route_state_bridge.route.transfer_node = result.transfer_node;
-    app->worker_state_bridge.route_latest_applied_id = result.request_id;
+    app_worker_contract_note_route_applied(app, result.request_id);
     app_playback_reset(app);
 }

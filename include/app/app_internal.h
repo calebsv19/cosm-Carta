@@ -276,6 +276,9 @@ typedef struct AppRouteRuntimeState {
 
 /* Phase 2 bridge: target ownership bucket for worker/thread synchronization state. */
 typedef struct AppWorkerState {
+    uint32_t world_generation;
+    uint32_t tile_generation;
+    uint32_t route_generation;
     bool vk_poly_prep_enabled;
     bool vk_poly_prep_running;
     pthread_t vk_poly_prep_thread;
@@ -400,12 +403,28 @@ typedef struct AppState {
     uint64_t trace_last_tile_result_evict_count;
     uint64_t trace_last_vk_asset_drop_count;
     uint64_t trace_last_vk_asset_evict_count;
+    uint64_t trace_last_vk_asset_stage_drop_count;
+    uint64_t trace_last_vk_asset_stage_evict_count;
     int width;
     int height;
 } AppState;
 
 void app_bridge_sync_from_legacy(AppState *app);
 void app_bridge_sync_to_legacy(AppState *app);
+void app_worker_contract_init(AppState *app);
+uint32_t app_worker_contract_bump_world_generation(AppState *app);
+uint32_t app_worker_contract_bump_tile_generation(AppState *app);
+uint32_t app_worker_contract_next_route_request(AppState *app);
+void app_worker_contract_note_route_submitted(AppState *app, uint32_t request_id);
+void app_worker_contract_note_route_applied(AppState *app, uint32_t request_id);
+void app_worker_contract_reset_route_pipeline(AppState *app);
+bool app_worker_contract_request_is_stale(uint32_t request_id, uint32_t current_generation);
+bool app_worker_contract_tile_request_is_current(const AppState *app, uint32_t request_id);
+bool app_worker_contract_route_result_is_current(const AppState *app, uint32_t request_id);
+bool app_worker_contract_choose_evict_offset(const uint32_t *request_ids,
+                                             uint32_t count,
+                                             uint32_t current_generation,
+                                             uint32_t *out_offset);
 
 float app_clampf(float value, float min_value, float max_value);
 uint16_t app_zoom_to_tile_level(float zoom, const RegionInfo *region);
@@ -455,11 +474,14 @@ void app_update_hover(AppState *app);
 void app_draw_hover_marker(AppState *app);
 bool app_recompute_route(AppState *app);
 const RoutePath *app_route_primary_path(const AppState *app, uint32_t *out_alt_index);
+bool app_route_service_select_alternative(AppState *app, uint32_t alt_index);
+bool app_route_service_toggle_alternative_visibility(AppState *app, uint32_t alt_index);
 
 void app_playback_reset(AppState *app);
 void app_playback_update(AppState *app, float dt);
 float app_next_playback_speed(float current, int direction);
 void app_draw_playback_marker(AppState *app);
+void app_route_panel_model_update(AppState *app);
 void app_draw_route_panel(AppState *app);
 bool app_route_panel_handle_click(AppState *app);
 

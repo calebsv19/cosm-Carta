@@ -288,18 +288,25 @@ void app_draw_playback_marker(AppState *app) {
     renderer_fill_rect(&app->renderer, &rect);
 }
 
-void app_draw_route_panel(AppState *app) {
+static void playback_route_panel_clear_model(AppState *app) {
+    if (!app) {
+        return;
+    }
+    memset(&app->ui_state_bridge.hud_route_panel_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_rect));
+    memset(&app->ui_state_bridge.hud_route_panel_collapse_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_collapse_rect));
+    memset(&app->ui_state_bridge.hud_route_panel_handle_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_handle_rect));
+    memset(&app->ui_state_bridge.hud_route_panel_row_rects, 0, sizeof(app->ui_state_bridge.hud_route_panel_row_rects));
+    memset(&app->ui_state_bridge.hud_route_panel_toggle_rects, 0, sizeof(app->ui_state_bridge.hud_route_panel_toggle_rects));
+    app->ui_state_bridge.hud_route_panel_layout_dirty = true;
+}
+
+void app_route_panel_model_update(AppState *app) {
     if (!app) {
         return;
     }
 
     if (app->route_state_bridge.route.path.count < 2 && app->route_state_bridge.route.alternatives.count == 0) {
-        memset(&app->ui_state_bridge.hud_route_panel_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_rect));
-        memset(&app->ui_state_bridge.hud_route_panel_collapse_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_collapse_rect));
-        memset(&app->ui_state_bridge.hud_route_panel_handle_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_handle_rect));
-        memset(&app->ui_state_bridge.hud_route_panel_row_rects, 0, sizeof(app->ui_state_bridge.hud_route_panel_row_rects));
-        memset(&app->ui_state_bridge.hud_route_panel_toggle_rects, 0, sizeof(app->ui_state_bridge.hud_route_panel_toggle_rects));
-        app->ui_state_bridge.hud_route_panel_layout_dirty = true;
+        playback_route_panel_clear_model(app);
         return;
     }
 
@@ -309,8 +316,7 @@ void app_draw_route_panel(AppState *app) {
     }
 
     int route_rows = 0;
-    int alt_index = -1;
-    const RoutePath *active_path = playback_active_path(app, &alt_index);
+    const RoutePath *active_path = playback_active_path(app, NULL);
     if (!active_path) {
         active_path = &app->route_state_bridge.route.path;
     }
@@ -399,13 +405,51 @@ void app_draw_route_panel(AppState *app) {
     app->ui_state_bridge.hud_route_panel_rect = panel;
     memset(&app->ui_state_bridge.hud_route_panel_row_rects, 0, sizeof(app->ui_state_bridge.hud_route_panel_row_rects));
     memset(&app->ui_state_bridge.hud_route_panel_toggle_rects, 0, sizeof(app->ui_state_bridge.hud_route_panel_toggle_rects));
+    if (app->ui_state_bridge.hud_route_panel_collapsed) {
+        app->ui_state_bridge.hud_route_panel_handle_rect = (SDL_FRect){(float)app->width - 26.0f, APP_HEADER_HEIGHT + 8.0f, 20.0f, 20.0f};
+        memset(&app->ui_state_bridge.hud_route_panel_collapse_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_collapse_rect));
+        return;
+    }
+
+    memset(&app->ui_state_bridge.hud_route_panel_handle_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_handle_rect));
+    app->ui_state_bridge.hud_route_panel_collapse_rect = (SDL_FRect){panel.x + panel.w - 18.0f, panel.y + 3.0f, 14.0f, 14.0f};
+
+    int text_x = (int)(panel.x + 10.0f);
+    int text_y = (int)(panel.y + 8.0f);
+    int toggle_w = 34;
+    int right_pad = 8;
+    text_y += line_h + 2;
+    text_y += line_h + 2;
+    for (uint32_t i = 0; i < app->route_state_bridge.route.alternatives.count && i < ROUTE_ALTERNATIVE_MAX; ++i) {
+        const RoutePath *candidate = &app->route_state_bridge.route.alternatives.paths[i];
+        if (candidate->count < 2) {
+            continue;
+        }
+        int button_y = text_y - 1;
+        SDL_FRect toggle_rect = {(float)(panel.x + panel.w - right_pad - toggle_w), (float)button_y, (float)toggle_w, (float)line_h};
+        SDL_FRect row_rect = {(float)(text_x + 12), (float)button_y, (float)(toggle_rect.x - (float)(text_x + 12) - 6.0f), (float)line_h};
+        if (row_rect.w < 1.0f) {
+            row_rect.w = 1.0f;
+        }
+        app->ui_state_bridge.hud_route_panel_row_rects[i] = row_rect;
+        app->ui_state_bridge.hud_route_panel_toggle_rects[i] = toggle_rect;
+        text_y += line_h + 1;
+    }
+}
+
+void app_draw_route_panel(AppState *app) {
+    if (!app) {
+        return;
+    }
+    if (app->route_state_bridge.route.path.count < 2 && app->route_state_bridge.route.alternatives.count == 0) {
+        return;
+    }
 
     MapForgeThemePalette palette = playback_theme_palette();
+    SDL_FRect panel = app->ui_state_bridge.hud_route_panel_rect;
 
     if (app->ui_state_bridge.hud_route_panel_collapsed) {
-        SDL_FRect handle = {(float)app->width - 26.0f, APP_HEADER_HEIGHT + 8.0f, 20.0f, 20.0f};
-        app->ui_state_bridge.hud_route_panel_handle_rect = handle;
-        memset(&app->ui_state_bridge.hud_route_panel_collapse_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_collapse_rect));
+        SDL_FRect handle = app->ui_state_bridge.hud_route_panel_handle_rect;
         renderer_set_draw_color(&app->renderer,
                                 palette.route_panel_fill.r,
                                 palette.route_panel_fill.g,
@@ -422,9 +466,16 @@ void app_draw_route_panel(AppState *app) {
         return;
     }
 
-    memset(&app->ui_state_bridge.hud_route_panel_handle_rect, 0, sizeof(app->ui_state_bridge.hud_route_panel_handle_rect));
-    SDL_FRect collapse = {panel.x + panel.w - 18.0f, panel.y + 3.0f, 14.0f, 14.0f};
-    app->ui_state_bridge.hud_route_panel_collapse_rect = collapse;
+    SDL_FRect collapse = app->ui_state_bridge.hud_route_panel_collapse_rect;
+    int line_h = ui_font_line_height(1.0f);
+    if (line_h <= 0) {
+        line_h = 12;
+    }
+    int alt_index = -1;
+    const RoutePath *active_path = playback_active_path(app, &alt_index);
+    if (!active_path) {
+        active_path = &app->route_state_bridge.route.path;
+    }
 
     renderer_set_draw_color(&app->renderer,
                             palette.route_panel_fill.r,
@@ -444,8 +495,6 @@ void app_draw_route_panel(AppState *app) {
     SDL_Color text_muted = {178, 190, 210, 255};
     int text_x = (int)(panel.x + 10.0f);
     int text_y = (int)(panel.y + 8.0f);
-    int toggle_w = 34;
-    int right_pad = 8;
 
     renderer_set_draw_color(&app->renderer, palette.route_panel_fill.r, palette.route_panel_fill.g, palette.route_panel_fill.b, 245);
     renderer_fill_rect(&app->renderer, &collapse);
@@ -474,14 +523,8 @@ void app_draw_route_panel(AppState *app) {
         renderer_set_draw_color(&app->renderer, swatch.r, swatch.g, swatch.b, swatch.a);
         renderer_fill_rect(&app->renderer, &swatch_rect);
 
-        int button_y = text_y - 1;
-        SDL_FRect toggle_rect = {(float)(panel.x + panel.w - right_pad - toggle_w), (float)button_y, (float)toggle_w, (float)line_h};
-        SDL_FRect row_rect = {(float)(text_x + 12), (float)button_y, (float)(toggle_rect.x - (float)(text_x + 12) - 6.0f), (float)line_h};
-        if (row_rect.w < 1.0f) {
-            row_rect.w = 1.0f;
-        }
-        app->ui_state_bridge.hud_route_panel_row_rects[i] = row_rect;
-        app->ui_state_bridge.hud_route_panel_toggle_rects[i] = toggle_rect;
+        SDL_FRect toggle_rect = app->ui_state_bridge.hud_route_panel_toggle_rects[i];
+        SDL_FRect row_rect = app->ui_state_bridge.hud_route_panel_row_rects[i];
 
         renderer_set_draw_color(&app->renderer, selected ? 46 : 34, selected ? 74 : 44, selected ? 88 : 56, 236);
         renderer_fill_rect(&app->renderer, &row_rect);
@@ -557,26 +600,11 @@ bool app_route_panel_handle_click(AppState *app) {
 
     for (uint32_t i = 0; i < ROUTE_ALTERNATIVE_MAX; ++i) {
         if (app->ui_state_bridge.input.left_click_pressed && playback_point_in_rect(mx, my, &app->ui_state_bridge.hud_route_panel_row_rects[i])) {
-            if (i < app->route_state_bridge.route.alternatives.count) {
-                RouteObjective next_objective = app->route_state_bridge.route.alternatives.objectives[i];
-                bool objective_changed = app->route_state_bridge.route.objective != next_objective;
-                app->route_state_bridge.route.objective = next_objective;
-                app->route_state_bridge.route_alt_visible[i] = true;
-                if (objective_changed) {
-                    route_path_free(&app->route_state_bridge.route.drive_path);
-                    route_path_free(&app->route_state_bridge.route.walk_path);
-                    app->route_state_bridge.route.has_transfer = false;
-                    app->route_state_bridge.route.transfer_node = 0;
-                }
-                if (app->route_state_bridge.route.has_start && app->route_state_bridge.route.has_goal) {
-                    app_route_schedule_recompute(app, 0.0);
-                }
-                app_playback_reset(app);
-            }
+            app_route_service_select_alternative(app, i);
             return true;
         }
         if (app->ui_state_bridge.input.left_click_pressed && playback_point_in_rect(mx, my, &app->ui_state_bridge.hud_route_panel_toggle_rects[i])) {
-            app->route_state_bridge.route_alt_visible[i] = !app->route_state_bridge.route_alt_visible[i];
+            app_route_service_toggle_alternative_visibility(app, i);
             return true;
         }
     }
