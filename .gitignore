@@ -1,4 +1,4 @@
 *.osm
-docs/*
-data/*
-build/*
+.DS_Store
+build/
+data/regions/
