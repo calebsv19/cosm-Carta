@@ -2,3 +2,5 @@
 .DS_Store
 build/
 data/regions/
+ide_files/
+vk_frame.ppm
