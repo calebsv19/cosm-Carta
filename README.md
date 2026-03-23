@@ -80,4 +80,4 @@ git subtree pull --prefix=third_party/codework_shared shared-upstream main --squ
 
 ## License
 
-This repository does not yet include a root `LICENSE` file. Add one before making the GitHub repository public so downstream users know their rights clearly.
+This repository is licensed under Apache License 2.0. See `LICENSE`.
