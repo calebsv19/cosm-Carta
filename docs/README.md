@@ -19,6 +19,23 @@ Start here for the public, operator-facing documentation that ships with the rep
 
 - `docs/TABLE_OF_CONTEXT.md`: public doc map plus private-doc location notes.
 
+## Architecture And Contribution
+
+- `docs/ARCHITECTURE_RUNTIME.md`: frame-phase runtime/dataflow architecture.
+- `docs/ARCHITECTURE_THREADS_AND_QUEUES.md`: worker thread and queue topology/invariants.
+- `docs/CONTRIBUTING_MODULE_MAP.md`: contributor module map and "where to edit" guide.
+- `docs/KNOWN_CONSTRAINTS_AND_BACKLOG.md`: current constraints and follow-up backlog.
+
+## Contributor Quickstart
+
+If you are new to the runtime code, read in this order:
+
+1. `src/app/app.c`: app bootstrap and top-level runtime orchestration.
+2. `src/app/app_runtime_update.c`: update-stage state mutation flow.
+3. `src/app/app_runtime_render.c`: render-stage draw flow.
+4. `src/app/app_route_service.c`: route alternative selection/toggle boundary.
+5. `src/app/app_tile_pipeline.c`: async tile/Vulkan queue and worker integration.
+
 ## Private Planning Docs
 
 Private plans, execution checklists, and internal runbooks were moved out of this repo lane. They live in the CodeWork workspace at:
