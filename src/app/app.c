@@ -221,6 +221,19 @@ static void app_load_persisted_view_state(AppState *app) {
         }
     }
 
+    struct json_object *hardening = NULL;
+    if (json_object_object_get_ex(root, "runtime_hardening", &hardening) &&
+        hardening && json_object_is_type(hardening, json_type_object)) {
+        bool presenter_invariants_enabled = app->tile_state_bridge.presenter_invariants_enabled;
+        if (app_json_get_bool(hardening, "presenter_invariants_enabled", &presenter_invariants_enabled)) {
+            app->tile_state_bridge.presenter_invariants_enabled = presenter_invariants_enabled;
+        }
+        bool contour_enabled = app->tile_state_bridge.contour_runtime_enabled;
+        if (app_json_get_bool(hardening, "contour_enabled", &contour_enabled)) {
+            app->tile_state_bridge.contour_runtime_enabled = contour_enabled;
+        }
+    }
+
     json_object_put(root);
 }
 
@@ -265,6 +278,14 @@ static void app_save_persisted_view_state(const AppState *app) {
     json_object_object_add(view, "layer_fade_speed_milli", fade_speed_arr);
 
     json_object_object_add(root, "map_view", view);
+    struct json_object *hardening = json_object_new_object();
+    if (hardening) {
+        json_object_object_add(hardening, "presenter_invariants_enabled",
+                               json_object_new_boolean(app->tile_state_bridge.presenter_invariants_enabled ? 1 : 0));
+        json_object_object_add(hardening, "contour_enabled",
+                               json_object_new_boolean(app->tile_state_bridge.contour_runtime_enabled ? 1 : 0));
+        json_object_object_add(root, "runtime_hardening", hardening);
+    }
 
     if (json_object_to_file_ext(kAppConfigPath, root, JSON_C_TO_STRING_PRETTY) != 0) {
         log_error("Failed to persist map view state to %s", kAppConfigPath);
@@ -622,6 +643,8 @@ static bool app_init(AppState *app) {
     app->ui_state_bridge.header_layer_selected_valid = false;
     app->ui_state_bridge.header_layer_selected_kind = TILE_LAYER_ROAD_ARTERY;
     app->view_state_bridge.zoom_logic_enabled = true;
+    app->tile_state_bridge.presenter_invariants_enabled = !app_env_flag_enabled("MAPFORGE_DISABLE_PRESENTER_INVARIANTS");
+    app->tile_state_bridge.contour_runtime_enabled = app_env_flag_enabled("MAPFORGE_ENABLE_CONTOUR");
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         memset(&app->tile_state_bridge.tile_queues[i], 0, sizeof(app->tile_state_bridge.tile_queues[i]));
         app->view_state_bridge.layer_user_enabled[i] = true;
@@ -635,6 +658,11 @@ static bool app_init(AppState *app) {
         }
         app->view_state_bridge.layer_fade_start_milli[i] = (uint16_t)(zoom_start * 50.0f);
         app->view_state_bridge.layer_fade_speed_milli[i] = 170u;
+        app->tile_state_bridge.queue_band[i] = TILE_BAND_DEFAULT;
+        app->tile_state_bridge.previous_target_band[i] = TILE_BAND_DEFAULT;
+        app->tile_state_bridge.stable_target_band[i] = TILE_BAND_DEFAULT;
+        app->tile_state_bridge.layer_target_band[i] = TILE_BAND_DEFAULT;
+        app->tile_state_bridge.layer_band_last_change_time[i] = 0.0;
     }
     app->tile_state_bridge.queue_valid = false;
     app->tile_state_bridge.visible_valid = false;
@@ -642,6 +670,16 @@ static bool app_init(AppState *app) {
     app->tile_state_bridge.loading_done = 0;
     app->tile_state_bridge.loading_no_data_time = 0.0f;
     app->tile_state_bridge.loading_layer_index = 0;
+    app->tile_state_bridge.draw_path_vk_count = 0u;
+    app->tile_state_bridge.draw_path_fallback_count = 0u;
+    app->tile_state_bridge.band_switch_deferred_count = 0u;
+    app->tile_state_bridge.queue_rebuild_deferred_count = 0u;
+    app->tile_state_bridge.transition_blend_draw_count = 0u;
+    app->tile_state_bridge.present_hold_hits = 0u;
+    app->tile_state_bridge.present_hold_misses = 0u;
+    app->tile_state_bridge.present_hold_updates = 0u;
+    app->tile_state_bridge.present_hold_tick = 1u;
+    app->tile_state_bridge.last_queue_rebuild_time = 0.0;
     app_load_persisted_view_state(app);
     app_refresh_layer_states(app);
     app_bridge_sync_from_legacy(app);
@@ -774,7 +812,7 @@ int app_run(void) {
                          "vk_begin=%d vk_begin_fail_total=%llu vk_recreate=%u vk_geom=%u/%u vk_geom_skip=%u vk_lines=%u vk_line_skip=%u vk_line_budget=%u vk_rect=%u vk_fill=%u "
                          "vk_assets=%u/%u builds=%u evict=%u miss=%u jobs(q=%u build=%llu drop=%llu evict=%llu) poly_prep(in=%u out=%u enq=%llu done=%llu drop=%llu) resident(a=%u l=%u) fill_resident(w=%u p=%u l=%u b=%u) "
                          "mesh(v=%llu b=%llu fail=%u fill_fail=%u) vk_poly_fill(draw=%u skip=%u fail=%u idx=%u) "
-                         "road_draw(m=%u l=%u p=%u) road_filter(m=%u l=%u p=%u)",
+                         "road_draw(m=%u l=%u p=%u) road_filter(m=%u l=%u p=%u) draw_path(vk=%u fallback=%u blend=%u) defer(band=%u queue=%u) hold(hit=%u miss=%u upd=%u)",
                          app.region.name,
                          frame_ms, events_ms, app.frame_timings.update_ms,
                          app.frame_timings.queue_ms, app.frame_timings.integrate_ms,
@@ -843,11 +881,20 @@ int app_run(void) {
                          app.tile_state_bridge.vk_poly_fill_fail,
                          app.tile_state_bridge.vk_poly_fill_indices,
                          drawn_major, drawn_local, drawn_path,
-                         filt_major, filt_local, filt_path);
+                         filt_major, filt_local, filt_path,
+                         app.tile_state_bridge.draw_path_vk_count,
+                         app.tile_state_bridge.draw_path_fallback_count,
+                         app.tile_state_bridge.transition_blend_draw_count,
+                         app.tile_state_bridge.band_switch_deferred_count,
+                         app.tile_state_bridge.queue_rebuild_deferred_count,
+                         app.tile_state_bridge.present_hold_hits,
+                         app.tile_state_bridge.present_hold_misses,
+                         app.tile_state_bridge.present_hold_updates);
             } else {
                 log_info("perf region=%s backend=sdl frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f zoom=%.2f vis=%u load=%u/%u active=%s "
                          "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
-                         "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu",
+                         "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu "
+                         "draw_path(vk=%u fallback=%u blend=%u) defer(band=%u queue=%u) hold(hit=%u miss=%u upd=%u)",
                          app.region.name,
                          frame_ms, events_ms, app.frame_timings.update_ms,
                          app.frame_timings.queue_ms, app.frame_timings.integrate_ms,
@@ -875,7 +922,15 @@ int app_run(void) {
                          (unsigned long long)stats.result_evict_count,
                          (unsigned long long)stats.missing_count,
                          (unsigned long long)stats.load_ok_count,
-                         (unsigned long long)stats.load_fail_count);
+                         (unsigned long long)stats.load_fail_count,
+                         app.tile_state_bridge.draw_path_vk_count,
+                         app.tile_state_bridge.draw_path_fallback_count,
+                         app.tile_state_bridge.transition_blend_draw_count,
+                         app.tile_state_bridge.band_switch_deferred_count,
+                         app.tile_state_bridge.queue_rebuild_deferred_count,
+                         app.tile_state_bridge.present_hold_hits,
+                         app.tile_state_bridge.present_hold_misses,
+                         app.tile_state_bridge.present_hold_updates);
             }
             perf_next_log = after_render + 1.0;
         }

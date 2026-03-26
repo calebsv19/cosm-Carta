@@ -6,9 +6,9 @@ This file tracks practical current-state constraints and follow-up items after s
 
 1. Heavy runtime state still lives in one `AppState` composition root.
 2. Route and tile worker pipelines are stable but still app-local abstractions.
-3. GUI behavior (panel interactions, stress zoom behavior) still depends on manual runtime validation.
+3. GUI behavior (panel interactions, stress zoom behavior) still depends on manual runtime validation for full confidence.
 4. Vulkan and SDL paths share runtime orchestration and need parity checks after deeper rendering changes.
-5. Some docs still refer to historical naming (`Carta` vs `MapForge`) and should be normalized over time.
+5. Contour is intentionally parked until terrain/DEM-backed contour pipeline is added (`runtime_hardening.contour_enabled` keeps re-enable path).
 
 ## Near-Term Backlog
 

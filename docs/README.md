@@ -1,4 +1,4 @@
-# Carta Docs
+# MapForge Docs
 
 Start here for the public, operator-facing documentation that ships with the repository.
 
@@ -35,6 +35,11 @@ If you are new to the runtime code, read in this order:
 3. `src/app/app_runtime_render.c`: render-stage draw flow.
 4. `src/app/app_route_service.c`: route alternative selection/toggle boundary.
 5. `src/app/app_tile_pipeline.c`: async tile/Vulkan queue and worker integration.
+
+## Non-GUI Stability Checks
+
+- `make test-presentation-stability`
+- `make test`
 
 ## Private Planning Docs
 

@@ -93,7 +93,6 @@ static float app_draw_header_layer_chips(AppState *app,
     static const TileLayerKind kHeaderChipPriority[] = {
         TILE_LAYER_ROAD_ARTERY,
         TILE_LAYER_ROAD_LOCAL,
-        TILE_LAYER_CONTOUR,
         TILE_LAYER_POLY_WATER,
         TILE_LAYER_POLY_PARK,
         TILE_LAYER_POLY_LANDUSE,
@@ -660,7 +659,7 @@ bool app_header_layer_slider_update(AppState *app) {
 }
 
 static int app_layer_debug_line_count(void) {
-    return 5 + (int)layer_policy_count();
+    return 6 + (int)layer_policy_count();
 }
 
 static int app_digits_u32(uint32_t value) {
@@ -693,6 +692,10 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->route_state_bridge.route_snap_debug_cells));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->route_state_bridge.route_snap_debug_segments));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->route_state_bridge.route_snap_debug_hits));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.draw_path_vk_count));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.draw_path_fallback_count));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.transition_blend_draw_count));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.presenter_invariant_fail_count));
 
     for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_visible_loaded[i]));
@@ -749,8 +752,19 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
                  app->route_state_bridge.route_snap_debug_query_ms);
         return true;
     }
+    if (index == 5) {
+        snprintf(line, line_size, "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u",
+                 app->tile_state_bridge.draw_path_vk_count,
+                 app->tile_state_bridge.draw_path_fallback_count,
+                 app->tile_state_bridge.transition_blend_draw_count,
+                 app->tile_state_bridge.present_hold_hits,
+                 app->tile_state_bridge.present_hold_misses,
+                 app->tile_state_bridge.present_hold_updates,
+                 app->tile_state_bridge.presenter_invariant_fail_count);
+        return true;
+    }
 
-    int policy_index = index - 5;
+    int policy_index = index - 6;
     if (policy_index < 0 || (size_t)policy_index >= layer_policy_count()) {
         return false;
     }
@@ -913,7 +927,9 @@ void app_copy_overlay_text(AppState *app) {
     size_t offset = 0;
     int written = snprintf(buffer + offset, sizeof(buffer) - offset,
                            "Region: %s\nZoom: %.2f\nVisible tiles: %u\nLoad total: %u/%u no_data=%.1fs\n"
-                           "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u\n",
+                           "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u\n"
+                           "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u\n"
+                           "Hardening invariants=%s contour=%s\n",
                            app->region.name,
                            app->view_state_bridge.camera.zoom,
                            app->tile_state_bridge.visible_tile_count,
@@ -926,7 +942,16 @@ void app_copy_overlay_text(AppState *app) {
                            app->tile_state_bridge.band_visible_loaded[TILE_BAND_DEFAULT], app->tile_state_bridge.band_visible_expected[TILE_BAND_DEFAULT],
                            app->tile_state_bridge.band_queue_depth[TILE_BAND_COARSE], app->tile_state_bridge.band_queue_depth[TILE_BAND_MID],
                            app->tile_state_bridge.band_queue_depth[TILE_BAND_FINE], app->tile_state_bridge.band_queue_depth[TILE_BAND_DEFAULT],
-                           app->tile_state_bridge.vk_road_band_fallback_draws);
+                           app->tile_state_bridge.vk_road_band_fallback_draws,
+                           app->tile_state_bridge.draw_path_vk_count,
+                           app->tile_state_bridge.draw_path_fallback_count,
+                           app->tile_state_bridge.transition_blend_draw_count,
+                           app->tile_state_bridge.present_hold_hits,
+                           app->tile_state_bridge.present_hold_misses,
+                           app->tile_state_bridge.present_hold_updates,
+                           app->tile_state_bridge.presenter_invariant_fail_count,
+                           app->tile_state_bridge.presenter_invariants_enabled ? "on" : "off",
+                           app->tile_state_bridge.contour_runtime_enabled ? "on" : "off");
     if (written < 0) {
         return;
     }

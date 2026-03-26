@@ -41,6 +41,15 @@
 #define APP_VK_ASSET_BUILD_TIME_SLICE_SEC 0.0012
 /* Max queued prepared Vulkan asset jobs waiting for GPU submission. */
 #define APP_VK_ASSET_READY_QUEUE_CAPACITY 1024u
+/* Prevent rapid tile-band flips when zoom oscillates near thresholds. */
+#define APP_TILE_BAND_SWITCH_DEBOUNCE_SEC 0.14
+/* Prevent immediate queue rebuild churn for band-only transitions. */
+#define APP_TILE_QUEUE_REBUILD_MIN_SEC 0.10
+/* Blend window for old/new band handoff in presentation. */
+#define APP_TILE_BAND_BLEND_WINDOW_SEC 0.22
+/* Per-layer tile presentation hold cache capacity and TTL. */
+#define APP_TILE_PRESENT_HOLD_CAPACITY 4096u
+#define APP_TILE_PRESENT_HOLD_TTL_SEC 0.28
 /* Route recompute debounce while dragging endpoints. */
 #define APP_ROUTE_DRAG_DEBOUNCE_SEC 0.045
 /* Runtime trace sample/marker ring capacities. */
@@ -76,6 +85,15 @@ typedef struct VkPolyAssetBuildBudget {
     uint32_t cap;
     uint32_t used;
 } VkPolyAssetBuildBudget;
+
+/* Last-known tile presentation band retained briefly for visual continuity. */
+typedef struct TilePresentHoldEntry {
+    bool occupied;
+    TileCoord coord;
+    TileZoomBand band;
+    double expires_at;
+    uint64_t stamp;
+} TilePresentHoldEntry;
 
 /* Work item for deferred Vulkan polygon asset construction. */
 typedef struct VkAssetJob {
@@ -214,7 +232,10 @@ typedef struct AppTileState {
     uint32_t tile_request_id;
     TileQueue tile_queues[TILE_LAYER_COUNT];
     TileZoomBand queue_band[TILE_LAYER_COUNT];
+    TileZoomBand previous_target_band[TILE_LAYER_COUNT];
+    TileZoomBand stable_target_band[TILE_LAYER_COUNT];
     TileZoomBand layer_target_band[TILE_LAYER_COUNT];
+    double layer_band_last_change_time[TILE_LAYER_COUNT];
     uint32_t band_visible_expected[TILE_BAND_COUNT];
     uint32_t band_visible_loaded[TILE_BAND_COUNT];
     uint32_t band_queue_depth[TILE_BAND_COUNT];
@@ -247,6 +268,20 @@ typedef struct AppTileState {
     uint32_t vk_poly_fill_fail;
     uint32_t vk_poly_fill_indices;
     uint32_t vk_road_band_fallback_draws;
+    uint32_t draw_path_vk_count;
+    uint32_t draw_path_fallback_count;
+    uint32_t band_switch_deferred_count;
+    uint32_t queue_rebuild_deferred_count;
+    uint32_t transition_blend_draw_count;
+    uint32_t present_hold_hits;
+    uint32_t present_hold_misses;
+    uint32_t present_hold_updates;
+    uint32_t presenter_invariant_fail_count;
+    bool presenter_invariants_enabled;
+    bool contour_runtime_enabled;
+    uint64_t present_hold_tick;
+    TilePresentHoldEntry present_hold[TILE_LAYER_COUNT][APP_TILE_PRESENT_HOLD_CAPACITY];
+    double last_queue_rebuild_time;
 } AppTileState;
 
 /* Phase 2 bridge: target ownership bucket for route/path interaction state. */
@@ -457,6 +492,80 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
 
 uint32_t app_draw_visible_tiles(AppState *app);
 void app_draw_region_bounds(AppState *app);
+void app_tile_presenter_reset_frame_counters(AppState *app);
+float app_tile_presenter_band_blend_mix(const AppState *app, TileLayerKind kind, double now_sec);
+bool app_tile_presenter_peek_tile_for_band(const AppState *app,
+                                           TileLayerKind kind,
+                                           TileCoord coord,
+                                           TileZoomBand band,
+                                           const MftTile **out_tile);
+bool app_tile_presenter_pick_tile_with_fallback(const AppState *app,
+                                                TileLayerKind kind,
+                                                TileCoord coord,
+                                                const MftTile **out_tile,
+                                                TileZoomBand *out_band);
+bool app_tile_presenter_resolve_tile_for_present(AppState *app,
+                                                 TileLayerKind kind,
+                                                 TileCoord coord,
+                                                 double now_sec,
+                                                 const MftTile **out_tile,
+                                                 TileZoomBand *out_band);
+void app_tile_presenter_present_hold_remember(AppState *app,
+                                              TileLayerKind kind,
+                                              TileCoord coord,
+                                              TileZoomBand band,
+                                              double now_sec);
+bool app_tile_presenter_present_hold_lookup(AppState *app,
+                                            TileLayerKind kind,
+                                            TileCoord coord,
+                                            double now_sec,
+                                            TileZoomBand *out_band);
+bool app_tile_presenter_draw_polygon_band_blend(AppState *app,
+                                                TileLayerKind kind,
+                                                TileCoord coord,
+                                                float building_zoom_bias,
+                                                float layer_opacity,
+                                                double now_sec);
+bool app_tile_presenter_draw_road_band_blend(AppState *app,
+                                             TileLayerKind kind,
+                                             TileCoord coord,
+                                             bool single_line,
+                                             float road_zoom_bias,
+                                             float road_opacity,
+                                             double now_sec);
+bool app_tile_presenter_draw_road_layer(AppState *app,
+                                        TileLayerKind kind,
+                                        TileCoord coord,
+                                        const MftTile *tile,
+                                        TileZoomBand band,
+                                        bool single_line,
+                                        float road_zoom_bias,
+                                        float road_opacity,
+                                        double now_sec,
+                                        uint32_t *io_vk_asset_misses);
+bool app_tile_presenter_draw_polygon_layer(AppState *app,
+                                           TileLayerKind kind,
+                                           TileCoord coord,
+                                           const MftTile *tile,
+                                           TileZoomBand band,
+                                           float building_zoom_bias,
+                                           float layer_opacity,
+                                           bool allow_immediate_polygon_fallback,
+                                           bool allow_building_fallback,
+                                           VkPolyFillBudget *poly_fill_budget,
+                                           VkPolyAssetBuildBudget *poly_asset_build_budget,
+                                           double now_sec,
+                                           uint32_t *io_vk_asset_misses);
+bool app_tile_presenter_validate_frame_invariants(AppState *app,
+                                                  uint32_t visible_tiles,
+                                                  uint32_t vk_asset_misses);
+bool app_try_draw_vk_cached_polygon_tile(AppState *app,
+                                         TileLayerKind kind,
+                                         TileCoord coord,
+                                         TileZoomBand band,
+                                         VkPolyFillBudget *budget,
+                                         VkPolyAssetBuildBudget *asset_build_budget);
+bool app_try_draw_vk_cached_tile(AppState *app, TileLayerKind kind, TileCoord coord, TileZoomBand band);
 
 bool app_load_route_graph(AppState *app);
 void app_route_release_snap_index(AppState *app);

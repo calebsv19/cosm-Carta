@@ -70,6 +70,12 @@ bool app_layer_runtime_enabled(const AppState *app, TileLayerKind kind) {
     if (kind < 0 || kind >= TILE_LAYER_COUNT) {
         return false;
     }
+    const LayerPolicy *policy = layer_policy_for(kind);
+    if (policy && !policy->enabled) {
+        if (!(kind == TILE_LAYER_CONTOUR && app->tile_state_bridge.contour_runtime_enabled)) {
+            return false;
+        }
+    }
     return app->view_state_bridge.layer_user_enabled[kind];
 }
 
@@ -346,6 +352,21 @@ static uint32_t app_vk_asset_ring_bucket(uint32_t ring_distance) {
         return 3u;
     }
     return 4u;
+}
+
+static uint32_t app_vk_asset_kind_priority(TileLayerKind kind) {
+    if (kind == TILE_LAYER_ROAD_ARTERY || kind == TILE_LAYER_ROAD_LOCAL) {
+        return 0u;
+    }
+    if (kind == TILE_LAYER_POLY_WATER ||
+        kind == TILE_LAYER_POLY_PARK ||
+        kind == TILE_LAYER_POLY_LANDUSE) {
+        return 1u;
+    }
+    if (kind == TILE_LAYER_POLY_BUILDING) {
+        return 2u;
+    }
+    return 3u;
 }
 
 static bool app_vk_asset_pop_job_at(AppState *app, uint32_t offset, VkAssetJob *out_job) {
@@ -1053,7 +1074,9 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
             uint32_t kind_load = (job->kind < TILE_LAYER_COUNT) ? built_by_kind[job->kind] : 0u;
             uint32_t ring_distance = app_vk_asset_visible_ring_distance(app, job->coord);
             uint32_t ring_bucket = app_vk_asset_ring_bucket(ring_distance);
-            uint64_t score = ((uint64_t)kind_load << 48) |
+            uint32_t kind_priority = app_vk_asset_kind_priority(job->kind);
+            uint64_t score = ((uint64_t)kind_priority << 56) |
+                             ((uint64_t)kind_load << 48) |
                              ((uint64_t)ring_bucket << 40) |
                              ((uint64_t)ring_distance << 16) |
                              (uint64_t)i;
@@ -1109,7 +1132,10 @@ void app_clear_tile_queue(AppState *app) {
         app->tile_state_bridge.layer_visible_loaded[i] = 0;
         app->tile_state_bridge.layer_state[i] = LAYER_READINESS_HIDDEN;
         app->tile_state_bridge.queue_band[i] = TILE_BAND_DEFAULT;
+        app->tile_state_bridge.previous_target_band[i] = TILE_BAND_DEFAULT;
+        app->tile_state_bridge.stable_target_band[i] = TILE_BAND_DEFAULT;
         app->tile_state_bridge.layer_target_band[i] = TILE_BAND_DEFAULT;
+        app->tile_state_bridge.layer_band_last_change_time[i] = 0.0;
     }
     for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
         app->tile_state_bridge.band_visible_expected[i] = 0u;
@@ -1119,6 +1145,12 @@ void app_clear_tile_queue(AppState *app) {
     app->tile_state_bridge.queue_valid = false;
     app->tile_state_bridge.loading_layer_index = 0;
     app->tile_state_bridge.active_layer_valid = false;
+    app->tile_state_bridge.transition_blend_draw_count = 0u;
+    app->tile_state_bridge.present_hold_hits = 0u;
+    app->tile_state_bridge.present_hold_misses = 0u;
+    app->tile_state_bridge.present_hold_updates = 0u;
+    memset(app->tile_state_bridge.present_hold, 0, sizeof(app->tile_state_bridge.present_hold));
+    app->tile_state_bridge.last_queue_rebuild_time = 0.0;
     app_vk_poly_prep_clear(app);
     app_vk_asset_queue_clear(app);
 }
@@ -1318,6 +1350,7 @@ void app_update_tile_queue(AppState *app) {
     if (!app) {
         return;
     }
+    double now = time_now_seconds();
 
     uint16_t z = 0;
     TileCoord top_left = {0};
@@ -1335,28 +1368,61 @@ void app_update_tile_queue(AppState *app) {
     app->tile_state_bridge.visible_bottom_right = bottom_right;
     app->tile_state_bridge.visible_valid = true;
     app->tile_state_bridge.visible_tile_count = (bottom_right.x - top_left.x + 1) * (bottom_right.y - top_left.y + 1);
+    bool band_plan_changed = false;
     for (size_t i = 0; i < layer_policy_count(); ++i) {
         const LayerPolicy *policy = layer_policy_at(i);
         if (!policy) {
             continue;
         }
-        app->tile_state_bridge.layer_target_band[policy->kind] = app_layer_target_band(app, policy->kind);
+        TileLayerKind kind = policy->kind;
+        TileZoomBand proposed = app_layer_target_band(app, kind);
+        TileZoomBand current = app->tile_state_bridge.stable_target_band[kind];
+
+        if (!app->tile_state_bridge.queue_valid) {
+            app->tile_state_bridge.previous_target_band[kind] = proposed;
+            app->tile_state_bridge.stable_target_band[kind] = proposed;
+            app->tile_state_bridge.layer_target_band[kind] = proposed;
+            app->tile_state_bridge.layer_band_last_change_time[kind] = now;
+            continue;
+        }
+
+        if (current != proposed) {
+            double elapsed = now - app->tile_state_bridge.layer_band_last_change_time[kind];
+            if (elapsed >= APP_TILE_BAND_SWITCH_DEBOUNCE_SEC) {
+                app->tile_state_bridge.previous_target_band[kind] = current;
+                app->tile_state_bridge.stable_target_band[kind] = proposed;
+                app->tile_state_bridge.layer_band_last_change_time[kind] = now;
+                band_plan_changed = true;
+            } else {
+                app->tile_state_bridge.band_switch_deferred_count += 1u;
+            }
+        }
+        app->tile_state_bridge.layer_target_band[kind] = app->tile_state_bridge.stable_target_band[kind];
     }
 
-    bool bounds_changed = !app->tile_state_bridge.queue_valid ||
+    bool visible_bounds_changed = !app->tile_state_bridge.queue_valid ||
         app->tile_state_bridge.queue_zoom != z ||
         app->tile_state_bridge.queue_top_left.x != top_left.x || app->tile_state_bridge.queue_top_left.y != top_left.y ||
         app->tile_state_bridge.queue_bottom_right.x != bottom_right.x || app->tile_state_bridge.queue_bottom_right.y != bottom_right.y;
-    if (!bounds_changed) {
+    if (!visible_bounds_changed) {
         for (size_t i = 0; i < layer_policy_count(); ++i) {
             const LayerPolicy *policy = layer_policy_at(i);
             if (!policy) {
                 continue;
             }
             if (app->tile_state_bridge.queue_band[policy->kind] != app->tile_state_bridge.layer_target_band[policy->kind]) {
-                bounds_changed = true;
+                band_plan_changed = true;
                 break;
             }
+        }
+    }
+
+    bool bounds_changed = visible_bounds_changed || band_plan_changed;
+    if (bounds_changed && !visible_bounds_changed && app->tile_state_bridge.queue_valid) {
+        double since_rebuild = now - app->tile_state_bridge.last_queue_rebuild_time;
+        if (since_rebuild < APP_TILE_QUEUE_REBUILD_MIN_SEC) {
+            bounds_changed = false;
+            app->tile_state_bridge.queue_rebuild_deferred_count += 1u;
         }
     }
 
@@ -1389,6 +1455,7 @@ void app_update_tile_queue(AppState *app) {
         app->tile_state_bridge.queue_zoom = z;
         app->tile_state_bridge.queue_valid = true;
         app->tile_state_bridge.loading_layer_index = 0;
+        app->tile_state_bridge.last_queue_rebuild_time = now;
     }
 
     if (!app->tile_state_bridge.queue_valid) {

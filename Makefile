@@ -116,6 +116,8 @@ TILE_LOADER_SHUTDOWN_TEST_TARGET := build/tests/tile_loader_shutdown_test
 TILE_LOADER_SHUTDOWN_TEST_SRCS := tests/tile_loader_shutdown_test.c src/map/tile_loader.c src/map/mft_loader.c src/map/polygon_cache.c src/map/polygon_triangulator.c src/core/log.c
 APP_ROUTE_SERVICE_TEST_TARGET := build/tests/app_route_service_test
 APP_ROUTE_SERVICE_TEST_SRCS := tests/app_route_service_test.c src/app/app_route_service.c
+APP_TILE_PRESENTER_POLICY_TEST_TARGET := build/tests/app_tile_presenter_policy_test
+APP_TILE_PRESENTER_POLICY_TEST_SRCS := tests/app_tile_presenter_policy_test.c src/app/app_tile_presenter.c
 
 ifeq ($(VK_APP_ENABLED),1)
 CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
@@ -251,6 +253,8 @@ test: test-trace-contract
 test: test-worker-contract
 test: test-tile-loader-shutdown
 test: test-route-service
+test: test-tile-presenter-policy
+test: test-presentation-stability
 
 test-shared-theme-font-adapter: $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
 	./$(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
@@ -266,6 +270,12 @@ test-tile-loader-shutdown: $(TILE_LOADER_SHUTDOWN_TEST_TARGET)
 
 test-route-service: $(APP_ROUTE_SERVICE_TEST_TARGET)
 	./$(APP_ROUTE_SERVICE_TEST_TARGET)
+
+test-tile-presenter-policy: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
+	./$(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
+
+test-presentation-stability: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
+	./$(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 
 $(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -290,6 +300,10 @@ $(TILE_LOADER_SHUTDOWN_TEST_TARGET): $(TILE_LOADER_SHUTDOWN_TEST_SRCS)
 $(APP_ROUTE_SERVICE_TEST_TARGET): $(APP_ROUTE_SERVICE_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(APP_ROUTE_SERVICE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(APP_TILE_PRESENTER_POLICY_TEST_TARGET): $(APP_TILE_PRESENTER_POLICY_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(APP_TILE_PRESENTER_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 route: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" $(GRAPH_TOOL_FLAGS)
@@ -403,6 +417,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

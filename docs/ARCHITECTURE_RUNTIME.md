@@ -37,6 +37,16 @@ The update stage is where state should change.
 
 Render stage should consume state prepared by update stage, not own game-state transitions.
 
+## Presentation Stability Guards
+
+- Presenter draw-path policy lives in `src/app/app_tile_presenter.c`.
+- Frame-end invariant validation runs after visible-tile draw and can be toggled by config/env:
+  - `runtime_hardening.presenter_invariants_enabled` in `config/app.config.json`
+  - `MAPFORGE_DISABLE_PRESENTER_INVARIANTS=1` (startup env switch to disable checks)
+- Contour remains parked by default until terrain support is implemented:
+  - `runtime_hardening.contour_enabled` in `config/app.config.json`
+  - `MAPFORGE_ENABLE_CONTOUR=1` (env override at startup)
+
 ## State Ownership Model
 
 `AppState` is split into domain buckets (`include/app/app_internal.h`):
