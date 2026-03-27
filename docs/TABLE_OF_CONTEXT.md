@@ -1,10 +1,9 @@
-# Carta Docs: Table of Context
+# MapForge Docs: Table of Context
 
 Use this file as the primary navigation map for project context.
 
 ## Top-Level Public Docs
 - `README.md`: GitHub-facing project overview and quick-start guidance.
-- `MAPFORGE_SUMMARY.md`: high-level product goals and architecture snapshot.
 
 ## Active Docs (`docs/`)
 - `docs/ADDING_OSM_REGIONS.md`: operator workflow for importing new OSM XML files and building region packs.
@@ -18,6 +17,7 @@ Use this file as the primary navigation map for project context.
 - `docs/ARCHITECTURE_THREADS_AND_QUEUES.md`: thread topology and queue semantics.
 - `docs/CONTRIBUTING_MODULE_MAP.md`: source module map and contributor edit guide.
 - `docs/KNOWN_CONSTRAINTS_AND_BACKLOG.md`: known constraints plus follow-up items.
+- `make test-presentation-stability`: focused non-GUI presenter stability regression gate.
 
 ## Private Planning Docs
 - Private MapForge plan/runbook docs are stored outside this repo path at:
