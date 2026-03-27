@@ -4,7 +4,7 @@ This document describes the runtime frame loop, state ownership, and data flow a
 
 ## Runtime Frame Phases
 
-Primary runtime orchestration lives in `src/app/app.c`, with phase slices extracted into dedicated modules:
+Primary runtime entry now starts at `src/app/map_forge_app_main.c` (lifecycle wrapper), while runtime orchestration lives in `src/app/app.c` with phase slices extracted into dedicated modules:
 
 1. `app_runtime_begin_frame(...)`
 2. `app_runtime_handle_global_controls(...)`

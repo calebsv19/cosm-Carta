@@ -18,6 +18,8 @@ Start here for the public, operator-facing documentation that ships with the rep
 ## Context And Navigation
 
 - `docs/TABLE_OF_CONTEXT.md`: public doc map plus private-doc location notes.
+- `docs/current_truth.md`: current structural/runtime scaffold state and active verification gates.
+- `docs/future_intent.md`: intended scaffold convergence path and near-term migration intent.
 
 ## Architecture And Contribution
 
@@ -40,6 +42,24 @@ If you are new to the runtime code, read in this order:
 
 - `make test-presentation-stability`
 - `make test`
+- `make run-headless-smoke`
+
+## Scaffold Migration References
+
+- Private migration plan:
+  - `../docs/private_program_docs/map_forge/2026-03-27_map_forge_scaffold_standardization_switchover_plan.md`
+- Baseline freeze snapshot:
+  - `../docs/private_program_docs/map_forge/2026-03-27_mf_s0_baseline_freeze_and_mapping.md`
+
+## Runtime Config Persistence
+
+- default (tracked): `config/app.config.json`
+- runtime state (ignored): `data/runtime/app_state.json`
+
+## Scaffold Policy Locks (MapForge)
+
+- dependency lane: keep `third_party/` for vendored subtree mode (`third_party/codework_shared`)
+- include strategy: retain existing domain include lanes; use `include/map_forge/` for new app-level public entry APIs
 
 ## Private Planning Docs
 

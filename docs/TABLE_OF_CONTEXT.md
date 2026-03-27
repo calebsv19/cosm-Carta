@@ -17,7 +17,10 @@ Use this file as the primary navigation map for project context.
 - `docs/ARCHITECTURE_THREADS_AND_QUEUES.md`: thread topology and queue semantics.
 - `docs/CONTRIBUTING_MODULE_MAP.md`: source module map and contributor edit guide.
 - `docs/KNOWN_CONSTRAINTS_AND_BACKLOG.md`: known constraints plus follow-up items.
+- `docs/current_truth.md`: current scaffold/runtime status and verification contract.
+- `docs/future_intent.md`: scaffold convergence intent and pending migration slices.
 - `make test-presentation-stability`: focused non-GUI presenter stability regression gate.
+- `make run-headless-smoke`: non-interactive smoke gate for scaffold migration slices.
 
 ## Private Planning Docs
 - Private MapForge plan/runbook docs are stored outside this repo path at:
@@ -30,3 +33,9 @@ Use this file as the primary navigation map for project context.
 ## Notes
 - Keep `map_forge/docs/` public and operator-facing.
 - Keep private planning, implementation checklists, and internal runbooks in `docs/private_program_docs/map_forge/`.
+- Runtime persistence policy:
+  - tracked defaults in `config/app.config.json`
+  - mutable runtime state in ignored `data/runtime/app_state.json`
+- Dependency/include policy:
+  - keep `third_party/` for vendored subtree integration
+  - keep existing domain include lanes; place new app-level public entry APIs under `include/map_forge/`

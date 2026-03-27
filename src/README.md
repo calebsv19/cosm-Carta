@@ -5,7 +5,8 @@ The runtime goal is to load offline region packs from `${MAPFORGE_REGIONS_DIR:-d
 
 ## Directory Map
 
-- `src/main.c`: Process entrypoint; forwards to `app_run()`.
+- `src/main.c`: Process entrypoint; calls `map_forge_app_main()`.
+- `src/app/map_forge_app_main.c`: lifecycle-locked wrapper entry path for scaffold migration.
 - `src/app/`: App orchestration, frame loop, region switching, tile pipeline, UI/HUD, playback.
 - `src/camera/`: Camera movement, zoom, and world/screen transforms.
 - `src/core/`: Shared runtime utilities (input, logging, timing).
@@ -16,7 +17,7 @@ The runtime goal is to load offline region packs from `${MAPFORGE_REGIONS_DIR:-d
 
 ## Runtime Flow (High Level)
 
-1. `main.c` starts the app loop in `src/app/`.
+1. `main.c` enters `map_forge_app_main()` and then delegates runtime loop execution into `src/app/`.
 2. `src/app/` loads region metadata and configures camera + layers.
 3. Tile requests go through `src/map/` loaders/managers and optional Vulkan retained cache.
 4. Draw calls go through `src/render/` abstraction.

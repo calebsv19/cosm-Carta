@@ -1,5 +1,5 @@
-#include "app/app.h"
+#include "map_forge/map_forge_app_main.h"
 
 int main(void) {
-    return app_run();
+    return map_forge_app_main();
 }

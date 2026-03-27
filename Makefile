@@ -218,6 +218,12 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
+run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability
+	@echo "map_forge headless smoke passed (non-interactive)"
+
+visual-harness: app
+	@echo "visual harness binary ready: $(TARGET)"
+
 run-ide-theme: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
 	MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" \
@@ -417,6 +423,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

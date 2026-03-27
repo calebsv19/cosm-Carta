@@ -1,5 +1,6 @@
 #include "app/app.h"
 #include "app/app_internal.h"
+#include "map_forge/map_forge_app_main.h"
 
 #include "core/log.h"
 #include "core/time.h"
@@ -22,7 +23,8 @@
 #include <time.h>
 
 static const char *kTraceLaneLifecycle = "lifecycle";
-static const char *kAppConfigPath = "config/app.config.json";
+static const char *kAppConfigDefaultPath = "config/app.config.json";
+static const char *kAppConfigRuntimePath = "data/runtime/app_state.json";
 
 static uint32_t app_sum_road_classes(const uint32_t *values, int first_class, int last_class) {
     if (!values || first_class < 0 || last_class < first_class) {
@@ -73,6 +75,35 @@ static uint16_t app_clamp_milli(int value) {
         return 1000u;
     }
     return (uint16_t)value;
+}
+
+static struct json_object *app_load_config_root(void) {
+    struct json_object *root = json_object_from_file(kAppConfigRuntimePath);
+    if (root && json_object_is_type(root, json_type_object)) {
+        return root;
+    }
+    if (root) {
+        json_object_put(root);
+    }
+
+    root = json_object_from_file(kAppConfigDefaultPath);
+    if (root && json_object_is_type(root, json_type_object)) {
+        return root;
+    }
+    if (root) {
+        json_object_put(root);
+    }
+    return NULL;
+}
+
+static bool app_ensure_runtime_config_dir(void) {
+    if (mkdir("data", 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    if (mkdir("data/runtime", 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    return true;
 }
 
 static bool app_json_get_bool(struct json_object *obj, const char *key, bool *out_value) {
@@ -158,7 +189,7 @@ static void app_load_persisted_view_state(AppState *app) {
     if (!app) {
         return;
     }
-    struct json_object *root = json_object_from_file(kAppConfigPath);
+    struct json_object *root = app_load_config_root();
     if (!root || !json_object_is_type(root, json_type_object)) {
         if (root) {
             json_object_put(root);
@@ -242,7 +273,7 @@ static void app_save_persisted_view_state(const AppState *app) {
         return;
     }
 
-    struct json_object *root = json_object_from_file(kAppConfigPath);
+    struct json_object *root = app_load_config_root();
     if (!root || !json_object_is_type(root, json_type_object)) {
         if (root) {
             json_object_put(root);
@@ -287,8 +318,13 @@ static void app_save_persisted_view_state(const AppState *app) {
         json_object_object_add(root, "runtime_hardening", hardening);
     }
 
-    if (json_object_to_file_ext(kAppConfigPath, root, JSON_C_TO_STRING_PRETTY) != 0) {
-        log_error("Failed to persist map view state to %s", kAppConfigPath);
+    if (!app_ensure_runtime_config_dir()) {
+        log_error("Failed to create runtime config directory for %s", kAppConfigRuntimePath);
+        json_object_put(root);
+        return;
+    }
+    if (json_object_to_file_ext(kAppConfigRuntimePath, root, JSON_C_TO_STRING_PRETTY) != 0) {
+        log_error("Failed to persist map view state to %s", kAppConfigRuntimePath);
     }
     json_object_put(root);
 }
@@ -726,7 +762,7 @@ static void app_shutdown(AppState *app) {
     SDL_Quit();
 }
 
-int app_run(void) {
+int app_run_legacy(void) {
     AppState app = {0};
     if (!app_init(&app)) {
         app_shutdown(&app);
@@ -938,4 +974,8 @@ int app_run(void) {
 
     app_shutdown(&app);
     return 0;
+}
+
+int app_run(void) {
+    return map_forge_app_main();
 }

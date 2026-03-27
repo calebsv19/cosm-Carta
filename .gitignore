@@ -2,5 +2,7 @@
 .DS_Store
 build/
 data/regions/
+data/runtime/
+tmp/
 ide_files/
 vk_frame.ppm
