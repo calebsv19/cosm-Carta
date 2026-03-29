@@ -39,6 +39,9 @@ void input_init(InputState *input) {
     input->right_click_released = false;
     input->enter_pressed = false;
     input->copy_overlay_pressed = false;
+    input->font_zoom_in_pressed = false;
+    input->font_zoom_out_pressed = false;
+    input->font_zoom_reset_pressed = false;
 }
 
 void input_begin_frame(InputState *input) {
@@ -70,6 +73,9 @@ void input_begin_frame(InputState *input) {
     input->right_click_released = false;
     input->enter_pressed = false;
     input->copy_overlay_pressed = false;
+    input->font_zoom_in_pressed = false;
+    input->font_zoom_out_pressed = false;
+    input->font_zoom_reset_pressed = false;
 }
 
 void input_handle_event(InputState *input, const SDL_Event *event) {
@@ -99,6 +105,22 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
                     break;
                 } else if (event->key.keysym.sym == SDLK_y) {
                     input->theme_cycle_prev_pressed = true;
+                    break;
+                }
+            }
+            if ((event->key.keysym.mod & (KMOD_CTRL | KMOD_GUI)) != 0) {
+                if (event->key.keysym.sym == SDLK_EQUALS ||
+                    event->key.keysym.sym == SDLK_PLUS ||
+                    event->key.keysym.sym == SDLK_KP_PLUS) {
+                    input->font_zoom_in_pressed = true;
+                    break;
+                } else if (event->key.keysym.sym == SDLK_MINUS ||
+                           event->key.keysym.sym == SDLK_KP_MINUS) {
+                    input->font_zoom_out_pressed = true;
+                    break;
+                } else if (event->key.keysym.sym == SDLK_0 ||
+                           event->key.keysym.sym == SDLK_KP_0) {
+                    input->font_zoom_reset_pressed = true;
                     break;
                 }
             }

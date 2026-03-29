@@ -53,7 +53,11 @@ void app_runtime_update_frame(AppState *app,
     bool over_goal = app->route_state_bridge.route.has_goal && app_mouse_over_anchor(app, &app->route_state_bridge.goal_anchor, 7.0f);
     bool allow_mouse_pan = !(app->route_state_bridge.dragging_start || app->route_state_bridge.dragging_goal) &&
         !((app->ui_state_bridge.input.mouse_buttons & SDL_BUTTON_LMASK) && (over_start || over_goal));
-    camera_handle_input(&app->view_state_bridge.camera, &app->ui_state_bridge.input, app->width, app->height, dt, allow_mouse_pan);
+    InputState camera_input = app->ui_state_bridge.input;
+    if (app_header_layer_scroll_update(app)) {
+        camera_input.mouse_wheel_y = 0;
+    }
+    camera_handle_input(&app->view_state_bridge.camera, &camera_input, app->width, app->height, dt, allow_mouse_pan);
     camera_update(&app->view_state_bridge.camera, dt);
     debug_overlay_update(&app->ui_state_bridge.overlay, dt);
 

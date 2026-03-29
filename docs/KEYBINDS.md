@@ -6,6 +6,10 @@ This reference groups all active controls by category for quick lookup.
 - WASD / Arrow Keys: Pan camera
 - Mouse Wheel: Zoom in/out at cursor
 - Left-Click + Drag (empty space): Pan camera
+- Cmd/Ctrl + `+`: Increase UI text size
+- Cmd/Ctrl + `-`: Decrease UI text size
+- Cmd/Ctrl + `0`: Reset UI text size
+- Mouse Wheel over header layer strip (right side): Horizontal-scroll layer chips
 
 ## Routing: Placement & Editing
 - Shift + Left Click: Place start (green) node

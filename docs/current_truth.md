@@ -39,12 +39,16 @@ Last updated: 2026-03-27
 - Visual harness build gate:
   - `make -C map_forge visual-harness`
   - current implementation is an app-build availability alias.
+- Header UI behavior:
+  - right-side layer chips render inside a clipped strip viewport and support mouse-wheel horizontal scrolling when hovered.
 
 ## Runtime State Persistence
 - Committed default config:
   - `config/app.config.json`
 - Runtime-persisted mutable state:
   - `data/runtime/app_state.json`
+- Persisted text zoom state:
+  - `map_view.text_zoom_step` in `data/runtime/app_state.json`
 - Load order:
   - runtime file first, then default config fallback.
 - Save path:

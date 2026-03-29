@@ -137,6 +137,21 @@ static bool app_json_get_float(struct json_object *obj, const char *key, float *
     return true;
 }
 
+static bool app_json_get_int(struct json_object *obj, const char *key, int *out_value) {
+    struct json_object *value = NULL;
+    if (!obj || !key || !out_value) {
+        return false;
+    }
+    if (!json_object_object_get_ex(obj, key, &value) || !value) {
+        return false;
+    }
+    if (!json_object_is_type(value, json_type_int)) {
+        return false;
+    }
+    *out_value = json_object_get_int(value);
+    return true;
+}
+
 static bool app_json_get_u16_array(struct json_object *obj, const char *key,
                                    uint16_t *out_values, size_t out_count) {
     struct json_object *value = NULL;
@@ -215,6 +230,12 @@ static void app_load_persisted_view_state(AppState *app) {
     if (app_json_get_bool(view, "zoom_logic_enabled", &zoom_logic_enabled)) {
         app->view_state_bridge.zoom_logic_enabled = zoom_logic_enabled;
     }
+    int text_zoom_step = 0;
+    if (app_json_get_int(view, "text_zoom_step", &text_zoom_step)) {
+        if (mapforge_shared_font_set_zoom_step(text_zoom_step)) {
+            app_apply_shared_ui_font(app);
+        }
+    }
 
     bool layer_enabled[TILE_LAYER_COUNT] = {0};
     uint16_t layer_opacity[TILE_LAYER_COUNT] = {0};
@@ -292,6 +313,7 @@ static void app_save_persisted_view_state(const AppState *app) {
 
     json_object_object_add(view, "zoom", json_object_new_double((double)app->view_state_bridge.camera.zoom_target));
     json_object_object_add(view, "zoom_logic_enabled", json_object_new_boolean(app->view_state_bridge.zoom_logic_enabled ? 1 : 0));
+    json_object_object_add(view, "text_zoom_step", json_object_new_int(mapforge_shared_font_zoom_step()));
 
     struct json_object *enabled_arr = json_object_new_array();
     struct json_object *opacity_arr = json_object_new_array();
@@ -537,15 +559,7 @@ static bool app_init(AppState *app) {
         log_error("TTF_Init failed: %s", TTF_GetError());
         return false;
     }
-    {
-        char shared_font_path[384] = {0};
-        int shared_font_size = 0;
-        if (mapforge_shared_font_resolve_ui_regular(shared_font_path, sizeof(shared_font_path), &shared_font_size)) {
-            ui_font_set(shared_font_path, shared_font_size);
-        } else {
-            ui_font_set("assets/fonts/Montserrat-Regular.ttf", 10);
-        }
-    }
+    app_apply_shared_ui_font(app);
 
     int total_regions = region_count();
     if (total_regions <= 0) {
@@ -667,6 +681,9 @@ static bool app_init(AppState *app) {
     memset(&app->ui_state_bridge.header_layer_row_rects, 0, sizeof(app->ui_state_bridge.header_layer_row_rects));
     memset(&app->ui_state_bridge.header_layer_label_rects, 0, sizeof(app->ui_state_bridge.header_layer_label_rects));
     memset(&app->ui_state_bridge.header_layer_toggle_rects, 0, sizeof(app->ui_state_bridge.header_layer_toggle_rects));
+    memset(&app->ui_state_bridge.header_layer_strip_rect, 0, sizeof(app->ui_state_bridge.header_layer_strip_rect));
+    app->ui_state_bridge.header_layer_strip_scroll_px = 0.0f;
+    app->ui_state_bridge.header_layer_strip_content_w = 0.0f;
     memset(&app->ui_state_bridge.header_zoom_toggle_rect, 0, sizeof(app->ui_state_bridge.header_zoom_toggle_rect));
     memset(&app->ui_state_bridge.header_layer_opacity_panel_rect, 0, sizeof(app->ui_state_bridge.header_layer_opacity_panel_rect));
     memset(&app->ui_state_bridge.header_layer_opacity_track_rect, 0, sizeof(app->ui_state_bridge.header_layer_opacity_track_rect));

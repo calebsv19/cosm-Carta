@@ -393,6 +393,9 @@ typedef struct AppUiState {
     SDL_FRect header_layer_row_rects[TILE_LAYER_COUNT];
     SDL_FRect header_layer_label_rects[TILE_LAYER_COUNT];
     SDL_FRect header_layer_toggle_rects[TILE_LAYER_COUNT];
+    SDL_FRect header_layer_strip_rect;
+    float header_layer_strip_scroll_px;
+    float header_layer_strip_content_w;
     SDL_FRect header_zoom_toggle_rect;
     SDL_FRect header_layer_opacity_panel_rect;
     SDL_FRect header_layer_opacity_track_rect;
@@ -596,6 +599,7 @@ bool app_route_panel_handle_click(AppState *app);
 
 bool app_header_button_hit(const AppState *app, int x, int y);
 bool app_header_layer_toggle_click(AppState *app, int x, int y);
+bool app_header_layer_scroll_update(AppState *app);
 bool app_header_layer_slider_update(AppState *app);
 void app_draw_header_bar(AppState *app);
 void app_draw_layer_debug(AppState *app);
@@ -604,6 +608,7 @@ bool app_handle_hud_clicks(AppState *app);
 
 void app_runtime_begin_frame(AppState *app, double *out_frame_begin, double *out_after_events);
 bool app_runtime_handle_global_controls(AppState *app);
+void app_apply_shared_ui_font(AppState *app);
 void app_runtime_update_frame(AppState *app,
                               double *io_last_time,
                               float *out_dt,

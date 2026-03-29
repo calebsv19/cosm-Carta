@@ -2,6 +2,7 @@
 
 #include "app/region_loader.h"
 #include "core/log.h"
+#include "ui/font.h"
 #include "ui/shared_theme_font_adapter.h"
 
 #include <string.h>
@@ -36,6 +37,23 @@ static int app_runtime_find_next_routable_region_index(int current_index) {
         }
     }
     return -1;
+}
+
+void app_apply_shared_ui_font(AppState *app) {
+    char shared_font_path[384] = {0};
+    int shared_font_size = 0;
+    if (!app) {
+        return;
+    }
+    if (mapforge_shared_font_resolve_ui_regular(shared_font_path,
+                                                sizeof(shared_font_path),
+                                                &shared_font_size)) {
+        ui_font_set(shared_font_path, shared_font_size);
+    } else {
+        ui_font_set("assets/fonts/Montserrat-Regular.ttf", 10);
+    }
+    app->ui_state_bridge.hud_layer_debug_layout_dirty = true;
+    app->ui_state_bridge.hud_route_panel_layout_dirty = true;
 }
 
 bool app_runtime_handle_global_controls(AppState *app) {
@@ -120,6 +138,19 @@ bool app_runtime_handle_global_controls(AppState *app) {
     if (app->ui_state_bridge.input.theme_cycle_prev_pressed) {
         mapforge_shared_theme_cycle_prev();
         mapforge_shared_theme_save_persisted();
+    }
+    bool font_zoom_changed = false;
+    if (app->ui_state_bridge.input.font_zoom_in_pressed) {
+        font_zoom_changed = mapforge_shared_font_step_by(1) || font_zoom_changed;
+    }
+    if (app->ui_state_bridge.input.font_zoom_out_pressed) {
+        font_zoom_changed = mapforge_shared_font_step_by(-1) || font_zoom_changed;
+    }
+    if (app->ui_state_bridge.input.font_zoom_reset_pressed) {
+        font_zoom_changed = mapforge_shared_font_reset_zoom_step() || font_zoom_changed;
+    }
+    if (font_zoom_changed) {
+        app_apply_shared_ui_font(app);
     }
     if (app->ui_state_bridge.input.toggle_playback_pressed && app->route_state_bridge.route.path.count >= 2) {
         app->route_state_bridge.playback_playing = !app->route_state_bridge.playback_playing;

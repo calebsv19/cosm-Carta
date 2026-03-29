@@ -3,6 +3,10 @@
 #include "ui/font.h"
 #include "ui/shared_theme_font_adapter.h"
 
+#if defined(MAPFORGE_HAVE_VK)
+#include "vk_renderer.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -80,14 +84,110 @@ static const char *app_header_layer_chip_label(TileLayerKind kind) {
     }
 }
 
-static float app_draw_header_layer_chips(AppState *app,
-                                         const MapForgeThemePalette *palette,
-                                         float left_limit,
-                                         float box_y,
-                                         float box_h,
-                                         int text_h) {
+typedef struct AppHeaderClipState {
+    bool valid;
+    bool enabled;
+    SDL_Rect rect;
+} AppHeaderClipState;
+
+static SDL_Rect app_rectf_to_sdl_rect(const SDL_FRect *rect) {
+    SDL_Rect out = {0, 0, 0, 0};
+    if (!rect) {
+        return out;
+    }
+    out.x = (int)rect->x;
+    out.y = (int)rect->y;
+    out.w = (int)(rect->w + 0.5f);
+    out.h = (int)(rect->h + 0.5f);
+    if (out.w < 1) {
+        out.w = 1;
+    }
+    if (out.h < 1) {
+        out.h = 1;
+    }
+    return out;
+}
+
+static bool app_rectf_intersection(const SDL_FRect *a, const SDL_FRect *b, SDL_FRect *out) {
+    if (!a || !b || !out) {
+        return false;
+    }
+    float x0 = a->x > b->x ? a->x : b->x;
+    float y0 = a->y > b->y ? a->y : b->y;
+    float x1 = (a->x + a->w) < (b->x + b->w) ? (a->x + a->w) : (b->x + b->w);
+    float y1 = (a->y + a->h) < (b->y + b->h) ? (a->y + a->h) : (b->y + b->h);
+    if (x1 <= x0 || y1 <= y0) {
+        return false;
+    }
+    out->x = x0;
+    out->y = y0;
+    out->w = x1 - x0;
+    out->h = y1 - y0;
+    return true;
+}
+
+static AppHeaderClipState app_header_push_clip(Renderer *renderer, const SDL_FRect *clip_rect) {
+    AppHeaderClipState state = {0};
+    SDL_Rect sdl_clip;
+    if (!renderer || !clip_rect) {
+        return state;
+    }
+    sdl_clip = app_rectf_to_sdl_rect(clip_rect);
+#if defined(MAPFORGE_HAVE_VK)
+    if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+        VkRenderer *vk = (VkRenderer *)renderer->vk;
+        state.valid = true;
+        state.enabled = vk_renderer_is_clip_enabled(vk) == SDL_TRUE;
+        if (state.enabled) {
+            vk_renderer_get_clip_rect(vk, &state.rect);
+        }
+        vk_renderer_set_clip_rect(vk, &sdl_clip);
+        return state;
+    }
+#endif
+    if (renderer->sdl) {
+        state.valid = true;
+        state.enabled = SDL_RenderIsClipEnabled(renderer->sdl) == SDL_TRUE;
+        if (state.enabled) {
+            SDL_RenderGetClipRect(renderer->sdl, &state.rect);
+        }
+        SDL_RenderSetClipRect(renderer->sdl, &sdl_clip);
+    }
+    return state;
+}
+
+static void app_header_pop_clip(Renderer *renderer, const AppHeaderClipState *state) {
+    if (!renderer || !state || !state->valid) {
+        return;
+    }
+#if defined(MAPFORGE_HAVE_VK)
+    if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+        VkRenderer *vk = (VkRenderer *)renderer->vk;
+        if (state->enabled) {
+            vk_renderer_set_clip_rect(vk, &state->rect);
+        } else {
+            vk_renderer_set_clip_rect(vk, NULL);
+        }
+        return;
+    }
+#endif
+    if (renderer->sdl) {
+        if (state->enabled) {
+            SDL_RenderSetClipRect(renderer->sdl, &state->rect);
+        } else {
+            SDL_RenderSetClipRect(renderer->sdl, NULL);
+        }
+    }
+}
+
+static void app_draw_header_layer_chips(AppState *app,
+                                        const MapForgeThemePalette *palette,
+                                        const SDL_FRect *strip_rect,
+                                        float box_y,
+                                        float box_h,
+                                        int text_h) {
     if (!app) {
-        return 0.0f;
+        return;
     }
 
     static const TileLayerKind kHeaderChipPriority[] = {
@@ -99,42 +199,80 @@ static float app_draw_header_layer_chips(AppState *app,
         TILE_LAYER_POLY_BUILDING
     };
 
-    const float chip_w = 94.0f;
+    const float base_chip_w = 94.0f;
     const float chip_gap = 6.0f;
     const float right_pad = 8.0f;
     const float text_pad_x = 6.0f;
-    const float toggle_w = 24.0f;
+    const float base_toggle_w = 24.0f;
+    const float toggle_text_pad_x = 6.0f;
     const float progress_h = 3.0f;
     SDL_Color text_color = palette ? palette->text_primary : (SDL_Color){225, 230, 240, 255};
+    SDL_FRect strip = {0};
+    AppHeaderClipState clip_state = {0};
+    int toggle_on_w = ui_measure_text_width("ON", 1.0f);
+    int toggle_off_w = ui_measure_text_width("OFF", 1.0f);
+    int toggle_label_max_w = toggle_on_w > toggle_off_w ? toggle_on_w : toggle_off_w;
+    if (toggle_label_max_w < 0) {
+        toggle_label_max_w = 0;
+    }
+    float toggle_w = (float)toggle_label_max_w + toggle_text_pad_x * 2.0f;
+    if (toggle_w < base_toggle_w) {
+        toggle_w = base_toggle_w;
+    }
+    if (toggle_w < box_h - 2.0f) {
+        toggle_w = box_h - 2.0f;
+    }
+    float chip_w = base_chip_w + (toggle_w - base_toggle_w);
+    if (chip_w < base_chip_w) {
+        chip_w = base_chip_w;
+    }
 
     memset(&app->ui_state_bridge.header_layer_row_rects, 0, sizeof(app->ui_state_bridge.header_layer_row_rects));
     memset(&app->ui_state_bridge.header_layer_label_rects, 0, sizeof(app->ui_state_bridge.header_layer_label_rects));
     memset(&app->ui_state_bridge.header_layer_toggle_rects, 0, sizeof(app->ui_state_bridge.header_layer_toggle_rects));
+    app->ui_state_bridge.header_layer_strip_content_w = 0.0f;
 
-    float available_w = ((float)app->width - right_pad) - left_limit;
-    if (available_w < chip_w) {
-        return (float)app->width - right_pad;
+    if (!strip_rect || strip_rect->w <= 1.0f || strip_rect->h <= 1.0f) {
+        return;
     }
-    int max_chips = (int)((available_w + chip_gap) / (chip_w + chip_gap));
     int total_chips = (int)(sizeof(kHeaderChipPriority) / sizeof(kHeaderChipPriority[0]));
-    if (max_chips > total_chips) {
-        max_chips = total_chips;
+    strip = *strip_rect;
+    if (strip.x < right_pad) {
+        strip.x = right_pad;
     }
+    float content_w = (float)total_chips * chip_w + (float)(total_chips > 0 ? (total_chips - 1) : 0) * chip_gap;
+    float max_scroll = content_w - strip.w;
+    if (max_scroll < 0.0f) {
+        max_scroll = 0.0f;
+    }
+    if (app->ui_state_bridge.header_layer_strip_scroll_px < 0.0f) {
+        app->ui_state_bridge.header_layer_strip_scroll_px = 0.0f;
+    }
+    if (app->ui_state_bridge.header_layer_strip_scroll_px > max_scroll) {
+        app->ui_state_bridge.header_layer_strip_scroll_px = max_scroll;
+    }
+    app->ui_state_bridge.header_layer_strip_content_w = content_w;
+    float start_x = strip.x - app->ui_state_bridge.header_layer_strip_scroll_px;
+    clip_state = app_header_push_clip(&app->renderer, &strip);
 
-    float cursor_right = (float)app->width - right_pad;
-
-    for (int i = 0; i < max_chips; ++i) {
+    for (int i = 0; i < total_chips; ++i) {
         TileLayerKind kind = kHeaderChipPriority[i];
-        float chip_x = cursor_right - chip_w;
-        if (chip_x < left_limit) {
-            break;
-        }
+        float chip_x = start_x + (chip_w + chip_gap) * (float)i;
         SDL_FRect row_rect = (SDL_FRect){chip_x, box_y, chip_w, box_h};
         SDL_FRect label_rect = (SDL_FRect){chip_x + 1.0f, box_y + 1.0f, chip_w - toggle_w - 2.0f, box_h - 2.0f};
         SDL_FRect toggle_rect = (SDL_FRect){chip_x + chip_w - toggle_w, box_y + 1.0f, toggle_w - 1.0f, box_h - 2.0f};
-        app->ui_state_bridge.header_layer_row_rects[kind] = row_rect;
-        app->ui_state_bridge.header_layer_label_rects[kind] = label_rect;
-        app->ui_state_bridge.header_layer_toggle_rects[kind] = toggle_rect;
+        SDL_FRect visible_rect = {0};
+
+        if (!app_rectf_intersection(&row_rect, &strip, &visible_rect)) {
+            continue;
+        }
+        app->ui_state_bridge.header_layer_row_rects[kind] = visible_rect;
+        if (app_rectf_intersection(&label_rect, &strip, &visible_rect)) {
+            app->ui_state_bridge.header_layer_label_rects[kind] = visible_rect;
+        }
+        if (app_rectf_intersection(&toggle_rect, &strip, &visible_rect)) {
+            app->ui_state_bridge.header_layer_toggle_rects[kind] = visible_rect;
+        }
 
         uint32_t expected = layer_policy_requires_full_ready(kind)
             ? app->tile_state_bridge.layer_expected[kind]
@@ -224,16 +362,20 @@ static float app_draw_header_layer_chips(AppState *app,
         renderer_set_draw_color(&app->renderer,
                                 palette->button_outline.r, palette->button_outline.g, palette->button_outline.b, palette->button_outline.a);
         renderer_draw_rect(&app->renderer, &toggle_rect);
+        const char *toggle_label = runtime_enabled ? "ON" : "OFF";
+        int toggle_label_w = ui_measure_text_width(toggle_label, 1.0f);
+        float toggle_text_x = toggle_rect.x + (toggle_rect.w - (float)toggle_label_w) * 0.5f;
+        if (toggle_text_x < toggle_rect.x + 2.0f) {
+            toggle_text_x = toggle_rect.x + 2.0f;
+        }
         ui_draw_text(&app->renderer,
-                     (int)(toggle_rect.x + 4.0f),
+                     (int)toggle_text_x,
                      (int)(toggle_rect.y + (toggle_rect.h - (float)text_h) * 0.5f),
-                     runtime_enabled ? "ON" : "OFF",
+                     toggle_label,
                      toggle_text_color,
                      1.0f);
-
-        cursor_right = chip_x - chip_gap;
     }
-    return cursor_right;
+    app_header_pop_clip(&app->renderer, &clip_state);
 }
 
 void app_draw_header_bar(AppState *app) {
@@ -344,12 +486,15 @@ void app_draw_header_bar(AppState *app) {
     ui_draw_text(&app->renderer, (int)(zoom_box.x + pad_x), (int)(zoom_box.y + (box_h - text_h) * 0.5f), zoom_text, label_color, 1.0f);
     cursor_x += zoom_box_w + 10.0f;
 
-    float chip_left_cursor = app_draw_header_layer_chips(app, &palette, cursor_x + 8.0f, box_y, box_h, text_h);
     float zoom_toggle_w = 74.0f;
     float zoom_toggle_gap = 6.0f;
-    float zoom_toggle_x = chip_left_cursor - zoom_toggle_w - zoom_toggle_gap;
-    if (zoom_toggle_x >= cursor_x + 8.0f) {
-        app->ui_state_bridge.header_zoom_toggle_rect = (SDL_FRect){zoom_toggle_x, box_y, zoom_toggle_w, box_h};
+    float right_pad = 8.0f;
+    float strip_left = cursor_x + 8.0f;
+    float strip_right = (float)app->width - right_pad;
+    float strip_min_w = 84.0f;
+    bool show_zoom_toggle = (strip_right - strip_left) >= (zoom_toggle_w + zoom_toggle_gap + strip_min_w);
+    if (show_zoom_toggle) {
+        app->ui_state_bridge.header_zoom_toggle_rect = (SDL_FRect){strip_left, box_y, zoom_toggle_w, box_h};
         renderer_set_draw_color(&app->renderer,
                                 palette.button_outline.r, palette.button_outline.g, palette.button_outline.b, palette.button_outline.a);
         renderer_draw_rect(&app->renderer, &app->ui_state_bridge.header_zoom_toggle_rect);
@@ -370,8 +515,26 @@ void app_draw_header_bar(AppState *app) {
                      app->view_state_bridge.zoom_logic_enabled ? "ZOOM ON" : "ZOOM OFF",
                      label_color,
                      1.0f);
+        strip_left += zoom_toggle_w + zoom_toggle_gap;
     } else {
         memset(&app->ui_state_bridge.header_zoom_toggle_rect, 0, sizeof(app->ui_state_bridge.header_zoom_toggle_rect));
+    }
+    if (strip_right > strip_left + 1.0f) {
+        SDL_FRect strip_rect = {strip_left, box_y, strip_right - strip_left, box_h};
+        app->ui_state_bridge.header_layer_strip_rect = strip_rect;
+        app_draw_header_layer_chips(app, &palette, &strip_rect, box_y, box_h, text_h);
+
+        SDL_FRect seam_mask = {strip_rect.x - 2.0f, strip_rect.y - 1.0f, 3.0f, strip_rect.h + 2.0f};
+        renderer_set_draw_color(&app->renderer,
+                                palette.header_fill.r, palette.header_fill.g, palette.header_fill.b, 240);
+        renderer_fill_rect(&app->renderer, &seam_mask);
+    } else {
+        memset(&app->ui_state_bridge.header_layer_strip_rect, 0, sizeof(app->ui_state_bridge.header_layer_strip_rect));
+        app->ui_state_bridge.header_layer_strip_content_w = 0.0f;
+        app->ui_state_bridge.header_layer_strip_scroll_px = 0.0f;
+        memset(&app->ui_state_bridge.header_layer_row_rects, 0, sizeof(app->ui_state_bridge.header_layer_row_rects));
+        memset(&app->ui_state_bridge.header_layer_label_rects, 0, sizeof(app->ui_state_bridge.header_layer_label_rects));
+        memset(&app->ui_state_bridge.header_layer_toggle_rects, 0, sizeof(app->ui_state_bridge.header_layer_toggle_rects));
     }
 
     if (app->ui_state_bridge.header_layer_selected_valid &&
@@ -505,6 +668,37 @@ static bool app_point_in_rect(int x, int y, const SDL_FRect *rect) {
            (float)x <= rect->x + rect->w &&
            (float)y >= rect->y &&
            (float)y <= rect->y + rect->h;
+}
+
+bool app_header_layer_scroll_update(AppState *app) {
+    if (!app || app->ui_state_bridge.input.mouse_wheel_y == 0) {
+        return false;
+    }
+    SDL_FRect strip = app->ui_state_bridge.header_layer_strip_rect;
+    if (!app_point_in_rect(app->ui_state_bridge.input.mouse_x,
+                           app->ui_state_bridge.input.mouse_y,
+                           &strip)) {
+        return false;
+    }
+
+    float max_scroll = app->ui_state_bridge.header_layer_strip_content_w - strip.w;
+    if (max_scroll < 0.0f) {
+        max_scroll = 0.0f;
+    }
+    if (max_scroll > 0.0f) {
+        float scroll = app->ui_state_bridge.header_layer_strip_scroll_px;
+        scroll -= (float)app->ui_state_bridge.input.mouse_wheel_y * 42.0f;
+        if (scroll < 0.0f) {
+            scroll = 0.0f;
+        }
+        if (scroll > max_scroll) {
+            scroll = max_scroll;
+        }
+        app->ui_state_bridge.header_layer_strip_scroll_px = scroll;
+    } else {
+        app->ui_state_bridge.header_layer_strip_scroll_px = 0.0f;
+    }
+    return true;
 }
 
 bool app_header_layer_toggle_click(AppState *app, int x, int y) {
