@@ -1,6 +1,7 @@
 *.osm
 .DS_Store
 build/
+dist/
 data/regions/
 data/runtime/
 tmp/

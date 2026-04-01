@@ -7,6 +7,7 @@ Start here for the public, operator-facing documentation that ships with the rep
 - `docs/ADDING_OSM_REGIONS.md`: import a new OSM file and build a local region pack.
 - `docs/KEYBINDS.md`: runtime controls.
 - `docs/REGION_PACK_LAYOUT.md`: generated region directory structure and metadata contract.
+- `docs/desktop_packaging.md`: macOS `.app` packaging workflow and launcher/runtime root behavior.
 
 ## Formats And Data Contracts
 
@@ -50,6 +51,29 @@ If you are new to the runtime code, read in this order:
   - `../docs/private_program_docs/map_forge/2026-03-27_map_forge_scaffold_standardization_switchover_plan.md`
 - Baseline freeze snapshot:
   - `../docs/private_program_docs/map_forge/2026-03-27_mf_s0_baseline_freeze_and_mapping.md`
+
+## Connection Pass References
+
+- CP0/CP1 execution snapshot:
+  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp0_cp1_execution.md`
+- CP2 dispatch extraction snapshot:
+  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp2_dispatch_extraction.md`
+- CP3 update/render separation snapshot:
+  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp3_update_render_separation.md`
+- CP4 resource lifetime hardening snapshot:
+  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp4_resource_lifetime_hardening.md`
+- CP5 closeout snapshot:
+  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp5_closeout.md`
+
+## App Packaging References
+
+- Public packaging guide:
+  - `docs/desktop_packaging.md`
+- PK0/PK1 execution snapshot:
+  - `../docs/private_program_docs/map_forge/2026-03-31_map_forge_app_packaging_cp0_cp1_execution.md`
+- PK2 closeout snapshot:
+  - `../docs/private_program_docs/map_forge/2026-03-31_map_forge_app_packaging_cp2_closeout.md`
+  - includes post-closeout hardening notes from real Finder-launch failures and fixes
 
 ## Runtime Config Persistence
 

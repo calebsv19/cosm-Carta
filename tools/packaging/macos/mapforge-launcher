@@ -1,0 +1,136 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+APP_CONTENTS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+RES_DIR="$APP_CONTENTS_DIR/Resources"
+APP_BUNDLE_REGIONS_DIR="$RES_DIR/data/regions"
+DEV_REGIONS_DIR_DEFAULT="$HOME/Desktop/CodeWork/map_forge/data/regions"
+DEV_REGIONS_DIR="${MAPFORGE_DEV_REGIONS_DIR:-$DEV_REGIONS_DIR_DEFAULT}"
+LOG_DIR="${HOME}/Library/Logs/MapForge"
+LOG_FILE="$LOG_DIR/launcher.log"
+FIND_BIN="/usr/bin/find"
+GREP_BIN="/usr/bin/grep"
+ID_BIN="/usr/bin/id"
+DATE_BIN="/bin/date"
+selected_regions_reason="unresolved"
+
+has_region_packs() {
+    region_root="${1:-}"
+    if [ -z "$region_root" ] || [ ! -d "$region_root" ]; then
+        return 1
+    fi
+    "$FIND_BIN" "$region_root" -mindepth 2 -maxdepth 2 -type d -name tiles 2>/dev/null | "$GREP_BIN" -q .
+}
+
+select_regions_dir() {
+    user_home=""
+    user_name=""
+    fallback_from_user_name=""
+    explicit_regions="${MAPFORGE_REGIONS_DIR:-}"
+
+    if [ -n "$explicit_regions" ]; then
+        if has_region_packs "$explicit_regions"; then
+            selected_regions_reason="explicit-env-with-packs"
+            printf '%s|%s\n' "$explicit_regions" "$selected_regions_reason"
+            return 0
+        fi
+        selected_regions_reason="explicit-env-missing-packs"
+    fi
+
+    if has_region_packs "$APP_BUNDLE_REGIONS_DIR"; then
+        selected_regions_reason="bundle-with-packs"
+        printf '%s|%s\n' "$APP_BUNDLE_REGIONS_DIR" "$selected_regions_reason"
+        return 0
+    fi
+
+    if has_region_packs "$DEV_REGIONS_DIR"; then
+        selected_regions_reason="dev-fallback-env"
+        printf '%s|%s\n' "$DEV_REGIONS_DIR" "$selected_regions_reason"
+        return 0
+    fi
+
+    user_home="${HOME:-}"
+    if [ -n "$user_home" ] && has_region_packs "$user_home/Desktop/CodeWork/map_forge/data/regions"; then
+        selected_regions_reason="dev-fallback-home"
+        printf '%s|%s\n' "$user_home/Desktop/CodeWork/map_forge/data/regions" "$selected_regions_reason"
+        return 0
+    fi
+
+    if user_name="$("$ID_BIN" -un 2>/dev/null)"; then
+        fallback_from_user_name="/Users/$user_name/Desktop/CodeWork/map_forge/data/regions"
+        if has_region_packs "$fallback_from_user_name"; then
+            selected_regions_reason="dev-fallback-user"
+            printf '%s|%s\n' "$fallback_from_user_name" "$selected_regions_reason"
+            return 0
+        fi
+    fi
+
+    if [ -n "$explicit_regions" ] && [ -d "$explicit_regions" ]; then
+        selected_regions_reason="explicit-env-dir-no-packs"
+        printf '%s|%s\n' "$explicit_regions" "$selected_regions_reason"
+        return 0
+    fi
+
+    selected_regions_reason="bundle-final-fallback"
+    printf '%s|%s\n' "$APP_BUNDLE_REGIONS_DIR" "$selected_regions_reason"
+}
+
+timestamp() {
+    "$DATE_BIN" "+%Y-%m-%d %H:%M:%S"
+}
+
+log_line() {
+    if [ -n "${LOG_FILE:-}" ]; then
+        printf '%s %s\n' "$(timestamp)" "$*" >>"$LOG_FILE"
+    fi
+}
+
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+if ! touch "$LOG_FILE" 2>/dev/null; then
+    LOG_FILE="${TMPDIR:-/tmp}/mapforge-launcher.log"
+    touch "$LOG_FILE" 2>/dev/null || true
+fi
+
+export VK_RENDERER_SHADER_ROOT="${VK_RENDERER_SHADER_ROOT:-$RES_DIR}"
+selection_payload="$(select_regions_dir)"
+MAPFORGE_REGIONS_DIR="${selection_payload%%|*}"
+if [ "$selection_payload" != "$MAPFORGE_REGIONS_DIR" ]; then
+    selected_regions_reason="${selection_payload#*|}"
+fi
+export MAPFORGE_REGIONS_DIR
+export MAPFORGE_RENDER_BACKEND="${MAPFORGE_RENDER_BACKEND:-vulkan}"
+
+if [ "${1:-}" = "--print-config" ]; then
+    echo "APP_CONTENTS_DIR=$APP_CONTENTS_DIR"
+    echo "RES_DIR=$RES_DIR"
+    echo "LOG_FILE=$LOG_FILE"
+    echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
+    echo "MAPFORGE_REGIONS_DIR=$MAPFORGE_REGIONS_DIR"
+    echo "MAPFORGE_RENDER_BACKEND=$MAPFORGE_RENDER_BACKEND"
+    echo "MAPFORGE_SELECTED_REGIONS_REASON=$selected_regions_reason"
+    echo "MAPFORGE_DEV_REGIONS_DIR_DEFAULT=$DEV_REGIONS_DIR_DEFAULT"
+    exit 0
+fi
+
+if [ "${1:-}" = "--self-test" ]; then
+    [ -x "$SCRIPT_DIR/mapforge-bin" ] || { echo "missing: mapforge-bin" >&2; exit 1; }
+    [ -f "$APP_CONTENTS_DIR/Info.plist" ] || { echo "missing: Info.plist" >&2; exit 1; }
+    [ -f "$RES_DIR/assets/fonts/Montserrat-Regular.ttf" ] || { echo "missing: bundled Montserrat" >&2; exit 1; }
+    [ -f "$RES_DIR/config/app.config.json" ] || { echo "missing: bundled app.config.json" >&2; exit 1; }
+    [ -f "$RES_DIR/vk_renderer/shaders/textured.vert.spv" ] || { echo "missing: bundled vk_renderer shader" >&2; exit 1; }
+    [ -f "$RES_DIR/shaders/textured.vert.spv" ] || { echo "missing: bundled runtime shader" >&2; exit 1; }
+    [ -d "$RES_DIR/data/runtime" ] || { echo "missing: runtime state dir" >&2; exit 1; }
+    [ -d "$MAPFORGE_REGIONS_DIR" ] || { echo "missing: regions dir ($MAPFORGE_REGIONS_DIR)" >&2; exit 1; }
+    echo "self-test: ok"
+    echo "LOG_FILE=$LOG_FILE"
+    echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
+    echo "MAPFORGE_REGIONS_DIR=$MAPFORGE_REGIONS_DIR"
+    echo "MAPFORGE_RENDER_BACKEND=$MAPFORGE_RENDER_BACKEND"
+    echo "MAPFORGE_SELECTED_REGIONS_REASON=$selected_regions_reason"
+    exit 0
+fi
+
+cd "$RES_DIR"
+log_line "launch begin pid=$$ cwd=$RES_DIR regions=$MAPFORGE_REGIONS_DIR reason=$selected_regions_reason backend=$MAPFORGE_RENDER_BACKEND shader_root=$VK_RENDERER_SHADER_ROOT args=$*"
+exec "$SCRIPT_DIR/mapforge-bin" "$@" >>"$LOG_FILE" 2>&1

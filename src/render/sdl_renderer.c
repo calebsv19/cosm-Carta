@@ -3,6 +3,7 @@
 #include "core_io.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #if defined(MAPFORGE_HAVE_VK)
@@ -79,6 +80,18 @@ const char *renderer_backend_name(RendererBackend backend) {
     }
 }
 
+static const char *renderer_shader_root(void) {
+    const char *runtime_root = getenv("VK_RENDERER_SHADER_ROOT");
+    if (runtime_root && runtime_root[0] != '\0') {
+        return runtime_root;
+    }
+#if defined(VK_RENDERER_SHADER_ROOT)
+    return VK_RENDERER_SHADER_ROOT;
+#else
+    return NULL;
+#endif
+}
+
 bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height) {
     if (!renderer || !window) {
         return false;
@@ -108,12 +121,20 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer->backend == RENDERER_BACKEND_VULKAN) {
         SDL_Log("[renderer] attempting Vulkan init");
+        const char *shader_root = renderer_shader_root();
         static const char *kRequiredShaders[] = {
             "fill.vert.spv", "fill.frag.spv", "line.vert.spv", "line.frag.spv", "textured.vert.spv", "textured.frag.spv"
         };
         char shader_path[1024];
+        if (!shader_root || shader_root[0] == '\0') {
+            SDL_Log("[renderer] Vulkan shader root is unset; falling back to SDL renderer");
+            renderer->backend = RENDERER_BACKEND_SDL;
+        }
         for (size_t i = 0; i < sizeof(kRequiredShaders) / sizeof(kRequiredShaders[0]); ++i) {
-            snprintf(shader_path, sizeof(shader_path), "%s/shaders/%s", VK_RENDERER_SHADER_ROOT, kRequiredShaders[i]);
+            if (renderer->backend != RENDERER_BACKEND_VULKAN) {
+                break;
+            }
+            snprintf(shader_path, sizeof(shader_path), "%s/shaders/%s", shader_root, kRequiredShaders[i]);
             if (!core_io_path_exists(shader_path)) {
                 SDL_Log("[renderer] Vulkan shader missing: %s", shader_path);
                 SDL_Log("[renderer] Falling back to SDL renderer");
