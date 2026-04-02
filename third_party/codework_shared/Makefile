@@ -9,6 +9,7 @@ core-test:
 	$(MAKE) -C core/core_font test
 	$(MAKE) -C core/core_space test
 	$(MAKE) -C core/core_scene test
+	$(MAKE) -C core/core_scene_compile test
 	$(MAKE) -C core/core_pack test
 	$(MAKE) -C core/core_memdb test
 	$(MAKE) -C core/core_trace test
@@ -30,6 +31,7 @@ core-clean:
 	$(MAKE) -C core/core_font clean
 	$(MAKE) -C core/core_space clean
 	$(MAKE) -C core/core_scene clean
+	$(MAKE) -C core/core_scene_compile clean
 	$(MAKE) -C core/core_pack clean
 	$(MAKE) -C core/core_memdb clean
 	$(MAKE) -C core/core_trace clean
