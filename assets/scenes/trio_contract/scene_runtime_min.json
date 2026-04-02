@@ -1,0 +1,65 @@
+{
+  "schema_family": "codework_scene",
+  "schema_variant": "scene_runtime_v1",
+  "schema_version": 1,
+  "scene_id": "scene_trio_min",
+  "source_scene_id": "scene_trio_min",
+  "compile_meta": {
+    "compiler_version": "0.1.0",
+    "compiled_at_ns": 0
+  },
+  "space_mode_default": "2d",
+  "unit_system": "meters",
+  "world_scale": 1.0,
+  "objects": [
+    {
+      "object_id": "obj_trio_min_0",
+      "object_type": "curve_path",
+      "dimensional_mode": "plane_locked",
+      "locked_plane": "xy",
+      "transform": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "rotation": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+      },
+      "geometry_ref": { "kind": "shape_asset", "id": "shape_trio_min" },
+      "material_ref": { "id": "mat_default" },
+      "flags": { "visible": true, "locked": false, "selectable": true },
+      "tags": ["authoring"],
+      "extensions": {
+        "ray_tracing": {
+          "max_bounce": 4
+        }
+      }
+    }
+  ],
+  "materials": [
+    {
+      "material_id": "mat_default",
+      "kind": "lambert",
+      "albedo": [1.0, 1.0, 1.0]
+    }
+  ],
+  "lights": [
+    {
+      "light_id": "light_key",
+      "kind": "point",
+      "position": { "x": 5.0, "y": 8.0, "z": 3.0 },
+      "intensity": 1.0
+    }
+  ],
+  "cameras": [
+    {
+      "camera_id": "cam_main",
+      "kind": "perspective",
+      "position": { "x": 0.0, "y": 0.0, "z": 10.0 },
+      "target": { "x": 0.0, "y": 0.0, "z": 0.0 }
+    }
+  ],
+  "constraints": [],
+  "extensions": {
+    "ray_tracing": {
+      "seed": 1
+    }
+  }
+}

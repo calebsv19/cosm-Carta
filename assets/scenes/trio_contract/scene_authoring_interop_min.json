@@ -1,0 +1,65 @@
+{
+  "schema_family": "codework_scene",
+  "schema_variant": "scene_authoring_v1",
+  "schema_version": 1,
+  "scene_id": "scene_trio_interop_min",
+  "space_mode_default": "2d",
+  "unit_system": "meters",
+  "world_scale": 1.0,
+  "objects": [
+    {
+      "object_id": "obj_interop_0",
+      "object_type": "circle",
+      "dimensional_mode": "plane_locked",
+      "locked_plane": "xy",
+      "transform": {
+        "position": { "x": 1.0, "y": 2.0, "z": 0.0 },
+        "rotation": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "scale": { "x": 0.15, "y": 0.15, "z": 0.15 }
+      },
+      "flags": { "visible": true, "locked": false, "selectable": true },
+      "material_ref": { "id": "mat_interop" },
+      "extensions": {
+        "line_drawing": {
+          "control_point_count": 4
+        }
+      }
+    }
+  ],
+  "hierarchy": [],
+  "materials": [
+    {
+      "material_id": "mat_interop",
+      "kind": "lambert",
+      "albedo": [0.8, 0.7, 0.6]
+    }
+  ],
+  "lights": [
+    {
+      "light_id": "light_interop",
+      "kind": "point",
+      "position": { "x": 4.0, "y": 5.0, "z": 1.0 },
+      "intensity": 2.0
+    }
+  ],
+  "cameras": [
+    {
+      "camera_id": "cam_interop",
+      "kind": "perspective",
+      "position": { "x": 0.0, "y": 0.0, "z": 8.0 },
+      "target": { "x": 0.0, "y": 0.0, "z": 0.0 }
+    }
+  ],
+  "constraints": [],
+  "extensions": {
+    "line_drawing": {
+      "authoring_version": 1
+    },
+    "ray_tracing": {
+      "seed": 13
+    },
+    "physics_sim": {
+      "solver_mode": "baseline"
+    }
+  }
+}
