@@ -495,6 +495,17 @@ release-artifact:
 release-distribute: release-notarize release-staple release-verify-notarized release-artifact
 	@echo "release-distribute passed."
 
+release-desktop-refresh:
+	@if [ ! -d "$(PACKAGE_APP_DIR)" ]; then \
+		echo "release-desktop-refresh requires an existing built app at $(PACKAGE_APP_DIR)"; \
+		echo "run release-distribute first"; \
+		exit 1; \
+	fi
+	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
+	@rm -rf "$(DESKTOP_APP_DIR)"
+	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
+	@echo "Release app refreshed at $(DESKTOP_APP_DIR)"
+
 run-ide-theme: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
 	MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" \
@@ -702,6 +713,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)
