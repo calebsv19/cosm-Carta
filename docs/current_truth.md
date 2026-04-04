@@ -1,6 +1,6 @@
 # MapForge Current Truth
 
-Last updated: 2026-04-02
+Last updated: 2026-04-03
 
 ## Program Identity
 - Repository directory: `map_forge/`
@@ -45,6 +45,48 @@ Last updated: 2026-04-02
   - validates text-entry shortcut precedence rules for top-level normalize lane.
 - Header UI behavior:
   - right-side layer chips render inside a clipped strip viewport and support mouse-wheel horizontal scrolling when hovered.
+
+## Release Readiness Status (Current)
+- `MF-RL0` complete (release contract freeze for pilot):
+  - bundle identifier locked in plist: `com.cosm.carta`
+  - version source-of-truth file added: `VERSION` (`0.1.0`)
+  - Makefile release identity variables added:
+    - `RELEASE_PRODUCT_NAME := Carta`
+    - `RELEASE_PROGRAM_KEY := map_forge`
+    - `RELEASE_BUNDLE_ID := com.cosm.carta`
+    - `RELEASE_VERSION_FILE ?= VERSION`
+    - `RELEASE_CHANNEL ?= stable`
+    - `RELEASE_ARTIFACT_BASENAME := Carta-<version>-macOS-<channel>`
+  - release env contract placeholders added:
+    - `APPLE_SIGN_IDENTITY`
+    - `APPLE_NOTARY_PROFILE`
+    - `APPLE_TEAM_ID`
+  - release contract inspection target added:
+    - `make -C map_forge release-contract`
+- `MF-RL1` complete (bundle audit + writable-path hardening):
+  - writable runtime/config persistence roots are launcher-owned and exported:
+    - `MAPFORGE_RUNTIME_DIR`
+    - `MAPFORGE_THEME_PERSIST_PATH`
+  - launcher now falls back to `TMPDIR` support lane when default app-support root is not writable (keeps packaged startup stable in restricted sandboxes).
+  - packaged dylib dependency closure is now automated:
+    - `tools/packaging/macos/bundle-dylibs.sh`
+    - bundled to `Contents/Frameworks` with install-name rewrites for app-local runtime loading.
+  - ad-hoc re-sign pass now runs at the end of package assembly:
+    - re-signs bundled frameworks + `mapforge-bin` + launcher + app bundle after install-name rewrites/resource copy.
+    - prevents Finder launch failure from invalidated code pages after `install_name_tool` edits.
+  - release bundle audit target added and passing:
+    - `make -C map_forge release-bundle-audit`
+    - verifies bundle id, launcher print-config contract, writable persistence paths (not in app bundle), and non-portable dependency bans (`/opt/homebrew`, `/usr/local/Cellar`, workspace paths) across app binary + bundled frameworks.
+- next release lane:
+  - `MF-RL2` signing + notarization integration is now implemented and in-progress:
+    - implemented targets:
+      - `release-sign`
+      - `release-notarize`
+      - `release-staple`
+      - `release-verify`
+      - `release-artifact`
+    - local ad-hoc signing verify is passing (`release-sign`, `release-verify`).
+    - final RL2 closeout is pending real Developer ID identity + notarization profile execution.
 
 ## App Packaging Status (Current)
 - `MF-PK0` complete:

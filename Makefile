@@ -109,9 +109,32 @@ PACKAGE_APP_DIR := $(DIST_DIR)/$(PACKAGE_APP_NAME)
 PACKAGE_CONTENTS_DIR := $(PACKAGE_APP_DIR)/Contents
 PACKAGE_MACOS_DIR := $(PACKAGE_CONTENTS_DIR)/MacOS
 PACKAGE_RESOURCES_DIR := $(PACKAGE_CONTENTS_DIR)/Resources
+PACKAGE_FRAMEWORKS_DIR := $(PACKAGE_CONTENTS_DIR)/Frameworks
 PACKAGE_INFO_PLIST_SRC := tools/packaging/macos/Info.plist
 PACKAGE_LAUNCHER_SRC := tools/packaging/macos/mapforge-launcher
+PACKAGE_DYLIB_BUNDLER := tools/packaging/macos/bundle-dylibs.sh
 DESKTOP_APP_DIR ?= $(HOME)/Desktop/$(PACKAGE_APP_NAME)
+PACKAGE_ADHOC_SIGN_IDENTITY ?= -
+
+# RL0 release contract (pilot lock).
+RELEASE_VERSION_FILE ?= VERSION
+RELEASE_VERSION ?= $(strip $(shell cat "$(RELEASE_VERSION_FILE)" 2>/dev/null))
+ifeq ($(RELEASE_VERSION),)
+RELEASE_VERSION := 0.1.0
+endif
+RELEASE_CHANNEL ?= stable
+RELEASE_PRODUCT_NAME := Carta
+RELEASE_PROGRAM_KEY := map_forge
+RELEASE_BUNDLE_ID := com.cosm.carta
+RELEASE_ARTIFACT_BASENAME := $(RELEASE_PRODUCT_NAME)-$(RELEASE_VERSION)-macOS-$(RELEASE_CHANNEL)
+RELEASE_DIR := build/release
+RELEASE_APP_ZIP := $(RELEASE_DIR)/$(RELEASE_ARTIFACT_BASENAME).zip
+RELEASE_MANIFEST := $(RELEASE_DIR)/$(RELEASE_ARTIFACT_BASENAME).manifest.txt
+RELEASE_CODESIGN_IDENTITY ?= $(if $(strip $(APPLE_SIGN_IDENTITY)),$(APPLE_SIGN_IDENTITY),$(PACKAGE_ADHOC_SIGN_IDENTITY))
+# Export/signing contract variables are intentionally unset by default.
+APPLE_SIGN_IDENTITY ?=
+APPLE_NOTARY_PROFILE ?=
+APPLE_TEAM_ID ?=
 TOOL_TARGET := build/tools/mapforge_region
 TOOL_SRCS := tools/mapforge_region.c src/map/mercator.c src/map/tile_math.c src/core/log.c
 GRAPH_TARGET := build/tools/mapforge_graph
@@ -245,11 +268,12 @@ visual-harness: app
 package-desktop: app
 	@echo "Preparing desktop package..."
 	@rm -rf "$(PACKAGE_APP_DIR)"
-	@mkdir -p "$(PACKAGE_MACOS_DIR)" "$(PACKAGE_RESOURCES_DIR)"
+	@mkdir -p "$(PACKAGE_MACOS_DIR)" "$(PACKAGE_RESOURCES_DIR)" "$(PACKAGE_FRAMEWORKS_DIR)"
 	@cp "$(PACKAGE_INFO_PLIST_SRC)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@cp "$(TARGET)" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
 	@cp "$(PACKAGE_LAUNCHER_SRC)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher"
 	@chmod +x "$(PACKAGE_MACOS_DIR)/mapforge-launcher" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
+	@/bin/sh "$(PACKAGE_DYLIB_BUNDLER)" "$(PACKAGE_MACOS_DIR)/mapforge-bin" "$(PACKAGE_FRAMEWORKS_DIR)"
 	@mkdir -p "$(PACKAGE_RESOURCES_DIR)/assets" "$(PACKAGE_RESOURCES_DIR)/shared/assets" "$(PACKAGE_RESOURCES_DIR)/data/runtime" "$(PACKAGE_RESOURCES_DIR)/data/regions"
 	@cp -R assets/fonts "$(PACKAGE_RESOURCES_DIR)/assets/"
 	@cp -R config "$(PACKAGE_RESOURCES_DIR)/"
@@ -263,6 +287,12 @@ package-desktop: app
 	else \
 		echo "No regions bundled (source missing or empty): $(PACKAGE_REGIONS_SRC)"; \
 	fi
+	@for dylib in $$(/usr/bin/find "$(PACKAGE_FRAMEWORKS_DIR)" -type f -name '*.dylib' 2>/dev/null); do \
+		codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$$dylib"; \
+	done
+	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/mapforge-bin"
+	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/mapforge-launcher"
+	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_APP_DIR)"
 	@echo "Desktop package ready: $(PACKAGE_APP_DIR)"
 
 package-desktop-smoke: package-desktop
@@ -275,6 +305,8 @@ package-desktop-smoke: package-desktop
 	@test -f "$(PACKAGE_RESOURCES_DIR)/shaders/textured.vert.spv" || (echo "Missing runtime shader"; exit 1)
 	@test -d "$(PACKAGE_RESOURCES_DIR)/data/runtime" || (echo "Missing runtime state dir"; exit 1)
 	@test -d "$(PACKAGE_RESOURCES_DIR)/data/regions" || (echo "Missing regions dir"; exit 1)
+	@test -f "$(PACKAGE_FRAMEWORKS_DIR)/libSDL2-2.0.0.dylib" || (echo "Missing bundled SDL2 dylib"; exit 1)
+	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)" || (echo "codesign verification failed"; exit 1)
 	@echo "package-desktop-smoke passed."
 
 package-desktop-self-test: package-desktop-smoke
@@ -302,6 +334,111 @@ package-desktop-refresh: package-desktop
 	@rm -rf "$(DESKTOP_APP_DIR)"
 	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@echo "Refreshed $(PACKAGE_APP_NAME) at $(DESKTOP_APP_DIR)"
+
+release-contract:
+	@echo "Release contract:"
+	@echo "  product_name: $(RELEASE_PRODUCT_NAME)"
+	@echo "  program_key: $(RELEASE_PROGRAM_KEY)"
+	@echo "  version_file: $(RELEASE_VERSION_FILE)"
+	@echo "  version: $(RELEASE_VERSION)"
+	@echo "  channel: $(RELEASE_CHANNEL)"
+	@echo "  bundle_id: $(RELEASE_BUNDLE_ID)"
+	@echo "  artifact_base: $(RELEASE_ARTIFACT_BASENAME)"
+	@echo "  release_codesign_identity: $(RELEASE_CODESIGN_IDENTITY)"
+	@echo "  sign_identity_set: $$( [ -n \"$(APPLE_SIGN_IDENTITY)\" ] && echo yes || echo no )"
+	@echo "  notary_profile_set: $$( [ -n \"$(APPLE_NOTARY_PROFILE)\" ] && echo yes || echo no )"
+	@echo "  team_id_set: $$( [ -n \"$(APPLE_TEAM_ID)\" ] && echo yes || echo no )"
+
+release-clean:
+	@rm -rf "$(RELEASE_DIR)"
+	@echo "Release output cleaned: $(RELEASE_DIR)"
+
+release-build: clean app
+	@echo "Release build complete: $(TARGET)"
+
+release-bundle-audit: package-desktop-self-test
+	@mkdir -p "$(RELEASE_DIR)"
+	@/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$(PACKAGE_CONTENTS_DIR)/Info.plist" > "$(RELEASE_DIR)/bundle_id.txt"
+	@test "$$(cat "$(RELEASE_DIR)/bundle_id.txt")" = "$(RELEASE_BUNDLE_ID)" || (echo "bundle id mismatch: expected $(RELEASE_BUNDLE_ID), got $$(cat "$(RELEASE_DIR)/bundle_id.txt")"; exit 1)
+	@env -i HOME="$(HOME)" PATH="$(PATH)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher" --print-config > "$(RELEASE_DIR)/print_config.txt"
+	@runtime_dir="$$(/usr/bin/grep '^MAPFORGE_RUNTIME_DIR=' "$(RELEASE_DIR)/print_config.txt" | /usr/bin/cut -d= -f2-)"; \
+	if [ -z "$$runtime_dir" ]; then echo "runtime dir missing from print-config"; exit 1; fi; \
+	case "$$runtime_dir" in *"/Contents/Resources"*) echo "runtime dir incorrectly points into app bundle: $$runtime_dir"; exit 1;; esac; \
+	case "$$runtime_dir" in /tmp/*|/var/*|"$(HOME)"/*) ;; *) echo "runtime dir is not user-writable rooted: $$runtime_dir"; exit 1;; esac
+	@theme_path="$$(/usr/bin/grep '^MAPFORGE_THEME_PERSIST_PATH=' "$(RELEASE_DIR)/print_config.txt" | /usr/bin/cut -d= -f2-)"; \
+	if [ -z "$$theme_path" ]; then echo "theme persist path missing from print-config"; exit 1; fi; \
+	case "$$theme_path" in *"/Contents/Resources"*) echo "theme persist path incorrectly points into app bundle: $$theme_path"; exit 1;; esac; \
+	case "$$theme_path" in /tmp/*|/var/*|"$(HOME)"/*) ;; *) echo "theme persist path is not user-writable rooted: $$theme_path"; exit 1;; esac
+	@/usr/bin/grep -q '^MAPFORGE_SELECTED_REGIONS_REASON=' "$(RELEASE_DIR)/print_config.txt" || (echo "missing regions-selection diagnostics"; exit 1)
+	@otool -L "$(PACKAGE_MACOS_DIR)/mapforge-bin" > "$(RELEASE_DIR)/otool_mapforge_bin.txt"
+	@if /usr/bin/grep -Eq '/opt/homebrew|/usr/local/Cellar|/Users/.*/CodeWork' "$(RELEASE_DIR)/otool_mapforge_bin.txt"; then \
+		echo "non-portable dylib dependency detected in $(PACKAGE_MACOS_DIR)/mapforge-bin"; \
+		cat "$(RELEASE_DIR)/otool_mapforge_bin.txt"; \
+		exit 1; \
+	fi
+	@for file in $$(/usr/bin/find "$(PACKAGE_FRAMEWORKS_DIR)" -type f -name '*.dylib' 2>/dev/null); do \
+		base="$$(/usr/bin/basename "$$file")"; \
+		otool -L "$$file" > "$(RELEASE_DIR)/otool_$$base.txt" || exit 1; \
+		if /usr/bin/grep -Eq '/opt/homebrew|/usr/local/Cellar|/Users/.*/CodeWork' "$(RELEASE_DIR)/otool_$$base.txt"; then \
+			echo "non-portable dylib dependency detected in $$file"; \
+			cat "$(RELEASE_DIR)/otool_$$base.txt"; \
+			exit 1; \
+		fi; \
+	done
+	@echo "release-bundle-audit passed."
+
+release-sign: release-bundle-audit
+	@echo "Signing with identity: $(RELEASE_CODESIGN_IDENTITY)"
+	@for dylib in $$(/usr/bin/find "$(PACKAGE_FRAMEWORKS_DIR)" -type f -name '*.dylib' 2>/dev/null); do \
+		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$$dylib"; \
+	done
+	@codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/mapforge-bin"
+	@codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/mapforge-launcher"
+	@codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_APP_DIR)"
+	@echo "release-sign complete."
+
+release-verify: release-sign
+	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)"
+	@if [ "$(RELEASE_CODESIGN_IDENTITY)" = "-" ]; then \
+		echo "release-verify note: ad-hoc identity in use; skipping spctl Gatekeeper assessment"; \
+	else \
+		spctl --assess --type execute --verbose=2 "$(PACKAGE_APP_DIR)"; \
+	fi
+	@echo "release-verify passed."
+
+release-notarize: release-sign
+	@if [ -z "$(APPLE_NOTARY_PROFILE)" ]; then \
+		echo "APPLE_NOTARY_PROFILE is required for release-notarize"; \
+		exit 1; \
+	fi
+	@if [ "$(RELEASE_CODESIGN_IDENTITY)" = "-" ]; then \
+		echo "release-notarize requires a real Developer ID signing identity (APPLE_SIGN_IDENTITY)"; \
+		exit 1; \
+	fi
+	@mkdir -p "$(RELEASE_DIR)"
+	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
+	@xcrun notarytool submit "$(RELEASE_APP_ZIP)" --keychain-profile "$(APPLE_NOTARY_PROFILE)" --wait
+	@echo "release-notarize passed."
+
+release-staple:
+	@xcrun stapler staple "$(PACKAGE_APP_DIR)"
+	@xcrun stapler validate "$(PACKAGE_APP_DIR)"
+	@echo "release-staple passed."
+
+release-artifact: release-verify
+	@mkdir -p "$(RELEASE_DIR)"
+	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
+	@shasum -a 256 "$(RELEASE_APP_ZIP)" > "$(RELEASE_APP_ZIP).sha256"
+	@{ \
+		echo "product=$(RELEASE_PRODUCT_NAME)"; \
+		echo "program=$(RELEASE_PROGRAM_KEY)"; \
+		echo "bundle_id=$(RELEASE_BUNDLE_ID)"; \
+		echo "version=$(RELEASE_VERSION)"; \
+		echo "channel=$(RELEASE_CHANNEL)"; \
+		echo "artifact=$(RELEASE_APP_ZIP)"; \
+		echo "sha256_file=$(RELEASE_APP_ZIP).sha256"; \
+	} > "$(RELEASE_MANIFEST)"
+	@echo "release-artifact complete: $(RELEASE_APP_ZIP)"
 
 run-ide-theme: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
@@ -510,6 +647,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-notarize release-staple release-artifact run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

@@ -1,6 +1,6 @@
 # MapForge Future Intent
 
-Last updated: 2026-04-02
+Last updated: 2026-04-03
 
 ## Scaffold Alignment Intent
 1. Preserve current subsystem decomposition strengths (`app`, `map`, `route`, `render`, etc.).
@@ -83,6 +83,20 @@ Last updated: 2026-04-02
     - avoid external data-root dependence for icon/Finder launch,
     - verify packaged shader/runtime roots explicitly,
     - require launcher diagnostics (`--print-config`) and log-based backend confirmation before lane closeout.
+
+## Release Readiness Intent
+- `MF-RL0` complete:
+  - release identity contract locked for pilot (`com.cosm.carta`, version source in `VERSION`, release artifact naming contract in `Makefile`).
+- `MF-RL1` complete:
+  - writable persistence paths moved to launcher-owned env roots (`MAPFORGE_RUNTIME_DIR`, `MAPFORGE_THEME_PERSIST_PATH`) with safe fallback in restricted environments.
+  - package assembly now bundles third-party dylib dependencies into `Contents/Frameworks` via `tools/packaging/macos/bundle-dylibs.sh`.
+  - `release-bundle-audit` target is active and passing for dependency/root policy checks.
+- next planned release slice:
+  - `MF-RL2` signing + notarization + staple + verification targets are implemented.
+  - remaining RL2 execution to close lane:
+    - run with real Developer ID identity (`APPLE_SIGN_IDENTITY`)
+    - run notarization (`APPLE_NOTARY_PROFILE`) and staple validation path
+    - confirm non-ad-hoc `spctl` Gatekeeper assessment pass
 
 ## Non-Goals During Scaffold Migration
 - No feature expansion unrelated to scaffold alignment.

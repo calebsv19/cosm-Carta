@@ -4,6 +4,8 @@
 #include "core_theme.h"
 
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,6 +117,41 @@ static int stat_path_exists(const char *path, void *user) {
     struct stat st;
     (void)user;
     return path && stat(path, &st) == 0;
+}
+
+static bool mkdir_recursive_for_path(const char *path) {
+    char tmp[PATH_MAX];
+    size_t len = 0u;
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+    len = strnlen(path, sizeof(tmp) - 1u);
+    if (len == 0u || len >= sizeof(tmp)) {
+        return false;
+    }
+    memcpy(tmp, path, len);
+    tmp[len] = '\0';
+    for (char *p = tmp + 1; *p; ++p) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+                return false;
+            }
+            *p = '/';
+        }
+    }
+    if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    return true;
+}
+
+static const char *theme_persist_path(void) {
+    const char *override_path = getenv("MAPFORGE_THEME_PERSIST_PATH");
+    if (override_path && override_path[0] != '\0') {
+        return override_path;
+    }
+    return k_theme_persist_path;
 }
 
 static void trim_trailing_whitespace(char *text) {
@@ -299,10 +336,11 @@ bool mapforge_shared_theme_current_preset(char *out_name, size_t out_name_size) 
 bool mapforge_shared_theme_load_persisted(void) {
     FILE *file;
     char preset_name[64];
-    if (!stat_path_exists(k_theme_persist_path, NULL)) {
+    const char *persist_path = theme_persist_path();
+    if (!stat_path_exists(persist_path, NULL)) {
         return false;
     }
-    file = fopen(k_theme_persist_path, "rb");
+    file = fopen(persist_path, "rb");
     if (!file) {
         return false;
     }
@@ -322,10 +360,25 @@ bool mapforge_shared_theme_load_persisted(void) {
 bool mapforge_shared_theme_save_persisted(void) {
     FILE *file;
     char preset_name[64];
+    const char *persist_path = theme_persist_path();
     if (!mapforge_shared_theme_current_preset(preset_name, sizeof(preset_name))) {
         return false;
     }
-    file = fopen(k_theme_persist_path, "wb");
+    {
+        const char *slash = strrchr(persist_path, '/');
+        if (slash) {
+            char dir_buf[PATH_MAX];
+            size_t dir_len = (size_t)(slash - persist_path);
+            if (dir_len > 0u && dir_len < sizeof(dir_buf)) {
+                memcpy(dir_buf, persist_path, dir_len);
+                dir_buf[dir_len] = '\0';
+                if (!mkdir_recursive_for_path(dir_buf)) {
+                    return false;
+                }
+            }
+        }
+    }
+    file = fopen(persist_path, "wb");
     if (!file) {
         return false;
     }

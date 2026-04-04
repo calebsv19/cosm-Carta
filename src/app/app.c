@@ -15,6 +15,7 @@
 #include <SDL2/SDL_ttf.h>
 #include <json-c/json.h>
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,49 @@
 static const char *kTraceLaneLifecycle = "lifecycle";
 static const char *kAppConfigDefaultPath = "config/app.config.json";
 static const char *kAppConfigRuntimePath = "data/runtime/app_state.json";
+
+static bool app_ensure_dir_recursive(const char *path) {
+    char tmp[PATH_MAX];
+    size_t len = 0u;
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+    len = strnlen(path, sizeof(tmp) - 1u);
+    if (len == 0u || len >= sizeof(tmp)) {
+        return false;
+    }
+    memcpy(tmp, path, len);
+    tmp[len] = '\0';
+
+    for (char *p = tmp + 1; *p; ++p) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+                return false;
+            }
+            *p = '/';
+        }
+    }
+    if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    return true;
+}
+
+static const char *app_runtime_config_path(void) {
+    const char *override_path = getenv("MAPFORGE_RUNTIME_CONFIG_PATH");
+    const char *runtime_dir = getenv("MAPFORGE_RUNTIME_DIR");
+    static char path_buf[PATH_MAX];
+    if (override_path && override_path[0] != '\0') {
+        return override_path;
+    }
+    if (runtime_dir && runtime_dir[0] != '\0') {
+        if (snprintf(path_buf, sizeof(path_buf), "%s/app_state.json", runtime_dir) > 0) {
+            return path_buf;
+        }
+    }
+    return kAppConfigRuntimePath;
+}
 
 static uint32_t app_sum_road_classes(const uint32_t *values, int first_class, int last_class) {
     if (!values || first_class < 0 || last_class < first_class) {
@@ -79,7 +123,8 @@ static uint16_t app_clamp_milli(int value) {
 }
 
 static struct json_object *app_load_config_root(void) {
-    struct json_object *root = json_object_from_file(kAppConfigRuntimePath);
+    const char *runtime_path = app_runtime_config_path();
+    struct json_object *root = json_object_from_file(runtime_path);
     if (root && json_object_is_type(root, json_type_object)) {
         return root;
     }
@@ -98,6 +143,10 @@ static struct json_object *app_load_config_root(void) {
 }
 
 static bool app_ensure_runtime_config_dir(void) {
+    const char *runtime_dir = getenv("MAPFORGE_RUNTIME_DIR");
+    if (runtime_dir && runtime_dir[0] != '\0') {
+        return app_ensure_dir_recursive(runtime_dir);
+    }
     if (mkdir("data", 0755) != 0 && errno != EEXIST) {
         return false;
     }
@@ -341,13 +390,14 @@ static void app_save_persisted_view_state(const AppState *app) {
         json_object_object_add(root, "runtime_hardening", hardening);
     }
 
+    const char *runtime_path = app_runtime_config_path();
     if (!app_ensure_runtime_config_dir()) {
-        log_error("Failed to create runtime config directory for %s", kAppConfigRuntimePath);
+        log_error("Failed to create runtime config directory for %s", runtime_path);
         json_object_put(root);
         return;
     }
-    if (json_object_to_file_ext(kAppConfigRuntimePath, root, JSON_C_TO_STRING_PRETTY) != 0) {
-        log_error("Failed to persist map view state to %s", kAppConfigRuntimePath);
+    if (json_object_to_file_ext(runtime_path, root, JSON_C_TO_STRING_PRETTY) != 0) {
+        log_error("Failed to persist map view state to %s", runtime_path);
     }
     json_object_put(root);
 }

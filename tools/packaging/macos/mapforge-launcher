@@ -7,12 +7,17 @@ RES_DIR="$APP_CONTENTS_DIR/Resources"
 APP_BUNDLE_REGIONS_DIR="$RES_DIR/data/regions"
 DEV_REGIONS_DIR_DEFAULT="$HOME/Desktop/CodeWork/map_forge/data/regions"
 DEV_REGIONS_DIR="${MAPFORGE_DEV_REGIONS_DIR:-$DEV_REGIONS_DIR_DEFAULT}"
+APP_SUPPORT_DIR_DEFAULT="${HOME}/Library/Application Support/MapForge"
+APP_SUPPORT_DIR="${MAPFORGE_APP_SUPPORT_DIR:-$APP_SUPPORT_DIR_DEFAULT}"
+RUNTIME_DIR_DEFAULT="$APP_SUPPORT_DIR/runtime"
+THEME_PERSIST_PATH_DEFAULT="$APP_SUPPORT_DIR/config/theme_preset.txt"
 LOG_DIR="${HOME}/Library/Logs/MapForge"
 LOG_FILE="$LOG_DIR/launcher.log"
 FIND_BIN="/usr/bin/find"
 GREP_BIN="/usr/bin/grep"
 ID_BIN="/usr/bin/id"
 DATE_BIN="/bin/date"
+DIRNAME_BIN="/usr/bin/dirname"
 selected_regions_reason="unresolved"
 
 has_region_packs() {
@@ -100,6 +105,17 @@ if [ "$selection_payload" != "$MAPFORGE_REGIONS_DIR" ]; then
 fi
 export MAPFORGE_REGIONS_DIR
 export MAPFORGE_RENDER_BACKEND="${MAPFORGE_RENDER_BACKEND:-vulkan}"
+export MAPFORGE_RUNTIME_DIR="${MAPFORGE_RUNTIME_DIR:-$RUNTIME_DIR_DEFAULT}"
+export MAPFORGE_THEME_PERSIST_PATH="${MAPFORGE_THEME_PERSIST_PATH:-$THEME_PERSIST_PATH_DEFAULT}"
+mkdir -p "$MAPFORGE_RUNTIME_DIR" "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" 2>/dev/null || true
+if [ ! -d "$MAPFORGE_RUNTIME_DIR" ] || [ ! -d "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" ]; then
+    fallback_support_dir="${TMPDIR:-/tmp}/MapForge"
+    MAPFORGE_RUNTIME_DIR="$fallback_support_dir/runtime"
+    MAPFORGE_THEME_PERSIST_PATH="$fallback_support_dir/config/theme_preset.txt"
+    mkdir -p "$MAPFORGE_RUNTIME_DIR" "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" 2>/dev/null || true
+fi
+export MAPFORGE_RUNTIME_DIR
+export MAPFORGE_THEME_PERSIST_PATH
 
 if [ "${1:-}" = "--print-config" ]; then
     echo "APP_CONTENTS_DIR=$APP_CONTENTS_DIR"
@@ -110,6 +126,8 @@ if [ "${1:-}" = "--print-config" ]; then
     echo "MAPFORGE_RENDER_BACKEND=$MAPFORGE_RENDER_BACKEND"
     echo "MAPFORGE_SELECTED_REGIONS_REASON=$selected_regions_reason"
     echo "MAPFORGE_DEV_REGIONS_DIR_DEFAULT=$DEV_REGIONS_DIR_DEFAULT"
+    echo "MAPFORGE_RUNTIME_DIR=$MAPFORGE_RUNTIME_DIR"
+    echo "MAPFORGE_THEME_PERSIST_PATH=$MAPFORGE_THEME_PERSIST_PATH"
     exit 0
 fi
 
@@ -120,7 +138,7 @@ if [ "${1:-}" = "--self-test" ]; then
     [ -f "$RES_DIR/config/app.config.json" ] || { echo "missing: bundled app.config.json" >&2; exit 1; }
     [ -f "$RES_DIR/vk_renderer/shaders/textured.vert.spv" ] || { echo "missing: bundled vk_renderer shader" >&2; exit 1; }
     [ -f "$RES_DIR/shaders/textured.vert.spv" ] || { echo "missing: bundled runtime shader" >&2; exit 1; }
-    [ -d "$RES_DIR/data/runtime" ] || { echo "missing: runtime state dir" >&2; exit 1; }
+    [ -d "$MAPFORGE_RUNTIME_DIR" ] || { echo "missing: runtime state dir ($MAPFORGE_RUNTIME_DIR)" >&2; exit 1; }
     [ -d "$MAPFORGE_REGIONS_DIR" ] || { echo "missing: regions dir ($MAPFORGE_REGIONS_DIR)" >&2; exit 1; }
     echo "self-test: ok"
     echo "LOG_FILE=$LOG_FILE"
@@ -128,6 +146,8 @@ if [ "${1:-}" = "--self-test" ]; then
     echo "MAPFORGE_REGIONS_DIR=$MAPFORGE_REGIONS_DIR"
     echo "MAPFORGE_RENDER_BACKEND=$MAPFORGE_RENDER_BACKEND"
     echo "MAPFORGE_SELECTED_REGIONS_REASON=$selected_regions_reason"
+    echo "MAPFORGE_RUNTIME_DIR=$MAPFORGE_RUNTIME_DIR"
+    echo "MAPFORGE_THEME_PERSIST_PATH=$MAPFORGE_THEME_PERSIST_PATH"
     exit 0
 fi
 
