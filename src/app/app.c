@@ -558,8 +558,25 @@ static bool app_init(AppState *app) {
     );
 
     if (!app->window) {
-        log_error("SDL_CreateWindow failed: %s", SDL_GetError());
-        return false;
+        if (renderer_get_backend(&app->renderer) == RENDERER_BACKEND_VULKAN) {
+            log_error("SDL_CreateWindow vulkan path failed, retrying SDL fallback: %s", SDL_GetError());
+            renderer_set_backend(&app->renderer, RENDERER_BACKEND_SDL);
+            app->window = SDL_CreateWindow(
+                "MapForge",
+                SDL_WINDOWPOS_CENTERED,
+                SDL_WINDOWPOS_CENTERED,
+                app->width,
+                app->height,
+                SDL_WINDOW_SHOWN
+            );
+            if (!app->window) {
+                log_error("SDL_CreateWindow fallback failed: %s", SDL_GetError());
+                return false;
+            }
+        } else {
+            log_error("SDL_CreateWindow failed: %s", SDL_GetError());
+            return false;
+        }
     }
     app->lifetime.window_created = true;
 

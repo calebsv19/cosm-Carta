@@ -82,6 +82,8 @@ Last updated: 2026-04-03
     - notarization accepted submissions:
       - `00c34bf7-eed3-49ff-8a5c-6976e676b5a6`
       - `8595ba98-fa62-4fd4-a604-e44aeb18eca7`
+      - `07120954-c306-4942-b766-e3febf393f9d`
+      - `73f36611-bda2-49c0-8dd0-d36d64d5b42c`
     - stapling and staple-validation pass on current distribution app.
   - release target graph now includes explicit production-safe flow:
     - `release-verify-signed`
@@ -91,6 +93,8 @@ Last updated: 2026-04-03
     - ad-hoc path keeps `--timestamp=none` for local/dev signing.
     - Developer ID path requires secure timestamp and hardened runtime on executables.
     - notarization target fails on non-`Accepted` status and writes notary JSON/logs under `build/release/`.
+  - launch resiliency lock:
+    - when Vulkan window creation fails early (`VK_KHR_surface` portability gap), app now falls back to SDL window creation instead of immediate process exit.
 
 ## App Packaging Status (Current)
 - `MF-PK0` complete:
