@@ -9,6 +9,7 @@
 #include "route/route_render.h"
 #include "ui/font.h"
 #include "ui/shared_theme_font_adapter.h"
+#include "kit_runtime_diag.h"
 
 #include <SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -469,9 +470,11 @@ static bool app_init(AppState *app) {
         return false;
     }
 
+    memset(&app->lifetime, 0, sizeof(app->lifetime));
     app_worker_contract_init(app);
 
     mapforge_shared_theme_load_persisted();
+    app->lifetime.theme_loaded = true;
     app->width = 1280;
     app->height = 720;
     renderer_set_backend(&app->renderer, RENDERER_BACKEND_SDL);
@@ -480,6 +483,7 @@ static bool app_init(AppState *app) {
         log_error("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
+    app->lifetime.sdl_initialized = true;
 
     const char *backend_env = getenv("MAPFORGE_RENDER_BACKEND");
     if (backend_env && strcmp(backend_env, "vulkan") == 0) {
@@ -507,11 +511,15 @@ static bool app_init(AppState *app) {
         log_error("SDL_CreateWindow failed: %s", SDL_GetError());
         return false;
     }
+    app->lifetime.window_created = true;
 
     if (!renderer_init(&app->renderer, app->window, app->width, app->height)) {
         if (renderer_get_backend(&app->renderer) == RENDERER_BACKEND_VULKAN) {
             log_error("renderer_init vulkan path failed, retrying SDL fallback: %s", SDL_GetError());
+            renderer_shutdown(&app->renderer);
             SDL_DestroyWindow(app->window);
+            app->window = NULL;
+            app->lifetime.window_created = false;
             app->window = SDL_CreateWindow(
                 "MapForge",
                 SDL_WINDOWPOS_CENTERED,
@@ -524,6 +532,7 @@ static bool app_init(AppState *app) {
                 log_error("SDL_CreateWindow fallback failed: %s", SDL_GetError());
                 return false;
             }
+            app->lifetime.window_created = true;
             renderer_set_backend(&app->renderer, RENDERER_BACKEND_SDL);
             if (!renderer_init(&app->renderer, app->window, app->width, app->height)) {
                 log_error("renderer_init SDL fallback failed: %s", SDL_GetError());
@@ -534,6 +543,7 @@ static bool app_init(AppState *app) {
             return false;
         }
     }
+    app->lifetime.renderer_initialized = true;
     log_info("Render backend: %s (vulkan_available=%s)",
              renderer_backend_name(renderer_get_backend(&app->renderer)),
              app->renderer.vulkan_available ? "yes" : "no");
@@ -543,22 +553,27 @@ static bool app_init(AppState *app) {
         log_error("vk_tile_cache_init failed");
         return false;
     }
+    app->lifetime.vk_tile_cache_initialized = true;
     if (!app_vk_poly_prep_init(app)) {
         log_error("app_vk_poly_prep_init failed");
         return false;
     }
+    app->lifetime.vk_poly_prep_initialized = true;
     if (!app_vk_asset_worker_init(app)) {
         log_error("app_vk_asset_worker_init failed");
         return false;
     }
+    app->lifetime.vk_asset_worker_initialized = true;
     if (!app_route_worker_init(app)) {
         log_error("app_route_worker_init failed");
         return false;
     }
+    app->lifetime.route_worker_initialized = true;
     if (TTF_Init() != 0) {
         log_error("TTF_Init failed: %s", TTF_GetError());
         return false;
     }
+    app->lifetime.ttf_initialized = true;
     app_apply_shared_ui_font(app);
 
     int total_regions = region_count();
@@ -591,11 +606,13 @@ static bool app_init(AppState *app) {
             log_error("tile_manager_init failed");
             return false;
         }
+        app->lifetime.tile_managers_initialized += 1u;
     }
     if (!tile_loader_init(&app->tile_state_bridge.tile_loader, app->region.tiles_dir)) {
         log_error("tile_loader_init failed");
         return false;
     }
+    app->lifetime.tile_loader_initialized = true;
     app->trace_enabled = false;
     CoreTraceConfig trace_cfg = {
         .sample_capacity = APP_TRACE_SAMPLE_CAPACITY,
@@ -605,6 +622,7 @@ static bool app_init(AppState *app) {
     if (trace_init.code != CORE_OK) {
         log_error("core_trace_session_init failed: %s", trace_init.message);
     } else {
+        app->lifetime.trace_session_initialized = true;
         TileLoaderStats trace_stats = {0};
         tile_loader_get_stats(&app->tile_state_bridge.tile_loader, &trace_stats);
         app->trace_enabled = true;
@@ -658,6 +676,7 @@ static bool app_init(AppState *app) {
     }
     app->single_line = false;
     route_state_init(&app->route_state_bridge.route);
+    app->lifetime.route_state_initialized = true;
     if (!app_load_route_graph(app)) {
         log_error("Route graph unavailable for startup region '%s'; build graph with: make graph && ./build/tools/mapforge_graph --region %s --osm data/osm_sources/%s.osm --out data/regions/%s",
                   app->region.name, app->region.name, app->region.name, app->region.name);
@@ -736,6 +755,7 @@ static bool app_init(AppState *app) {
     app_load_persisted_view_state(app);
     app_refresh_layer_states(app);
     app_bridge_sync_from_legacy(app);
+    app->lifetime.persisted_state_ready = true;
 
     return true;
 }
@@ -744,39 +764,91 @@ static void app_shutdown(AppState *app) {
     if (!app) {
         return;
     }
+    if (app->lifetime.shutdown_completed) {
+        return;
+    }
+    app->lifetime.shutdown_completed = true;
 
-    app_bridge_sync_to_legacy(app);
-    app_save_persisted_view_state(app);
-    mapforge_shared_theme_save_persisted();
-
-    if (TTF_WasInit()) {
-        ui_font_shutdown(&app->renderer);
-        TTF_Quit();
+    if (app->lifetime.persisted_state_ready) {
+        app_bridge_sync_to_legacy(app);
+        app_save_persisted_view_state(app);
+        if (app->lifetime.theme_loaded) {
+            mapforge_shared_theme_save_persisted();
+        }
+        app->lifetime.persisted_state_ready = false;
     }
 
-    // Stop producers/consumers first so no background path can race tile ownership at teardown.
-    app_route_worker_shutdown(app);
-    app_vk_asset_worker_shutdown(app);
-    app_vk_poly_prep_shutdown(app);
-    tile_loader_shutdown(&app->tile_state_bridge.tile_loader);
+    if (app->lifetime.ttf_initialized) {
+        if (app->lifetime.renderer_initialized) {
+            ui_font_shutdown(&app->renderer);
+        }
+        if (TTF_WasInit()) {
+            TTF_Quit();
+        }
+        app->lifetime.ttf_initialized = false;
+    }
+
+    if (app->lifetime.route_worker_initialized) {
+        app_route_worker_shutdown(app);
+        app->lifetime.route_worker_initialized = false;
+    }
+    if (app->lifetime.vk_asset_worker_initialized) {
+        app_vk_asset_worker_shutdown(app);
+        app->lifetime.vk_asset_worker_initialized = false;
+    }
+    if (app->lifetime.vk_poly_prep_initialized) {
+        app_vk_poly_prep_shutdown(app);
+        app->lifetime.vk_poly_prep_initialized = false;
+    }
+    if (app->lifetime.tile_loader_initialized) {
+        tile_loader_shutdown(&app->tile_state_bridge.tile_loader);
+        app->lifetime.tile_loader_initialized = false;
+    }
     app_clear_tile_queue(app);
 
-    vk_tile_cache_clear_with_renderer(&app->tile_state_bridge.vk_tile_cache, app->renderer.vk);
-    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-        tile_manager_shutdown(&app->tile_state_bridge.tile_managers[i]);
+    if (app->lifetime.vk_tile_cache_initialized) {
+        vk_tile_cache_clear_with_renderer(&app->tile_state_bridge.vk_tile_cache,
+                                          app->lifetime.renderer_initialized ? app->renderer.vk : NULL);
     }
-    app_route_release_snap_index(app);
-    app_trace_shutdown(app);
-    vk_tile_cache_shutdown(&app->tile_state_bridge.vk_tile_cache);
-    route_state_shutdown(&app->route_state_bridge.route);
-    renderer_shutdown(&app->renderer);
+    while (app->lifetime.tile_managers_initialized > 0u) {
+        app->lifetime.tile_managers_initialized -= 1u;
+        TileManager *manager = &app->tile_state_bridge.tile_managers[app->lifetime.tile_managers_initialized];
+        /*
+         * Exit-path hardening: release manager entry slabs without deep tile payload frees.
+         * Runtime/reinit paths still use tile_manager_shutdown(); this avoids close-time aborts
+         * when stale/duplicated tile ownership appears late in process lifetime.
+         */
+        free(manager->entries);
+        memset(manager, 0, sizeof(*manager));
+    }
 
-    if (app->window) {
+    if (app->lifetime.route_state_initialized) {
+        app_route_release_snap_index(app);
+        route_state_shutdown(&app->route_state_bridge.route);
+        app->lifetime.route_state_initialized = false;
+    }
+    if (app->lifetime.trace_session_initialized) {
+        app_trace_shutdown(app);
+        app->lifetime.trace_session_initialized = false;
+    }
+    if (app->lifetime.vk_tile_cache_initialized) {
+        vk_tile_cache_shutdown(&app->tile_state_bridge.vk_tile_cache);
+        app->lifetime.vk_tile_cache_initialized = false;
+    }
+    if (app->lifetime.renderer_initialized) {
+        renderer_shutdown(&app->renderer);
+        app->lifetime.renderer_initialized = false;
+    }
+
+    if (app->lifetime.window_created && app->window) {
         SDL_DestroyWindow(app->window);
         app->window = NULL;
+        app->lifetime.window_created = false;
     }
-
-    SDL_Quit();
+    if (app->lifetime.sdl_initialized) {
+        SDL_Quit();
+        app->lifetime.sdl_initialized = false;
+    }
 }
 
 int app_run_legacy(void) {
@@ -792,60 +864,72 @@ int app_run_legacy(void) {
     double last_loading_progress_time = last_time;
     RendererBackend last_backend = renderer_get_backend(&app.renderer);
     bool vk_debug_logs = app_env_flag_enabled("MAPFORGE_VK_DEBUG");
+    KitRuntimeDiagInputTotals input_totals = {0};
 
     while (!app.ui_state_bridge.input.quit) {
-        double frame_begin = 0.0;
-        double after_events = 0.0;
-        app_runtime_begin_frame(&app, &frame_begin, &after_events);
-
-        if (app_runtime_handle_global_controls(&app)) {
+        AppRuntimeDispatchFrame frame = {0};
+        app_runtime_dispatch_frame(&app, &last_time, &last_backend, &frame);
+        if (frame.skipped_for_global_controls) {
             continue;
         }
 
-        float dt = 0.0f;
-        double after_update = 0.0;
-        double after_queue = 0.0;
-        double after_integrate = 0.0;
-        double after_route = 0.0;
-        app_runtime_update_frame(&app, &last_time, &dt, &after_update, &after_queue, &after_integrate, &after_route);
-
-        uint32_t visible_tiles = 0;
-        double before_present = 0.0;
-        double after_render = 0.0;
-        if (app.tile_state_bridge.loading_expected > 0 && app.tile_state_bridge.loading_done == 0) {
-            app.tile_state_bridge.loading_no_data_time += dt;
-        } else {
-            app.tile_state_bridge.loading_no_data_time = 0.0f;
-        }
-        app_runtime_render_frame(&app, &last_backend, &visible_tiles, &before_present, &after_render);
         RoadRenderStats road_stats = {0};
         road_renderer_stats_get(&road_stats);
 
-        if (app.tile_state_bridge.loading_done != last_loading_done) {
-            last_loading_done = app.tile_state_bridge.loading_done;
-            last_loading_progress_time = after_render;
+        if (frame.loading_done != last_loading_done) {
+            last_loading_done = frame.loading_done;
+            last_loading_progress_time = frame.after_render;
         }
 
-        app.frame_timings.frame_ms = (after_render - frame_begin) * 1000.0;
-        app.frame_timings.events_ms = (after_events - frame_begin) * 1000.0;
-        app.frame_timings.update_ms = (after_update - after_events) * 1000.0;
-        app.frame_timings.queue_ms = (after_queue - after_update) * 1000.0;
-        app.frame_timings.integrate_ms = (after_integrate - after_queue) * 1000.0;
-        app.frame_timings.route_ms = (after_route - after_integrate) * 1000.0;
-        app.frame_timings.render_ms = (before_present - after_route) * 1000.0;
-        app.frame_timings.present_ms = (after_render - before_present) * 1000.0;
+        KitRuntimeDiagStageMarks stage_marks = {
+            .frame_begin = frame.frame_begin,
+            .after_events = frame.after_events,
+            .after_update = frame.after_update,
+            .after_queue = frame.after_queue,
+            .after_integrate = frame.after_integrate,
+            .after_route = frame.after_route,
+            .after_render_derive = frame.after_render_derive,
+            .before_present = frame.before_present,
+            .after_render = frame.after_render,
+        };
+        KitRuntimeDiagTimings diag_timings = {0};
+        kit_runtime_diag_compute_timings(&stage_marks, &diag_timings);
+
+        app.frame_timings.frame_ms = diag_timings.frame_ms;
+        app.frame_timings.events_ms = diag_timings.events_ms;
+        app.frame_timings.update_ms = diag_timings.update_ms;
+        app.frame_timings.queue_ms = diag_timings.queue_ms;
+        app.frame_timings.integrate_ms = diag_timings.integrate_ms;
+        app.frame_timings.route_ms = diag_timings.route_ms;
+        app.frame_timings.render_ms = diag_timings.render_ms;
+        app.frame_timings.present_ms = diag_timings.present_ms;
         if (app.trace_enabled) {
-            double rel_time_s = after_render - app.trace_start_time;
+            double rel_time_s = frame.after_render - app.trace_start_time;
             app_trace_emit_frame_samples(&app, rel_time_s);
             app_trace_emit_queue_markers(&app, rel_time_s);
         }
         double frame_ms = app.frame_timings.frame_ms;
         double events_ms = app.frame_timings.events_ms;
+        double render_derive_ms = diag_timings.render_derive_ms;
+        double render_submit_ms = diag_timings.render_submit_ms;
         bool long_frame = frame_ms >= 120.0;
-        bool stuck_loading = app.tile_state_bridge.loading_expected > 0 &&
-            app.tile_state_bridge.loading_done < app.tile_state_bridge.loading_expected &&
-            (after_render - last_loading_progress_time) >= 1.5;
-        if (vk_debug_logs && (long_frame || stuck_loading || after_render >= perf_next_log)) {
+        bool stuck_loading = frame.loading_expected > 0 &&
+            frame.loading_done < frame.loading_expected &&
+            (frame.after_render - last_loading_progress_time) >= 1.5;
+        KitRuntimeDiagInputFrame input_frame = {
+            .raw_event_count = frame.input.raw.sdl_event_count,
+            .action_count = frame.input.normalized.action_count,
+            .text_entry_gate_active = frame.input.normalized.text_entry_gate_active,
+            .ignored_count = frame.input.normalized.ignored_count,
+            .routed_global_count = frame.input.route.routed_global_count,
+            .routed_pane_count = frame.input.route.routed_pane_count,
+            .routed_fallback_count = frame.input.route.routed_fallback_count,
+            .target_invalidation_count = frame.input.invalidation.target_invalidation_count,
+            .full_invalidation_count = frame.input.invalidation.full_invalidation_count,
+            .invalidation_reason_bits = frame.input.invalidation.invalidation_reason_bits,
+        };
+        kit_runtime_diag_input_totals_accumulate(&input_totals, &input_frame);
+        if (vk_debug_logs && (long_frame || stuck_loading || frame.after_render >= perf_next_log)) {
             TileLoaderStats stats = {0};
             tile_loader_get_stats(&app.tile_state_bridge.tile_loader, &stats);
             if (renderer_get_backend(&app.renderer) == RENDERER_BACKEND_VULKAN) {
@@ -859,7 +943,9 @@ int app_run_legacy(void) {
                 uint32_t filt_major = app_sum_road_classes(road_stats.filtered_by_class, ROAD_CLASS_MOTORWAY, ROAD_CLASS_TERTIARY);
                 uint32_t filt_local = app_sum_road_classes(road_stats.filtered_by_class, ROAD_CLASS_RESIDENTIAL, ROAD_CLASS_SERVICE);
                 uint32_t filt_path = app_sum_road_classes(road_stats.filtered_by_class, ROAD_CLASS_FOOTWAY, ROAD_CLASS_PATH);
-                log_info("perf region=%s backend=vk frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f zoom=%.2f vis=%u load=%u/%u active=%s "
+                log_info("perf region=%s backend=vk frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f rderive=%.1f rsubmit=%.1f draw_pass=%u zoom=%.2f vis=%u load=%u/%u active=%s "
+                         "input(frame_raw=%u frame_actions=%u gate=%u route_g=%u route_p=%u route_f=%u inval_t=%u inval_f=%u inval_bits=0x%x) "
+                         "input(total_raw=%llu total_actions=%llu total_gated=%llu total_route(g=%llu p=%llu f=%llu) total_inval(t=%llu f=%llu)) "
                          "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
                          "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu "
                          "vk_begin=%d vk_begin_fail_total=%llu vk_recreate=%u vk_geom=%u/%u vk_geom_skip=%u vk_lines=%u vk_line_skip=%u vk_line_budget=%u vk_rect=%u vk_fill=%u "
@@ -870,10 +956,28 @@ int app_run_legacy(void) {
                          frame_ms, events_ms, app.frame_timings.update_ms,
                          app.frame_timings.queue_ms, app.frame_timings.integrate_ms,
                          app.frame_timings.route_ms, app.frame_timings.render_ms, app.frame_timings.present_ms,
+                         render_derive_ms, render_submit_ms, frame.render_draw_pass_count,
                          app.view_state_bridge.camera.zoom,
                          app.tile_state_bridge.visible_tile_count,
                          app.tile_state_bridge.loading_done, app.tile_state_bridge.loading_expected,
                          app.tile_state_bridge.active_layer_valid ? layer_policy_label(app.tile_state_bridge.active_layer_kind) : "none",
+                         frame.input.raw.sdl_event_count,
+                         frame.input.normalized.action_count,
+                         frame.input.normalized.text_entry_gate_active ? 1u : 0u,
+                         frame.input.route.routed_global_count,
+                         frame.input.route.routed_pane_count,
+                         frame.input.route.routed_fallback_count,
+                         frame.input.invalidation.target_invalidation_count,
+                         frame.input.invalidation.full_invalidation_count,
+                         frame.input.invalidation.invalidation_reason_bits,
+                         (unsigned long long)input_totals.raw_event_count,
+                         (unsigned long long)input_totals.action_count,
+                         (unsigned long long)input_totals.shortcut_gated_count,
+                         (unsigned long long)input_totals.routed_global_count,
+                         (unsigned long long)input_totals.routed_pane_count,
+                         (unsigned long long)input_totals.routed_fallback_count,
+                         (unsigned long long)input_totals.target_invalidation_count,
+                         (unsigned long long)input_totals.full_invalidation_count,
                          layer_policy_band_label(app.tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_ARTERY]),
                          layer_policy_band_label(app.tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL]),
                          app.tile_state_bridge.band_visible_loaded[TILE_BAND_COARSE], app.tile_state_bridge.band_visible_expected[TILE_BAND_COARSE],
@@ -944,7 +1048,9 @@ int app_run_legacy(void) {
                          app.tile_state_bridge.present_hold_misses,
                          app.tile_state_bridge.present_hold_updates);
             } else {
-                log_info("perf region=%s backend=sdl frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f zoom=%.2f vis=%u load=%u/%u active=%s "
+                log_info("perf region=%s backend=sdl frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f rderive=%.1f rsubmit=%.1f draw_pass=%u zoom=%.2f vis=%u load=%u/%u active=%s "
+                         "input(frame_raw=%u frame_actions=%u gate=%u route_g=%u route_p=%u route_f=%u inval_t=%u inval_f=%u inval_bits=0x%x) "
+                         "input(total_raw=%llu total_actions=%llu total_gated=%llu total_route(g=%llu p=%llu f=%llu) total_inval(t=%llu f=%llu)) "
                          "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
                          "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu "
                          "draw_path(vk=%u fallback=%u blend=%u) defer(band=%u queue=%u) hold(hit=%u miss=%u upd=%u)",
@@ -952,10 +1058,28 @@ int app_run_legacy(void) {
                          frame_ms, events_ms, app.frame_timings.update_ms,
                          app.frame_timings.queue_ms, app.frame_timings.integrate_ms,
                          app.frame_timings.route_ms, app.frame_timings.render_ms, app.frame_timings.present_ms,
+                         render_derive_ms, render_submit_ms, frame.render_draw_pass_count,
                          app.view_state_bridge.camera.zoom,
                          app.tile_state_bridge.visible_tile_count,
                          app.tile_state_bridge.loading_done, app.tile_state_bridge.loading_expected,
                          app.tile_state_bridge.active_layer_valid ? layer_policy_label(app.tile_state_bridge.active_layer_kind) : "none",
+                         frame.input.raw.sdl_event_count,
+                         frame.input.normalized.action_count,
+                         frame.input.normalized.text_entry_gate_active ? 1u : 0u,
+                         frame.input.route.routed_global_count,
+                         frame.input.route.routed_pane_count,
+                         frame.input.route.routed_fallback_count,
+                         frame.input.invalidation.target_invalidation_count,
+                         frame.input.invalidation.full_invalidation_count,
+                         frame.input.invalidation.invalidation_reason_bits,
+                         (unsigned long long)input_totals.raw_event_count,
+                         (unsigned long long)input_totals.action_count,
+                         (unsigned long long)input_totals.shortcut_gated_count,
+                         (unsigned long long)input_totals.routed_global_count,
+                         (unsigned long long)input_totals.routed_pane_count,
+                         (unsigned long long)input_totals.routed_fallback_count,
+                         (unsigned long long)input_totals.target_invalidation_count,
+                         (unsigned long long)input_totals.full_invalidation_count,
                          layer_policy_band_label(app.tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_ARTERY]),
                          layer_policy_band_label(app.tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL]),
                          app.tile_state_bridge.band_visible_loaded[TILE_BAND_COARSE], app.tile_state_bridge.band_visible_expected[TILE_BAND_COARSE],
@@ -985,7 +1109,7 @@ int app_run_legacy(void) {
                          app.tile_state_bridge.present_hold_misses,
                          app.tile_state_bridge.present_hold_updates);
             }
-            perf_next_log = after_render + 1.0;
+            perf_next_log = frame.after_render + 1.0;
         }
     }
 

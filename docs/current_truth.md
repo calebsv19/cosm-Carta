@@ -1,6 +1,6 @@
 # MapForge Current Truth
 
-Last updated: 2026-03-31
+Last updated: 2026-04-02
 
 ## Program Identity
 - Repository directory: `map_forge/`
@@ -40,6 +40,9 @@ Last updated: 2026-03-31
 - Visual harness build gate:
   - `make -C map_forge visual-harness`
   - current implementation is an app-build availability alias.
+- Input policy gate:
+  - `make -C map_forge test-input-policy`
+  - validates text-entry shortcut precedence rules for top-level normalize lane.
 - Header UI behavior:
   - right-side layer chips render inside a clipped strip viewport and support mouse-wheel horizontal scrolling when hovered.
 
@@ -107,6 +110,82 @@ Last updated: 2026-03-31
     - `make -C map_forge run-headless-smoke`
     - `make -C map_forge visual-harness`
   - connection-pass docs/matrix trackers are synchronized for CP0-CP5 completion.
+- cross-program wrapper initiative update (`W1` + `W2`) complete:
+  - wrapper context now carries normalized dispatch diagnostics:
+    - `dispatch_count`
+    - `dispatch_succeeded`
+    - `last_dispatch_exit_code`
+  - wrapper boundary diagnostics are standardized:
+    - structured wrapper error taxonomy
+    - function-context stage transition violations (`expected`/`actual`/`next`)
+    - wrapper exit summary (stage, exit code, dispatch summary, wrapper error)
+  - verification gates passed:
+    - `make -C map_forge clean && make -C map_forge`
+    - `make -C map_forge test`
+    - `make -C map_forge run-headless-smoke`
+    - `make -C map_forge visual-harness`
+
+## IR1 Input Routing Status (Current)
+- `IR1-S0` complete:
+  - current top-level input flow was re-mapped at dispatch boundary and captured in private execution docs.
+- `IR1-S1` complete:
+  - typed input contracts are now explicit in top-level app runtime:
+    - `AppInputEventRaw`
+    - `AppInputEventNormalized`
+    - `AppInputRouteResult`
+    - `AppInputInvalidationResult`
+  - explicit phase function landed:
+    - `app_runtime_process_input_frame(...)`
+    - sequencing: `InputIntake -> InputNormalize -> InputRoute -> InputInvalidate`
+  - `AppRuntimeDispatchFrame` now carries the `input` diagnostics payload.
+- `IR1-S2` complete:
+  - text-entry precedence policy is now explicit and testable:
+    - policy module: `app_runtime_input_policy.c`
+    - gating API: `app_runtime_apply_text_entry_shortcut_policy(...)`
+  - normalize phase now applies text-entry shortcut gating before global route classification.
+  - policy test lane added:
+    - `tests/app_runtime_input_policy_test.c`
+    - `make -C map_forge test-input-policy` (also included in `test` + `run-headless-smoke`)
+- `IR1-S3` complete:
+  - runtime diagnostics now roll up input-routing counters in existing perf logs (both backends):
+    - frame-level: raw/normalized/gate/route/invalidation + reason bits
+    - cumulative: totals for raw/actions/gated/route buckets/invalidation buckets
+- behavior status:
+  - runtime behavior remains preserved; this slice is contract/instrumentation first.
+- lane status:
+  - map_forge IR1 is closed (`S0` through `S3`).
+  - next top-level contract lane for map_forge is active `RS1`.
+
+## RS1 Render Split Status (Current)
+- `RS1-S0` complete:
+  - render/update ownership baseline remapped against RS1 contract shape.
+- `RS1-S1` complete:
+  - typed render contracts added:
+    - `AppRuntimeRenderDeriveFrame`
+    - `AppRuntimeRenderSubmitFrame`
+  - explicit phase functions added:
+    - `app_runtime_render_derive_frame(...)`
+    - `app_runtime_render_submit_frame(...)`
+- `RS1-S2` complete:
+  - dispatch contract now carries render split diagnostics:
+    - `after_render_derive`
+    - `render_draw_pass_count`
+    - `render_invalidation_reason_bits`
+  - runtime perf logs now report:
+    - derive timing (`rderive`)
+    - submit timing (`rsubmit`)
+    - draw pass count
+- `RS1-S3` complete:
+  - explicit window-title contract added:
+    - `AppRuntimeRenderTitleFrame`
+    - `app_runtime_render_derive_title_frame(...)`
+    - `app_runtime_render_apply_title_frame(...)`
+  - title/overlay derivation is now separated from render submit and applied as an explicit post-submit contract stage.
+- shared diagnostics contract adoption complete:
+  - runtime perf diagnostics timing/counter math now uses shared `kit_runtime_diag` (`v0.1.0`) helpers.
+  - app behavior ownership remains local (`map_forge` input/routing/render policy unchanged).
+- lane status:
+  - map_forge RS1 is closed (`S0` through `S3`).
 
 ## Runtime State Persistence
 - Committed default config:

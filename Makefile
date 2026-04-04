@@ -27,6 +27,7 @@ CORE_KERNEL_DIR := $(SHARED_ROOT)/core/core_kernel
 CORE_TRACE_DIR := $(SHARED_ROOT)/core/core_trace
 CORE_THEME_DIR := $(SHARED_ROOT)/core/core_theme
 CORE_FONT_DIR := $(SHARED_ROOT)/core/core_font
+KIT_RUNTIME_DIAG_DIR := $(SHARED_ROOT)/kit/kit_runtime_diag
 
 CORE_SPACE_LIB := $(CORE_SPACE_DIR)/build/libcore_space.a
 CORE_BASE_LIB := $(CORE_BASE_DIR)/build/libcore_base.a
@@ -43,6 +44,7 @@ CORE_KERNEL_LIB := $(CORE_KERNEL_DIR)/build/libcore_kernel.a
 CORE_TRACE_LIB := $(CORE_TRACE_DIR)/build/libcore_trace.a
 CORE_THEME_LIB := $(CORE_THEME_DIR)/build/libcore_theme.a
 CORE_FONT_LIB := $(CORE_FONT_DIR)/build/libcore_font.a
+KIT_RUNTIME_DIAG_LIB := $(KIT_RUNTIME_DIAG_DIR)/build/libkit_runtime_diag.a
 
 VK_RENDERER_DIR ?= $(SHARED_ROOT)/vk_renderer
 VK_RENDERER_RESOLVED_DIR := $(VK_RENDERER_DIR)
@@ -92,16 +94,17 @@ CFLAGS += -I$(CORE_KERNEL_DIR)/include
 CFLAGS += -I$(CORE_TRACE_DIR)/include
 CFLAGS += -I$(CORE_THEME_DIR)/include
 CFLAGS += -I$(CORE_FONT_DIR)/include
+CFLAGS += -I$(KIT_RUNTIME_DIAG_DIR)/include
 
 SRCS := $(shell find src -name '*.c')
 OBJS := $(SRCS:src/%.c=build/%.o)
 DEPS := $(OBJS:.o=.d)
 LINK_OBJS := $(OBJS)
-CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(KIT_RUNTIME_DIAG_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 LINK_OBJS += $(CORE_SHARED_LIBS)
 TARGET := build/mapforge
 DIST_DIR := dist
-PACKAGE_APP_NAME := MapForge.app
+PACKAGE_APP_NAME := Carta.app
 PACKAGE_APP_DIR := $(DIST_DIR)/$(PACKAGE_APP_NAME)
 PACKAGE_CONTENTS_DIR := $(PACKAGE_APP_DIR)/Contents
 PACKAGE_MACOS_DIR := $(PACKAGE_CONTENTS_DIR)/MacOS
@@ -127,6 +130,8 @@ APP_ROUTE_SERVICE_TEST_TARGET := build/tests/app_route_service_test
 APP_ROUTE_SERVICE_TEST_SRCS := tests/app_route_service_test.c src/app/app_route_service.c
 APP_TILE_PRESENTER_POLICY_TEST_TARGET := build/tests/app_tile_presenter_policy_test
 APP_TILE_PRESENTER_POLICY_TEST_SRCS := tests/app_tile_presenter_policy_test.c src/app/app_tile_presenter.c
+APP_RUNTIME_INPUT_POLICY_TEST_TARGET := build/tests/app_runtime_input_policy_test
+APP_RUNTIME_INPUT_POLICY_TEST_SRCS := tests/app_runtime_input_policy_test.c src/app/app_runtime_input_policy.c
 
 ifeq ($(VK_APP_ENABLED),1)
 CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
@@ -214,6 +219,9 @@ $(CORE_THEME_LIB): $(CORE_BASE_LIB)
 $(CORE_FONT_LIB): $(CORE_BASE_LIB)
 	$(MAKE) -C $(CORE_FONT_DIR)
 
+$(KIT_RUNTIME_DIAG_LIB):
+	$(MAKE) -C $(KIT_RUNTIME_DIAG_DIR)
+
 $(TARGET): $(LINK_OBJS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
@@ -228,7 +236,7 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
-run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability
+run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-input-policy
 	@echo "map_forge headless smoke passed (non-interactive)"
 
 visual-harness: app
@@ -332,6 +340,7 @@ test: test-tile-loader-shutdown
 test: test-route-service
 test: test-tile-presenter-policy
 test: test-presentation-stability
+test: test-input-policy
 
 test-shared-theme-font-adapter: $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
 	./$(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
@@ -353,6 +362,9 @@ test-tile-presenter-policy: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 
 test-presentation-stability: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 	./$(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
+
+test-input-policy: $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
+	./$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 
 $(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -381,6 +393,10 @@ $(APP_ROUTE_SERVICE_TEST_TARGET): $(APP_ROUTE_SERVICE_TEST_SRCS)
 $(APP_TILE_PRESENTER_POLICY_TEST_TARGET): $(APP_TILE_PRESENTER_POLICY_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(APP_TILE_PRESENTER_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET): $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 route: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" $(GRAPH_TOOL_FLAGS)
@@ -494,6 +510,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

@@ -24,15 +24,19 @@ static RouteObjective app_runtime_next_route_objective(RouteObjective current) {
     return ROUTE_OBJECTIVE_SHORTEST_DISTANCE;
 }
 
-static int app_runtime_find_next_routable_region_index(int current_index) {
+static int app_runtime_find_next_region_index(int current_index) {
     int total = region_count();
     if (total <= 0) {
         return -1;
     }
+    int base_index = current_index;
+    if (base_index < 0) {
+        base_index = 0;
+    }
     for (int step = 1; step <= total; ++step) {
-        int candidate = (current_index + step) % total;
+        int candidate = (base_index + step) % total;
         const RegionInfo *info = region_get(candidate);
-        if (info && region_has_graph(info)) {
+        if (info) {
             return candidate;
         }
     }
@@ -73,9 +77,9 @@ bool app_runtime_handle_global_controls(AppState *app) {
             log_error("No region packs found under '%s'", region_data_root());
             return true;
         }
-        int next_index = app_runtime_find_next_routable_region_index(app->region_index);
+        int next_index = app_runtime_find_next_region_index(app->region_index);
         if (next_index < 0) {
-            log_error("No routable regions found (missing graph/graph.bin). Build graph files to enable route placement.");
+            log_error("No switchable regions found under '%s'", region_data_root());
             return true;
         }
         app->region_index = next_index;

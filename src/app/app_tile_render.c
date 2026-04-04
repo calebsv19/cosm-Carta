@@ -517,9 +517,14 @@ bool app_try_draw_vk_cached_polygon_tile(AppState *app,
 #endif
 }
 
-uint32_t app_draw_visible_tiles(AppState *app) {
+void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats) {
+    AppVisibleTileRenderStats local_stats = {0};
+    if (!out_stats) {
+        out_stats = &local_stats;
+    }
+    memset(out_stats, 0, sizeof(*out_stats));
     if (!app || !app->tile_state_bridge.visible_valid) {
-        return 0;
+        return;
     }
 
     uint32_t visible = 0;
@@ -742,9 +747,10 @@ uint32_t app_draw_visible_tiles(AppState *app) {
         app->renderer.vk_line_budget = total_line_budget;
     }
 
-    app->tile_state_bridge.loading_expected = expected;
-    app->tile_state_bridge.loading_done = done;
-    app->tile_state_bridge.vk_asset_misses = vk_asset_misses;
+    out_stats->visible_tiles = visible;
+    out_stats->loading_expected = expected;
+    out_stats->loading_done = done;
+    out_stats->vk_asset_misses = vk_asset_misses;
     if (app_building_debug_enabled() && building_debug.tiles > 0u) {
         static uint64_t next_log_ms = 0u;
         uint64_t now_ms = SDL_GetTicks64();
@@ -769,5 +775,5 @@ uint32_t app_draw_visible_tiles(AppState *app) {
         (void)app_tile_presenter_validate_frame_invariants(app, visible, vk_asset_misses);
     }
 
-    return visible;
+    return;
 }
