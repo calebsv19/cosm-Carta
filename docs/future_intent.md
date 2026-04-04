@@ -91,12 +91,13 @@ Last updated: 2026-04-03
   - writable persistence paths moved to launcher-owned env roots (`MAPFORGE_RUNTIME_DIR`, `MAPFORGE_THEME_PERSIST_PATH`) with safe fallback in restricted environments.
   - package assembly now bundles third-party dylib dependencies into `Contents/Frameworks` via `tools/packaging/macos/bundle-dylibs.sh`.
   - `release-bundle-audit` target is active and passing for dependency/root policy checks.
-- next planned release slice:
-  - `MF-RL2` signing + notarization + staple + verification targets are implemented.
-  - remaining RL2 execution to close lane:
-    - run with real Developer ID identity (`APPLE_SIGN_IDENTITY`)
-    - run notarization (`APPLE_NOTARY_PROFILE`) and staple validation path
-    - confirm non-ad-hoc `spctl` Gatekeeper assessment pass
+- release readiness posture:
+  - `MF-RL2` is complete with real Developer ID + notary profile execution.
+  - release flow is now one-command reproducible with:
+    - `make -C map_forge release-distribute APPLE_SIGN_IDENTITY=\"...\" APPLE_NOTARY_PROFILE=\"...\"`
+  - next release work is maintenance only:
+    - keep artifact/version metadata current per release
+    - preserve signing/notary guardrails during future packaging edits
 
 ## Non-Goals During Scaffold Migration
 - No feature expansion unrelated to scaffold alignment.

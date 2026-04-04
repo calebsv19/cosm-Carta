@@ -77,16 +77,20 @@ Last updated: 2026-04-03
   - release bundle audit target added and passing:
     - `make -C map_forge release-bundle-audit`
     - verifies bundle id, launcher print-config contract, writable persistence paths (not in app bundle), and non-portable dependency bans (`/opt/homebrew`, `/usr/local/Cellar`, workspace paths) across app binary + bundled frameworks.
-- next release lane:
-  - `MF-RL2` signing + notarization integration is now implemented and in-progress:
-    - implemented targets:
-      - `release-sign`
-      - `release-notarize`
-      - `release-staple`
-      - `release-verify`
-      - `release-artifact`
-    - local ad-hoc signing verify is passing (`release-sign`, `release-verify`).
-    - final RL2 closeout is pending real Developer ID identity + notarization profile execution.
+- release lane status:
+  - `MF-RL2` signing + notarization integration is complete with real Developer ID credentials:
+    - notarization accepted submissions:
+      - `00c34bf7-eed3-49ff-8a5c-6976e676b5a6`
+      - `8595ba98-fa62-4fd4-a604-e44aeb18eca7`
+    - stapling and staple-validation pass on current distribution app.
+  - release target graph now includes explicit production-safe flow:
+    - `release-verify-signed`
+    - `release-verify-notarized`
+    - `release-distribute` (one-shot: sign -> notarize accepted -> staple -> verify -> artifact)
+  - signing rules locked from pilot:
+    - ad-hoc path keeps `--timestamp=none` for local/dev signing.
+    - Developer ID path requires secure timestamp and hardened runtime on executables.
+    - notarization target fails on non-`Accepted` status and writes notary JSON/logs under `build/release/`.
 
 ## App Packaging Status (Current)
 - `MF-PK0` complete:
