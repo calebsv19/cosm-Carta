@@ -39,3 +39,21 @@ This reference groups all active controls by category for quick lookup.
 - F6: Toggle building fill (enabled by default)
 - F7: Toggle polygon outline-only (parks/water/landuse)
 - Cmd + C: Copy current layer/zoom HUD debug snapshot to clipboard
+
+## Data Root + Ingest Panel
+- O: Toggle ingest panel collapse/expand (does not fully hide panel; collapsed state keeps the small clickable handle visible)
+- Tab: Switch ingest list tab (`OSM SOURCES` / `ACTIVE REGIONS`)
+- Up/Down: Move ingest selection in current tab
+- E: Toggle input-root edit mode (path typing)
+- B: Open native macOS folder chooser for input root
+- Enter:
+  - in edit mode: apply current input-root path
+  - source tab: import selected `.osm` and open derived region
+  - active tab: open selected imported region
+- Double-click (active tab row): open selected imported region
+- A: Import all `.osm` files from current input root
+
+Notes:
+- Keyboard-first ingest is the current contract.
+- Mouse double-click activation is currently implemented only for opening an imported region from `ACTIVE REGIONS`.
+- When the ingest panel is collapsed, normal route `Enter` recompute behavior is active.

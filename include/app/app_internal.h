@@ -56,6 +56,8 @@
 #define APP_TRACE_SAMPLE_CAPACITY 262144u
 #define APP_TRACE_MARKER_CAPACITY 4096u
 #define APP_HUD_ROUTE_LINE_CAPACITY 192u
+#define APP_INGEST_LIST_MAX 256
+#define APP_INGEST_NAME_CAP 128
 
 /* Per-tile queue entry sorted by distance from camera center tile. */
 typedef struct TileQueueItem {
@@ -307,6 +309,8 @@ typedef struct AppRouteRuntimeState {
     float route_snap_debug_query_ms;
     bool route_recompute_scheduled;
     double route_recompute_due_time;
+    bool route_graph_loading;
+    uint32_t route_graph_load_request_id;
 } AppRouteRuntimeState;
 
 /* Phase 2 bridge: target ownership bucket for worker/thread synchronization state. */
@@ -365,6 +369,14 @@ typedef struct AppWorkerState {
     RouteComputeJob route_job;
     bool route_result_pending;
     RouteComputeResult route_result;
+    bool route_graph_job_pending;
+    uint32_t route_graph_job_request_id;
+    char route_graph_job_path[MAPFORGE_REGION_PATH_CAPACITY];
+    bool route_graph_result_pending;
+    bool route_graph_result_ok;
+    uint32_t route_graph_result_request_id;
+    RouteState route_graph_result_state;
+    RouteSnapIndex route_graph_result_snap_index;
     uint32_t route_latest_requested_id;
     uint32_t route_latest_submitted_id;
     uint32_t route_latest_applied_id;
@@ -415,6 +427,20 @@ typedef struct AppUiState {
     int hud_route_panel_cached_max_text_w;
     char hud_route_panel_summary_text[APP_HUD_ROUTE_LINE_CAPACITY];
     char hud_route_panel_row_text[ROUTE_ALTERNATIVE_MAX][APP_HUD_ROUTE_LINE_CAPACITY];
+    bool hud_ingest_panel_collapsed;
+    SDL_FRect hud_ingest_panel_rect;
+    SDL_FRect hud_ingest_collapse_rect;
+    SDL_FRect hud_ingest_handle_rect;
+    SDL_FRect hud_ingest_source_tab_rect;
+    SDL_FRect hud_ingest_active_tab_rect;
+    SDL_FRect hud_ingest_import_rect;
+    SDL_FRect hud_ingest_import_all_rect;
+    SDL_FRect hud_ingest_edit_toggle_rect;
+    SDL_FRect hud_ingest_folder_rect;
+    SDL_FRect hud_ingest_apply_rect;
+    SDL_FRect hud_ingest_row_rects[APP_INGEST_LIST_MAX];
+    int hud_ingest_row_base;
+    int hud_ingest_row_count;
 } AppUiState;
 
 /* Tracks subsystem ownership so shutdown can be deterministic and idempotent. */
@@ -465,6 +491,29 @@ typedef struct AppState {
     AppRuntimeLifetime lifetime;
     int width;
     int height;
+    bool ingest_panel_open;
+    bool ingest_show_active_tab;
+    bool ingest_edit_mode;
+    char input_root[MAPFORGE_REGION_PATH_CAPACITY];
+    char input_root_edit[MAPFORGE_REGION_PATH_CAPACITY];
+    char latest_imported_region[APP_INGEST_NAME_CAP];
+    char ingest_status[APP_HUD_ROUTE_LINE_CAPACITY];
+    char ingest_osm_files[APP_INGEST_LIST_MAX][APP_INGEST_NAME_CAP];
+    int ingest_osm_count;
+    int ingest_selected_osm;
+    char ingest_active_regions[APP_INGEST_LIST_MAX][APP_INGEST_NAME_CAP];
+    int ingest_active_count;
+    int ingest_selected_active;
+    uint32_t ingest_last_active_click_tick;
+    int ingest_last_active_click_index;
+    bool ingest_import_running;
+    int ingest_import_pid;
+    bool ingest_import_all;
+    int ingest_import_expected_count;
+    char ingest_import_open_region[APP_INGEST_NAME_CAP];
+    int ingest_import_total_steps;
+    int ingest_import_completed_steps;
+    char ingest_import_progress_path[MAPFORGE_REGION_PATH_CAPACITY];
 } AppState;
 
 /* Render-side derivation outputs for frame-visible tile lanes. */
@@ -743,6 +792,10 @@ void app_draw_header_bar(AppState *app);
 void app_draw_layer_debug(AppState *app);
 void app_copy_overlay_text(AppState *app);
 bool app_handle_hud_clicks(AppState *app);
+void app_draw_ingest_panel(AppState *app);
+void app_ingest_rescan_sources(AppState *app);
+void app_ingest_rescan_active_regions(AppState *app);
+bool app_ingest_open_selected_active_region(AppState *app);
 
 void app_runtime_process_input_frame(AppState *app,
                                      AppRuntimeInputFrame *out_input,
@@ -750,6 +803,7 @@ void app_runtime_process_input_frame(AppState *app,
                                      double *out_after_events);
 void app_runtime_begin_frame(AppState *app, double *out_frame_begin, double *out_after_events);
 bool app_runtime_handle_global_controls(AppState *app);
+void app_runtime_ingest_shutdown(AppState *app);
 void app_apply_shared_ui_font(AppState *app);
 void app_runtime_update_frame(AppState *app,
                               double *io_last_time,

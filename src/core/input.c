@@ -1,5 +1,7 @@
 #include "core/input.h"
 
+#include <stdio.h>
+
 void input_init(InputState *input) {
     if (!input) {
         return;
@@ -42,6 +44,16 @@ void input_init(InputState *input) {
     input->font_zoom_in_pressed = false;
     input->font_zoom_out_pressed = false;
     input->font_zoom_reset_pressed = false;
+    input->ingest_panel_toggle_pressed = false;
+    input->ingest_tab_toggle_pressed = false;
+    input->ingest_select_prev_pressed = false;
+    input->ingest_select_next_pressed = false;
+    input->ingest_import_all_pressed = false;
+    input->ingest_edit_toggle_pressed = false;
+    input->ingest_folder_dialog_pressed = false;
+    input->backspace_pressed = false;
+    input->text_input_received = false;
+    input->text_input[0] = '\0';
 }
 
 void input_begin_frame(InputState *input) {
@@ -76,6 +88,16 @@ void input_begin_frame(InputState *input) {
     input->font_zoom_in_pressed = false;
     input->font_zoom_out_pressed = false;
     input->font_zoom_reset_pressed = false;
+    input->ingest_panel_toggle_pressed = false;
+    input->ingest_tab_toggle_pressed = false;
+    input->ingest_select_prev_pressed = false;
+    input->ingest_select_next_pressed = false;
+    input->ingest_import_all_pressed = false;
+    input->ingest_edit_toggle_pressed = false;
+    input->ingest_folder_dialog_pressed = false;
+    input->backspace_pressed = false;
+    input->text_input_received = false;
+    input->text_input[0] = '\0';
 }
 
 void input_handle_event(InputState *input, const SDL_Event *event) {
@@ -155,6 +177,22 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
             } else if (event->key.keysym.sym == SDLK_c &&
                        (event->key.keysym.mod & KMOD_GUI) != 0) {
                 input->copy_overlay_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_o) {
+                input->ingest_panel_toggle_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_TAB) {
+                input->ingest_tab_toggle_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_UP) {
+                input->ingest_select_prev_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_DOWN) {
+                input->ingest_select_next_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_a) {
+                input->ingest_import_all_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_e) {
+                input->ingest_edit_toggle_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_b) {
+                input->ingest_folder_dialog_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_BACKSPACE) {
+                input->backspace_pressed = true;
             } else if (event->key.keysym.sym == SDLK_LSHIFT || event->key.keysym.sym == SDLK_RSHIFT) {
                 input->shift_down = true;
             } else if (event->key.keysym.sym == SDLK_LALT || event->key.keysym.sym == SDLK_RALT) {
@@ -167,6 +205,12 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
                 input->pan_up = true;
             } else if (event->key.keysym.sym == SDLK_s || event->key.keysym.sym == SDLK_DOWN) {
                 input->pan_down = true;
+            }
+            break;
+        case SDL_TEXTINPUT:
+            if (!input->text_input_received) {
+                snprintf(input->text_input, sizeof(input->text_input), "%s", event->text.text);
+                input->text_input_received = true;
             }
             break;
         case SDL_KEYUP:

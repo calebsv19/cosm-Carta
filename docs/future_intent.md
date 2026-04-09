@@ -1,6 +1,6 @@
 # MapForge Future Intent
 
-Last updated: 2026-04-03
+Last updated: 2026-04-04
 
 ## Scaffold Alignment Intent
 1. Preserve current subsystem decomposition strengths (`app`, `map`, `route`, `render`, etc.).
@@ -95,6 +95,9 @@ Last updated: 2026-04-03
   - `MF-RL2` is complete with real Developer ID + notary profile execution.
   - release flow is now one-command reproducible with:
     - `make -C map_forge release-distribute APPLE_SIGN_IDENTITY=\"...\" APPLE_NOTARY_PROFILE=\"...\"`
+  - Vulkan runtime packaging is now deterministic:
+    - bundled `libMoltenVK.dylib` + launcher-generated ICD file (`VK_ICD_FILENAMES`/`VK_DRIVER_FILES`)
+    - avoids host ICD drift causing Vulkan portability surface failures on app launch
   - next release work is maintenance only:
     - keep artifact/version metadata current per release
     - preserve signing/notary guardrails during future packaging edits

@@ -1,6 +1,6 @@
 # MapForge Current Truth
 
-Last updated: 2026-04-03
+Last updated: 2026-04-08
 
 ## Program Identity
 - Repository directory: `map_forge/`
@@ -95,6 +95,13 @@ Last updated: 2026-04-03
     - notarization target fails on non-`Accepted` status and writes notary JSON/logs under `build/release/`.
   - launch resiliency lock:
     - when Vulkan window creation fails early (`VK_KHR_surface` portability gap), app now falls back to SDL window creation instead of immediate process exit.
+  - Vulkan packaging lock:
+    - packaged frameworks now include `libMoltenVK.dylib` in addition to `libvulkan.1.dylib`.
+    - launcher now writes a runtime ICD file and exports:
+      - `VK_ICD_FILENAMES`
+      - `VK_DRIVER_FILES`
+      - both point to a generated `MoltenVK_icd.json` rooted in writable runtime storage.
+    - this removes host-global Vulkan ICD dependence and keeps Finder launch on bundled Vulkan runtime path.
 
 ## App Packaging Status (Current)
 - `MF-PK0` complete:
@@ -130,7 +137,8 @@ Last updated: 2026-04-03
   - launcher now emits deterministic startup diagnostics (`--print-config`, selection reason, logfile path).
   - packaged default backend is Vulkan unless explicitly overridden.
   - runtime-compatible shader mirror added at `Contents/Resources/shaders/*` to prevent packaged Vulkan shader-root mismatch.
-  - region packs are bundled into `Contents/Resources/data/regions` so icon/Finder launch does not require external dev-path access.
+  - region packs are not bundled by default; launcher resolves `MAPFORGE_REGIONS_DIR` via explicit override, bundle-with-packs, then dev fallbacks.
+  - ingest tools (`mapforge_region`, `mapforge_graph`) are bundled into `Contents/Resources/tools` and exported via `MAPFORGE_IMPORT_TOOLS_DIR` by launcher defaults.
 
 ## Connection Pass Status (Current)
 - `MF-CP0` complete:
@@ -248,6 +256,21 @@ Last updated: 2026-04-03
   - runtime file first, then default config fallback.
 - Save path:
   - runtime file only (`data/runtime/app_state.json`), so normal app runs do not dirty tracked config defaults.
+
+## Data Root + OSM Ingest Status (P2)
+- runtime now supports startup without bundled regions (no hard failure on empty region catalog).
+- ingest panel is available in-app (`O` collapse/expand, with collapsed handle always visible) with:
+  - source `.osm` list from persisted `input_root`
+  - active imported-region list from current regions root
+  - keyboard-first import/open flow (`Tab`, `Up/Down`, `Enter`, `A`, `E`, `B`)
+  - `.osm` import execution is asynchronous (spawn + frame-poll completion), so Enter/A import does not block the main/UI thread.
+- persisted runtime keys added under `data_roots` in runtime config:
+  - `input_root`
+  - `latest_imported_region`
+- launcher/app-support naming is product-aligned for packaged runs:
+  - `~/Library/Application Support/Carta/runtime/...`
+  - `~/Library/Logs/Carta/launcher.log`
+- desktop package contract now ships without embedded region payloads; regions are user/runtime managed via ingest.
 
 ## Active Scaffold Migration State
 - Private migration plan:

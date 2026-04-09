@@ -1,5 +1,7 @@
 #include "app/app.h"
 #include "app/app_internal.h"
+#include "app/app_persist_state.h"
+#include "app/app_trace_runtime.h"
 #include "map_forge/map_forge_app_main.h"
 
 #include "core/log.h"
@@ -13,7 +15,6 @@
 
 #include <SDL.h>
 #include <SDL2/SDL_ttf.h>
-#include <json-c/json.h>
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
@@ -23,10 +24,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
-
-static const char *kTraceLaneLifecycle = "lifecycle";
-static const char *kAppConfigDefaultPath = "config/app.config.json";
-static const char *kAppConfigRuntimePath = "data/runtime/app_state.json";
 
 static bool app_ensure_dir_recursive(const char *path) {
     char tmp[PATH_MAX];
@@ -54,21 +51,6 @@ static bool app_ensure_dir_recursive(const char *path) {
         return false;
     }
     return true;
-}
-
-static const char *app_runtime_config_path(void) {
-    const char *override_path = getenv("MAPFORGE_RUNTIME_CONFIG_PATH");
-    const char *runtime_dir = getenv("MAPFORGE_RUNTIME_DIR");
-    static char path_buf[PATH_MAX];
-    if (override_path && override_path[0] != '\0') {
-        return override_path;
-    }
-    if (runtime_dir && runtime_dir[0] != '\0') {
-        if (snprintf(path_buf, sizeof(path_buf), "%s/app_state.json", runtime_dir) > 0) {
-            return path_buf;
-        }
-    }
-    return kAppConfigRuntimePath;
 }
 
 static uint32_t app_sum_road_classes(const uint32_t *values, int first_class, int last_class) {
@@ -102,304 +84,16 @@ static bool app_env_flag_enabled(const char *name) {
     return false;
 }
 
-static float app_clamp_float(float value, float min_value, float max_value) {
-    if (value < min_value) {
-        return min_value;
-    }
-    if (value > max_value) {
-        return max_value;
-    }
-    return value;
-}
-
-static uint16_t app_clamp_milli(int value) {
-    if (value < 0) {
-        return 0u;
-    }
-    if (value > 1000) {
-        return 1000u;
-    }
-    return (uint16_t)value;
-}
-
-static struct json_object *app_load_config_root(void) {
-    const char *runtime_path = app_runtime_config_path();
-    struct json_object *root = json_object_from_file(runtime_path);
-    if (root && json_object_is_type(root, json_type_object)) {
-        return root;
-    }
-    if (root) {
-        json_object_put(root);
-    }
-
-    root = json_object_from_file(kAppConfigDefaultPath);
-    if (root && json_object_is_type(root, json_type_object)) {
-        return root;
-    }
-    if (root) {
-        json_object_put(root);
-    }
-    return NULL;
-}
-
-static bool app_ensure_runtime_config_dir(void) {
-    const char *runtime_dir = getenv("MAPFORGE_RUNTIME_DIR");
-    if (runtime_dir && runtime_dir[0] != '\0') {
-        return app_ensure_dir_recursive(runtime_dir);
-    }
-    if (mkdir("data", 0755) != 0 && errno != EEXIST) {
-        return false;
-    }
-    if (mkdir("data/runtime", 0755) != 0 && errno != EEXIST) {
-        return false;
-    }
-    return true;
-}
-
-static bool app_json_get_bool(struct json_object *obj, const char *key, bool *out_value) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_value) {
-        return false;
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !value) {
-        return false;
-    }
-    if (!json_object_is_type(value, json_type_boolean)) {
-        return false;
-    }
-    *out_value = json_object_get_boolean(value) ? true : false;
-    return true;
-}
-
-static bool app_json_get_float(struct json_object *obj, const char *key, float *out_value) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_value) {
-        return false;
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !value) {
-        return false;
-    }
-    if (!json_object_is_type(value, json_type_double) &&
-        !json_object_is_type(value, json_type_int)) {
-        return false;
-    }
-    *out_value = (float)json_object_get_double(value);
-    return true;
-}
-
-static bool app_json_get_int(struct json_object *obj, const char *key, int *out_value) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_value) {
-        return false;
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !value) {
-        return false;
-    }
-    if (!json_object_is_type(value, json_type_int)) {
-        return false;
-    }
-    *out_value = json_object_get_int(value);
-    return true;
-}
-
-static bool app_json_get_u16_array(struct json_object *obj, const char *key,
-                                   uint16_t *out_values, size_t out_count) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_values || out_count == 0u) {
-        return false;
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !value ||
-        !json_object_is_type(value, json_type_array)) {
-        return false;
-    }
-    size_t n = json_object_array_length(value);
-    if (n < out_count) {
-        return false;
-    }
-    for (size_t i = 0; i < out_count; ++i) {
-        struct json_object *item = json_object_array_get_idx(value, (int)i);
-        if (!item || !json_object_is_type(item, json_type_int)) {
-            return false;
-        }
-        out_values[i] = app_clamp_milli(json_object_get_int(item));
-    }
-    return true;
-}
-
-static bool app_json_get_bool_array(struct json_object *obj, const char *key,
-                                    bool *out_values, size_t out_count) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_values || out_count == 0u) {
-        return false;
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !value ||
-        !json_object_is_type(value, json_type_array)) {
-        return false;
-    }
-    size_t n = json_object_array_length(value);
-    if (n < out_count) {
-        return false;
-    }
-    for (size_t i = 0; i < out_count; ++i) {
-        struct json_object *item = json_object_array_get_idx(value, (int)i);
-        if (!item || !json_object_is_type(item, json_type_boolean)) {
-            return false;
-        }
-        out_values[i] = json_object_get_boolean(item) ? true : false;
-    }
-    return true;
-}
-
-static void app_load_persisted_view_state(AppState *app) {
-    if (!app) {
+static void app_default_input_root(char *out_path, size_t out_cap) {
+    const char *home = getenv("HOME");
+    if (!out_path || out_cap == 0u) {
         return;
     }
-    struct json_object *root = app_load_config_root();
-    if (!root || !json_object_is_type(root, json_type_object)) {
-        if (root) {
-            json_object_put(root);
-        }
+    if (home && home[0] != '\0') {
+        snprintf(out_path, out_cap, "%s/Desktop", home);
         return;
     }
-
-    struct json_object *view = NULL;
-    if (!json_object_object_get_ex(root, "map_view", &view) ||
-        !view || !json_object_is_type(view, json_type_object)) {
-        json_object_put(root);
-        return;
-    }
-
-    float zoom = 0.0f;
-    if (app_json_get_float(view, "zoom", &zoom)) {
-        float clamped_zoom = app_clamp_float(zoom, 10.0f, 18.0f);
-        app->view_state_bridge.camera.zoom = clamped_zoom;
-        app->view_state_bridge.camera.zoom_target = clamped_zoom;
-    }
-
-    bool zoom_logic_enabled = false;
-    if (app_json_get_bool(view, "zoom_logic_enabled", &zoom_logic_enabled)) {
-        app->view_state_bridge.zoom_logic_enabled = zoom_logic_enabled;
-    }
-    int text_zoom_step = 0;
-    if (app_json_get_int(view, "text_zoom_step", &text_zoom_step)) {
-        if (mapforge_shared_font_set_zoom_step(text_zoom_step)) {
-            app_apply_shared_ui_font(app);
-        }
-    }
-
-    bool layer_enabled[TILE_LAYER_COUNT] = {0};
-    uint16_t layer_opacity[TILE_LAYER_COUNT] = {0};
-    uint16_t layer_fade_start[TILE_LAYER_COUNT] = {0};
-    uint16_t layer_fade_speed[TILE_LAYER_COUNT] = {0};
-    if (app_json_get_bool_array(view, "layer_enabled", layer_enabled, TILE_LAYER_COUNT)) {
-        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-            app->view_state_bridge.layer_user_enabled[i] = layer_enabled[i];
-        }
-    }
-    if (app_json_get_u16_array(view, "layer_opacity_milli", layer_opacity, TILE_LAYER_COUNT)) {
-        bool all_zero = true;
-        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-            if (layer_opacity[i] > 0u) {
-                all_zero = false;
-                break;
-            }
-        }
-        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-            app->view_state_bridge.layer_opacity_milli[i] = all_zero ? 1000u : layer_opacity[i];
-        }
-    }
-    if (app_json_get_u16_array(view, "layer_fade_start_milli", layer_fade_start, TILE_LAYER_COUNT)) {
-        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-            app->view_state_bridge.layer_fade_start_milli[i] = layer_fade_start[i];
-        }
-    }
-    if (app_json_get_u16_array(view, "layer_fade_speed_milli", layer_fade_speed, TILE_LAYER_COUNT)) {
-        for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-            uint16_t speed = layer_fade_speed[i];
-            if (speed < 1u) {
-                speed = 1u;
-            }
-            app->view_state_bridge.layer_fade_speed_milli[i] = speed;
-        }
-    }
-
-    struct json_object *hardening = NULL;
-    if (json_object_object_get_ex(root, "runtime_hardening", &hardening) &&
-        hardening && json_object_is_type(hardening, json_type_object)) {
-        bool presenter_invariants_enabled = app->tile_state_bridge.presenter_invariants_enabled;
-        if (app_json_get_bool(hardening, "presenter_invariants_enabled", &presenter_invariants_enabled)) {
-            app->tile_state_bridge.presenter_invariants_enabled = presenter_invariants_enabled;
-        }
-        bool contour_enabled = app->tile_state_bridge.contour_runtime_enabled;
-        if (app_json_get_bool(hardening, "contour_enabled", &contour_enabled)) {
-            app->tile_state_bridge.contour_runtime_enabled = contour_enabled;
-        }
-    }
-
-    json_object_put(root);
-}
-
-static void app_save_persisted_view_state(const AppState *app) {
-    if (!app) {
-        return;
-    }
-
-    struct json_object *root = app_load_config_root();
-    if (!root || !json_object_is_type(root, json_type_object)) {
-        if (root) {
-            json_object_put(root);
-        }
-        root = json_object_new_object();
-    }
-    if (!root) {
-        return;
-    }
-
-    struct json_object *view = json_object_new_object();
-    if (!view) {
-        json_object_put(root);
-        return;
-    }
-
-    json_object_object_add(view, "zoom", json_object_new_double((double)app->view_state_bridge.camera.zoom_target));
-    json_object_object_add(view, "zoom_logic_enabled", json_object_new_boolean(app->view_state_bridge.zoom_logic_enabled ? 1 : 0));
-    json_object_object_add(view, "text_zoom_step", json_object_new_int(mapforge_shared_font_zoom_step()));
-
-    struct json_object *enabled_arr = json_object_new_array();
-    struct json_object *opacity_arr = json_object_new_array();
-    struct json_object *fade_start_arr = json_object_new_array();
-    struct json_object *fade_speed_arr = json_object_new_array();
-    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-        json_object_array_add(enabled_arr, json_object_new_boolean(app->view_state_bridge.layer_user_enabled[i] ? 1 : 0));
-        json_object_array_add(opacity_arr, json_object_new_int((int)app->view_state_bridge.layer_opacity_milli[i]));
-        json_object_array_add(fade_start_arr, json_object_new_int((int)app->view_state_bridge.layer_fade_start_milli[i]));
-        json_object_array_add(fade_speed_arr, json_object_new_int((int)app->view_state_bridge.layer_fade_speed_milli[i]));
-    }
-    json_object_object_add(view, "layer_enabled", enabled_arr);
-    json_object_object_add(view, "layer_opacity_milli", opacity_arr);
-    json_object_object_add(view, "layer_fade_start_milli", fade_start_arr);
-    json_object_object_add(view, "layer_fade_speed_milli", fade_speed_arr);
-
-    json_object_object_add(root, "map_view", view);
-    struct json_object *hardening = json_object_new_object();
-    if (hardening) {
-        json_object_object_add(hardening, "presenter_invariants_enabled",
-                               json_object_new_boolean(app->tile_state_bridge.presenter_invariants_enabled ? 1 : 0));
-        json_object_object_add(hardening, "contour_enabled",
-                               json_object_new_boolean(app->tile_state_bridge.contour_runtime_enabled ? 1 : 0));
-        json_object_object_add(root, "runtime_hardening", hardening);
-    }
-
-    const char *runtime_path = app_runtime_config_path();
-    if (!app_ensure_runtime_config_dir()) {
-        log_error("Failed to create runtime config directory for %s", runtime_path);
-        json_object_put(root);
-        return;
-    }
-    if (json_object_to_file_ext(runtime_path, root, JSON_C_TO_STRING_PRETTY) != 0) {
-        log_error("Failed to persist map view state to %s", runtime_path);
-    }
-    json_object_put(root);
+    snprintf(out_path, out_cap, ".");
 }
 
 static int app_find_first_routable_region_index(void) {
@@ -413,106 +107,18 @@ static int app_find_first_routable_region_index(void) {
     return -1;
 }
 
-static bool app_trace_ensure_dirs(void) {
-    if (mkdir("build", 0755) != 0 && errno != EEXIST) {
-        return false;
+static int app_find_region_index_by_name(const char *name) {
+    if (!name || name[0] == '\0') {
+        return -1;
     }
-    if (mkdir("build/traces", 0755) != 0 && errno != EEXIST) {
-        return false;
-    }
-    return true;
-}
-
-static void app_trace_emit_frame_samples(AppState *app, double rel_time_s) {
-    if (!app || !app->trace_enabled) {
-        return;
-    }
-    core_trace_emit_sample_f32(&app->trace_session, "frame", rel_time_s, (float)app->frame_timings.frame_ms);
-    core_trace_emit_sample_f32(&app->trace_session, "events", rel_time_s, (float)app->frame_timings.events_ms);
-    core_trace_emit_sample_f32(&app->trace_session, "update", rel_time_s, (float)app->frame_timings.update_ms);
-    core_trace_emit_sample_f32(&app->trace_session, "queue", rel_time_s, (float)app->frame_timings.queue_ms);
-    core_trace_emit_sample_f32(&app->trace_session, "integrate", rel_time_s, (float)app->frame_timings.integrate_ms);
-    core_trace_emit_sample_f32(&app->trace_session, "route", rel_time_s, (float)app->frame_timings.route_ms);
-    core_trace_emit_sample_f32(&app->trace_session, "render", rel_time_s, (float)app->frame_timings.render_ms);
-    core_trace_emit_sample_f32(&app->trace_session, "present", rel_time_s, (float)app->frame_timings.present_ms);
-}
-
-static void app_trace_emit_queue_markers(AppState *app, double rel_time_s) {
-    if (!app || !app->trace_enabled) {
-        return;
-    }
-
-    TileLoaderStats stats = {0};
-    tile_loader_get_stats(&app->tile_state_bridge.tile_loader, &stats);
-    if (stats.enqueue_drop_count > app->trace_last_tile_enqueue_drop_count) {
-        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "tile_enq_drop");
-    }
-    if (stats.enqueue_evict_count > app->trace_last_tile_enqueue_evict_count) {
-        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "tile_enq_evict");
-    }
-    if (stats.result_drop_count > app->trace_last_tile_result_drop_count) {
-        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "tile_res_drop");
-    }
-    if (stats.result_evict_count > app->trace_last_tile_result_evict_count) {
-        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "tile_res_evict");
-    }
-    if (app->worker_state_bridge.vk_asset_job_drop_count > app->trace_last_vk_asset_drop_count) {
-        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "vk_job_drop");
-    }
-    if (app->worker_state_bridge.vk_asset_job_evict_count > app->trace_last_vk_asset_evict_count) {
-        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "vk_job_evict");
-    }
-    if (app->worker_state_bridge.vk_asset_stage_drop_count > app->trace_last_vk_asset_stage_drop_count) {
-        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "vk_stage_drop");
-    }
-    if (app->worker_state_bridge.vk_asset_stage_evict_count > app->trace_last_vk_asset_stage_evict_count) {
-        core_trace_emit_marker(&app->trace_session, "queue", rel_time_s, "vk_stage_evict");
-    }
-
-    app->trace_last_tile_enqueue_drop_count = stats.enqueue_drop_count;
-    app->trace_last_tile_enqueue_evict_count = stats.enqueue_evict_count;
-    app->trace_last_tile_result_drop_count = stats.result_drop_count;
-    app->trace_last_tile_result_evict_count = stats.result_evict_count;
-    app->trace_last_vk_asset_drop_count = app->worker_state_bridge.vk_asset_job_drop_count;
-    app->trace_last_vk_asset_evict_count = app->worker_state_bridge.vk_asset_job_evict_count;
-    app->trace_last_vk_asset_stage_drop_count = app->worker_state_bridge.vk_asset_stage_drop_count;
-    app->trace_last_vk_asset_stage_evict_count = app->worker_state_bridge.vk_asset_stage_evict_count;
-}
-
-static void app_trace_shutdown(AppState *app) {
-    if (!app || !app->trace_enabled) {
-        return;
-    }
-
-    {
-        double rel_time_s = time_now_seconds() - app->trace_start_time;
-        if (rel_time_s < 0.0) {
-            rel_time_s = 0.0;
-        }
-        core_trace_emit_marker(&app->trace_session, kTraceLaneLifecycle, rel_time_s, "trace_end");
-    }
-
-    CoreResult final_result = core_trace_finalize(&app->trace_session);
-    if (final_result.code != CORE_OK) {
-        log_error("core_trace_finalize failed: %s", final_result.message);
-    } else if (!app_trace_ensure_dirs()) {
-        log_error("failed to create build/traces directory");
-    } else {
-        time_t now = time(NULL);
-        struct tm local_tm = {0};
-        localtime_r(&now, &local_tm);
-        char path[256];
-        strftime(path, sizeof(path), "build/traces/mapforge_trace_%Y%m%d_%H%M%S.pack", &local_tm);
-        CoreResult export_result = core_trace_export_pack(&app->trace_session, path);
-        if (export_result.code != CORE_OK) {
-            log_error("core_trace_export_pack failed: %s", export_result.message);
-        } else {
-            log_info("trace exported: %s", path);
+    int total = region_count();
+    for (int i = 0; i < total; ++i) {
+        const RegionInfo *info = region_get(i);
+        if (info && info->name && strcmp(info->name, name) == 0) {
+            return i;
         }
     }
-
-    core_trace_session_reset(&app->trace_session);
-    app->trace_enabled = false;
+    return -1;
 }
 
 static bool app_init(AppState *app) {
@@ -642,28 +248,61 @@ static bool app_init(AppState *app) {
     }
     app->lifetime.ttf_initialized = true;
     app_apply_shared_ui_font(app);
+    SDL_StartTextInput();
+    app_default_input_root(app->input_root, sizeof(app->input_root));
+    snprintf(app->input_root_edit, sizeof(app->input_root_edit), "%s", app->input_root);
+    app->ingest_status[0] = '\0';
+    app->latest_imported_region[0] = '\0';
+    app->ingest_panel_open = true;
+    app->ingest_show_active_tab = false;
+    app->ingest_edit_mode = false;
+    app->ingest_osm_count = 0;
+    app->ingest_selected_osm = 0;
+    app->ingest_active_count = 0;
+    app->ingest_selected_active = 0;
+    app->ingest_last_active_click_tick = 0u;
+    app->ingest_last_active_click_index = -1;
+    app->ingest_import_running = false;
+    app->ingest_import_pid = 0;
+    app->ingest_import_all = false;
+    app->ingest_import_expected_count = 0;
+    app->ingest_import_open_region[0] = '\0';
+    app->ingest_import_total_steps = 0;
+    app->ingest_import_completed_steps = 0;
+    app->ingest_import_progress_path[0] = '\0';
+    app_load_persisted_view_state(app);
+    snprintf(app->input_root_edit, sizeof(app->input_root_edit), "%s", app->input_root);
 
     int total_regions = region_count();
-    if (total_regions <= 0) {
-        log_error("No region configured");
-        return false;
+    app->region_index = -1;
+    const RegionInfo *info = NULL;
+    if (total_regions > 0) {
+        app->region_index = app_find_first_routable_region_index();
+        if (app->region_index < 0) {
+            app->region_index = app_find_region_index_by_name(app->latest_imported_region);
+        }
+        if (app->region_index < 0) {
+            app->region_index = 0;
+            log_error("No routable region found (missing graph/graph.bin in all regions); route placement is disabled until graph build completes");
+        }
+        info = region_get(app->region_index);
     }
-
-    app->region_index = app_find_first_routable_region_index();
-    if (app->region_index < 0) {
-        app->region_index = 0;
-        log_error("No routable region found (missing graph/graph.bin in all regions); route placement is disabled until graph build completes");
+    if (info) {
+        app->region = *info;
+        region_load_meta(info, &app->region);
+    } else {
+        memset(&app->region, 0, sizeof(app->region));
+        app->region.name = "no-region";
+        snprintf(app->region.region_dir, sizeof(app->region.region_dir), "%s", region_data_root());
+        snprintf(app->region.tiles_dir, sizeof(app->region.tiles_dir), "%s", region_data_root());
+        if (!app_ensure_dir_recursive(region_data_root())) {
+            log_error("Failed to ensure regions root exists: %s", region_data_root());
+            return false;
+        }
+        snprintf(app->ingest_status, sizeof(app->ingest_status), "No regions loaded. Open ingest panel (O) to import .osm files.");
     }
-    const RegionInfo *info = region_get(app->region_index);
-    if (!info) {
-        log_error("No region configured");
-        return false;
-    }
-
-    app->region = *info;
-    region_load_meta(info, &app->region);
     if (app->region.tiles_dir[0] == '\0') {
-        log_error("Failed to resolve tiles directory for region: %s", app->region.name);
+        log_error("Failed to resolve tiles directory for region: %s", app->region.name ? app->region.name : "unknown");
         return false;
     }
     log_info("Region data root: %s", region_data_root());
@@ -680,30 +319,7 @@ static bool app_init(AppState *app) {
         return false;
     }
     app->lifetime.tile_loader_initialized = true;
-    app->trace_enabled = false;
-    CoreTraceConfig trace_cfg = {
-        .sample_capacity = APP_TRACE_SAMPLE_CAPACITY,
-        .marker_capacity = APP_TRACE_MARKER_CAPACITY
-    };
-    CoreResult trace_init = core_trace_session_init(&app->trace_session, &trace_cfg);
-    if (trace_init.code != CORE_OK) {
-        log_error("core_trace_session_init failed: %s", trace_init.message);
-    } else {
-        app->lifetime.trace_session_initialized = true;
-        TileLoaderStats trace_stats = {0};
-        tile_loader_get_stats(&app->tile_state_bridge.tile_loader, &trace_stats);
-        app->trace_enabled = true;
-        app->trace_start_time = time_now_seconds();
-        core_trace_emit_marker(&app->trace_session, kTraceLaneLifecycle, 0.0, "trace_start");
-        app->trace_last_tile_enqueue_drop_count = trace_stats.enqueue_drop_count;
-        app->trace_last_tile_enqueue_evict_count = trace_stats.enqueue_evict_count;
-        app->trace_last_tile_result_drop_count = trace_stats.result_drop_count;
-        app->trace_last_tile_result_evict_count = trace_stats.result_evict_count;
-        app->trace_last_vk_asset_drop_count = app->worker_state_bridge.vk_asset_job_drop_count;
-        app->trace_last_vk_asset_evict_count = app->worker_state_bridge.vk_asset_job_evict_count;
-        app->trace_last_vk_asset_stage_drop_count = app->worker_state_bridge.vk_asset_stage_drop_count;
-        app->trace_last_vk_asset_stage_evict_count = app->worker_state_bridge.vk_asset_stage_evict_count;
-    }
+    app_trace_session_start(app);
 
     input_init(&app->ui_state_bridge.input);
     camera_init(&app->view_state_bridge.camera);
@@ -745,8 +361,11 @@ static bool app_init(AppState *app) {
     route_state_init(&app->route_state_bridge.route);
     app->lifetime.route_state_initialized = true;
     if (!app_load_route_graph(app)) {
-        log_error("Route graph unavailable for startup region '%s'; build graph with: make graph && ./build/tools/mapforge_graph --region %s --osm data/osm_sources/%s.osm --out data/regions/%s",
-                  app->region.name, app->region.name, app->region.name, app->region.name);
+        log_error("Route graph load kickoff failed for startup region '%s'; build graph with: make graph && ./build/tools/mapforge_graph --region %s --osm data/osm_sources/%s.osm --out data/regions/%s",
+                  app->region.name ? app->region.name : "no-region",
+                  app->region.name ? app->region.name : "no-region",
+                  app->region.name ? app->region.name : "no-region",
+                  app->region.name ? app->region.name : "no-region");
     }
     app->route_state_bridge.dragging_start = false;
     app->route_state_bridge.dragging_goal = false;
@@ -819,7 +438,8 @@ static bool app_init(AppState *app) {
     app->tile_state_bridge.present_hold_updates = 0u;
     app->tile_state_bridge.present_hold_tick = 1u;
     app->tile_state_bridge.last_queue_rebuild_time = 0.0;
-    app_load_persisted_view_state(app);
+    app_ingest_rescan_sources(app);
+    app_ingest_rescan_active_regions(app);
     app_refresh_layer_states(app);
     app_bridge_sync_from_legacy(app);
     app->lifetime.persisted_state_ready = true;
@@ -836,6 +456,8 @@ static void app_shutdown(AppState *app) {
     }
     app->lifetime.shutdown_completed = true;
 
+    app_runtime_ingest_shutdown(app);
+
     if (app->lifetime.persisted_state_ready) {
         app_bridge_sync_to_legacy(app);
         app_save_persisted_view_state(app);
@@ -846,6 +468,7 @@ static void app_shutdown(AppState *app) {
     }
 
     if (app->lifetime.ttf_initialized) {
+        SDL_StopTextInput();
         if (app->lifetime.renderer_initialized) {
             ui_font_shutdown(&app->renderer);
         }

@@ -139,7 +139,10 @@ void app_runtime_update_frame(AppState *app,
             }
         }
     }
-    if (app->ui_state_bridge.input.enter_pressed && app->route_state_bridge.route.has_start && app->route_state_bridge.route.has_goal) {
+    if (app->ui_state_bridge.hud_ingest_panel_collapsed &&
+        app->ui_state_bridge.input.enter_pressed &&
+        app->route_state_bridge.route.has_start &&
+        app->route_state_bridge.route.has_goal) {
         app_route_schedule_recompute(app, 0.0);
     }
 

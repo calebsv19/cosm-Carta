@@ -84,6 +84,15 @@ static void app_runtime_input_normalize(AppState *app,
     keyboard_actions += app_runtime_count_bool(input->font_zoom_reset_pressed);
     keyboard_actions += app_runtime_count_bool(input->enter_pressed);
     keyboard_actions += app_runtime_count_bool(input->copy_overlay_pressed);
+    keyboard_actions += app_runtime_count_bool(input->ingest_panel_toggle_pressed);
+    keyboard_actions += app_runtime_count_bool(input->ingest_tab_toggle_pressed);
+    keyboard_actions += app_runtime_count_bool(input->ingest_select_prev_pressed);
+    keyboard_actions += app_runtime_count_bool(input->ingest_select_next_pressed);
+    keyboard_actions += app_runtime_count_bool(input->ingest_import_all_pressed);
+    keyboard_actions += app_runtime_count_bool(input->ingest_edit_toggle_pressed);
+    keyboard_actions += app_runtime_count_bool(input->ingest_folder_dialog_pressed);
+    keyboard_actions += app_runtime_count_bool(input->backspace_pressed);
+    keyboard_actions += app_runtime_count_bool(input->text_input_received);
     keyboard_actions += app_runtime_count_bool(input->pan_left);
     keyboard_actions += app_runtime_count_bool(input->pan_right);
     keyboard_actions += app_runtime_count_bool(input->pan_up);
@@ -111,6 +120,13 @@ static void app_runtime_input_normalize(AppState *app,
         input->toggle_polygon_outline_pressed ||
         input->theme_cycle_next_pressed ||
         input->theme_cycle_prev_pressed ||
+        input->ingest_panel_toggle_pressed ||
+        input->ingest_tab_toggle_pressed ||
+        input->ingest_select_prev_pressed ||
+        input->ingest_select_next_pressed ||
+        input->ingest_import_all_pressed ||
+        input->ingest_edit_toggle_pressed ||
+        input->ingest_folder_dialog_pressed ||
         input->font_zoom_in_pressed ||
         input->font_zoom_out_pressed ||
         input->font_zoom_reset_pressed;

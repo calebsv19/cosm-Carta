@@ -5,13 +5,15 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 APP_CONTENTS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 RES_DIR="$APP_CONTENTS_DIR/Resources"
 APP_BUNDLE_REGIONS_DIR="$RES_DIR/data/regions"
+APP_BUNDLE_TOOLS_DIR="$RES_DIR/tools"
 DEV_REGIONS_DIR_DEFAULT="$HOME/Desktop/CodeWork/map_forge/data/regions"
 DEV_REGIONS_DIR="${MAPFORGE_DEV_REGIONS_DIR:-$DEV_REGIONS_DIR_DEFAULT}"
-APP_SUPPORT_DIR_DEFAULT="${HOME}/Library/Application Support/MapForge"
+DEV_TOOLS_DIR_DEFAULT="$HOME/Desktop/CodeWork/map_forge/build/tools"
+APP_SUPPORT_DIR_DEFAULT="${HOME}/Library/Application Support/Carta"
 APP_SUPPORT_DIR="${MAPFORGE_APP_SUPPORT_DIR:-$APP_SUPPORT_DIR_DEFAULT}"
 RUNTIME_DIR_DEFAULT="$APP_SUPPORT_DIR/runtime"
 THEME_PERSIST_PATH_DEFAULT="$APP_SUPPORT_DIR/config/theme_preset.txt"
-LOG_DIR="${HOME}/Library/Logs/MapForge"
+LOG_DIR="${HOME}/Library/Logs/Carta"
 LOG_FILE="$LOG_DIR/launcher.log"
 FIND_BIN="/usr/bin/find"
 GREP_BIN="/usr/bin/grep"
@@ -19,6 +21,9 @@ ID_BIN="/usr/bin/id"
 DATE_BIN="/bin/date"
 DIRNAME_BIN="/usr/bin/dirname"
 selected_regions_reason="unresolved"
+MOLTENVK_DYLIB="$APP_CONTENTS_DIR/Frameworks/libMoltenVK.dylib"
+VK_RUNTIME_DIR=""
+VK_ICD_FILE=""
 
 has_region_packs() {
     region_root="${1:-}"
@@ -107,15 +112,50 @@ export MAPFORGE_REGIONS_DIR
 export MAPFORGE_RENDER_BACKEND="${MAPFORGE_RENDER_BACKEND:-vulkan}"
 export MAPFORGE_RUNTIME_DIR="${MAPFORGE_RUNTIME_DIR:-$RUNTIME_DIR_DEFAULT}"
 export MAPFORGE_THEME_PERSIST_PATH="${MAPFORGE_THEME_PERSIST_PATH:-$THEME_PERSIST_PATH_DEFAULT}"
+if [ -z "${MAPFORGE_IMPORT_TOOLS_DIR:-}" ]; then
+    if [ -x "$APP_BUNDLE_TOOLS_DIR/mapforge_region" ] && [ -x "$APP_BUNDLE_TOOLS_DIR/mapforge_graph" ]; then
+        MAPFORGE_IMPORT_TOOLS_DIR="$APP_BUNDLE_TOOLS_DIR"
+    else
+        MAPFORGE_IMPORT_TOOLS_DIR="$DEV_TOOLS_DIR_DEFAULT"
+    fi
+fi
+export MAPFORGE_IMPORT_TOOLS_DIR
 mkdir -p "$MAPFORGE_RUNTIME_DIR" "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" 2>/dev/null || true
 if [ ! -d "$MAPFORGE_RUNTIME_DIR" ] || [ ! -d "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" ]; then
-    fallback_support_dir="${TMPDIR:-/tmp}/MapForge"
+    fallback_support_dir="${TMPDIR:-/tmp}/Carta"
     MAPFORGE_RUNTIME_DIR="$fallback_support_dir/runtime"
     MAPFORGE_THEME_PERSIST_PATH="$fallback_support_dir/config/theme_preset.txt"
     mkdir -p "$MAPFORGE_RUNTIME_DIR" "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" 2>/dev/null || true
 fi
 export MAPFORGE_RUNTIME_DIR
 export MAPFORGE_THEME_PERSIST_PATH
+
+if [ "${MAPFORGE_RENDER_BACKEND}" = "vulkan" ] && [ -f "$MOLTENVK_DYLIB" ]; then
+    VK_RUNTIME_DIR="$MAPFORGE_RUNTIME_DIR/vk"
+    VK_ICD_FILE="$VK_RUNTIME_DIR/MoltenVK_icd.json"
+    if ! mkdir -p "$VK_RUNTIME_DIR" 2>/dev/null; then
+        VK_RUNTIME_DIR="${TMPDIR:-/tmp}/Carta/vk"
+        VK_ICD_FILE="$VK_RUNTIME_DIR/MoltenVK_icd.json"
+        mkdir -p "$VK_RUNTIME_DIR" 2>/dev/null || true
+    fi
+    if [ -d "$VK_RUNTIME_DIR" ]; then
+        cat >"$VK_ICD_FILE" <<EOF
+{
+  "file_format_version": "1.0.0",
+  "ICD": {
+    "library_path": "$MOLTENVK_DYLIB",
+    "api_version": "1.3.0"
+  }
+}
+EOF
+        if [ -z "${VK_ICD_FILENAMES:-}" ]; then
+            export VK_ICD_FILENAMES="$VK_ICD_FILE"
+        fi
+        if [ -z "${VK_DRIVER_FILES:-}" ]; then
+            export VK_DRIVER_FILES="$VK_ICD_FILE"
+        fi
+    fi
+fi
 
 if [ "${1:-}" = "--print-config" ]; then
     echo "APP_CONTENTS_DIR=$APP_CONTENTS_DIR"
@@ -128,6 +168,10 @@ if [ "${1:-}" = "--print-config" ]; then
     echo "MAPFORGE_DEV_REGIONS_DIR_DEFAULT=$DEV_REGIONS_DIR_DEFAULT"
     echo "MAPFORGE_RUNTIME_DIR=$MAPFORGE_RUNTIME_DIR"
     echo "MAPFORGE_THEME_PERSIST_PATH=$MAPFORGE_THEME_PERSIST_PATH"
+    echo "MAPFORGE_IMPORT_TOOLS_DIR=$MAPFORGE_IMPORT_TOOLS_DIR"
+    echo "VK_ICD_FILENAMES=${VK_ICD_FILENAMES:-}"
+    echo "VK_DRIVER_FILES=${VK_DRIVER_FILES:-}"
+    echo "MOLTENVK_DYLIB=$MOLTENVK_DYLIB"
     exit 0
 fi
 
@@ -136,8 +180,11 @@ if [ "${1:-}" = "--self-test" ]; then
     [ -f "$APP_CONTENTS_DIR/Info.plist" ] || { echo "missing: Info.plist" >&2; exit 1; }
     [ -f "$RES_DIR/assets/fonts/Montserrat-Regular.ttf" ] || { echo "missing: bundled Montserrat" >&2; exit 1; }
     [ -f "$RES_DIR/config/app.config.json" ] || { echo "missing: bundled app.config.json" >&2; exit 1; }
+    [ -x "$APP_BUNDLE_TOOLS_DIR/mapforge_region" ] || { echo "missing: bundled mapforge_region tool" >&2; exit 1; }
+    [ -x "$APP_BUNDLE_TOOLS_DIR/mapforge_graph" ] || { echo "missing: bundled mapforge_graph tool" >&2; exit 1; }
     [ -f "$RES_DIR/vk_renderer/shaders/textured.vert.spv" ] || { echo "missing: bundled vk_renderer shader" >&2; exit 1; }
     [ -f "$RES_DIR/shaders/textured.vert.spv" ] || { echo "missing: bundled runtime shader" >&2; exit 1; }
+    [ -f "$MOLTENVK_DYLIB" ] || { echo "missing: bundled MoltenVK dylib" >&2; exit 1; }
     [ -d "$MAPFORGE_RUNTIME_DIR" ] || { echo "missing: runtime state dir ($MAPFORGE_RUNTIME_DIR)" >&2; exit 1; }
     [ -d "$MAPFORGE_REGIONS_DIR" ] || { echo "missing: regions dir ($MAPFORGE_REGIONS_DIR)" >&2; exit 1; }
     echo "self-test: ok"
@@ -148,6 +195,10 @@ if [ "${1:-}" = "--self-test" ]; then
     echo "MAPFORGE_SELECTED_REGIONS_REASON=$selected_regions_reason"
     echo "MAPFORGE_RUNTIME_DIR=$MAPFORGE_RUNTIME_DIR"
     echo "MAPFORGE_THEME_PERSIST_PATH=$MAPFORGE_THEME_PERSIST_PATH"
+    echo "MAPFORGE_IMPORT_TOOLS_DIR=$MAPFORGE_IMPORT_TOOLS_DIR"
+    echo "VK_ICD_FILENAMES=${VK_ICD_FILENAMES:-}"
+    echo "VK_DRIVER_FILES=${VK_DRIVER_FILES:-}"
+    echo "MOLTENVK_DYLIB=$MOLTENVK_DYLIB"
     exit 0
 fi
 

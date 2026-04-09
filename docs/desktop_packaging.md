@@ -10,8 +10,8 @@ make package-desktop
 
 Output:
 
-- `dist/MapForge.app`
-- includes `Contents/Resources/data/regions` populated from `$(MAPFORGE_REGIONS_DIR)` when available
+- `dist/Carta.app`
+- includes app/runtime scaffolding plus bundled ingest tools (`mapforge_region`, `mapforge_graph`); region payloads are not embedded by default
 
 ## Validate Package (Automated)
 
@@ -23,7 +23,8 @@ make package-desktop-self-test
 `package-desktop-self-test` runs launcher checks for:
 - required launcher/binary/plist files
 - bundled font/config/shader resources
-- required runtime/regions directories
+- bundled ingest tools
+- required runtime/regions directory scaffolding
 
 ## Desktop Copy + Refresh Flow
 
@@ -36,18 +37,12 @@ make package-desktop-refresh
 
 Default desktop destination:
 
-- `$(HOME)/Desktop/MapForge.app`
+- `$(HOME)/Desktop/Carta.app`
 
 You can override destination for local verification:
 
 ```sh
-make package-desktop-copy-desktop DESKTOP_APP_DIR="$PWD/dist/_desktop_smoke/MapForge.app"
-```
-
-You can override which regions tree gets bundled:
-
-```sh
-make package-desktop PACKAGE_REGIONS_SRC="$HOME/Desktop/CodeWork/map_forge/data/regions"
+make package-desktop-copy-desktop DESKTOP_APP_DIR="$PWD/dist/_desktop_smoke/Carta.app"
 ```
 
 ## Open Packaged App
@@ -68,7 +63,7 @@ Completed gates:
 - `make -C map_forge package-desktop-open`
 
 Desktop copy target validated at:
-- `/Users/calebsv/Desktop/MapForge.app`
+- `/Users/calebsv/Desktop/Carta.app`
 
 ## Post-PK2 Hardening Snapshot (2026-03-31)
 
@@ -82,30 +77,33 @@ Hardening now in place:
 - packaged shaders are copied to both:
   - `Contents/Resources/vk_renderer/shaders/*`
   - `Contents/Resources/shaders/*`
-- region packs are bundled into:
-  - `Contents/Resources/data/regions`
+- region payloads are no longer bundled into the app package by default
 
 ## Launcher Runtime Model
 
 `mapforge-launcher` sets app-relative defaults only when unset:
 - `VK_RENDERER_SHADER_ROOT=<app>/Contents/Resources`
+- `MAPFORGE_IMPORT_TOOLS_DIR` selection order:
+  1. explicit env override (`MAPFORGE_IMPORT_TOOLS_DIR`)
+  2. bundled tools dir (`<app>/Contents/Resources/tools`) when tools exist
+  3. development fallback (`$HOME/Desktop/CodeWork/map_forge/build/tools`)
 - `MAPFORGE_REGIONS_DIR` selection order:
   1. explicit env override (`MAPFORGE_REGIONS_DIR`)
   2. bundle regions dir (`<app>/Contents/Resources/data/regions`) when non-empty
   3. development fallback (`$HOME/Desktop/CodeWork/map_forge/data/regions`) when available
-  4. bundle regions dir as final fallback
+  4. bundle regions dir as final fallback (scaffold path; may be empty)
 
 Launcher diagnostics:
-- normal runs append logs to `~/Library/Logs/MapForge/launcher.log`
+- normal runs append logs to `~/Library/Logs/Carta/launcher.log`
 - `--print-config` prints resolved launch roots without launching the app
 - `--self-test` prints launch roots after validation checks
 - packaged default backend is now `vulkan` via launcher (`MAPFORGE_RENDER_BACKEND=vulkan` unless explicitly overridden)
 
 Recommended final validation before moving to next project:
 1. `make -C map_forge package-desktop-self-test`
-2. `/Users/calebsv/Desktop/MapForge.app/Contents/MacOS/mapforge-launcher --print-config`
-3. `open /Users/calebsv/Desktop/MapForge.app`
-4. `tail -n 120 ~/Library/Logs/MapForge/launcher.log`
+2. `/Users/calebsv/Desktop/Carta.app/Contents/MacOS/mapforge-launcher --print-config`
+3. `open /Users/calebsv/Desktop/Carta.app`
+4. `tail -n 120 ~/Library/Logs/Carta/launcher.log`
 
 The launcher then switches cwd to `<app>/Contents/Resources` before executing `mapforge-bin` so relative runtime paths (`config/`, `assets/`, `data/runtime/`) resolve from the bundle.
 

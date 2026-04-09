@@ -65,4 +65,22 @@ while IFS= read -r current_file; do
     done
 done <"$QUEUE_FILE"
 
+# Vulkan loader uses runtime driver discovery; explicitly bundle MoltenVK so
+# packaged apps do not depend on host Homebrew paths.
+MOLTENVK_SRC=""
+for candidate in /opt/homebrew/lib/libMoltenVK.dylib /usr/local/lib/libMoltenVK.dylib; do
+    if [ -f "$candidate" ]; then
+        MOLTENVK_SRC="$candidate"
+        break
+    fi
+done
+if [ -n "$MOLTENVK_SRC" ]; then
+    MOLTENVK_DST="$FRAMEWORKS_DIR/libMoltenVK.dylib"
+    if [ ! -f "$MOLTENVK_DST" ]; then
+        "$CP_BIN" -fL "$MOLTENVK_SRC" "$MOLTENVK_DST"
+        "$CHMOD_BIN" u+w "$MOLTENVK_DST"
+    fi
+    "$INSTALL_NAME_TOOL_BIN" -id "@loader_path/libMoltenVK.dylib" "$MOLTENVK_DST" || true
+fi
+
 exit 0

@@ -60,7 +60,9 @@ void app_runtime_render_derive_title_frame(const AppState *app,
                          app->region.name, mode, profile, tier, km, minutes, app->route_state_bridge.playback_speed, app->ui_state_bridge.overlay.fps, visible_tiles, cached_tiles, cache_capacity);
             }
         } else {
-            const char *graph_status = app->route_state_bridge.route.loaded ? "graph ok" : "graph missing";
+            const char *graph_status = app->route_state_bridge.route_graph_loading
+                ? "graph loading"
+                : (app->route_state_bridge.route.loaded ? "graph ok" : "graph missing");
             snprintf(title, sizeof(title), "MapForge | %s | %s | %s | %s | %s | %.1fx | FPS: %.1f | Tiles: %u | Cache: %u/%u",
                      app->region.name, mode, profile, tier, graph_status, app->route_state_bridge.playback_speed, app->ui_state_bridge.overlay.fps, visible_tiles, cached_tiles, cache_capacity);
         }
@@ -164,6 +166,7 @@ void app_runtime_render_submit_frame(AppState *app,
     app_draw_route_panel(app);
     app_draw_header_bar(app);
     app_draw_layer_debug(app);
+    app_draw_ingest_panel(app);
     debug_overlay_render(&app->ui_state_bridge.overlay, &app->renderer);
     out_submit->draw_pass_count += 1u;
 

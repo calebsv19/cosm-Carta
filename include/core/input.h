@@ -44,6 +44,16 @@ typedef struct InputState {
     bool font_zoom_in_pressed;
     bool font_zoom_out_pressed;
     bool font_zoom_reset_pressed;
+    bool ingest_panel_toggle_pressed;
+    bool ingest_tab_toggle_pressed;
+    bool ingest_select_prev_pressed;
+    bool ingest_select_next_pressed;
+    bool ingest_import_all_pressed;
+    bool ingest_edit_toggle_pressed;
+    bool ingest_folder_dialog_pressed;
+    bool backspace_pressed;
+    bool text_input_received;
+    char text_input[32];
 } InputState;
 
 // Initializes an input state container.

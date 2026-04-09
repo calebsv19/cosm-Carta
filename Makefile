@@ -110,6 +110,7 @@ PACKAGE_CONTENTS_DIR := $(PACKAGE_APP_DIR)/Contents
 PACKAGE_MACOS_DIR := $(PACKAGE_CONTENTS_DIR)/MacOS
 PACKAGE_RESOURCES_DIR := $(PACKAGE_CONTENTS_DIR)/Resources
 PACKAGE_FRAMEWORKS_DIR := $(PACKAGE_CONTENTS_DIR)/Frameworks
+PACKAGE_TOOLS_DIR := $(PACKAGE_RESOURCES_DIR)/tools
 PACKAGE_INFO_PLIST_SRC := tools/packaging/macos/Info.plist
 PACKAGE_LAUNCHER_SRC := tools/packaging/macos/mapforge-launcher
 PACKAGE_DYLIB_BUNDLER := tools/packaging/macos/bundle-dylibs.sh
@@ -267,10 +268,10 @@ run-headless-smoke: app test-worker-contract test-route-service test-presentatio
 visual-harness: app
 	@echo "visual harness binary ready: $(TARGET)"
 
-package-desktop: app
+package-desktop: app tools-build graph-build
 	@echo "Preparing desktop package..."
 	@rm -rf "$(PACKAGE_APP_DIR)"
-	@mkdir -p "$(PACKAGE_MACOS_DIR)" "$(PACKAGE_RESOURCES_DIR)" "$(PACKAGE_FRAMEWORKS_DIR)"
+	@mkdir -p "$(PACKAGE_MACOS_DIR)" "$(PACKAGE_RESOURCES_DIR)" "$(PACKAGE_FRAMEWORKS_DIR)" "$(PACKAGE_TOOLS_DIR)"
 	@cp "$(PACKAGE_INFO_PLIST_SRC)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@cp "$(TARGET)" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
 	@cp "$(PACKAGE_LAUNCHER_SRC)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher"
@@ -280,15 +281,13 @@ package-desktop: app
 	@cp -R assets/fonts "$(PACKAGE_RESOURCES_DIR)/assets/"
 	@cp -R config "$(PACKAGE_RESOURCES_DIR)/"
 	@cp -R "$(SHARED_ROOT)/assets/fonts" "$(PACKAGE_RESOURCES_DIR)/shared/assets/"
+	@cp "$(TOOL_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_region"
+	@cp "$(GRAPH_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"
+	@chmod +x "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"
 	@mkdir -p "$(PACKAGE_RESOURCES_DIR)/vk_renderer" "$(PACKAGE_RESOURCES_DIR)/shaders"
 	@cp -R "$(VK_RENDERER_RESOLVED_DIR)/shaders" "$(PACKAGE_RESOURCES_DIR)/vk_renderer/"
 	@cp -R "$(VK_RENDERER_RESOLVED_DIR)/shaders/." "$(PACKAGE_RESOURCES_DIR)/shaders/"
-	@if [ -d "$(PACKAGE_REGIONS_SRC)" ] && [ -n "$$(ls -A "$(PACKAGE_REGIONS_SRC)" 2>/dev/null)" ]; then \
-		cp -R "$(PACKAGE_REGIONS_SRC)/." "$(PACKAGE_RESOURCES_DIR)/data/regions/"; \
-		echo "Bundled regions from $(PACKAGE_REGIONS_SRC)"; \
-	else \
-		echo "No regions bundled (source missing or empty): $(PACKAGE_REGIONS_SRC)"; \
-	fi
+	@echo "Region payload bundling disabled; app ships without embedded region packs."
 	@for dylib in $$(/usr/bin/find "$(PACKAGE_FRAMEWORKS_DIR)" -type f -name '*.dylib' 2>/dev/null); do \
 		codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$$dylib"; \
 	done
@@ -303,11 +302,14 @@ package-desktop-smoke: package-desktop
 	@test -f "$(PACKAGE_CONTENTS_DIR)/Info.plist" || (echo "Missing Info.plist"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/assets/fonts/Montserrat-Regular.ttf" || (echo "Missing bundled Montserrat"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/config/app.config.json" || (echo "Missing bundled app config"; exit 1)
+	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_region" || (echo "Missing bundled mapforge_region tool"; exit 1)
+	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_graph" || (echo "Missing bundled mapforge_graph tool"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/vk_renderer/shaders/textured.vert.spv" || (echo "Missing bundled shader"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/shaders/textured.vert.spv" || (echo "Missing runtime shader"; exit 1)
 	@test -d "$(PACKAGE_RESOURCES_DIR)/data/runtime" || (echo "Missing runtime state dir"; exit 1)
 	@test -d "$(PACKAGE_RESOURCES_DIR)/data/regions" || (echo "Missing regions dir"; exit 1)
 	@test -f "$(PACKAGE_FRAMEWORKS_DIR)/libSDL2-2.0.0.dylib" || (echo "Missing bundled SDL2 dylib"; exit 1)
+	@test -f "$(PACKAGE_FRAMEWORKS_DIR)/libMoltenVK.dylib" || (echo "Missing bundled MoltenVK dylib"; exit 1)
 	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)" || (echo "codesign verification failed"; exit 1)
 	@echo "package-desktop-smoke passed."
 
@@ -518,13 +520,19 @@ run-daw-theme: app
 	MAPFORGE_USE_SHARED_THEME_FONT=1 MAPFORGE_USE_SHARED_THEME=1 MAPFORGE_USE_SHARED_FONT=1 \
 	MAPFORGE_THEME_PRESET=daw_default MAPFORGE_FONT_PRESET=daw_default ./$(TARGET)
 
-tools: $(TOOL_TARGET)
+tools:
+	tools/run_with_progress.sh --label "make tools" $(MAKE) --no-print-directory tools-build
+
+tools-build: $(TOOL_TARGET)
 
 $(TOOL_TARGET): $(TOOL_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(TOOL_SRCS) -o $@ $(TOOL_LDLIBS)
 
-graph: $(GRAPH_TARGET)
+graph:
+	tools/run_with_progress.sh --label "make graph" $(MAKE) --no-print-directory graph-build
+
+graph-build: $(GRAPH_TARGET)
 
 $(GRAPH_TARGET): $(GRAPH_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
@@ -613,11 +621,9 @@ region-rebuild: tools
 route-rebuild: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" --replace $(GRAPH_TOOL_FLAGS)
 
-tools-progress:
-	tools/run_with_progress.sh --label "make tools" make tools
+tools-progress: tools
 
-graph-progress:
-	tools/run_with_progress.sh --label "make graph" make graph
+graph-progress: graph
 
 region-progress:
 	tools/run_with_progress.sh --label "region $(REGION)" ./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out "$(REGIONS_DIR)/$(REGION)" --min-z $(MIN_Z) --max-z $(MAX_Z) $(REGION_TOOL_FLAGS)
@@ -713,6 +719,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools graph test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)
