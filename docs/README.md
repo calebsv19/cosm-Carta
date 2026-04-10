@@ -36,8 +36,8 @@ If you are new to the runtime code, read in this order:
 1. `src/app/app.c`: app bootstrap and top-level runtime orchestration.
 2. `src/app/app_runtime_update.c`: update-stage state mutation flow.
 3. `src/app/app_runtime_render.c`: render-stage draw flow.
-4. `src/app/app_route_service.c`: route alternative selection/toggle boundary.
-5. `src/app/app_tile_pipeline.c`: async tile/Vulkan queue and worker integration.
+4. `src/app/route/app_route.c` and `src/app/route/app_route_service.c`: route graph worker flow plus route selection/toggle boundary.
+5. `src/app/app_tile_pipeline.c` and `src/render/vk_tile_cache_policy.c`: async tile/Vulkan queue integration and cache slot policy boundary.
 
 ## Non-GUI Stability Checks
 

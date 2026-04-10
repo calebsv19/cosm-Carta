@@ -59,12 +59,31 @@ Render stage should consume state prepared by update stage, not own game-state t
 
 ## Route Service Boundary
 
-Route selection/toggle behavior is centralized in `src/app/app_route_service.c`:
+Route selection/toggle behavior is centralized in `src/app/route/app_route_service.c`:
 
 - `app_route_service_select_alternative`
 - `app_route_service_toggle_alternative_visibility`
 
 HUD click handlers call this service instead of mutating route internals inline.
+
+## Route Runtime Decomposition
+
+Route runtime orchestration now lives under `src/app/route/`:
+
+- `app_route.c`: graph load, snap index lifecycle, worker result application.
+- `app_route_worker_lifecycle.c`: worker thread lifecycle + recompute scheduling.
+- focused helpers: `app_route_anchor_query.c`, `app_route_hover.c`, `app_route_result_apply.c`, `app_route_graph_result.c`.
+
+Public route algorithms remain in `src/route/*`, while app-runtime integration stays in `src/app/route/*`.
+
+## Vulkan Tile Cache Policy Boundary
+
+`src/render/vk_tile_cache.c` keeps cache entry/mesh lifecycle behavior, and slot-selection policy is split into:
+
+- `src/render/vk_tile_cache_policy.c`
+- `src/render/vk_tile_cache_policy.h`
+
+This keeps eviction/protection rules isolated from mesh build/render plumbing.
 
 ## Practical Rule
 

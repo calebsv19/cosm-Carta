@@ -1,6 +1,6 @@
 # MapForge Current Truth
 
-Last updated: 2026-04-08
+Last updated: 2026-04-10
 
 ## Program Identity
 - Repository directory: `map_forge/`
@@ -28,6 +28,18 @@ Last updated: 2026-04-08
 - New cross-subsystem/public app entry APIs use project namespace:
   - `include/map_forge/...`
 - Private/local-only headers remain allowed in `src/<subsystem>/` when locality is clearer.
+
+## Route + Tile Cache Decomposition Snapshot (2026-04-10)
+- route runtime integration is now grouped under `src/app/route/`:
+  - core lane: `app_route.c`
+  - service lane: `app_route_service.c`
+  - worker lifecycle lane: `app_route_worker_lifecycle.c`
+  - focused helpers: `app_route_anchor_query.c`, `app_route_hover.c`, `app_route_result_apply.c`, `app_route_graph_result.c`
+- shared route integration API remains in `include/app/app_route_internal.h` for runtime callers in `app_runtime_*` lanes.
+- Vulkan tile-cache policy is now isolated to:
+  - `src/render/vk_tile_cache_policy.c`
+  - `src/render/vk_tile_cache_policy.h`
+- `src/render/vk_tile_cache.c` now focuses on entry/mesh lifecycle while delegating slot-choice rules to policy helpers.
 
 ## Runtime/Verification Contract (Current)
 - Build:

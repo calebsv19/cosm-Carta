@@ -22,12 +22,18 @@ Use this map to find where to make changes safely.
 
 ## Route Domain
 
-- `src/app/app_route.c`
-  - route graph load, worker thread loop, snap index, result poll/apply
+- `src/app/route/app_route.c`
+  - route graph load, snap index, worker result poll/apply orchestration
 
-- `src/app/app_route_service.c`
+- `src/app/route/app_route_service.c`
   - route alternative selection/toggle behavior
   - UI/controller-safe route mutation entrypoints
+
+- `src/app/route/app_route_worker_lifecycle.c`
+  - route worker init/shutdown lifecycle and recompute scheduling
+
+- `src/app/route/app_route_*.c`
+  - focused route helper seams (`anchor_query`, `hover`, `result_apply`, `graph_result`)
 
 - `src/route/*`
   - graph/path algorithms and render support
@@ -39,6 +45,12 @@ Use this map to find where to make changes safely.
 
 - `src/app/app_tile_render.c`
   - visible tile draw paths by layer/band
+
+- `src/render/vk_tile_cache.c`
+  - Vulkan tile-cache residency, mesh build/release, and entry lifecycle
+
+- `src/render/vk_tile_cache_policy.c`
+  - cache slot selection/eviction policy and per-layer residency floor guards
 
 - `src/map/*`
   - tile formats, loaders, cache, road/polygon rendering, zoom policies
@@ -61,12 +73,13 @@ Add keybind/global control:
 Change route panel interactions:
 
 - controller behavior in `src/app/app_playback.c`
-- route mutations in `src/app/app_route_service.c`
+- route mutations in `src/app/route/app_route_service.c`
 
 Change async worker semantics:
 
 - `src/app/app_worker_contract.c`
-- queue code in `src/app/app_tile_pipeline.c` / `src/app/app_route.c`
+- queue code in `src/app/app_tile_pipeline.c`
+- route worker scheduling/lifecycle in `src/app/route/app_route_worker_lifecycle.c`
 
 Change layer visibility/fade behavior:
 

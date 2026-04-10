@@ -7,7 +7,10 @@ Its core job is to keep rendering, tile loading, and routing synchronized around
 
 - `app.c`: App initialization/shutdown and primary frame loop integration.
 - `app_playback.c`: Route playback clock/state and playback marker rendering.
-- `app_route.c`: Route graph load, nearest-node snapping, and route interaction helpers.
+- `route/app_route.c`: Route graph load, nearest-node snapping, and route runtime integration.
+- `route/app_route_service.c`: Route alternative selection/toggle service boundary for UI/controller paths.
+- `route/app_route_worker_lifecycle.c`: Route worker lifecycle, clear/reset behavior, and recompute scheduling.
+- `route/app_route_*.c`: Focused route helper seams (`anchor_query`, `hover`, `result_apply`, `graph_result`).
 - `app_runtime_controls.c`: Global command/key handlers (including font/theme controls).
 - `app_runtime_dispatch.c`: Frame dispatch seam across input/update/render phases.
 - `app_runtime_events.c`: Input intake/normalize/route/invalidate top-level flow.
@@ -17,7 +20,9 @@ Its core job is to keep rendering, tile loading, and routing synchronized around
 - `app_tile_pipeline.c`: Tile queueing, load/integrate budgets, and layer readiness orchestration.
 - `app_tile_presenter.c`: Tile presentation policy helpers (band blend + hold continuity + fallback tile resolution + road/polygon draw-path decisions + frame invariant validation).
 - `app_tile_render.c`: Visible-tile rendering path and Vulkan asset-budgeted draw helpers.
-- `app_ui.c`: Header/status UI rendering, hit-tests, and UI text/chip composition.
+- `app_ui.c`: Core HUD orchestration and bridge integration.
+- `app_ui_overlay.c`: Overlay composition and draw helper lane.
+- `app_ui_ingest.c`: OSM ingest panel model/update/render lane.
 - `app_view.c`: View/camera helpers, zoom-to-tile mapping, region-fit behavior.
 - `region.c`: Built-in region registry (runtime-selectable region identities/paths).
 - `region_loader.c`: `meta.json` loader for region bounds/tile range/pyramid flags.

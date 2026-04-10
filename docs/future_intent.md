@@ -1,6 +1,6 @@
 # MapForge Future Intent
 
-Last updated: 2026-04-04
+Last updated: 2026-04-10
 
 ## Scaffold Alignment Intent
 1. Preserve current subsystem decomposition strengths (`app`, `map`, `route`, `render`, etc.).
@@ -24,6 +24,11 @@ Last updated: 2026-04-04
 - `MF-S5` (completed):
   - stabilization closeout completed in scaffold matrix/backlog/private plan.
   - scaffold completion commit title policy executed.
+
+## Near-Term Maintain Intent (Post Route/Cache Split)
+- keep the `src/app/route/*` runtime grouping stable and avoid moving route-runtime responsibilities back into `app.c` or unrelated app files.
+- preserve the `vk_tile_cache_policy` seam as policy-only code while `vk_tile_cache.c` remains focused on cache entry and mesh lifecycle behavior.
+- continue docs-first reconciliation after large-file decomposition passes so public module maps track the actual file ownership boundaries.
 
 ## Post-Scaffold Connection Pass Intent
 - `MF-CP0`, `MF-CP1`, `MF-CP2`, and `MF-CP3` are complete:
