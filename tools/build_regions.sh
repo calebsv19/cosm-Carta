@@ -25,13 +25,50 @@ usage: tools/build_regions.sh [options]
   --max-z <z>
   --all | --missing
   --region <name>
-  --osm <file.osm>
+  --osm <file.osm|file.osm.xml|file.osm.pbf|file.pbf>
   --keep-old <n>
   --prune-days <days>
   --resume
   --no-fail-fast
   --help
 USAGE
+}
+
+is_supported_osm_source() {
+    local source_path="$1"
+    local kind=""
+    case "$source_path" in
+        *.osm|*.osm.xml|*.pbf|*.osm.pbf)
+            return 0
+            ;;
+    esac
+    if [[ ! -f "$source_path" ]]; then
+        return 1
+    fi
+    kind="$(file -b "$source_path" 2>/dev/null || true)"
+    [[ "$kind" == *"OpenStreetMap XML data"* || "$kind" == *"OpenStreetMap Protocolbuffer Binary Format"* ]]
+}
+
+region_name_from_source() {
+    local source_path="$1"
+    local base
+    base="$(basename "$source_path")"
+    base="${base%.osm.pbf}"
+    base="${base%.osm.xml}"
+    base="${base%.pbf}"
+    base="${base%.osm}"
+    printf '%s' "$base"
+}
+
+regions_contains() {
+    local needle="$1"
+    local value
+    for value in "${regions[@]}"; do
+        if [[ "$value" == "$needle" ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 while [[ $# -gt 0 ]]; do
@@ -67,6 +104,12 @@ if [[ -n "$region" && -z "$osm_path" ]]; then
         osm_path="$osm_dir/${region}.osm"
     elif [[ -f "$osm_dir/${region}.osm.xml" ]]; then
         osm_path="$osm_dir/${region}.osm.xml"
+    elif [[ -f "$osm_dir/${region}.osm.pbf" ]]; then
+        osm_path="$osm_dir/${region}.osm.pbf"
+    elif [[ -f "$osm_dir/${region}.pbf" ]]; then
+        osm_path="$osm_dir/${region}.pbf"
+    elif is_supported_osm_source "$osm_dir/${region}"; then
+        osm_path="$osm_dir/${region}"
     else
         echo "missing OSM file for region '$region' in $osm_dir" >&2
         exit 1
@@ -81,10 +124,15 @@ if [[ -n "$region" ]]; then
     osms+=("$osm_path")
 else
     shopt -s nullglob
-    for file in "$osm_dir"/*.osm "$osm_dir"/*.osm.xml; do
-        base="$(basename "$file")"
-        base="${base%.osm.xml}"
-        base="${base%.osm}"
+    for file in "$osm_dir"/*; do
+        [[ -f "$file" ]] || continue
+        if ! is_supported_osm_source "$file"; then
+            continue
+        fi
+        base="$(region_name_from_source "$file")"
+        if regions_contains "$base"; then
+            continue
+        fi
         regions+=("$base")
         osms+=("$file")
     done
@@ -92,7 +140,7 @@ else
 fi
 
 if [[ ${#regions[@]} -eq 0 ]]; then
-    echo "no regions discovered; provide --region/--osm or place .osm files under $osm_dir" >&2
+    echo "no regions discovered; provide --region/--osm or place OSM XML/PBF sources under $osm_dir" >&2
     exit 1
 fi
 

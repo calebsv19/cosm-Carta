@@ -32,6 +32,17 @@ static bool path_is_dir_local(const char *path) {
     return S_ISDIR(st.st_mode);
 }
 
+static bool path_is_file_local(const char *path) {
+    struct stat st;
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+    if (stat(path, &st) != 0) {
+        return false;
+    }
+    return S_ISREG(st.st_mode);
+}
+
 static int region_catalog_entry_cmp(const void *left, const void *right) {
     const RegionCatalogEntry *a = (const RegionCatalogEntry *)left;
     const RegionCatalogEntry *b = (const RegionCatalogEntry *)right;
@@ -81,16 +92,27 @@ static int region_catalog_rebuild(void) {
         if (snprintf(slot->info.tiles_dir, sizeof(slot->info.tiles_dir), "%s/tiles", slot->info.region_dir) < 0) {
             continue;
         }
-        if (!path_is_dir_local(slot->info.tiles_dir)) {
+        char meta_path[MAPFORGE_REGION_PATH_CAPACITY];
+        if (snprintf(meta_path, sizeof(meta_path), "%s/meta.json", slot->info.region_dir) < 0) {
+            continue;
+        }
+        bool has_tiles_dir = path_is_dir_local(slot->info.tiles_dir);
+        bool has_meta = path_is_file_local(meta_path);
+        if (!has_tiles_dir && !has_meta) {
             continue;
         }
 
         slot->info.name = slot->name;
+        slot->info.region_dir[sizeof(slot->info.region_dir) - 1] = '\0';
+        slot->info.tiles_dir[sizeof(slot->info.tiles_dir) - 1] = '\0';
+        slot->info.tile_archive_path[0] = '\0';
+        tile_source_config_set_filesystem(&slot->info.tile_source, slot->info.tiles_dir);
         slot->info.tile_min_zoom = 10u;
         slot->info.tile_max_zoom = 18u;
         slot->info.tile_extent = 4096u;
         slot->info.has_tile_pyramid_roads = false;
         slot->info.has_tile_pyramid_buildings = false;
+        slot->info.has_tile_archive = false;
         slot->info.has_center = false;
         slot->info.has_bounds = false;
         slot->info.has_tile_range = false;
@@ -146,6 +168,8 @@ bool region_resolve_paths(RegionInfo *info) {
         info->tiles_dir[0] = '\0';
         return false;
     }
+    info->tile_archive_path[0] = '\0';
+    tile_source_config_set_filesystem(&info->tile_source, info->tiles_dir);
     return true;
 }
 

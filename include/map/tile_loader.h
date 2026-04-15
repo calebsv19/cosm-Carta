@@ -2,6 +2,7 @@
 #define MAPFORGE_MAP_TILE_LOADER_H
 
 #include "map/mft_loader.h"
+#include "map/tile_source.h"
 #include "map/tile_layers.h"
 #include "core_jobs.h"
 #include "core_kernel.h"
@@ -68,7 +69,7 @@ typedef struct TileLoader {
     uint64_t load_fail_count;
     uint32_t latest_request_id;
     bool running;
-    char base_dir[256];
+    TileSourceConfig source;
 } TileLoader;
 
 typedef struct TileLoaderStats {
@@ -88,6 +89,7 @@ typedef struct TileLoaderStats {
 } TileLoaderStats;
 
 bool tile_loader_init(TileLoader *loader, const char *base_dir);
+bool tile_loader_init_with_source(TileLoader *loader, const TileSourceConfig *source);
 void tile_loader_shutdown(TileLoader *loader);
 bool tile_loader_enqueue(TileLoader *loader, TileCoord coord, TileLayerKind kind, TileZoomBand band, uint32_t request_id);
 bool tile_loader_pop_result(TileLoader *loader, TileResult *out_result);

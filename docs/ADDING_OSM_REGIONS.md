@@ -3,15 +3,17 @@
 This guide explains how to add a new region from an OSM download so MapForge can build and run it safely.
 
 ## 1) Download The Correct File Type
-- MapForge region build currently reads **plain OSM XML** input.
-- Use files with `.osm` extension (for example `puyallup.osm`).
-- Do not pass `.pbf`, `.osm.pbf`, `.gz`, or `.bz2` directly to `make region`.
+- MapForge region build accepts:
+  - OSM XML: `.osm`, `.osm.xml`
+  - OSM PBF: `.pbf`, `.osm.pbf` (and extensionless files that contain a PBF header)
+- For PBF input, MapForge uses the external `osmium` CLI to convert to XML during build.
+  - install example (macOS/Homebrew): `brew install osmium-tool`
 
 ## 2) Name Files And Region IDs
 - OSM source file naming recommendation:
   - lowercase
   - letters/numbers plus `_` or `-`
-  - example: `puyallup.osm`
+  - examples: `puyallup.osm`, `seattle_downtown.pbf`
 - Region name (`REGION=...`) must be filesystem-safe. Use:
   - letters/numbers plus `_`, `-`, or `.`
   - example: `puyallup`
@@ -19,9 +21,10 @@ This guide explains how to add a new region from an OSM download so MapForge can
 
 ## 3) Place The OSM File
 - Recommended location in this repo:
-  - `map_forge/data/osm_sources/<name>.osm`
+  - `map_forge/data/osm_sources/<name>.osm` or `map_forge/data/osm_sources/<name>.pbf`
 - Example:
   - `map_forge/data/osm_sources/puyallup.osm`
+  - `map_forge/data/osm_sources/seattle_downtown.pbf`
 
 ## 4) Build Region Tiles
 From `map_forge/`:
@@ -34,6 +37,7 @@ Notes:
 - `MIN_Z`/`MAX_Z` control how much data is generated and disk usage.
 - The region pack is written under:
   - `map_forge/data/regions/puyallup/`
+- You can pass a PBF source to `OSM=...` as long as `osmium` is installed.
 
 ## 5) Optional: Build Route Graph
 If you want routing for that region:
@@ -60,6 +64,7 @@ make run
 ```
 
 ## 8) Common Failures
-- `Failed to open OSM file`: check absolute path and file extension.
+- `Failed to open OSM file`: check absolute path and file type.
+- `PBF source detected ... converter is unavailable`: install `osmium-tool`, or pre-convert the file to `.osm`.
 - Empty or partial render: check zoom range and confirm OSM extract actually covers your area.
 - Region not switchable in app: ensure the region directory exists under the active region root and includes a `tiles/` subtree.

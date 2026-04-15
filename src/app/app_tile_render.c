@@ -322,6 +322,12 @@ static bool app_allow_immediate_building_fallback(const AppState *app, TileCoord
     return app_visible_ring_distance(app, coord) <= 1u;
 }
 
+static bool app_allow_progressive_polygon_fallback(const AppState *app, TileCoord coord) {
+    // Allow limited per-tile CPU fallback while VK assets are warming to avoid
+    // whole-layer pop-in during camera motion.
+    return app_visible_ring_distance(app, coord) <= 2u;
+}
+
 typedef struct BuildingTileDebugStats {
     uint32_t tiles;
     uint32_t polygons;
@@ -671,53 +677,68 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
             if (water) {
                 float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;
                 float layer_opacity = app_layer_opacity_scale(app, TILE_LAYER_POLY_WATER);
-                (void)app_tile_presenter_draw_polygon_layer(app,
-                                                            TILE_LAYER_POLY_WATER,
-                                                            coord,
-                                                            water,
-                                                            water_band,
-                                                            building_zoom_bias,
-                                                            layer_opacity,
-                                                            allow_immediate_polygon_fallback,
-                                                            false,
-                                                            &poly_fill_budget,
-                                                            &poly_asset_build_budget,
-                                                            now_sec,
-                                                            &vk_asset_misses);
+                bool allow_polygon_fallback_here = allow_immediate_polygon_fallback ||
+                                                   app_allow_progressive_polygon_fallback(app, coord);
+                bool drew = app_tile_presenter_draw_polygon_layer(app,
+                                                                  TILE_LAYER_POLY_WATER,
+                                                                  coord,
+                                                                  water,
+                                                                  water_band,
+                                                                  building_zoom_bias,
+                                                                  layer_opacity,
+                                                                  allow_polygon_fallback_here,
+                                                                  false,
+                                                                  &poly_fill_budget,
+                                                                  &poly_asset_build_budget,
+                                                                  now_sec,
+                                                                  &vk_asset_misses);
+                if (drew) {
+                    visible += 1u;
+                }
             }
             if (park) {
                 float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;
                 float layer_opacity = app_layer_opacity_scale(app, TILE_LAYER_POLY_PARK);
-                (void)app_tile_presenter_draw_polygon_layer(app,
-                                                            TILE_LAYER_POLY_PARK,
-                                                            coord,
-                                                            park,
-                                                            park_band,
-                                                            building_zoom_bias,
-                                                            layer_opacity,
-                                                            allow_immediate_polygon_fallback,
-                                                            false,
-                                                            &poly_fill_budget,
-                                                            &poly_asset_build_budget,
-                                                            now_sec,
-                                                            &vk_asset_misses);
+                bool allow_polygon_fallback_here = allow_immediate_polygon_fallback ||
+                                                   app_allow_progressive_polygon_fallback(app, coord);
+                bool drew = app_tile_presenter_draw_polygon_layer(app,
+                                                                  TILE_LAYER_POLY_PARK,
+                                                                  coord,
+                                                                  park,
+                                                                  park_band,
+                                                                  building_zoom_bias,
+                                                                  layer_opacity,
+                                                                  allow_polygon_fallback_here,
+                                                                  false,
+                                                                  &poly_fill_budget,
+                                                                  &poly_asset_build_budget,
+                                                                  now_sec,
+                                                                  &vk_asset_misses);
+                if (drew) {
+                    visible += 1u;
+                }
             }
             if (landuse) {
                 float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;
                 float layer_opacity = app_layer_opacity_scale(app, TILE_LAYER_POLY_LANDUSE);
-                (void)app_tile_presenter_draw_polygon_layer(app,
-                                                            TILE_LAYER_POLY_LANDUSE,
-                                                            coord,
-                                                            landuse,
-                                                            landuse_band,
-                                                            building_zoom_bias,
-                                                            layer_opacity,
-                                                            allow_immediate_polygon_fallback,
-                                                            false,
-                                                            &poly_fill_budget,
-                                                            &poly_asset_build_budget,
-                                                            now_sec,
-                                                            &vk_asset_misses);
+                bool allow_polygon_fallback_here = allow_immediate_polygon_fallback ||
+                                                   app_allow_progressive_polygon_fallback(app, coord);
+                bool drew = app_tile_presenter_draw_polygon_layer(app,
+                                                                  TILE_LAYER_POLY_LANDUSE,
+                                                                  coord,
+                                                                  landuse,
+                                                                  landuse_band,
+                                                                  building_zoom_bias,
+                                                                  layer_opacity,
+                                                                  allow_polygon_fallback_here,
+                                                                  false,
+                                                                  &poly_fill_budget,
+                                                                  &poly_asset_build_budget,
+                                                                  now_sec,
+                                                                  &vk_asset_misses);
+                if (drew) {
+                    visible += 1u;
+                }
             }
             if (building) {
                 if (app_building_debug_enabled()) {
@@ -726,19 +747,24 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                 float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;
                 float layer_opacity = app_layer_opacity_scale(app, TILE_LAYER_POLY_BUILDING);
                 bool allow_building_fallback = app_allow_immediate_building_fallback(app, coord);
-                (void)app_tile_presenter_draw_polygon_layer(app,
-                                                            TILE_LAYER_POLY_BUILDING,
-                                                            coord,
-                                                            building,
-                                                            building_band,
-                                                            building_zoom_bias,
-                                                            layer_opacity,
-                                                            allow_immediate_polygon_fallback,
-                                                            allow_building_fallback,
-                                                            &poly_fill_budget,
-                                                            &poly_asset_build_budget,
-                                                            now_sec,
-                                                            &vk_asset_misses);
+                bool allow_polygon_fallback_here = allow_immediate_polygon_fallback ||
+                                                   app_allow_progressive_polygon_fallback(app, coord);
+                bool drew = app_tile_presenter_draw_polygon_layer(app,
+                                                                  TILE_LAYER_POLY_BUILDING,
+                                                                  coord,
+                                                                  building,
+                                                                  building_band,
+                                                                  building_zoom_bias,
+                                                                  layer_opacity,
+                                                                  allow_polygon_fallback_here,
+                                                                  allow_building_fallback,
+                                                                  &poly_fill_budget,
+                                                                  &poly_asset_build_budget,
+                                                                  now_sec,
+                                                                  &vk_asset_misses);
+                if (drew) {
+                    visible += 1u;
+                }
             }
         }
     }

@@ -1,51 +1,12 @@
 #include "map/tile_manager.h"
 
 #include "core/log.h"
-#include "core_io.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 static bool tile_coord_equals(TileCoord a, TileCoord b) {
     return a.z == b.z && a.x == b.x && a.y == b.y;
-}
-
-static const char *tile_band_dir(TileZoomBand band) {
-    switch (band) {
-        case TILE_BAND_COARSE:
-            return "coarse";
-        case TILE_BAND_MID:
-            return "mid";
-        case TILE_BAND_FINE:
-            return "fine";
-        case TILE_BAND_DEFAULT:
-        default:
-            return NULL;
-    }
-}
-
-static bool tile_resolve_path(const char *base_dir, TileCoord coord, TileZoomBand band, char *path, size_t path_size) {
-    if (!base_dir || !path || path_size == 0u) {
-        return false;
-    }
-
-    const char *band_dir = tile_band_dir(band);
-    if (band_dir) {
-        char band_path[512];
-        snprintf(band_path, sizeof(band_path), "%s/bands/%s/%u/%u/%u.mft",
-                 base_dir, band_dir, coord.z, coord.x, coord.y);
-        if (core_io_path_exists(band_path)) {
-            snprintf(path, path_size, "%s", band_path);
-            return true;
-        }
-    }
-
-    snprintf(path, path_size, "%s/%u/%u/%u.mft", base_dir, coord.z, coord.x, coord.y);
-    if (!core_io_path_exists(path)) {
-        return false;
-    }
-    return true;
 }
 
 static void tile_entry_reset(TileEntry *entry) {
@@ -61,7 +22,19 @@ static void tile_entry_reset(TileEntry *entry) {
 }
 
 bool tile_manager_init(TileManager *manager, uint32_t capacity, const char *base_dir) {
-    if (!manager || capacity == 0 || !base_dir) {
+    TileSourceConfig config;
+    if (!base_dir) {
+        return false;
+    }
+    tile_source_config_init(&config);
+    if (!tile_source_config_set_filesystem(&config, base_dir)) {
+        return false;
+    }
+    return tile_manager_init_with_source(manager, capacity, &config);
+}
+
+bool tile_manager_init_with_source(TileManager *manager, uint32_t capacity, const TileSourceConfig *source) {
+    if (!manager || capacity == 0 || !source || source->tiles_root[0] == '\0') {
         return false;
     }
 
@@ -74,7 +47,7 @@ bool tile_manager_init(TileManager *manager, uint32_t capacity, const char *base
     manager->capacity = capacity;
     manager->count = 0;
     manager->tick = 1;
-    snprintf(manager->base_dir, sizeof(manager->base_dir), "%s", base_dir);
+    manager->source = *source;
     return true;
 }
 
@@ -155,7 +128,7 @@ const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord, Tile
     }
 
     char path[512];
-    if (!tile_resolve_path(manager->base_dir, coord, band, path, sizeof(path))) {
+    if (!tile_source_resolve_legacy_path(&manager->source, coord, band, path, sizeof(path))) {
         return NULL;
     }
 

@@ -21,7 +21,7 @@
 
 static const LayerPolicy kLayerPolicies[] = {
     {TILE_LAYER_ROAD_ARTERY, "artery", 0.0f, 0u, true, false, false},
-    {TILE_LAYER_ROAD_LOCAL, "local", LAYER_ZOOM_LOCAL_START, 1u, true, false, true},
+    {TILE_LAYER_ROAD_LOCAL, "local", LAYER_ZOOM_LOCAL_START, 1u, true, false, false},
     // Kept for future terrain/elevation support; hidden/disabled in current runtime.
     {TILE_LAYER_CONTOUR, "contour", LAYER_ZOOM_CONTOUR_START, 2u, false, false, false},
     {TILE_LAYER_POLY_WATER, "water", LAYER_ZOOM_WATER_START, 3u, true, true, false},

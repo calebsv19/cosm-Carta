@@ -1,6 +1,6 @@
 # MapForge Current Truth
 
-Last updated: 2026-04-10
+Last updated: 2026-04-14
 
 ## Program Identity
 - Repository directory: `map_forge/`
@@ -41,11 +41,38 @@ Last updated: 2026-04-10
   - `src/render/vk_tile_cache_policy.h`
 - `src/render/vk_tile_cache.c` now focuses on entry/mesh lifecycle while delegating slot-choice rules to policy helpers.
 
+## Tile Store Contract Snapshot (2026-04-14)
+- region metadata now includes explicit tile storage contract fields:
+  - `tile_store.kind`
+  - `tile_store.root`
+  - optional `tile_store.archive_path`
+- runtime region metadata loader resolves and stores tile source contract in `RegionInfo.tile_source`.
+- tile path resolution is now centralized in `src/map/tile_source.c` and used by both:
+  - `src/map/tile_loader.c`
+  - `src/map/tile_manager.c`
+- runtime package discipline is now enforced:
+  - region open/startup validates package metadata + required artifacts before activation.
+  - validation helper landed in `src/app/region_loader.c` (`region_validate_package`).
+  - validator CLI landed: `make -C map_forge region-validate`.
+- region build now has an archive emit lane:
+  - `tools/mapforge_region` supports `--emit-archive [--archive-path <relpath>]`.
+  - emitted archive is SQLite (`mapforge_tiles` table) and metadata is written as `tile_store.kind=archive_indexed` with `tile_store.archive_path`.
+- compatibility posture:
+  - `filesystem_tree` remains default and fully supported.
+  - `archive_indexed` now has archive materialization across all current layer kinds (SQLite-backed) with automatic tree fallback.
+  - runtime diagnostics expose archive requests/hits/extract/fallback counts in HUD + perf logs.
+  - build diagnostics now include archive storage rollups by `band x layer`:
+    - `meta.json` -> `output_stats.archive_rollups`
+    - `meta.dataset.json` -> `map_forge_archive_rollups_v1`
+  - runtime region-open diagnostics now log compact archive rollup summaries (`region_archive_rollup ...`).
+
 ## Runtime/Verification Contract (Current)
 - Build:
   - `make -C map_forge clean && make -C map_forge`
 - Full non-interactive tests:
   - `make -C map_forge test`
+- Archive rollup validation gate:
+  - `make -C map_forge metrics-rollup-gate`
 - Headless smoke gate (non-interactive):
   - `make -C map_forge run-headless-smoke`
   - current implementation validates app build + focused runtime-adjacent smoke tests without launching interactive UI.
@@ -272,10 +299,10 @@ Last updated: 2026-04-10
 ## Data Root + OSM Ingest Status (P2)
 - runtime now supports startup without bundled regions (no hard failure on empty region catalog).
 - ingest panel is available in-app (`O` collapse/expand, with collapsed handle always visible) with:
-  - source `.osm` list from persisted `input_root`
+  - source OSM list (`.osm`/`.osm.xml`/`.pbf`, plus extensionless PBF headers) from persisted `input_root`
   - active imported-region list from current regions root
   - keyboard-first import/open flow (`Tab`, `Up/Down`, `Enter`, `A`, `E`, `B`)
-  - `.osm` import execution is asynchronous (spawn + frame-poll completion), so Enter/A import does not block the main/UI thread.
+  - source import execution is asynchronous (spawn + frame-poll completion), so Enter/A import does not block the main/UI thread.
 - persisted runtime keys added under `data_roots` in runtime config:
   - `input_root`
   - `latest_imported_region`

@@ -1,16 +1,9 @@
 #include "render/vk_tile_cache.h"
 #include "vk_tile_cache_fill_mesh.h"
+#include "vk_tile_cache_policy.h"
 
 #include <stdlib.h>
 #include <string.h>
-
-static bool coord_equals(TileCoord a, TileCoord b) {
-    return a.z == b.z && a.x == b.x && a.y == b.y;
-}
-
-static bool kind_has_floor(TileLayerKind kind) {
-    return kind == TILE_LAYER_ROAD_ARTERY || kind == TILE_LAYER_ROAD_LOCAL;
-}
 
 static bool kind_is_road(TileLayerKind kind) {
     return kind == TILE_LAYER_ROAD_ARTERY || kind == TILE_LAYER_ROAD_LOCAL;
@@ -23,71 +16,6 @@ static bool kind_is_polygon(TileLayerKind kind) {
            kind == TILE_LAYER_POLY_BUILDING;
 }
 
-static VkTileCacheEntry *find_entry(VkTileCache *cache, TileLayerKind kind, TileCoord coord, TileZoomBand band) {
-    if (!cache || !cache->entries) {
-        return NULL;
-    }
-
-    for (uint32_t i = 0; i < cache->capacity; ++i) {
-        VkTileCacheEntry *entry = &cache->entries[i];
-        if (!entry->occupied) {
-            continue;
-        }
-        if (entry->kind == kind && entry->band == band && coord_equals(entry->coord, coord)) {
-            return entry;
-        }
-    }
-    return NULL;
-}
-
-static bool entry_is_protected(const VkTileCache *cache, TileLayerKind incoming_kind, const VkTileCacheEntry *entry) {
-    if (!cache || !entry || !entry->occupied) {
-        return false;
-    }
-    TileLayerKind resident_kind = entry->kind;
-    if (!kind_has_floor(resident_kind)) {
-        return false;
-    }
-    if (incoming_kind == resident_kind) {
-        return false;
-    }
-    uint32_t resident = cache->resident_by_kind[resident_kind];
-    uint32_t floor = cache->min_resident_by_kind[resident_kind];
-    return resident <= floor;
-}
-
-static VkTileCacheEntry *pick_slot(VkTileCache *cache, TileLayerKind incoming_kind) {
-    if (!cache || !cache->entries) {
-        return NULL;
-    }
-
-    VkTileCacheEntry *empty = NULL;
-    VkTileCacheEntry *oldest = NULL;
-    VkTileCacheEntry *fallback_oldest = NULL;
-    for (uint32_t i = 0; i < cache->capacity; ++i) {
-        VkTileCacheEntry *entry = &cache->entries[i];
-        if (!entry->occupied) {
-            empty = entry;
-            break;
-        }
-        if (!fallback_oldest || entry->last_used < fallback_oldest->last_used) {
-            fallback_oldest = entry;
-        }
-        if (entry_is_protected(cache, incoming_kind, entry)) {
-            continue;
-        }
-        if (!oldest || entry->last_used < oldest->last_used) {
-            oldest = entry;
-        }
-    }
-    if (empty) {
-        return empty;
-    }
-    if (oldest) {
-        return oldest;
-    }
-    return fallback_oldest;
-}
 
 #if defined(MAPFORGE_HAVE_VK)
 static void road_class_color(RoadClass road_class, float *r, float *g, float *b, float *a) {
@@ -868,7 +796,7 @@ bool vk_tile_cache_on_tile_loaded(VkTileCache *cache,
         return false;
     }
 
-    VkTileCacheEntry *entry = find_entry(cache, kind, coord, band);
+    VkTileCacheEntry *entry = vk_tile_cache_find_entry(cache, kind, coord, band);
     if (entry) {
 #if defined(MAPFORGE_HAVE_VK)
         destroy_entry_meshes(cache, vk_renderer, entry);
@@ -886,7 +814,7 @@ bool vk_tile_cache_on_tile_loaded(VkTileCache *cache,
         return true;
     }
 
-    entry = pick_slot(cache, kind);
+    entry = vk_tile_cache_pick_slot(cache, kind);
     if (!entry) {
         return false;
     }
@@ -919,7 +847,7 @@ bool vk_tile_cache_on_tile_loaded(VkTileCache *cache,
 }
 
 const VkTileCacheEntry *vk_tile_cache_peek(VkTileCache *cache, TileLayerKind kind, TileCoord coord, TileZoomBand band) {
-    VkTileCacheEntry *entry = find_entry(cache, kind, coord, band);
+    VkTileCacheEntry *entry = vk_tile_cache_find_entry(cache, kind, coord, band);
     if (!entry) {
         return NULL;
     }

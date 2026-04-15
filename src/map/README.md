@@ -14,6 +14,7 @@ This module owns map-domain logic: coordinate systems, tile formats, tile IO/cac
 - `road_renderer.c`: Road polyline draw logic and class/tier-aware filtering stats.
 - `tile_loader.c`: Background threaded tile loader with request/result queues.
 - `tile_manager.c`: In-memory LRU tile cache and cache lookup/insert logic.
+- `tile_source.c`: Tile storage contract, runtime path resolution, and archive-backed layer materialization + fallback diagnostics.
 - `tile_math.c`: Slippy-tile coordinate math and tile origin/size helpers.
 - `zoom_fade.c`: Zoom tier and fade alpha helpers.
 
@@ -22,4 +23,3 @@ This module owns map-domain logic: coordinate systems, tile formats, tile IO/cac
 - Consumes region-pack files created by offline tooling and exposes decoded tile data to the app/render path.
 - Provides the math and policies that keep large-region rendering stable and predictable.
 - Serves as the boundary between raw tile payloads and draw-ready structures.
-

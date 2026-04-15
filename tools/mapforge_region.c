@@ -9,17 +9,27 @@
 #include <errno.h>
 #include <dirent.h>
 #include <math.h>
+#include <spawn.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
+#if defined(MAPFORGE_HAVE_SQLITE)
+#include <sqlite3.h>
+#endif
+
 #define TILE_EXTENT 4096.0
 #define MFT_WATER_VARIANT_COUNT 3
+#define MAPFORGE_SOURCE_PATH_CAPACITY 1024
+
+extern char **environ;
 
 // Stores an OSM node coordinate keyed by ID.
 typedef struct NodeEntry {
@@ -68,6 +78,42 @@ typedef struct TileOutput {
     uint32_t polygon_capacity;
 } TileOutput;
 
+enum {
+    METRIC_BAND_DEFAULT = 0,
+    METRIC_BAND_COARSE = 1,
+    METRIC_BAND_MID = 2,
+    METRIC_BAND_FINE = 3,
+    METRIC_BAND_COUNT = 4
+};
+
+enum {
+    METRIC_LAYER_ARTERY = 0,
+    METRIC_LAYER_LOCAL = 1,
+    METRIC_LAYER_WATER = 2,
+    METRIC_LAYER_PARK = 3,
+    METRIC_LAYER_LANDUSE = 4,
+    METRIC_LAYER_BUILDING = 5,
+    METRIC_LAYER_CONTOUR = 6,
+    METRIC_LAYER_COUNT = 7
+};
+
+static const char *k_metric_band_names[METRIC_BAND_COUNT] = {
+    "default",
+    "coarse",
+    "mid",
+    "fine"
+};
+
+static const char *k_metric_layer_names[METRIC_LAYER_COUNT] = {
+    "artery",
+    "local",
+    "water",
+    "park",
+    "landuse",
+    "building",
+    "contour"
+};
+
 // Stores aggregated output for a region build.
 typedef struct BuildContext {
     TileOutput *tiles;
@@ -94,6 +140,10 @@ typedef struct BuildContext {
     uint64_t band_coarse_files;
     uint64_t band_mid_files;
     uint64_t band_fine_files;
+    uint64_t archive_tile_rows;
+    uint64_t archive_bytes_written;
+    uint64_t archive_rollup_rows[METRIC_BAND_COUNT][METRIC_LAYER_COUNT];
+    uint64_t archive_rollup_bytes[METRIC_BAND_COUNT][METRIC_LAYER_COUNT];
 } BuildContext;
 
 // Stores CLI options for the region build.
@@ -111,6 +161,8 @@ typedef struct BuildOptions {
     bool pad_bounds;
     bool emit_contour_empty;
     bool emit_legacy_tiles;
+    bool emit_archive;
+    const char *archive_path;
 } BuildOptions;
 
 static TileZoomBand road_band_for_tile_z(uint16_t z, uint16_t min_z, uint16_t max_z) {
@@ -1046,6 +1098,189 @@ static bool tree_has_file_suffix(const char *root, const char *suffix) {
     return false;
 }
 
+// Returns true when archive relative path is safe for region-pack-local output.
+static bool archive_rel_path_valid(const char *path) {
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+    if (path[0] == '/' || strstr(path, "..")) {
+        return false;
+    }
+    return true;
+}
+
+// Ensures parent directories exist for an output file path.
+static bool ensure_parent_dir_recursive(const char *path) {
+    char parent[512];
+    char *slash = NULL;
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+    snprintf(parent, sizeof(parent), "%s", path);
+    slash = strrchr(parent, '/');
+    if (!slash) {
+        return true;
+    }
+    *slash = '\0';
+    if (parent[0] == '\0') {
+        return true;
+    }
+    return ensure_dir_recursive(parent);
+}
+
+static const char *archive_layer_from_suffix(const char *suffix) {
+    if (!suffix || suffix[0] == '\0') {
+        return NULL;
+    }
+    if (strcmp(suffix, "artery.mft") == 0) {
+        return "road_artery";
+    }
+    if (strcmp(suffix, "local.mft") == 0) {
+        return "road_local";
+    }
+    if (strcmp(suffix, "water.mft") == 0) {
+        return "water";
+    }
+    if (strcmp(suffix, "park.mft") == 0) {
+        return "park";
+    }
+    if (strcmp(suffix, "landuse.mft") == 0) {
+        return "landuse";
+    }
+    if (strcmp(suffix, "building.mft") == 0) {
+        return "building";
+    }
+    if (strcmp(suffix, "contour.mft") == 0) {
+        return "contour";
+    }
+    if (strcmp(suffix, "mft") == 0) {
+        return "road_artery";
+    }
+    return NULL;
+}
+
+static int archive_metric_band_index(const char *band) {
+    if (!band || band[0] == '\0' || strcmp(band, "default") == 0) {
+        return METRIC_BAND_DEFAULT;
+    }
+    if (strcmp(band, "coarse") == 0) {
+        return METRIC_BAND_COARSE;
+    }
+    if (strcmp(band, "mid") == 0) {
+        return METRIC_BAND_MID;
+    }
+    if (strcmp(band, "fine") == 0) {
+        return METRIC_BAND_FINE;
+    }
+    return -1;
+}
+
+static int archive_metric_layer_index(const char *layer) {
+    if (!layer || layer[0] == '\0') {
+        return -1;
+    }
+    if (strcmp(layer, "road_artery") == 0) {
+        return METRIC_LAYER_ARTERY;
+    }
+    if (strcmp(layer, "road_local") == 0) {
+        return METRIC_LAYER_LOCAL;
+    }
+    if (strcmp(layer, "water") == 0) {
+        return METRIC_LAYER_WATER;
+    }
+    if (strcmp(layer, "park") == 0) {
+        return METRIC_LAYER_PARK;
+    }
+    if (strcmp(layer, "landuse") == 0) {
+        return METRIC_LAYER_LANDUSE;
+    }
+    if (strcmp(layer, "building") == 0) {
+        return METRIC_LAYER_BUILDING;
+    }
+    if (strcmp(layer, "contour") == 0) {
+        return METRIC_LAYER_CONTOUR;
+    }
+    return -1;
+}
+
+// Parses one tile file path relative to tiles root.
+static bool archive_parse_tile_rel_path(const char *rel_path,
+                                        int *out_z,
+                                        int *out_x,
+                                        int *out_y,
+                                        char *out_band,
+                                        size_t out_band_size,
+                                        char *out_layer,
+                                        size_t out_layer_size) {
+    if (!rel_path || !out_z || !out_x || !out_y ||
+        !out_band || out_band_size == 0u || !out_layer || out_layer_size == 0u) {
+        return false;
+    }
+
+    char rel_copy[512];
+    snprintf(rel_copy, sizeof(rel_copy), "%s", rel_path);
+
+    char *save = NULL;
+    char *tok0 = strtok_r(rel_copy, "/", &save);
+    char *tok1 = tok0 ? strtok_r(NULL, "/", &save) : NULL;
+    char *tok2 = tok1 ? strtok_r(NULL, "/", &save) : NULL;
+    char *tok3 = tok2 ? strtok_r(NULL, "/", &save) : NULL;
+    char *z_token = NULL;
+    char *x_token = NULL;
+    char *file_token = NULL;
+    const char *band = "default";
+
+    if (!tok0 || !tok1 || !tok2) {
+        return false;
+    }
+
+    if (strcmp(tok0, "bands") == 0) {
+        if (!tok3) {
+            return false;
+        }
+        band = tok1;
+        z_token = tok2;
+        x_token = tok3;
+        file_token = strtok_r(NULL, "/", &save);
+    } else {
+        z_token = tok0;
+        x_token = tok1;
+        file_token = tok2;
+    }
+    if (!file_token) {
+        return false;
+    }
+    if (strtok_r(NULL, "/", &save) != NULL) {
+        return false;
+    }
+
+    char file_copy[256];
+    snprintf(file_copy, sizeof(file_copy), "%s", file_token);
+    char *dot = strchr(file_copy, '.');
+    if (!dot) {
+        return false;
+    }
+    *dot = '\0';
+    const char *suffix = dot + 1;
+    if (file_copy[0] == '\0' || suffix[0] == '\0') {
+        return false;
+    }
+    const char *layer = archive_layer_from_suffix(suffix);
+    if (!layer) {
+        return false;
+    }
+
+    *out_z = atoi(z_token);
+    *out_x = atoi(x_token);
+    *out_y = atoi(file_copy);
+    if (*out_z < 0 || *out_x < 0 || *out_y < 0) {
+        return false;
+    }
+    snprintf(out_band, out_band_size, "%s", band);
+    snprintf(out_layer, out_layer_size, "%s", layer);
+    return true;
+}
+
 // Builds the output path for a tile and creates parent directories.
 static bool ensure_tile_path_from_root(const char *root_dir, TileCoord coord, const char *suffix, char *out_path, size_t out_size) {
     if (!root_dir || !out_path || out_size == 0) {
@@ -1538,6 +1773,276 @@ static bool write_tile_file(const BuildOptions *options, BuildContext *ctx, cons
     return true;
 }
 
+#if defined(MAPFORGE_HAVE_SQLITE)
+static bool archive_exec_sql(sqlite3 *db, const char *sql) {
+    char *errmsg = NULL;
+    if (!db || !sql) {
+        return false;
+    }
+    int rc = sqlite3_exec(db, sql, NULL, NULL, &errmsg);
+    if (rc != SQLITE_OK) {
+        log_error("archive sqlite exec failed: %s", errmsg ? errmsg : "unknown error");
+        sqlite3_free(errmsg);
+        return false;
+    }
+    return true;
+}
+
+static bool archive_insert_tile(sqlite3_stmt *stmt,
+                                const char *path,
+                                const char *rel_path,
+                                BuildContext *ctx) {
+    int z = 0;
+    int x = 0;
+    int y = 0;
+    char band[32];
+    char layer[64];
+    CoreBuffer tile_data = {0};
+    if (!stmt || !path || !rel_path || !ctx) {
+        return false;
+    }
+    if (!archive_parse_tile_rel_path(rel_path,
+                                     &z, &x, &y,
+                                     band, sizeof(band),
+                                     layer, sizeof(layer))) {
+        return true;
+    }
+    CoreResult read_res = core_io_read_all(path, &tile_data);
+    if (read_res.code != CORE_OK || !tile_data.data || tile_data.size == 0u) {
+        log_error("archive emit read failed: %s", path);
+        core_io_buffer_free(&tile_data);
+        return false;
+    }
+
+    sqlite3_bind_int(stmt, 1, z);
+    sqlite3_bind_int(stmt, 2, x);
+    sqlite3_bind_int(stmt, 3, y);
+    sqlite3_bind_text(stmt, 4, layer, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 5, band, -1, SQLITE_STATIC);
+    sqlite3_bind_blob(stmt, 6, tile_data.data, (int)tile_data.size, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt);
+    sqlite3_reset(stmt);
+    sqlite3_clear_bindings(stmt);
+    if (rc != SQLITE_DONE) {
+        log_error("archive emit insert failed for %s: %s", path, sqlite3_errstr(rc));
+        core_io_buffer_free(&tile_data);
+        return false;
+    }
+    int band_index = archive_metric_band_index(band);
+    int layer_index = archive_metric_layer_index(layer);
+    if (band_index >= 0 && band_index < METRIC_BAND_COUNT &&
+        layer_index >= 0 && layer_index < METRIC_LAYER_COUNT) {
+        ctx->archive_rollup_rows[band_index][layer_index] += 1u;
+        ctx->archive_rollup_bytes[band_index][layer_index] += (uint64_t)tile_data.size;
+    }
+    ctx->archive_tile_rows += 1u;
+    ctx->archive_bytes_written += (uint64_t)tile_data.size;
+    core_io_buffer_free(&tile_data);
+    return true;
+}
+
+static bool archive_ingest_tree(sqlite3 *db,
+                                sqlite3_stmt *insert_stmt,
+                                const char *tiles_root,
+                                const char *dir_path,
+                                BuildContext *ctx) {
+    DIR *dir = NULL;
+    struct dirent *entry = NULL;
+    size_t root_len = 0u;
+    if (!db || !insert_stmt || !tiles_root || !dir_path || !ctx) {
+        return false;
+    }
+    root_len = strlen(tiles_root);
+    dir = opendir(dir_path);
+    if (!dir) {
+        return false;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char path[512];
+        struct stat st;
+        snprintf(path, sizeof(path), "%s/%s", dir_path, entry->d_name);
+        if (lstat(path, &st) != 0) {
+            continue;
+        }
+        if (S_ISDIR(st.st_mode)) {
+            if (!archive_ingest_tree(db, insert_stmt, tiles_root, path, ctx)) {
+                closedir(dir);
+                return false;
+            }
+            continue;
+        }
+        if (!S_ISREG(st.st_mode) || !string_has_suffix(entry->d_name, ".mft")) {
+            continue;
+        }
+        if (strncmp(path, tiles_root, root_len) != 0 || path[root_len] != '/') {
+            continue;
+        }
+        const char *rel_path = path + root_len + 1u;
+        if (!archive_insert_tile(insert_stmt, path, rel_path, ctx)) {
+            closedir(dir);
+            return false;
+        }
+    }
+    closedir(dir);
+    return true;
+}
+#endif
+
+// Emits SQLite archive payload from staged tile files when enabled.
+static bool write_tile_archive_sqlite(const BuildOptions *options, BuildContext *ctx) {
+    if (!options || !ctx) {
+        return false;
+    }
+    if (!options->emit_archive) {
+        return true;
+    }
+#if !defined(MAPFORGE_HAVE_SQLITE)
+    log_error("archive emit requested but build lacks sqlite support");
+    return false;
+#else
+    const char *archive_rel = (options->archive_path && options->archive_path[0] != '\0')
+        ? options->archive_path
+        : "tiles.mbtiles";
+    if (!archive_rel_path_valid(archive_rel)) {
+        log_error("archive path must be region-local and not contain '..': %s", archive_rel);
+        return false;
+    }
+
+    char tiles_root[512];
+    char archive_file[512];
+    snprintf(tiles_root, sizeof(tiles_root), "%s/tiles", options->out_dir);
+    snprintf(archive_file, sizeof(archive_file), "%s/%s", options->out_dir, archive_rel);
+    if (!path_exists(tiles_root)) {
+        log_error("archive emit missing tiles root: %s", tiles_root);
+        return false;
+    }
+    if (!ensure_parent_dir_recursive(archive_file)) {
+        log_error("archive emit failed to ensure parent dir: %s", archive_file);
+        return false;
+    }
+    (void)unlink(archive_file);
+
+    sqlite3 *db = NULL;
+    sqlite3_stmt *insert_stmt = NULL;
+    if (sqlite3_open_v2(archive_file, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK || !db) {
+        log_error("archive emit open failed: %s", archive_file);
+        if (db) {
+            sqlite3_close(db);
+        }
+        return false;
+    }
+    bool ok = archive_exec_sql(db, "PRAGMA journal_mode=DELETE;") &&
+              archive_exec_sql(db, "PRAGMA synchronous=NORMAL;") &&
+              archive_exec_sql(db, "BEGIN IMMEDIATE;") &&
+              archive_exec_sql(db,
+                               "CREATE TABLE IF NOT EXISTS mapforge_tiles ("
+                               "z INTEGER NOT NULL,"
+                               "x INTEGER NOT NULL,"
+                               "y INTEGER NOT NULL,"
+                               "layer TEXT NOT NULL,"
+                               "band TEXT NOT NULL,"
+                               "tile_data BLOB NOT NULL,"
+                               "PRIMARY KEY (z, x, y, layer, band));");
+    if (!ok) {
+        (void)archive_exec_sql(db, "ROLLBACK;");
+        sqlite3_close(db);
+        return false;
+    }
+
+    if (sqlite3_prepare_v2(db,
+                           "INSERT OR REPLACE INTO mapforge_tiles "
+                           "(z, x, y, layer, band, tile_data) "
+                           "VALUES (?1, ?2, ?3, ?4, ?5, ?6);",
+                           -1,
+                           &insert_stmt,
+                           NULL) != SQLITE_OK || !insert_stmt) {
+        (void)archive_exec_sql(db, "ROLLBACK;");
+        sqlite3_close(db);
+        log_error("archive emit prepare failed");
+        return false;
+    }
+
+    ok = archive_ingest_tree(db, insert_stmt, tiles_root, tiles_root, ctx);
+    sqlite3_finalize(insert_stmt);
+    insert_stmt = NULL;
+    if (!ok || ctx->archive_tile_rows == 0u) {
+        (void)archive_exec_sql(db, "ROLLBACK;");
+        sqlite3_close(db);
+        log_error("archive emit failed to ingest tile rows");
+        return false;
+    }
+    ok = archive_exec_sql(db, "COMMIT;");
+    sqlite3_close(db);
+    if (!ok) {
+        log_error("archive emit commit failed");
+        return false;
+    }
+    log_info("archive emitted: %s rows=%llu bytes=%llu",
+             archive_file,
+             (unsigned long long)ctx->archive_tile_rows,
+             (unsigned long long)ctx->archive_bytes_written);
+    return true;
+#endif
+}
+
+static bool format_archive_rollups_json(const BuildContext *ctx, char *out_json, size_t out_size) {
+    if (!ctx || !out_json || out_size == 0u) {
+        return false;
+    }
+    size_t off = 0u;
+    int n = snprintf(out_json + off, out_size - off,
+                     "{\n"
+                     "            \"rows\": %llu,\n"
+                     "            \"bytes\": %llu,\n"
+                     "            \"bands\": {\n",
+                     (unsigned long long)ctx->archive_tile_rows,
+                     (unsigned long long)ctx->archive_bytes_written);
+    if (n <= 0 || (size_t)n >= (out_size - off)) {
+        return false;
+    }
+    off += (size_t)n;
+
+    for (int b = 0; b < METRIC_BAND_COUNT; ++b) {
+        n = snprintf(out_json + off, out_size - off, "                \"%s\": {\n", k_metric_band_names[b]);
+        if (n <= 0 || (size_t)n >= (out_size - off)) {
+            return false;
+        }
+        off += (size_t)n;
+        for (int l = 0; l < METRIC_LAYER_COUNT; ++l) {
+            const char *comma = (l + 1 < METRIC_LAYER_COUNT) ? "," : "";
+            n = snprintf(out_json + off, out_size - off,
+                         "                    \"%s\": {\"rows\": %llu, \"bytes\": %llu}%s\n",
+                         k_metric_layer_names[l],
+                         (unsigned long long)ctx->archive_rollup_rows[b][l],
+                         (unsigned long long)ctx->archive_rollup_bytes[b][l],
+                         comma);
+            if (n <= 0 || (size_t)n >= (out_size - off)) {
+                return false;
+            }
+            off += (size_t)n;
+        }
+        n = snprintf(out_json + off, out_size - off, "                }%s\n",
+                     (b + 1 < METRIC_BAND_COUNT) ? "," : "");
+        if (n <= 0 || (size_t)n >= (out_size - off)) {
+            return false;
+        }
+        off += (size_t)n;
+    }
+
+    n = snprintf(out_json + off, out_size - off, "            }\n        }");
+    if (n <= 0 || (size_t)n >= (out_size - off)) {
+        return false;
+    }
+    off += (size_t)n;
+    if (off >= out_size) {
+        return false;
+    }
+    return true;
+}
+
 // Writes meta.json for the region pack.
 static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx) {
     if (!options || !ctx || !options->out_dir) {
@@ -1551,6 +2056,12 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
     struct tm *utc = gmtime(&now);
     char timestamp[64] = "";
     char terrain_source_json[1024];
+    const char *archive_rel = (options->archive_path && options->archive_path[0] != '\0')
+        ? options->archive_path
+        : "tiles.mbtiles";
+    const char *tile_store_kind = options->emit_archive ? "archive_indexed" : "filesystem_tree";
+    char tile_store_archive_line[1200];
+    char archive_rollups_json[8192];
     if (utc) {
         strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", utc);
     }
@@ -1559,7 +2070,19 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
     } else {
         snprintf(terrain_source_json, sizeof(terrain_source_json), "null");
     }
-    char json[16384];
+    if (options->emit_archive) {
+        snprintf(tile_store_archive_line,
+                 sizeof(tile_store_archive_line),
+                 ",\n"
+                 "        \"archive_path\": \"%s\"",
+                 archive_rel);
+    } else {
+        tile_store_archive_line[0] = '\0';
+    }
+    if (!format_archive_rollups_json(ctx, archive_rollups_json, sizeof(archive_rollups_json))) {
+        return false;
+    }
+    char json[24576];
     int n = snprintf(
         json, sizeof(json),
         "{\n"
@@ -1577,6 +2100,10 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         "        \"min_z\": %u,\n"
         "        \"max_z\": %u,\n"
         "        \"extent\": %u\n"
+        "    },\n"
+        "    \"tile_store\": {\n"
+        "        \"kind\": \"%s\",\n"
+        "        \"root\": \"tiles\"%s\n"
         "    },\n"
         "    \"tile_pyramid\": {\n"
         "        \"roads\": {\n"
@@ -1606,6 +2133,8 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         "        \"pad_bounds\": %s,\n"
         "        \"emit_contour_empty\": %s,\n"
         "        \"emit_legacy_tiles\": %s,\n"
+        "        \"emit_archive\": %s,\n"
+        "        \"archive_path\": \"%s\",\n"
         "        \"replace\": %s,\n"
         "        \"keep_old\": %u,\n"
         "        \"prune_days\": %u\n"
@@ -1616,6 +2145,8 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         "        \"files_written_legacy\": %llu,\n"
         "        \"files_written_banded\": %llu,\n"
         "        \"files_written_contour\": %llu,\n"
+        "        \"archive_tile_rows\": %llu,\n"
+        "        \"archive_bytes_written\": %llu,\n"
         "        \"layers\": {\n"
         "            \"artery\": %llu,\n"
         "            \"local\": %llu,\n"
@@ -1633,7 +2164,8 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         "            \"coarse\": %llu,\n"
         "            \"mid\": %llu,\n"
         "            \"fine\": %llu\n"
-        "        }\n"
+        "        },\n"
+        "        \"archive_rollups\": %s\n"
         "    }\n"
         "}\n",
         options->region,
@@ -1647,10 +2179,14 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         options->min_z,
         options->max_z,
         (unsigned)TILE_EXTENT,
+        tile_store_kind,
+        tile_store_archive_line,
         (options->dem_path && options->dem_path[0] != '\0') ? "true" : "false",
         options->pad_bounds ? "true" : "false",
         options->emit_contour_empty ? "true" : "false",
         options->emit_legacy_tiles ? "true" : "false",
+        options->emit_archive ? "true" : "false",
+        archive_rel,
         options->replace ? "true" : "false",
         options->keep_old,
         options->prune_days,
@@ -1659,6 +2195,8 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         (unsigned long long)ctx->files_written_legacy,
         (unsigned long long)ctx->files_written_banded,
         (unsigned long long)ctx->files_written_contour,
+        (unsigned long long)ctx->archive_tile_rows,
+        (unsigned long long)ctx->archive_bytes_written,
         (unsigned long long)ctx->layer_artery_files,
         (unsigned long long)ctx->layer_local_files,
         (unsigned long long)ctx->layer_water_files,
@@ -1670,7 +2208,8 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         (unsigned long long)ctx->band_fine_files,
         (unsigned long long)ctx->building_band_coarse_files,
         (unsigned long long)ctx->building_band_mid_files,
-        (unsigned long long)ctx->building_band_fine_files);
+        (unsigned long long)ctx->building_band_fine_files,
+        archive_rollups_json);
     if (n <= 0 || (size_t)n >= sizeof(json)) {
         return false;
     }
@@ -1708,6 +2247,8 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
     if (r.code != CORE_OK) goto fail;
     r = core_dataset_add_metadata_string(&dataset, "bands_table", "map_forge_bands_v1");
     if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "archive_rollups_table", "map_forge_archive_rollups_v1");
+    if (r.code != CORE_OK) goto fail;
     r = core_dataset_add_metadata_string(&dataset, "region", options->region ? options->region : "");
     if (r.code != CORE_OK) goto fail;
 
@@ -1717,23 +2258,28 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
     {
         const char *cols[] = {
             "tile_count", "files_written_total", "files_written_legacy", "files_written_banded",
-            "files_written_contour", "emit_legacy_tiles", "emit_contour_empty", "min_z", "max_z"
+            "files_written_contour", "archive_tile_rows", "archive_bytes_written",
+            "emit_legacy_tiles", "emit_contour_empty", "min_z", "max_z"
         };
         CoreTableColumnType types[] = {
             CORE_TABLE_COL_I64, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64,
-            CORE_TABLE_COL_I64, CORE_TABLE_COL_BOOL, CORE_TABLE_COL_BOOL, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64
+            CORE_TABLE_COL_I64, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64,
+            CORE_TABLE_COL_BOOL, CORE_TABLE_COL_BOOL, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64
         };
         int64_t tile_count_col[] = {(int64_t)ctx->tile_count};
         int64_t files_total_col[] = {(int64_t)ctx->files_written_total};
         int64_t files_legacy_col[] = {(int64_t)ctx->files_written_legacy};
         int64_t files_banded_col[] = {(int64_t)ctx->files_written_banded};
         int64_t files_contour_col[] = {(int64_t)ctx->files_written_contour};
+        int64_t archive_rows_col[] = {(int64_t)ctx->archive_tile_rows};
+        int64_t archive_bytes_col[] = {(int64_t)ctx->archive_bytes_written};
         bool emit_legacy_col[] = {options->emit_legacy_tiles};
         bool emit_contour_col[] = {options->emit_contour_empty};
         int64_t min_z_col[] = {(int64_t)options->min_z};
         int64_t max_z_col[] = {(int64_t)options->max_z};
         const void *col_data[] = {
             tile_count_col, files_total_col, files_legacy_col, files_banded_col, files_contour_col,
+            archive_rows_col, archive_bytes_col,
             emit_legacy_col, emit_contour_col, min_z_col, max_z_col
         };
         r = core_dataset_add_table_typed(&dataset,
@@ -1787,13 +2333,43 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
         if (r.code != CORE_OK) goto fail;
     }
 
+    {
+        const uint32_t rows = (uint32_t)(METRIC_BAND_COUNT * METRIC_LAYER_COUNT);
+        const char *cols[] = {"band_id", "layer_id", "tile_rows", "bytes"};
+        CoreTableColumnType types[] = {CORE_TABLE_COL_I64, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64, CORE_TABLE_COL_I64};
+        int64_t band_id_col[METRIC_BAND_COUNT * METRIC_LAYER_COUNT];
+        int64_t layer_id_col[METRIC_BAND_COUNT * METRIC_LAYER_COUNT];
+        int64_t tile_rows_col[METRIC_BAND_COUNT * METRIC_LAYER_COUNT];
+        int64_t bytes_col[METRIC_BAND_COUNT * METRIC_LAYER_COUNT];
+        uint32_t idx = 0u;
+        for (int b = 0; b < METRIC_BAND_COUNT; ++b) {
+            for (int l = 0; l < METRIC_LAYER_COUNT; ++l) {
+                band_id_col[idx] = (int64_t)(b + 1);
+                layer_id_col[idx] = (int64_t)(l + 1);
+                tile_rows_col[idx] = (int64_t)ctx->archive_rollup_rows[b][l];
+                bytes_col[idx] = (int64_t)ctx->archive_rollup_bytes[b][l];
+                idx += 1u;
+            }
+        }
+        const void *col_data[] = {band_id_col, layer_id_col, tile_rows_col, bytes_col};
+        r = core_dataset_add_table_typed(&dataset,
+                                         "map_forge_archive_rollups_v1",
+                                         cols,
+                                         types,
+                                         (uint32_t)(sizeof(cols) / sizeof(cols[0])),
+                                         rows,
+                                         col_data);
+        if (r.code != CORE_OK) goto fail;
+    }
+
     if (!core_dataset_find(&dataset, "map_forge_summary_v1") ||
         !core_dataset_find(&dataset, "map_forge_layers_v1") ||
-        !core_dataset_find(&dataset, "map_forge_bands_v1")) {
+        !core_dataset_find(&dataset, "map_forge_bands_v1") ||
+        !core_dataset_find(&dataset, "map_forge_archive_rollups_v1")) {
         goto fail;
     }
 
-    char json[12288];
+    char json[16384];
     int n = snprintf(
         json, sizeof(json),
         "{\n"
@@ -1807,20 +2383,23 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
         "    \"region\": \"%s\",\n"
         "    \"summary_table\": \"map_forge_summary_v1\",\n"
         "    \"layers_table\": \"map_forge_layers_v1\",\n"
-        "    \"bands_table\": \"map_forge_bands_v1\"\n"
+        "    \"bands_table\": \"map_forge_bands_v1\",\n"
+        "    \"archive_rollups_table\": \"map_forge_archive_rollups_v1\"\n"
         "  },\n"
         "  \"items\": [\n"
         "    {\n"
         "      \"name\": \"map_forge_summary_v1\",\n"
         "      \"kind\": \"table_typed\",\n"
         "      \"rows\": 1,\n"
-        "      \"columns\": 9,\n"
+        "      \"columns\": 11,\n"
         "      \"row0\": {\n"
         "        \"tile_count\": %lld,\n"
         "        \"files_written_total\": %lld,\n"
         "        \"files_written_legacy\": %lld,\n"
         "        \"files_written_banded\": %lld,\n"
         "        \"files_written_contour\": %lld,\n"
+        "        \"archive_tile_rows\": %lld,\n"
+        "        \"archive_bytes_written\": %lld,\n"
         "        \"emit_legacy_tiles\": %s,\n"
         "        \"emit_contour_empty\": %s,\n"
         "        \"min_z\": %u,\n"
@@ -1838,6 +2417,12 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
         "      \"kind\": \"table_typed\",\n"
         "      \"rows\": 3,\n"
         "      \"columns\": 2\n"
+        "    },\n"
+        "    {\n"
+        "      \"name\": \"map_forge_archive_rollups_v1\",\n"
+        "      \"kind\": \"table_typed\",\n"
+        "      \"rows\": %u,\n"
+        "      \"columns\": 4\n"
         "    }\n"
         "  ]\n"
         "}\n",
@@ -1847,10 +2432,13 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
         (long long)ctx->files_written_legacy,
         (long long)ctx->files_written_banded,
         (long long)ctx->files_written_contour,
+        (long long)ctx->archive_tile_rows,
+        (long long)ctx->archive_bytes_written,
         options->emit_legacy_tiles ? "true" : "false",
         options->emit_contour_empty ? "true" : "false",
         (unsigned)options->min_z,
-        (unsigned)options->max_z);
+        (unsigned)options->max_z,
+        (unsigned)(METRIC_BAND_COUNT * METRIC_LAYER_COUNT));
     if (n <= 0 || (size_t)n >= sizeof(json)) {
         goto fail;
     }
@@ -2030,12 +2618,13 @@ static bool build_publish_paths(const char *active_dir,
 }
 
 // Validates staged output before publish.
-static bool validate_staged_region(const char *stage_dir) {
+static bool validate_staged_region(const BuildOptions *options, const char *stage_dir) {
     char meta_path[512];
     char tiles_path[512];
+    char archive_path[512];
     struct stat st;
 
-    if (!stage_dir) {
+    if (!options || !stage_dir) {
         return false;
     }
 
@@ -2053,6 +2642,16 @@ static bool validate_staged_region(const char *stage_dir) {
     if (!tree_has_file_suffix(tiles_path, ".mft")) {
         log_error("staged region missing tile payload files: %s", tiles_path);
         return false;
+    }
+    if (options->emit_archive) {
+        const char *archive_rel = (options->archive_path && options->archive_path[0] != '\0')
+            ? options->archive_path
+            : "tiles.mbtiles";
+        snprintf(archive_path, sizeof(archive_path), "%s/%s", stage_dir, archive_rel);
+        if (stat(archive_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+            log_error("staged region missing archive payload: %s", archive_path);
+            return false;
+        }
     }
     return true;
 }
@@ -2179,15 +2778,201 @@ static bool parse_bounds(BuildContext *ctx, const char *line) {
     return true;
 }
 
+typedef enum OSMSourceKind {
+    OSM_SOURCE_KIND_XML = 0,
+    OSM_SOURCE_KIND_PBF = 1,
+    OSM_SOURCE_KIND_UNKNOWN = 2
+} OSMSourceKind;
+
+static bool source_name_has_suffix(const char *name, const char *suffix) {
+    size_t name_len = 0u;
+    size_t suffix_len = 0u;
+    if (!name || !suffix) {
+        return false;
+    }
+    name_len = strlen(name);
+    suffix_len = strlen(suffix);
+    if (name_len < suffix_len) {
+        return false;
+    }
+    return strcasecmp(name + (name_len - suffix_len), suffix) == 0;
+}
+
+static bool source_buffer_contains(const uint8_t *buffer,
+                                   size_t buffer_size,
+                                   const char *needle) {
+    size_t needle_len = 0u;
+    if (!buffer || !needle) {
+        return false;
+    }
+    needle_len = strlen(needle);
+    if (needle_len == 0u || needle_len > buffer_size) {
+        return false;
+    }
+    for (size_t i = 0; i + needle_len <= buffer_size; ++i) {
+        if (memcmp(buffer + i, needle, needle_len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static OSMSourceKind detect_osm_source_kind(const char *path) {
+    uint8_t probe[4096];
+    size_t read_size = 0u;
+    FILE *file = NULL;
+
+    if (!path || path[0] == '\0') {
+        return OSM_SOURCE_KIND_UNKNOWN;
+    }
+
+    if (source_name_has_suffix(path, ".osm") || source_name_has_suffix(path, ".osm.xml")) {
+        return OSM_SOURCE_KIND_XML;
+    }
+    if (source_name_has_suffix(path, ".pbf") || source_name_has_suffix(path, ".osm.pbf")) {
+        return OSM_SOURCE_KIND_PBF;
+    }
+
+    file = fopen(path, "rb");
+    if (!file) {
+        return OSM_SOURCE_KIND_UNKNOWN;
+    }
+    read_size = fread(probe, 1u, sizeof(probe), file);
+    fclose(file);
+
+    if (read_size == 0u) {
+        return OSM_SOURCE_KIND_UNKNOWN;
+    }
+    if (source_buffer_contains(probe, read_size, "OSMHeader")) {
+        return OSM_SOURCE_KIND_PBF;
+    }
+    if (source_buffer_contains(probe, read_size, "<osm") ||
+        source_buffer_contains(probe, read_size, "<?xml")) {
+        return OSM_SOURCE_KIND_XML;
+    }
+    return OSM_SOURCE_KIND_UNKNOWN;
+}
+
+static int source_spawn_and_wait(const char *program, char *const argv[]) {
+    pid_t pid = 0;
+    int rc = 0;
+    int status = 0;
+
+    if (!program || !argv || !argv[0]) {
+        return EINVAL;
+    }
+
+    if (strchr(program, '/') != NULL) {
+        rc = posix_spawn(&pid, program, NULL, NULL, argv, environ);
+    } else {
+        rc = posix_spawnp(&pid, program, NULL, NULL, argv, environ);
+    }
+    if (rc != 0) {
+        return rc;
+    }
+
+    for (;;) {
+        pid_t waited = waitpid(pid, &status, 0);
+        if (waited == pid) {
+            break;
+        }
+        if (waited < 0 && errno == EINTR) {
+            continue;
+        }
+        return errno != 0 ? errno : ECHILD;
+    }
+
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        return EPROTO;
+    }
+    return 0;
+}
+
+static bool resolve_osmium_program(char *out_path, size_t out_path_cap) {
+    const char *env_path = getenv("MAPFORGE_OSMIUM_PATH");
+    const char *candidates[] = {
+        "/opt/homebrew/bin/osmium",
+        "/usr/local/bin/osmium",
+        "/usr/bin/osmium",
+        "osmium"
+    };
+    if (!out_path || out_path_cap == 0u) {
+        return false;
+    }
+    out_path[0] = '\0';
+
+    if (env_path && env_path[0] != '\0') {
+        if (access(env_path, X_OK) == 0) {
+            snprintf(out_path, out_path_cap, "%s", env_path);
+            return true;
+        }
+        log_error("MAPFORGE_OSMIUM_PATH is set but not executable: %s", env_path);
+    }
+
+    for (size_t i = 0; i < (sizeof(candidates) / sizeof(candidates[0])); ++i) {
+        const char *candidate = candidates[i];
+        if (candidate[0] == '/') {
+            if (access(candidate, X_OK) != 0) {
+                continue;
+            }
+        }
+        snprintf(out_path, out_path_cap, "%s", candidate);
+        return true;
+    }
+    return false;
+}
+
+static bool convert_pbf_to_xml(const char *pbf_path, char *xml_path, size_t xml_path_cap) {
+    char tmp_template[] = "/tmp/mapforge_osmxml_XXXXXX";
+    char osmium_program[MAPFORGE_SOURCE_PATH_CAPACITY];
+    int fd = -1;
+    int rc = 0;
+    char *osmium_argv[] = {NULL, "cat", "-F", "pbf", (char *)pbf_path, "-o", tmp_template, "-f", "osm", "--overwrite", NULL};
+
+    if (!pbf_path || !xml_path || xml_path_cap == 0u) {
+        return false;
+    }
+    xml_path[0] = '\0';
+
+    if (!resolve_osmium_program(osmium_program, sizeof(osmium_program))) {
+        log_error("PBF source detected (%s) but converter is unavailable. Install `osmium` or set MAPFORGE_OSMIUM_PATH to the osmium binary.", pbf_path);
+        return false;
+    }
+    osmium_argv[0] = osmium_program;
+
+    fd = mkstemp(tmp_template);
+    if (fd < 0) {
+        log_error("Failed to create temporary XML path for PBF conversion: %s", strerror(errno));
+        return false;
+    }
+    close(fd);
+
+    rc = source_spawn_and_wait(osmium_program, osmium_argv);
+    if (rc == 0) {
+        snprintf(xml_path, xml_path_cap, "%s", tmp_template);
+        return true;
+    }
+
+    (void)unlink(tmp_template);
+    if (rc == ENOENT) {
+        log_error("PBF source detected (%s) but converter is unavailable. Install `osmium` or set MAPFORGE_OSMIUM_PATH to the osmium binary.", pbf_path);
+    } else {
+        log_error("PBF conversion failed for %s (converter=%s, rc=%d)", pbf_path, osmium_program, rc);
+    }
+    return false;
+}
+
 // Streams an OSM XML file and emits road tiles.
-static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
+static bool parse_osm_xml(const BuildOptions *options,
+                          BuildContext *ctx,
+                          const char *osm_xml_path) {
     if (!options || !ctx) {
         return false;
     }
 
-    FILE *file = fopen(options->osm_path, "r");
+    FILE *file = fopen(osm_xml_path, "r");
     if (!file) {
-        log_error("Failed to open OSM file: %s", options->osm_path);
+        log_error("Failed to open OSM file: %s", osm_xml_path);
         return false;
     }
 
@@ -2341,9 +3126,36 @@ static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
     return true;
 }
 
+static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
+    OSMSourceKind source_kind;
+    bool ok = false;
+    char converted_xml_path[MAPFORGE_SOURCE_PATH_CAPACITY];
+    const char *parse_path = NULL;
+
+    if (!options || !ctx || !options->osm_path) {
+        return false;
+    }
+
+    converted_xml_path[0] = '\0';
+    parse_path = options->osm_path;
+    source_kind = detect_osm_source_kind(options->osm_path);
+    if (source_kind == OSM_SOURCE_KIND_PBF) {
+        if (!convert_pbf_to_xml(options->osm_path, converted_xml_path, sizeof(converted_xml_path))) {
+            return false;
+        }
+        parse_path = converted_xml_path;
+    }
+
+    ok = parse_osm_xml(options, ctx, parse_path);
+    if (converted_xml_path[0] != '\0') {
+        (void)unlink(converted_xml_path);
+    }
+    return ok;
+}
+
 // Prints CLI usage to stdout.
 static void usage(void) {
-    printf("mapforge_region --region <name> --osm <file.osm> [--dem <file.dem>] --out <dir> [--min-z N] [--max-z N] [--replace] [--keep-old N] [--prune-days N] [--prune-dry-run] [--pad-bounds] [--emit-contour-empty] [--emit-legacy-tiles]\n");
+    printf("mapforge_region --region <name> --osm <file.osm|file.osm.xml|file.osm.pbf|file.pbf> [--dem <file.dem>] --out <dir> [--min-z N] [--max-z N] [--replace] [--keep-old N] [--prune-days N] [--prune-dry-run] [--pad-bounds] [--emit-contour-empty] [--emit-legacy-tiles] [--emit-archive] [--archive-path <relpath>]\n");
 }
 
 // Parses CLI arguments into build options.
@@ -2358,6 +3170,7 @@ static bool parse_args(int argc, char **argv, BuildOptions *options) {
     options->keep_old = 1u;
     options->prune_days = 30u;
     options->emit_legacy_tiles = true;
+    options->archive_path = "tiles.mbtiles";
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--region") == 0 && i + 1 < argc) {
@@ -2388,12 +3201,22 @@ static bool parse_args(int argc, char **argv, BuildOptions *options) {
             options->emit_legacy_tiles = true;
         } else if (strcmp(argv[i], "--no-legacy-tiles") == 0) {
             options->emit_legacy_tiles = false;
+        } else if (strcmp(argv[i], "--emit-archive") == 0) {
+            options->emit_archive = true;
+        } else if (strcmp(argv[i], "--archive-path") == 0 && i + 1 < argc) {
+            options->archive_path = argv[++i];
+            options->emit_archive = true;
         } else {
             return false;
         }
     }
 
     if (!options->region || !options->osm_path || !options->out_dir) {
+        return false;
+    }
+    if (options->emit_archive && !archive_rel_path_valid(options->archive_path)) {
+        log_error("--archive-path must be a region-local relative path (no leading '/' and no '..'): %s",
+                  options->archive_path ? options->archive_path : "");
         return false;
     }
 
@@ -2466,6 +3289,14 @@ int main(int argc, char **argv) {
             log_error("Failed to write tile %u/%u/%u", ctx.tiles[i].coord.z, ctx.tiles[i].coord.x, ctx.tiles[i].coord.y);
         }
     }
+    if (!write_tile_archive_sqlite(&options, &ctx)) {
+        log_error("Failed to emit staged archive payload for region: %s", options.region);
+        build_context_free(&ctx);
+        if (stage_created) {
+            remove_tree(stage_dir);
+        }
+        return 1;
+    }
 
     if (!write_meta_json(&options, &ctx)) {
         log_error("Failed to write staged meta.json for region: %s", options.region);
@@ -2485,7 +3316,7 @@ int main(int argc, char **argv) {
     }
     build_context_free(&ctx);
 
-    if (!validate_staged_region(stage_dir)) {
+    if (!validate_staged_region(&options, stage_dir)) {
         if (stage_created) {
             remove_tree(stage_dir);
         }

@@ -11,6 +11,8 @@ VULKAN_CFLAGS := $(shell pkg-config --cflags vulkan 2>/dev/null)
 VULKAN_LIBS := $(shell pkg-config --libs vulkan 2>/dev/null)
 JSON_CFLAGS := $(shell pkg-config --cflags json-c 2>/dev/null)
 JSON_LIBS := $(shell pkg-config --libs json-c 2>/dev/null)
+SQLITE_CFLAGS := $(shell pkg-config --cflags sqlite3 2>/dev/null)
+SQLITE_LIBS := $(shell pkg-config --libs sqlite3 2>/dev/null)
 SHARED_ROOT ?= third_party/codework_shared
 CORE_SPACE_DIR := $(SHARED_ROOT)/core/core_space
 CORE_BASE_DIR := $(SHARED_ROOT)/core/core_base
@@ -79,6 +81,11 @@ ifeq ($(JSON_LIBS),)
 LDLIBS += -ljson-c
 endif
 CFLAGS += $(JSON_CFLAGS)
+ifneq ($(strip $(SQLITE_LIBS)),)
+CFLAGS += $(SQLITE_CFLAGS) -DMAPFORGE_HAVE_SQLITE=1
+LDLIBS += $(SQLITE_LIBS)
+TOOL_LDLIBS += $(SQLITE_LIBS)
+endif
 CFLAGS += -I$(CORE_SPACE_DIR)/include
 CFLAGS += -I$(CORE_BASE_DIR)/include
 CFLAGS += -I$(CORE_IO_DIR)/include
@@ -140,6 +147,8 @@ STAPLE_MAX_ATTEMPTS ?= 6
 STAPLE_RETRY_DELAY_SEC ?= 15
 TOOL_TARGET := build/tools/mapforge_region
 TOOL_SRCS := tools/mapforge_region.c src/map/mercator.c src/map/tile_math.c src/core/log.c
+REGION_VALIDATE_TARGET := build/tools/mapforge_region_validate
+REGION_VALIDATE_SRCS := tools/mapforge_region_validate.c src/app/region.c src/app/region_loader.c src/map/tile_source.c src/core/log.c
 GRAPH_TARGET := build/tools/mapforge_graph
 GRAPH_SRCS := tools/mapforge_graph.c src/map/mercator.c src/core/log.c
 MAP_SPACE_TEST_TARGET := build/tests/map_space_test
@@ -151,9 +160,11 @@ MAP_TRACE_CONTRACT_TEST_SRCS := tests/map_trace_contract_test.c
 APP_WORKER_CONTRACT_TEST_TARGET := build/tests/app_worker_contract_test
 APP_WORKER_CONTRACT_TEST_SRCS := tests/app_worker_contract_test.c src/app/app_worker_contract.c
 TILE_LOADER_SHUTDOWN_TEST_TARGET := build/tests/tile_loader_shutdown_test
-TILE_LOADER_SHUTDOWN_TEST_SRCS := tests/tile_loader_shutdown_test.c src/map/tile_loader.c src/map/mft_loader.c src/map/polygon_cache.c src/map/polygon_triangulator.c src/core/log.c
+TILE_LOADER_SHUTDOWN_TEST_SRCS := tests/tile_loader_shutdown_test.c src/map/tile_loader.c src/map/tile_source.c src/map/mft_loader.c src/map/polygon_cache.c src/map/polygon_triangulator.c src/core/log.c
+TILE_SOURCE_ARCHIVE_TEST_TARGET := build/tests/tile_source_archive_test
+TILE_SOURCE_ARCHIVE_TEST_SRCS := tests/tile_source_archive_test.c src/map/tile_source.c
 APP_ROUTE_SERVICE_TEST_TARGET := build/tests/app_route_service_test
-APP_ROUTE_SERVICE_TEST_SRCS := tests/app_route_service_test.c src/app/app_route_service.c
+APP_ROUTE_SERVICE_TEST_SRCS := tests/app_route_service_test.c src/app/route/app_route_service.c
 APP_TILE_PRESENTER_POLICY_TEST_TARGET := build/tests/app_tile_presenter_policy_test
 APP_TILE_PRESENTER_POLICY_TEST_SRCS := tests/app_tile_presenter_policy_test.c src/app/app_tile_presenter.c
 APP_RUNTIME_INPUT_POLICY_TEST_TARGET := build/tests/app_runtime_input_policy_test
@@ -184,6 +195,8 @@ PRUNE_DRY_RUN ?= 0
 PAD_BOUNDS ?= 0
 EMIT_CONTOUR_EMPTY ?= 0
 EMIT_LEGACY_TILES ?= 1
+EMIT_ARCHIVE ?= 0
+ARCHIVE_PATH ?= tiles.mbtiles
 
 REGION_TOOL_FLAGS := $(if $(filter 1,$(REPLACE)),--replace,) \
 	--keep-old $(KEEP_OLD) \
@@ -191,7 +204,8 @@ REGION_TOOL_FLAGS := $(if $(filter 1,$(REPLACE)),--replace,) \
 	$(if $(filter 1,$(PRUNE_DRY_RUN)),--prune-dry-run,) \
 	$(if $(filter 1,$(PAD_BOUNDS)),--pad-bounds,) \
 	$(if $(filter 1,$(EMIT_CONTOUR_EMPTY)),--emit-contour-empty,) \
-	$(if $(filter 1,$(EMIT_LEGACY_TILES)),--emit-legacy-tiles,--no-legacy-tiles)
+	$(if $(filter 1,$(EMIT_LEGACY_TILES)),--emit-legacy-tiles,--no-legacy-tiles) \
+	$(if $(filter 1,$(EMIT_ARCHIVE)),--emit-archive --archive-path $(ARCHIVE_PATH),)
 
 GRAPH_TOOL_FLAGS := $(if $(filter 1,$(REPLACE)),--replace,) \
 	--keep-old $(KEEP_OLD) \
@@ -262,7 +276,7 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
-run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-input-policy
+run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-input-policy test-region-validate-strict test-archive-metrics-rollup
 	@echo "map_forge headless smoke passed (non-interactive)"
 
 visual-harness: app
@@ -282,8 +296,9 @@ package-desktop: app tools-build graph-build
 	@cp -R config "$(PACKAGE_RESOURCES_DIR)/"
 	@cp -R "$(SHARED_ROOT)/assets/fonts" "$(PACKAGE_RESOURCES_DIR)/shared/assets/"
 	@cp "$(TOOL_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_region"
+	@cp "$(REGION_VALIDATE_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate"
 	@cp "$(GRAPH_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"
-	@chmod +x "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"
+	@chmod +x "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"
 	@mkdir -p "$(PACKAGE_RESOURCES_DIR)/vk_renderer" "$(PACKAGE_RESOURCES_DIR)/shaders"
 	@cp -R "$(VK_RENDERER_RESOLVED_DIR)/shaders" "$(PACKAGE_RESOURCES_DIR)/vk_renderer/"
 	@cp -R "$(VK_RENDERER_RESOLVED_DIR)/shaders/." "$(PACKAGE_RESOURCES_DIR)/shaders/"
@@ -303,6 +318,7 @@ package-desktop-smoke: package-desktop
 	@test -f "$(PACKAGE_RESOURCES_DIR)/assets/fonts/Montserrat-Regular.ttf" || (echo "Missing bundled Montserrat"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/config/app.config.json" || (echo "Missing bundled app config"; exit 1)
 	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_region" || (echo "Missing bundled mapforge_region tool"; exit 1)
+	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" || (echo "Missing bundled mapforge_region_validate tool"; exit 1)
 	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_graph" || (echo "Missing bundled mapforge_graph tool"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/vk_renderer/shaders/textured.vert.spv" || (echo "Missing bundled shader"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/shaders/textured.vert.spv" || (echo "Missing runtime shader"; exit 1)
@@ -523,11 +539,15 @@ run-daw-theme: app
 tools:
 	tools/run_with_progress.sh --label "make tools" $(MAKE) --no-print-directory tools-build
 
-tools-build: $(TOOL_TARGET)
+tools-build: $(TOOL_TARGET) $(REGION_VALIDATE_TARGET)
 
 $(TOOL_TARGET): $(TOOL_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(TOOL_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(REGION_VALIDATE_TARGET): $(REGION_VALIDATE_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(REGION_VALIDATE_SRCS) -o $@ $(TOOL_LDLIBS) $(if $(JSON_LIBS),$(JSON_LIBS),-ljson-c)
 
 graph:
 	tools/run_with_progress.sh --label "make graph" $(MAKE) --no-print-directory graph-build
@@ -545,13 +565,25 @@ build-safety-check: tools graph
 	./tests/test_build_safety.sh
 
 test: test-space build-safety-check
+test: test-region-validate-strict
+test: test-archive-metrics-rollup
 test: test-trace-contract
 test: test-worker-contract
 test: test-tile-loader-shutdown
+test: test-tile-source-archive
 test: test-route-service
 test: test-tile-presenter-policy
 test: test-presentation-stability
 test: test-input-policy
+
+test-region-validate-strict: tools-build
+	./tests/test_region_validate_strict.sh
+
+test-archive-metrics-rollup: tools-build
+	./tests/test_archive_metrics_rollup.sh
+
+metrics-rollup-gate: test-archive-metrics-rollup
+	@echo "metrics-rollup-gate passed"
 
 test-shared-theme-font-adapter: $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
 	./$(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
@@ -564,6 +596,9 @@ test-worker-contract: $(APP_WORKER_CONTRACT_TEST_TARGET)
 
 test-tile-loader-shutdown: $(TILE_LOADER_SHUTDOWN_TEST_TARGET)
 	./$(TILE_LOADER_SHUTDOWN_TEST_TARGET)
+
+test-tile-source-archive: $(TILE_SOURCE_ARCHIVE_TEST_TARGET)
+	./$(TILE_SOURCE_ARCHIVE_TEST_TARGET)
 
 test-route-service: $(APP_ROUTE_SERVICE_TEST_TARGET)
 	./$(APP_ROUTE_SERVICE_TEST_TARGET)
@@ -597,6 +632,10 @@ $(TILE_LOADER_SHUTDOWN_TEST_TARGET): $(TILE_LOADER_SHUTDOWN_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(TILE_LOADER_SHUTDOWN_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
 
+$(TILE_SOURCE_ARCHIVE_TEST_TARGET): $(TILE_SOURCE_ARCHIVE_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(TILE_SOURCE_ARCHIVE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
 $(APP_ROUTE_SERVICE_TEST_TARGET): $(APP_ROUTE_SERVICE_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(APP_ROUTE_SERVICE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
@@ -614,6 +653,9 @@ route: graph
 
 region: tools
 	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out "$(REGIONS_DIR)/$(REGION)" --min-z $(MIN_Z) --max-z $(MAX_Z) $(REGION_TOOL_FLAGS)
+
+region-validate: tools-build
+	./$(REGION_VALIDATE_TARGET) $(if $(REGION),--region $(REGION),) $(if $(filter 1,$(STRICT)),--strict,)
 
 region-rebuild: tools
 	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out "$(REGIONS_DIR)/$(REGION)" --min-z $(MIN_Z) --max-z $(MAX_Z) --replace $(REGION_TOOL_FLAGS)
@@ -719,6 +761,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-archive-metrics-rollup metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-validate region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

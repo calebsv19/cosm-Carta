@@ -48,10 +48,10 @@ This reference groups all active controls by category for quick lookup.
 - B: Open native macOS folder chooser for input root
 - Enter:
   - in edit mode: apply current input-root path
-  - source tab: import selected `.osm` and open derived region
+  - source tab: import selected OSM source (`.osm`/`.osm.xml`/`.pbf`) and open derived region
   - active tab: open selected imported region
 - Double-click (active tab row): open selected imported region
-- A: Import all `.osm` files from current input root
+- A: Import all discovered OSM source files from current input root
 
 Notes:
 - Keyboard-first ingest is the current contract.

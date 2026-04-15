@@ -13,13 +13,25 @@ uint32_t app_tile_load_budget(TileLayerKind kind, uint32_t expected) {
                           kind == TILE_LAYER_POLY_LANDUSE ||
                           kind == TILE_LAYER_POLY_BUILDING);
     if (polygon_layer) {
-        if (expected <= 4u) {
+        if (expected <= 8u) {
             return expected;
         }
-        if (expected <= 16u) {
-            return 2u;
+        if (kind == TILE_LAYER_POLY_BUILDING) {
+            if (expected <= 32u) {
+                return 4u;
+            }
+            if (expected <= 128u) {
+                return 6u;
+            }
+            return 8u;
         }
-        return 1u;
+        if (expected <= 32u) {
+            return 3u;
+        }
+        if (expected <= 128u) {
+            return 4u;
+        }
+        return 6u;
     }
     if (expected <= 8) {
         return expected;
@@ -42,13 +54,19 @@ uint32_t app_tile_integrate_budget(TileLayerKind kind, uint32_t expected) {
                           kind == TILE_LAYER_POLY_LANDUSE ||
                           kind == TILE_LAYER_POLY_BUILDING);
     if (polygon_layer) {
-        if (expected <= 4u) {
+        if (expected <= 8u) {
             return expected;
         }
         if (kind == TILE_LAYER_POLY_BUILDING) {
-            return 2u;
+            if (expected <= 64u) {
+                return 4u;
+            }
+            return 6u;
         }
-        return 1u;
+        if (expected <= 32u) {
+            return 3u;
+        }
+        return 4u;
     }
     if (expected <= 32) {
         return 32;
@@ -600,6 +618,8 @@ void app_update_tile_queue(AppState *app) {
     uint16_t z = 0;
     TileCoord top_left = {0};
     TileCoord bottom_right = {0};
+    TileCoord queue_top_left = {0};
+    TileCoord queue_bottom_right = {0};
     if (!app_compute_visible_tile_bounds(app, &z, &top_left, &bottom_right)) {
         app->tile_state_bridge.visible_valid = false;
         app->tile_state_bridge.loading_expected = 0;
@@ -613,6 +633,28 @@ void app_update_tile_queue(AppState *app) {
     app->tile_state_bridge.visible_bottom_right = bottom_right;
     app->tile_state_bridge.visible_valid = true;
     app->tile_state_bridge.visible_tile_count = (bottom_right.x - top_left.x + 1) * (bottom_right.y - top_left.y + 1);
+
+    queue_top_left = top_left;
+    queue_bottom_right = bottom_right;
+    {
+        const uint32_t tile_limit = tile_count(z);
+        // Keep one-tile prefetch margin around the viewport to avoid edge pop-in during pan/zoom.
+        if (tile_limit > 0u) {
+            if (queue_top_left.x > 0u) {
+                queue_top_left.x -= 1u;
+            }
+            if (queue_top_left.y > 0u) {
+                queue_top_left.y -= 1u;
+            }
+            if (queue_bottom_right.x + 1u < tile_limit) {
+                queue_bottom_right.x += 1u;
+            }
+            if (queue_bottom_right.y + 1u < tile_limit) {
+                queue_bottom_right.y += 1u;
+            }
+        }
+    }
+
     bool band_plan_changed = false;
     for (size_t i = 0; i < layer_policy_count(); ++i) {
         const LayerPolicy *policy = layer_policy_at(i);
@@ -647,8 +689,8 @@ void app_update_tile_queue(AppState *app) {
 
     bool visible_bounds_changed = !app->tile_state_bridge.queue_valid ||
         app->tile_state_bridge.queue_zoom != z ||
-        app->tile_state_bridge.queue_top_left.x != top_left.x || app->tile_state_bridge.queue_top_left.y != top_left.y ||
-        app->tile_state_bridge.queue_bottom_right.x != bottom_right.x || app->tile_state_bridge.queue_bottom_right.y != bottom_right.y;
+        app->tile_state_bridge.queue_top_left.x != queue_top_left.x || app->tile_state_bridge.queue_top_left.y != queue_top_left.y ||
+        app->tile_state_bridge.queue_bottom_right.x != queue_bottom_right.x || app->tile_state_bridge.queue_bottom_right.y != queue_bottom_right.y;
     if (!visible_bounds_changed) {
         for (size_t i = 0; i < layer_policy_count(); ++i) {
             const LayerPolicy *policy = layer_policy_at(i);
@@ -681,13 +723,15 @@ void app_update_tile_queue(AppState *app) {
             TileLayerKind kind = policy->kind;
             TileZoomBand band = app->tile_state_bridge.layer_target_band[kind];
             app->tile_state_bridge.queue_band[kind] = band;
-            app_rebuild_tile_queue_for_kind(app, &app->tile_state_bridge.tile_queues[kind], kind, z, top_left, bottom_right, band);
+            app_rebuild_tile_queue_for_kind(app, &app->tile_state_bridge.tile_queues[kind], kind, z, queue_top_left, queue_bottom_right, band);
         }
-        uint32_t buffer = app->tile_state_bridge.visible_tile_count;
+        uint32_t queue_tile_count = (queue_bottom_right.x - queue_top_left.x + 1u) *
+                                    (queue_bottom_right.y - queue_top_left.y + 1u);
+        uint32_t buffer = queue_tile_count;
         if (buffer < 64u) {
             buffer = 64u;
         }
-        uint32_t target_capacity = app->tile_state_bridge.visible_tile_count + buffer;
+        uint32_t target_capacity = queue_tile_count + buffer;
         for (size_t i = 0; i < layer_policy_count(); ++i) {
             const LayerPolicy *policy = layer_policy_at(i);
             if (!policy || !app_layer_active_runtime(app, policy->kind)) {
@@ -695,8 +739,8 @@ void app_update_tile_queue(AppState *app) {
             }
             tile_manager_ensure_capacity(&app->tile_state_bridge.tile_managers[policy->kind], target_capacity);
         }
-        app->tile_state_bridge.queue_top_left = top_left;
-        app->tile_state_bridge.queue_bottom_right = bottom_right;
+        app->tile_state_bridge.queue_top_left = queue_top_left;
+        app->tile_state_bridge.queue_bottom_right = queue_bottom_right;
         app->tile_state_bridge.queue_zoom = z;
         app->tile_state_bridge.queue_valid = true;
         app->tile_state_bridge.loading_layer_index = 0;
@@ -762,7 +806,15 @@ void app_update_tile_queue(AppState *app) {
                    policy->kind == TILE_LAYER_POLY_PARK ||
                    policy->kind == TILE_LAYER_POLY_LANDUSE ||
                    policy->kind == TILE_LAYER_POLY_BUILDING) {
-            uint32_t polygon_cap = (policy->kind == TILE_LAYER_POLY_BUILDING) ? 2u : 1u;
+            uint32_t polygon_cap = 2u;
+            if (app->tile_state_bridge.visible_tile_count <= 4u) {
+                polygon_cap = 4u;
+            } else if (app->tile_state_bridge.visible_tile_count <= 16u) {
+                polygon_cap = 3u;
+            }
+            if (policy->kind == TILE_LAYER_POLY_BUILDING && polygon_cap < 4u) {
+                polygon_cap += 1u;
+            }
             if (budget > polygon_cap) {
                 budget = polygon_cap;
             }

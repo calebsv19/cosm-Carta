@@ -33,7 +33,7 @@ static bool app_point_in_rect(int x, int y, const SDL_FRect *rect) {
 }
 
 static int app_layer_debug_line_count(void) {
-    return 6 + (int)layer_policy_count();
+    return 8 + (int)layer_policy_count();
 }
 
 static int app_digits_u32(uint32_t value) {
@@ -70,6 +70,18 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.draw_path_fallback_count));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.transition_blend_draw_count));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.presenter_invariant_fail_count));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->region.tile_source.storage_kind);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)(app->region.has_tile_archive ? 1u : 0u));
+    hash = app_hash_mix_u64(hash, app->region.archive_rollup_total_rows);
+    hash = app_hash_mix_u64(hash, app->region.archive_rollup_total_bytes);
+
+    TileSourceRuntimeStats source_stats = {0};
+    tile_source_runtime_stats_get(&source_stats);
+    hash = app_hash_mix_u64(hash, source_stats.archive_request_count);
+    hash = app_hash_mix_u64(hash, source_stats.archive_hit_count);
+    hash = app_hash_mix_u64(hash, source_stats.archive_extract_count);
+    hash = app_hash_mix_u64(hash, source_stats.archive_extract_fail_count);
+    hash = app_hash_mix_u64(hash, source_stats.archive_fallback_tree_count);
 
     for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_visible_loaded[i]));
@@ -137,8 +149,39 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
                  app->tile_state_bridge.presenter_invariant_fail_count);
         return true;
     }
+    if (index == 6) {
+        TileSourceRuntimeStats source_stats = {0};
+        tile_source_runtime_stats_get(&source_stats);
+        snprintf(line, line_size, "Tile source=%s archive(req=%llu hit=%llu ext=%llu fail=%llu tree=%llu)",
+                 tile_storage_kind_label(app->region.tile_source.storage_kind),
+                 (unsigned long long)source_stats.archive_request_count,
+                 (unsigned long long)source_stats.archive_hit_count,
+                 (unsigned long long)source_stats.archive_extract_count,
+                 (unsigned long long)source_stats.archive_extract_fail_count,
+                 (unsigned long long)source_stats.archive_fallback_tree_count);
+        return true;
+    }
 
-    int policy_index = index - 6;
+    if (index == 7) {
+        if (app->region.has_archive_rollups) {
+            uint64_t fine_roads = app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_ARTERY] +
+                app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_LOCAL];
+            uint64_t fine_polys = app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_WATER] +
+                app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_PARK] +
+                app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_LANDUSE] +
+                app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_BUILDING];
+            snprintf(line, line_size, "Pkg rollup rows=%llu bytes=%llu fine(road=%llu poly=%llu)",
+                     (unsigned long long)app->region.archive_rollup_total_rows,
+                     (unsigned long long)app->region.archive_rollup_total_bytes,
+                     (unsigned long long)fine_roads,
+                     (unsigned long long)fine_polys);
+        } else {
+            snprintf(line, line_size, "Pkg rollup rows=n/a bytes=n/a");
+        }
+        return true;
+    }
+
+    int policy_index = index - 8;
     if (policy_index < 0 || (size_t)policy_index >= layer_policy_count()) {
         return false;
     }
@@ -366,11 +409,18 @@ void app_copy_overlay_text(AppState *app) {
 
     char buffer[2048];
     size_t offset = 0;
+    uint64_t fine_rollup_roads = app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_ARTERY] +
+        app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_LOCAL];
+    uint64_t fine_rollup_polys = app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_WATER] +
+        app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_PARK] +
+        app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_LANDUSE] +
+        app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_BUILDING];
     int written = snprintf(buffer + offset, sizeof(buffer) - offset,
                            "Region: %s\nZoom: %.2f\nVisible tiles: %u\nLoad total: %u/%u no_data=%.1fs\n"
                            "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u\n"
                            "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u\n"
-                           "Hardening invariants=%s contour=%s\n",
+                           "Hardening invariants=%s contour=%s\n"
+                           "Pkg rollup rows=%llu bytes=%llu fine(road=%llu poly=%llu)\n",
                            app->region.name,
                            app->view_state_bridge.camera.zoom,
                            app->tile_state_bridge.visible_tile_count,
@@ -392,7 +442,11 @@ void app_copy_overlay_text(AppState *app) {
                            app->tile_state_bridge.present_hold_updates,
                            app->tile_state_bridge.presenter_invariant_fail_count,
                            app->tile_state_bridge.presenter_invariants_enabled ? "on" : "off",
-                           app->tile_state_bridge.contour_runtime_enabled ? "on" : "off");
+                           app->tile_state_bridge.contour_runtime_enabled ? "on" : "off",
+                           (unsigned long long)app->region.archive_rollup_total_rows,
+                           (unsigned long long)app->region.archive_rollup_total_bytes,
+                           (unsigned long long)fine_rollup_roads,
+                           (unsigned long long)fine_rollup_polys);
     if (written < 0) {
         return;
     }

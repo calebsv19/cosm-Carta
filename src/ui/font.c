@@ -18,6 +18,7 @@ typedef struct {
     char text[128];
     SDL_Color color;
     float scale;
+    float raster_scale;
     int width;
     int height;
     SDL_Texture *texture;
@@ -37,6 +38,7 @@ static FontCacheEntry g_cache[12];
 static int g_cache_count = 0;
 static TextCacheEntry g_text_cache[128];
 static uint32_t g_text_cache_stamp = 0;
+static const float k_max_text_raster_scale = 4.0f;
 static void clear_font_cache(void) {
     for (int i = 0; i < g_cache_count; ++i) {
         if (g_cache[i].font) {
@@ -70,7 +72,10 @@ static void text_cache_clear(Renderer *renderer) {
     g_text_cache_stamp = 0;
 }
 
-static TextCacheEntry *text_cache_find(const char *text, SDL_Color color, float scale) {
+static TextCacheEntry *text_cache_find(const char *text,
+                                       SDL_Color color,
+                                       float scale,
+                                       float raster_scale) {
     if (!text) {
         return NULL;
     }
@@ -84,6 +89,9 @@ static TextCacheEntry *text_cache_find(const char *text, SDL_Color color, float 
             continue;
         }
         if (entry->scale != scale) {
+            continue;
+        }
+        if (fabsf(entry->raster_scale - raster_scale) > 0.01f) {
             continue;
         }
         if (strncmp(entry->text, text, sizeof(entry->text)) == 0) {
@@ -129,11 +137,56 @@ void ui_font_invalidate_cache(Renderer *renderer) {
     text_cache_clear(renderer);
 }
 
-static TTF_Font *get_font_for_scale(float scale) {
+#if defined(MAPFORGE_HAVE_VK)
+static float map_forge_vk_text_raster_scale(const Renderer *renderer) {
+    const VkRenderer *vk = NULL;
+    float logical_w = 0.0f;
+    float logical_h = 0.0f;
+    float scale_x = 1.0f;
+    float scale_y = 1.0f;
+    float raster_scale = 1.0f;
+
+    if (!renderer || renderer->backend != RENDERER_BACKEND_VULKAN || !renderer->vk) {
+        return 1.0f;
+    }
+    vk = (const VkRenderer *)renderer->vk;
+    logical_w = vk->draw_state.logical_size[0];
+    logical_h = vk->draw_state.logical_size[1];
+    if (logical_w > 0.0f) {
+        scale_x = (float)vk->context.swapchain.extent.width / logical_w;
+    }
+    if (logical_h > 0.0f) {
+        scale_y = (float)vk->context.swapchain.extent.height / logical_h;
+    }
+    raster_scale = (scale_x < scale_y) ? scale_x : scale_y;
+    if (!isfinite(raster_scale) || raster_scale < 1.0f) {
+        raster_scale = 1.0f;
+    }
+    if (raster_scale > k_max_text_raster_scale) {
+        raster_scale = k_max_text_raster_scale;
+    }
+    return raster_scale;
+}
+
+static VkFilter map_forge_vk_text_upload_filter(float raster_scale) {
+    if (raster_scale > 1.0f) {
+        return VK_FILTER_NEAREST;
+    }
+    return VK_FILTER_LINEAR;
+}
+#endif
+
+static TTF_Font *get_font_for_scale(float scale, float raster_scale) {
     if (scale <= 0.0f) {
         scale = 1.0f;
     }
-    int size = (int)lroundf((float)g_base_point_size * scale);
+    if (!isfinite(raster_scale) || raster_scale < 1.0f) {
+        raster_scale = 1.0f;
+    }
+    if (raster_scale > k_max_text_raster_scale) {
+        raster_scale = k_max_text_raster_scale;
+    }
+    int size = (int)lroundf((float)g_base_point_size * scale * raster_scale);
     if (size < 4) {
         size = 4;
     }
@@ -166,7 +219,8 @@ static bool render_text(Renderer *renderer,
 #endif
                         bool *out_use_vulkan,
                         int *out_w,
-                        int *out_h) {
+                        int *out_h,
+                        float raster_scale) {
     if (!renderer || !font || !text || !out_texture) {
         return false;
     }
@@ -174,14 +228,26 @@ static bool render_text(Renderer *renderer,
     if (!surface) {
         return false;
     }
-    if (out_w) *out_w = surface->w;
-    if (out_h) *out_h = surface->h;
+    int draw_w = surface->w;
+    int draw_h = surface->h;
+    if (raster_scale > 1.0f) {
+        draw_w = (int)lroundf((float)surface->w / raster_scale);
+        draw_h = (int)lroundf((float)surface->h / raster_scale);
+        if (draw_w < 1) draw_w = 1;
+        if (draw_h < 1) draw_h = 1;
+    }
+    if (out_w) *out_w = draw_w;
+    if (out_h) *out_h = draw_h;
     *out_texture = NULL;
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk && renderer->vk_cmd != 0) {
         VkRenderer *vk = (VkRenderer *)renderer->vk;
         if (out_vk_texture) {
-            VkResult vk_result = vk_renderer_upload_sdl_surface(vk, surface, out_vk_texture);
+            VkResult vk_result = vk_renderer_upload_sdl_surface_with_filter(
+                vk,
+                surface,
+                out_vk_texture,
+                map_forge_vk_text_upload_filter(raster_scale));
             SDL_FreeSurface(surface);
             if (vk_result != VK_SUCCESS) {
                 return false;
@@ -207,10 +273,14 @@ static bool render_text(Renderer *renderer,
 }
 
 void ui_draw_text(Renderer *renderer, int x, int y, const char *text, SDL_Color color, float scale) {
+    float raster_scale = 1.0f;
     if (!renderer || !text) {
         return;
     }
-    TTF_Font *font = get_font_for_scale(scale);
+#if defined(MAPFORGE_HAVE_VK)
+    raster_scale = map_forge_vk_text_raster_scale(renderer);
+#endif
+    TTF_Font *font = get_font_for_scale(scale, raster_scale);
     if (!font) {
         return;
     }
@@ -220,7 +290,16 @@ void ui_draw_text(Renderer *renderer, int x, int y, const char *text, SDL_Color 
         bool use_vulkan = false;
 #if defined(MAPFORGE_HAVE_VK)
         VkRendererTexture vk_texture = {0};
-        if (!render_text(renderer, font, text, color, &tex, &vk_texture, &use_vulkan, &w, &h)) {
+        if (!render_text(renderer,
+                         font,
+                         text,
+                         color,
+                         &tex,
+                         &vk_texture,
+                         &use_vulkan,
+                         &w,
+                         &h,
+                         raster_scale)) {
             return;
         }
         SDL_Rect dst = {x, y, w, h};
@@ -233,7 +312,7 @@ void ui_draw_text(Renderer *renderer, int x, int y, const char *text, SDL_Color 
             SDL_DestroyTexture(tex);
         }
 #else
-        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h)) {
+        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h, 1.0f)) {
             return;
         }
         SDL_Rect dst = {x, y, w, h};
@@ -245,7 +324,7 @@ void ui_draw_text(Renderer *renderer, int x, int y, const char *text, SDL_Color 
         return;
     }
 
-    TextCacheEntry *entry = text_cache_find(text, color, scale);
+    TextCacheEntry *entry = text_cache_find(text, color, scale, raster_scale);
     if (!entry) {
         entry = text_cache_pick_slot();
         if (!entry) {
@@ -267,17 +346,27 @@ void ui_draw_text(Renderer *renderer, int x, int y, const char *text, SDL_Color 
         int w = 0, h = 0;
 #if defined(MAPFORGE_HAVE_VK)
         VkRendererTexture vk_texture = {0};
-        if (!render_text(renderer, font, text, color, &tex, &vk_texture, &use_vulkan, &w, &h)) {
+        if (!render_text(renderer,
+                         font,
+                         text,
+                         color,
+                         &tex,
+                         &vk_texture,
+                         &use_vulkan,
+                         &w,
+                         &h,
+                         raster_scale)) {
             return;
         }
 #else
-        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h)) {
+        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h, 1.0f)) {
             return;
         }
 #endif
         *entry = (TextCacheEntry){
             .color = color,
             .scale = scale,
+            .raster_scale = raster_scale,
             .width = w,
             .height = h,
             .texture = tex,
@@ -312,7 +401,7 @@ int ui_measure_text_width(const char *text, float scale) {
     if (!text) {
         return 0;
     }
-    TTF_Font *font = get_font_for_scale(scale);
+    TTF_Font *font = get_font_for_scale(scale, 1.0f);
     if (!font) {
         return 0;
     }
@@ -331,10 +420,14 @@ void ui_draw_text_clipped(Renderer *renderer,
                           SDL_Color color,
                           float scale,
                           int max_width) {
+    float raster_scale = 1.0f;
     if (!renderer || !text || max_width <= 0) {
         return;
     }
-    TTF_Font *font = get_font_for_scale(scale);
+#if defined(MAPFORGE_HAVE_VK)
+    raster_scale = map_forge_vk_text_raster_scale(renderer);
+#endif
+    TTF_Font *font = get_font_for_scale(scale, raster_scale);
     if (!font) {
         return;
     }
@@ -344,11 +437,20 @@ void ui_draw_text_clipped(Renderer *renderer,
         bool use_vulkan = false;
 #if defined(MAPFORGE_HAVE_VK)
         VkRendererTexture vk_texture = {0};
-        if (!render_text(renderer, font, text, color, &tex, &vk_texture, &use_vulkan, &w, &h)) {
+        if (!render_text(renderer,
+                         font,
+                         text,
+                         color,
+                         &tex,
+                         &vk_texture,
+                         &use_vulkan,
+                         &w,
+                         &h,
+                         raster_scale)) {
             return;
         }
 #else
-        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h)) {
+        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h, 1.0f)) {
             return;
         }
 #endif
@@ -358,6 +460,11 @@ void ui_draw_text_clipped(Renderer *renderer,
 #if defined(MAPFORGE_HAVE_VK)
         if (use_vulkan && renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
             VkRenderer *vk = (VkRenderer *)renderer->vk;
+            if (w > 0) {
+                src.w = (int)lroundf((float)clip_w * ((float)vk_texture.width / (float)w));
+                if (src.w < 1) src.w = 1;
+            }
+            src.h = (int)vk_texture.height;
             vk_renderer_draw_texture(vk, &vk_texture, &src, &dst);
             vk_renderer_queue_texture_destroy(vk, &vk_texture);
         } else if (tex && renderer->sdl) {
@@ -373,7 +480,7 @@ void ui_draw_text_clipped(Renderer *renderer,
         return;
     }
 
-    TextCacheEntry *entry = text_cache_find(text, color, scale);
+    TextCacheEntry *entry = text_cache_find(text, color, scale, raster_scale);
     if (!entry) {
         entry = text_cache_pick_slot();
         if (!entry) {
@@ -395,17 +502,27 @@ void ui_draw_text_clipped(Renderer *renderer,
         int w = 0, h = 0;
 #if defined(MAPFORGE_HAVE_VK)
         VkRendererTexture vk_texture = {0};
-        if (!render_text(renderer, font, text, color, &tex, &vk_texture, &use_vulkan, &w, &h)) {
+        if (!render_text(renderer,
+                         font,
+                         text,
+                         color,
+                         &tex,
+                         &vk_texture,
+                         &use_vulkan,
+                         &w,
+                         &h,
+                         raster_scale)) {
             return;
         }
 #else
-        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h)) {
+        if (!render_text(renderer, font, text, color, &tex, &use_vulkan, &w, &h, 1.0f)) {
             return;
         }
 #endif
         *entry = (TextCacheEntry){
             .color = color,
             .scale = scale,
+            .raster_scale = raster_scale,
             .width = w,
             .height = h,
             .texture = tex,
@@ -427,6 +544,11 @@ void ui_draw_text_clipped(Renderer *renderer,
     SDL_Rect dst = {x, y, clip_w, entry->height};
 #if defined(MAPFORGE_HAVE_VK)
     if (entry->use_vulkan && entry->has_vk_texture && renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+        if (entry->width > 0) {
+            src.w = (int)lroundf((float)clip_w * ((float)entry->vk_texture.width / (float)entry->width));
+            if (src.w < 1) src.w = 1;
+        }
+        src.h = (int)entry->vk_texture.height;
         vk_renderer_draw_texture((VkRenderer *)renderer->vk, &entry->vk_texture, &src, &dst);
     } else if (entry->texture && renderer->sdl) {
         SDL_RenderCopy(renderer->sdl, entry->texture, &src, &dst);
@@ -439,7 +561,7 @@ void ui_draw_text_clipped(Renderer *renderer,
 }
 
 int ui_font_line_height(float scale) {
-    TTF_Font *font = get_font_for_scale(scale);
+    TTF_Font *font = get_font_for_scale(scale, 1.0f);
     if (!font) {
         return 0;
     }

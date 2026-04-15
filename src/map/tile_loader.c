@@ -2,7 +2,6 @@
 
 #include "core/log.h"
 #include "core_time.h"
-#include "core_io.h"
 #include "map/polygon_cache.h"
 
 #include <stdio.h>
@@ -25,69 +24,6 @@ static void tile_loader_schedule_maintenance(CoreSchedTimerId id, void *user_ctx
         return;
     }
     (void)core_wake_signal(&loader->wake);
-}
-
-static const char *tile_loader_suffix(TileLayerKind kind) {
-    switch (kind) {
-        case TILE_LAYER_ROAD_ARTERY:
-            return "artery.mft";
-        case TILE_LAYER_ROAD_LOCAL:
-            return "local.mft";
-        case TILE_LAYER_CONTOUR:
-            return "contour.mft";
-        case TILE_LAYER_POLY_WATER:
-            return "water.mft";
-        case TILE_LAYER_POLY_PARK:
-            return "park.mft";
-        case TILE_LAYER_POLY_LANDUSE:
-            return "landuse.mft";
-        case TILE_LAYER_POLY_BUILDING:
-            return "building.mft";
-        default:
-            return "mft";
-    }
-}
-
-static const char *tile_loader_band_dir(TileZoomBand band) {
-    switch (band) {
-        case TILE_BAND_COARSE:
-            return "coarse";
-        case TILE_BAND_MID:
-            return "mid";
-        case TILE_BAND_FINE:
-            return "fine";
-        case TILE_BAND_DEFAULT:
-        default:
-            return NULL;
-    }
-}
-
-static bool tile_loader_resolve_path(const char *base_dir,
-                                     TileCoord coord,
-                                     TileLayerKind kind,
-                                     TileZoomBand band,
-                                     char *out_path,
-                                     size_t out_size) {
-    if (!base_dir || !out_path || out_size == 0u) {
-        return false;
-    }
-
-    const char *band_dir = tile_loader_band_dir(band);
-    if (band_dir) {
-        char band_path[512];
-        snprintf(band_path, sizeof(band_path), "%s/bands/%s/%u/%u/%u.%s",
-                 base_dir, band_dir, coord.z, coord.x, coord.y, tile_loader_suffix(kind));
-        if (core_io_path_exists(band_path)) {
-            snprintf(out_path, out_size, "%s", band_path);
-            return true;
-        }
-    }
-
-    snprintf(out_path, out_size, "%s/%u/%u/%u.%s", base_dir, coord.z, coord.x, coord.y, tile_loader_suffix(kind));
-    if (!core_io_path_exists(out_path)) {
-        return false;
-    }
-    return true;
 }
 
 static bool tile_loader_take_request(TileLoader *loader, TileLoaderTaskCtx **out_ctx) {
@@ -192,7 +128,7 @@ static void tile_loader_process_request(TileLoaderTaskCtx *ctx) {
 
     bool existed = false;
     char path[512];
-    if (!tile_loader_resolve_path(loader->base_dir, request.coord, request.kind, request.band, path, sizeof(path))) {
+    if (!tile_source_resolve_path(&loader->source, request.coord, request.kind, request.band, path, sizeof(path))) {
         result.ok = false;
     } else if (mft_load_tile(path, &result.tile)) {
         result.ok = true;
@@ -261,12 +197,24 @@ static void tile_loader_reset(TileLoader *loader) {
 }
 
 bool tile_loader_init(TileLoader *loader, const char *base_dir) {
-    if (!loader || !base_dir) {
+    TileSourceConfig config;
+    if (!base_dir) {
+        return false;
+    }
+    tile_source_config_init(&config);
+    if (!tile_source_config_set_filesystem(&config, base_dir)) {
+        return false;
+    }
+    return tile_loader_init_with_source(loader, &config);
+}
+
+bool tile_loader_init_with_source(TileLoader *loader, const TileSourceConfig *source) {
+    if (!loader || !source || source->tiles_root[0] == '\0') {
         return false;
     }
 
     memset(loader, 0, sizeof(*loader));
-    snprintf(loader->base_dir, sizeof(loader->base_dir), "%s", base_dir);
+    loader->source = *source;
 
     if (pthread_mutex_init(&loader->mutex, NULL) != 0) {
         tile_loader_reset(loader);

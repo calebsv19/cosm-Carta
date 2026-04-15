@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -167,7 +168,21 @@ static bool app_runtime_pick_folder_macos(char *out_path, size_t out_cap) {
 #endif
 }
 
-static void app_runtime_region_slug_from_osm(const char *osm_name, char *out_name, size_t out_cap) {
+static bool app_runtime_has_suffix(const char *name, const char *suffix) {
+    size_t name_len = 0u;
+    size_t suffix_len = 0u;
+    if (!name || !suffix) {
+        return false;
+    }
+    name_len = strlen(name);
+    suffix_len = strlen(suffix);
+    if (suffix_len == 0u || name_len < suffix_len) {
+        return false;
+    }
+    return strcasecmp(name + (name_len - suffix_len), suffix) == 0;
+}
+
+static void app_runtime_region_slug_from_source(const char *osm_name, char *out_name, size_t out_cap) {
     size_t wi = 0u;
     if (!out_name || out_cap == 0u) {
         return;
@@ -178,8 +193,14 @@ static void app_runtime_region_slug_from_osm(const char *osm_name, char *out_nam
         return;
     }
     size_t len = strlen(osm_name);
-    if (len > 4u && strcasecmp(osm_name + len - 4u, ".osm") == 0) {
-        len -= 4u;
+    if (app_runtime_has_suffix(osm_name, ".osm.pbf")) {
+        len -= strlen(".osm.pbf");
+    } else if (app_runtime_has_suffix(osm_name, ".osm.xml")) {
+        len -= strlen(".osm.xml");
+    } else if (app_runtime_has_suffix(osm_name, ".pbf")) {
+        len -= strlen(".pbf");
+    } else if (app_runtime_has_suffix(osm_name, ".osm")) {
+        len -= strlen(".osm");
     }
     for (size_t i = 0; i < len && wi + 1u < out_cap; ++i) {
         unsigned char c = (unsigned char)osm_name[i];
@@ -275,17 +296,36 @@ static bool app_runtime_open_region_index(AppState *app, int region_index) {
         return false;
     }
     const RegionInfo *info = region_get(region_index);
+    RegionPackageValidationResult validation = {0};
     if (!info) {
+        return false;
+    }
+    if (!region_validate_package(info, &validation)) {
+        log_error("Region package validation failed for '%s': %s",
+                  info->name ? info->name : "unknown",
+                  validation.summary);
+        app_runtime_set_ingest_status(app, validation.summary);
         return false;
     }
 
     app->region_index = region_index;
     app->region = *info;
-    region_load_meta(info, &app->region);
+    if (!region_load_meta(info, &app->region)) {
+        log_error("Failed to load region metadata for '%s' after validation", info->name ? info->name : "unknown");
+        app_runtime_set_ingest_status(app, "region metadata load failed");
+        return false;
+    }
+    region_log_archive_rollup_summary(&app->region, "switch");
     if (app->region.tiles_dir[0] == '\0') {
         log_error("Failed to resolve tiles directory for region: %s", app->region.name);
         return false;
     }
+    if (validation.archive_storage && validation.archive_fallback_tree) {
+        log_info("Region '%s' archive package opened with tree fallback (archive_reader_supported=%s)",
+                 app->region.name ? app->region.name : "unknown",
+                 validation.archive_reader_supported ? "yes" : "no");
+    }
+    tile_source_runtime_stats_reset();
     app_worker_contract_bump_world_generation(app);
     app_worker_contract_bump_tile_generation(app);
     app_clear_tile_queue(app);
@@ -293,9 +333,9 @@ static bool app_runtime_open_region_index(AppState *app, int region_index) {
     vk_tile_cache_clear_with_renderer(&app->tile_state_bridge.vk_tile_cache, app->renderer.vk);
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         tile_manager_shutdown(&app->tile_state_bridge.tile_managers[i]);
-        tile_manager_init(&app->tile_state_bridge.tile_managers[i], 256, app->region.tiles_dir);
+        tile_manager_init_with_source(&app->tile_state_bridge.tile_managers[i], 256, &app->region.tile_source);
     }
-    tile_loader_init(&app->tile_state_bridge.tile_loader, app->region.tiles_dir);
+    tile_loader_init_with_source(&app->tile_state_bridge.tile_loader, &app->region.tile_source);
     app->tile_state_bridge.visible_valid = false;
     app->tile_state_bridge.loading_expected = 0;
     app->tile_state_bridge.loading_done = 0;
@@ -427,7 +467,7 @@ static bool app_runtime_import_selected_osm(AppState *app, bool import_all) {
         return true;
     }
     if (app->ingest_osm_count <= 0) {
-        app_runtime_set_ingest_status(app, "No .osm file available for import");
+        app_runtime_set_ingest_status(app, "No OSM source file available for import");
         return true;
     }
     if (!app_runtime_resolve_import_tool("mapforge_region", region_tool, sizeof(region_tool)) ||
@@ -450,7 +490,7 @@ static bool app_runtime_import_selected_osm(AppState *app, bool import_all) {
         last = app->ingest_osm_count;
     }
     if (first >= last) {
-        app_runtime_set_ingest_status(app, "No .osm file available for import");
+        app_runtime_set_ingest_status(app, "No OSM source file available for import");
         return true;
     }
 
@@ -494,7 +534,7 @@ static bool app_runtime_import_selected_osm(AppState *app, bool import_all) {
         char q_region[APP_INGEST_NAME_CAP * 2];
 
         snprintf(osm_name, sizeof(osm_name), "%s", app->ingest_osm_files[i]);
-        app_runtime_region_slug_from_osm(osm_name, region_name, sizeof(region_name));
+        app_runtime_region_slug_from_source(osm_name, region_name, sizeof(region_name));
         snprintf(osm_path, sizeof(osm_path), "%s/%s", app->input_root, osm_name);
         snprintf(out_dir, sizeof(out_dir), "%s/%s", region_data_root(), region_name);
         if (!app_runtime_shell_quote(osm_path, q_osm, sizeof(q_osm)) ||
@@ -570,7 +610,7 @@ static bool app_runtime_import_selected_osm(AppState *app, bool import_all) {
     if (import_all) {
         snprintf(app->ingest_status, sizeof(app->ingest_status), "Import started for %d region(s)...", imported_count);
     } else {
-        snprintf(app->ingest_status, sizeof(app->ingest_status), "Import started: %s", opened_region[0] != '\0' ? opened_region : "selected .osm");
+        snprintf(app->ingest_status, sizeof(app->ingest_status), "Import started: %s", opened_region[0] != '\0' ? opened_region : "selected source");
     }
     return true;
 }

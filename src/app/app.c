@@ -286,35 +286,61 @@ static bool app_init(AppState *app) {
             log_error("No routable region found (missing graph/graph.bin in all regions); route placement is disabled until graph build completes");
         }
         info = region_get(app->region_index);
+        if (info) {
+            RegionPackageValidationResult validation = {0};
+            if (!region_validate_package(info, &validation)) {
+                log_error("Startup region '%s' failed package validation: %s",
+                          info->name ? info->name : "unknown",
+                          validation.summary);
+                info = NULL;
+                app->region_index = -1;
+                snprintf(app->ingest_status,
+                         sizeof(app->ingest_status),
+                         "Region package invalid (%s). Open ingest panel (O) to repair/import.",
+                         validation.summary);
+            } else if (validation.archive_storage && validation.archive_fallback_tree) {
+                log_info("Startup region '%s' archive package will use tree fallback (archive_reader_supported=%s)",
+                         info->name ? info->name : "unknown",
+                         validation.archive_reader_supported ? "yes" : "no");
+            }
+        }
     }
     if (info) {
         app->region = *info;
-        region_load_meta(info, &app->region);
+        if (!region_load_meta(info, &app->region)) {
+            log_error("Startup region '%s' metadata load failed after validation", info->name ? info->name : "unknown");
+            return false;
+        }
+        region_log_archive_rollup_summary(&app->region, "startup");
     } else {
         memset(&app->region, 0, sizeof(app->region));
         app->region.name = "no-region";
         snprintf(app->region.region_dir, sizeof(app->region.region_dir), "%s", region_data_root());
         snprintf(app->region.tiles_dir, sizeof(app->region.tiles_dir), "%s", region_data_root());
+        app->region.tile_archive_path[0] = '\0';
+        tile_source_config_set_filesystem(&app->region.tile_source, app->region.tiles_dir);
+        app->region.has_tile_archive = false;
         if (!app_ensure_dir_recursive(region_data_root())) {
             log_error("Failed to ensure regions root exists: %s", region_data_root());
             return false;
         }
-        snprintf(app->ingest_status, sizeof(app->ingest_status), "No regions loaded. Open ingest panel (O) to import .osm files.");
+        snprintf(app->ingest_status, sizeof(app->ingest_status), "No regions loaded. Open ingest panel (O) to import OSM source files.");
     }
     if (app->region.tiles_dir[0] == '\0') {
         log_error("Failed to resolve tiles directory for region: %s", app->region.name ? app->region.name : "unknown");
         return false;
     }
+    tile_source_runtime_stats_reset();
     log_info("Region data root: %s", region_data_root());
 
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-        if (!tile_manager_init(&app->tile_state_bridge.tile_managers[i], 256, app->region.tiles_dir)) {
+        if (!tile_manager_init_with_source(&app->tile_state_bridge.tile_managers[i], 256, &app->region.tile_source)) {
             log_error("tile_manager_init failed");
             return false;
         }
         app->lifetime.tile_managers_initialized += 1u;
     }
-    if (!tile_loader_init(&app->tile_state_bridge.tile_loader, app->region.tiles_dir)) {
+    if (!tile_loader_init_with_source(&app->tile_state_bridge.tile_loader, &app->region.tile_source)) {
         log_error("tile_loader_init failed");
         return false;
     }
@@ -361,8 +387,7 @@ static bool app_init(AppState *app) {
     route_state_init(&app->route_state_bridge.route);
     app->lifetime.route_state_initialized = true;
     if (!app_load_route_graph(app)) {
-        log_error("Route graph load kickoff failed for startup region '%s'; build graph with: make graph && ./build/tools/mapforge_graph --region %s --osm data/osm_sources/%s.osm --out data/regions/%s",
-                  app->region.name ? app->region.name : "no-region",
+        log_error("Route graph load kickoff failed for startup region '%s'; build graph with: make graph && ./build/tools/mapforge_graph --region %s --osm data/osm_sources/<region>.osm --out data/regions/%s",
                   app->region.name ? app->region.name : "no-region",
                   app->region.name ? app->region.name : "no-region",
                   app->region.name ? app->region.name : "no-region");
@@ -621,7 +646,9 @@ int app_run_legacy(void) {
         kit_runtime_diag_input_totals_accumulate(&input_totals, &input_frame);
         if (vk_debug_logs && (long_frame || stuck_loading || frame.after_render >= perf_next_log)) {
             TileLoaderStats stats = {0};
+            TileSourceRuntimeStats source_stats = {0};
             tile_loader_get_stats(&app.tile_state_bridge.tile_loader, &stats);
+            tile_source_runtime_stats_get(&source_stats);
             if (renderer_get_backend(&app.renderer) == RENDERER_BACKEND_VULKAN) {
                 VkTileCacheStats vk_asset_stats = {0};
                 VkPolyPrepStats poly_prep_stats = {0};
@@ -638,6 +665,7 @@ int app_run_legacy(void) {
                          "input(total_raw=%llu total_actions=%llu total_gated=%llu total_route(g=%llu p=%llu f=%llu) total_inval(t=%llu f=%llu)) "
                          "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
                          "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu "
+                         "src=%s arch(req=%llu hit=%llu ext=%llu fail=%llu tree=%llu) "
                          "vk_begin=%d vk_begin_fail_total=%llu vk_recreate=%u vk_geom=%u/%u vk_geom_skip=%u vk_lines=%u vk_line_skip=%u vk_line_budget=%u vk_rect=%u vk_fill=%u "
                          "vk_assets=%u/%u builds=%u evict=%u miss=%u jobs(q=%u build=%llu drop=%llu evict=%llu) poly_prep(in=%u out=%u enq=%llu done=%llu drop=%llu) resident(a=%u l=%u) fill_resident(w=%u p=%u l=%u b=%u) "
                          "mesh(v=%llu b=%llu fail=%u fill_fail=%u) vk_poly_fill(draw=%u skip=%u fail=%u idx=%u) "
@@ -688,6 +716,12 @@ int app_run_legacy(void) {
                          (unsigned long long)stats.missing_count,
                          (unsigned long long)stats.load_ok_count,
                          (unsigned long long)stats.load_fail_count,
+                         tile_storage_kind_label(app.region.tile_source.storage_kind),
+                         (unsigned long long)source_stats.archive_request_count,
+                         (unsigned long long)source_stats.archive_hit_count,
+                         (unsigned long long)source_stats.archive_extract_count,
+                         (unsigned long long)source_stats.archive_extract_fail_count,
+                         (unsigned long long)source_stats.archive_fallback_tree_count,
                          app.renderer.vk_last_begin_result,
                          (unsigned long long)app.renderer.vk_begin_failures_total,
                          app.renderer.vk_swapchain_recreates,
@@ -743,6 +777,7 @@ int app_run_legacy(void) {
                          "input(total_raw=%llu total_actions=%llu total_gated=%llu total_route(g=%llu p=%llu f=%llu) total_inval(t=%llu f=%llu)) "
                          "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
                          "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu "
+                         "src=%s arch(req=%llu hit=%llu ext=%llu fail=%llu tree=%llu) "
                          "draw_path(vk=%u fallback=%u blend=%u) defer(band=%u queue=%u) hold(hit=%u miss=%u upd=%u)",
                          app.region.name,
                          frame_ms, events_ms, app.frame_timings.update_ms,
@@ -790,6 +825,12 @@ int app_run_legacy(void) {
                          (unsigned long long)stats.missing_count,
                          (unsigned long long)stats.load_ok_count,
                          (unsigned long long)stats.load_fail_count,
+                         tile_storage_kind_label(app.region.tile_source.storage_kind),
+                         (unsigned long long)source_stats.archive_request_count,
+                         (unsigned long long)source_stats.archive_hit_count,
+                         (unsigned long long)source_stats.archive_extract_count,
+                         (unsigned long long)source_stats.archive_extract_fail_count,
+                         (unsigned long long)source_stats.archive_fallback_tree_count,
                          app.tile_state_bridge.draw_path_vk_count,
                          app.tile_state_bridge.draw_path_fallback_count,
                          app.tile_state_bridge.transition_blend_draw_count,

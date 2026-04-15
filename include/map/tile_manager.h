@@ -3,6 +3,7 @@
 
 #include "map/mft_loader.h"
 #include "map/tile_layers.h"
+#include "map/tile_source.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -22,11 +23,13 @@ typedef struct TileManager {
     uint32_t capacity;
     uint32_t count;
     uint64_t tick;
-    char base_dir[256];
+    TileSourceConfig source;
 } TileManager;
 
-// Initializes the tile manager with a cache capacity and base directory.
+// Initializes the tile manager with a cache capacity and filesystem tile root.
 bool tile_manager_init(TileManager *manager, uint32_t capacity, const char *base_dir);
+// Initializes the tile manager with an explicit tile source contract.
+bool tile_manager_init_with_source(TileManager *manager, uint32_t capacity, const TileSourceConfig *source);
 
 // Releases memory owned by the tile manager.
 void tile_manager_shutdown(TileManager *manager);
