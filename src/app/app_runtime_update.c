@@ -5,6 +5,50 @@
 #include <math.h>
 #include <string.h>
 
+static void app_run_viewport_scenario_phase_a(AppState *app, double now_sec) {
+    if (!app || !app->viewport_scenario_active || app->viewport_scenario_completed) {
+        return;
+    }
+    Camera *camera = &app->view_state_bridge.camera;
+    if (app->viewport_scenario_start_time <= 0.0) {
+        app->viewport_scenario_start_time = now_sec;
+        app->viewport_scenario_origin_x = camera->x;
+        app->viewport_scenario_origin_y = camera->y;
+        app->viewport_scenario_origin_zoom = camera->zoom;
+    }
+
+    double elapsed = now_sec - app->viewport_scenario_start_time;
+    double duration = app->viewport_scenario_duration_sec;
+    if (duration <= 0.0) {
+        duration = 45.0;
+    }
+    if (elapsed >= duration) {
+        app->viewport_scenario_completed = true;
+        app->viewport_scenario_active = false;
+        app->ui_state_bridge.input.quit = true;
+        return;
+    }
+
+    float t = (float)(elapsed / duration);
+    const float tau = 6.28318530718f;
+    float arc = t * tau * 2.0f;
+    float arc_minor = t * tau * 3.0f;
+    float pan_x = cosf(arc) * 640.0f + cosf(arc_minor) * 160.0f;
+    float pan_y = sinf(arc * 0.82f) * 520.0f + sinf(arc_minor * 1.21f) * 120.0f;
+    float zoom_wave = sinf(t * tau * 4.0f) * 0.72f + sinf(t * tau * 1.35f) * 0.22f;
+    float zoom = app->viewport_scenario_origin_zoom + zoom_wave;
+    float min_zoom = app->viewport_scenario_origin_zoom - 1.2f;
+    float max_zoom = app->viewport_scenario_origin_zoom + 0.9f;
+    zoom = app_clampf(zoom, min_zoom, max_zoom);
+
+    camera->x = app->viewport_scenario_origin_x + pan_x;
+    camera->y = app->viewport_scenario_origin_y + pan_y;
+    camera->x_target = camera->x;
+    camera->y_target = camera->y;
+    camera->zoom = zoom;
+    camera->zoom_target = zoom;
+}
+
 void app_runtime_update_frame(AppState *app,
                               double *io_last_time,
                               float *out_dt,
@@ -54,11 +98,16 @@ void app_runtime_update_frame(AppState *app,
     bool allow_mouse_pan = !(app->route_state_bridge.dragging_start || app->route_state_bridge.dragging_goal) &&
         !((app->ui_state_bridge.input.mouse_buttons & SDL_BUTTON_LMASK) && (over_start || over_goal));
     InputState camera_input = app->ui_state_bridge.input;
+    if (app->viewport_scenario_active && !app->viewport_scenario_completed) {
+        memset(&camera_input, 0, sizeof(camera_input));
+        allow_mouse_pan = false;
+    }
     if (app_header_layer_scroll_update(app)) {
         camera_input.mouse_wheel_y = 0;
     }
     camera_handle_input(&app->view_state_bridge.camera, &camera_input, app->width, app->height, dt, allow_mouse_pan);
     camera_update(&app->view_state_bridge.camera, dt);
+    app_run_viewport_scenario_phase_a(app, now);
     debug_overlay_update(&app->ui_state_bridge.overlay, dt);
 
     app_update_hover(app);

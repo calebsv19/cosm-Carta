@@ -45,6 +45,11 @@
 #define APP_TILE_BAND_SWITCH_DEBOUNCE_SEC 0.14
 /* Prevent immediate queue rebuild churn for band-only transitions. */
 #define APP_TILE_QUEUE_REBUILD_MIN_SEC 0.10
+/* Minimum global and per-layer visible coverage before committing band switches. */
+#define APP_TILE_COVERAGE_GATE_GLOBAL_MIN 0.95f
+#define APP_TILE_COVERAGE_GATE_LAYER_MIN 0.90f
+/* Maximum delay before forcing a band commit when coverage stays below target. */
+#define APP_TILE_COVERAGE_GATE_MAX_WAIT_SEC 0.75
 /* Blend window for old/new band handoff in presentation. */
 #define APP_TILE_BAND_BLEND_WINDOW_SEC 0.22
 /* Per-layer tile presentation hold cache capacity and TTL. */
@@ -106,6 +111,7 @@ typedef struct AppTileLifecycleEntry {
     bool has_gpu;
     bool is_fallback_renderable;
     bool is_ideal_renderable;
+    bool visible_drop_pending;
     uint64_t last_transition_frame;
     double last_transition_time;
 } AppTileLifecycleEntry;
@@ -252,6 +258,8 @@ typedef struct VkPolyPrepStats {
     uint64_t quarantine_ring_min_points_count;
     uint64_t quarantine_ring_degenerate_count;
     uint64_t winding_normalized_count;
+    uint64_t quarantine_jobs_by_layer[TILE_LAYER_COUNT];
+    uint64_t quarantine_rings_by_layer[TILE_LAYER_COUNT];
 } VkPolyPrepStats;
 
 /* Phase 2 bridge: target ownership bucket for view/persisted runtime controls. */
@@ -290,7 +298,12 @@ typedef struct AppTileState {
     uint32_t lane_queue_depth[TILE_QUEUE_LANE_COUNT];
     uint32_t lane_service_count[TILE_QUEUE_LANE_COUNT];
     uint32_t lane_l0_pending;
+    bool lane_l0_pending_active;
+    double lane_l0_pending_since;
+    float lane_l0_latency_ms;
     uint64_t lane_l0_saturation_total;
+    uint64_t lane_l0_dropped_visible_requests;
+    uint64_t lane_l0_retry_visible_requests;
     uint64_t lifecycle_frame_index;
     uint32_t lifecycle_transition_count;
     uint32_t lifecycle_invalid_transition_count;
@@ -317,6 +330,13 @@ typedef struct AppTileState {
     uint32_t visible_ideal_count;
     uint32_t visible_renderable_count;
     uint32_t visible_missing_count;
+    float visible_coverage_ratio;
+    float layer_coverage_ratio[TILE_LAYER_COUNT];
+    bool coverage_gate_pending[TILE_LAYER_COUNT];
+    TileZoomBand coverage_gate_target_band[TILE_LAYER_COUNT];
+    double coverage_gate_pending_since[TILE_LAYER_COUNT];
+    uint32_t coverage_gate_deferred_count;
+    uint32_t coverage_gate_timeout_count;
     TileLayerKind active_layer_kind;
     uint32_t active_layer_expected;
     bool active_layer_valid;
@@ -398,6 +418,8 @@ typedef struct AppWorkerState {
     uint64_t vk_poly_prep_quarantine_ring_min_points_count;
     uint64_t vk_poly_prep_quarantine_ring_degenerate_count;
     uint64_t vk_poly_prep_winding_normalized_count;
+    uint64_t vk_poly_prep_quarantine_jobs_by_layer[TILE_LAYER_COUNT];
+    uint64_t vk_poly_prep_quarantine_rings_by_layer[TILE_LAYER_COUNT];
     VkAssetJob vk_asset_jobs[APP_VK_ASSET_QUEUE_CAPACITY];
     uint32_t vk_asset_job_head;
     uint32_t vk_asset_job_tail;
@@ -578,6 +600,13 @@ typedef struct AppState {
     int ingest_import_total_steps;
     int ingest_import_completed_steps;
     char ingest_import_progress_path[MAPFORGE_REGION_PATH_CAPACITY];
+    bool viewport_scenario_active;
+    bool viewport_scenario_completed;
+    double viewport_scenario_start_time;
+    double viewport_scenario_duration_sec;
+    float viewport_scenario_origin_x;
+    float viewport_scenario_origin_y;
+    float viewport_scenario_origin_zoom;
 } AppState;
 
 /* Render-side derivation outputs for frame-visible tile lanes. */
@@ -742,6 +771,14 @@ void app_tile_lifecycle_transition(AppState *app,
                                    bool has_gpu,
                                    bool is_fallback_renderable,
                                    bool is_ideal_renderable);
+void app_tile_lifecycle_mark_visible_drop(AppState *app,
+                                          TileLayerKind kind,
+                                          TileCoord coord,
+                                          TileZoomBand band);
+bool app_tile_lifecycle_consume_visible_drop_retry(AppState *app,
+                                                   TileLayerKind kind,
+                                                   TileCoord coord,
+                                                   TileZoomBand band);
 void app_tile_lifecycle_mark_stale_outside_queue(AppState *app,
                                                  TileCoord queue_top_left,
                                                  TileCoord queue_bottom_right,

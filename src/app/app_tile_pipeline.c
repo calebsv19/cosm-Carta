@@ -385,6 +385,36 @@ static bool app_visible_coord_has_present_hold_tile(const AppState *app,
     return false;
 }
 
+static float app_visible_layer_ideal_coverage_for_band(const AppState *app,
+                                                       TileLayerKind kind,
+                                                       TileZoomBand band) {
+    if (!app || kind < 0 || kind >= TILE_LAYER_COUNT) {
+        return 1.0f;
+    }
+    if (!app->tile_state_bridge.visible_valid) {
+        return 1.0f;
+    }
+    if (!app_layer_active_runtime(app, kind)) {
+        return 1.0f;
+    }
+
+    uint32_t expected = 0u;
+    uint32_t loaded = 0u;
+    for (uint32_t y = app->tile_state_bridge.visible_top_left.y; y <= app->tile_state_bridge.visible_bottom_right.y; ++y) {
+        for (uint32_t x = app->tile_state_bridge.visible_top_left.x; x <= app->tile_state_bridge.visible_bottom_right.x; ++x) {
+            TileCoord coord = {app->tile_state_bridge.visible_zoom, x, y};
+            expected += 1u;
+            if (tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, band)) {
+                loaded += 1u;
+            }
+        }
+    }
+    if (expected == 0u) {
+        return 1.0f;
+    }
+    return (float)loaded / (float)expected;
+}
+
 static void app_refresh_visible_layer_coverage(AppState *app) {
     if (!app) {
         return;
@@ -393,9 +423,11 @@ static void app_refresh_visible_layer_coverage(AppState *app) {
     app->tile_state_bridge.visible_ideal_count = 0u;
     app->tile_state_bridge.visible_renderable_count = 0u;
     app->tile_state_bridge.visible_missing_count = 0u;
+    app->tile_state_bridge.visible_coverage_ratio = 1.0f;
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         app->tile_state_bridge.layer_visible_expected[i] = 0u;
         app->tile_state_bridge.layer_visible_loaded[i] = 0u;
+        app->tile_state_bridge.layer_coverage_ratio[i] = 1.0f;
     }
     for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
         app->tile_state_bridge.band_visible_expected[i] = 0u;
@@ -448,6 +480,17 @@ static void app_refresh_visible_layer_coverage(AppState *app) {
             }
         }
     }
+    if (app->tile_state_bridge.visible_ideal_count > 0u) {
+        app->tile_state_bridge.visible_coverage_ratio =
+            (float)app->tile_state_bridge.visible_renderable_count / (float)app->tile_state_bridge.visible_ideal_count;
+    }
+    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+        uint32_t expected = app->tile_state_bridge.layer_visible_expected[i];
+        if (expected > 0u) {
+            app->tile_state_bridge.layer_coverage_ratio[i] =
+                (float)app->tile_state_bridge.layer_visible_loaded[i] / (float)expected;
+        }
+    }
 }
 
 void app_clear_tile_queue(AppState *app) {
@@ -479,9 +522,21 @@ void app_clear_tile_queue(AppState *app) {
     app->tile_state_bridge.visible_ideal_count = 0u;
     app->tile_state_bridge.visible_renderable_count = 0u;
     app->tile_state_bridge.visible_missing_count = 0u;
+    app->tile_state_bridge.visible_coverage_ratio = 1.0f;
+    memset(app->tile_state_bridge.layer_coverage_ratio, 0, sizeof(app->tile_state_bridge.layer_coverage_ratio));
+    memset(app->tile_state_bridge.coverage_gate_pending, 0, sizeof(app->tile_state_bridge.coverage_gate_pending));
+    memset(app->tile_state_bridge.coverage_gate_target_band, 0, sizeof(app->tile_state_bridge.coverage_gate_target_band));
+    memset(app->tile_state_bridge.coverage_gate_pending_since, 0, sizeof(app->tile_state_bridge.coverage_gate_pending_since));
+    app->tile_state_bridge.coverage_gate_deferred_count = 0u;
+    app->tile_state_bridge.coverage_gate_timeout_count = 0u;
     memset(app->tile_state_bridge.lane_queue_depth, 0, sizeof(app->tile_state_bridge.lane_queue_depth));
     memset(app->tile_state_bridge.lane_service_count, 0, sizeof(app->tile_state_bridge.lane_service_count));
     app->tile_state_bridge.lane_l0_pending = 0u;
+    app->tile_state_bridge.lane_l0_pending_active = false;
+    app->tile_state_bridge.lane_l0_pending_since = 0.0;
+    app->tile_state_bridge.lane_l0_latency_ms = 0.0f;
+    app->tile_state_bridge.lane_l0_dropped_visible_requests = 0u;
+    app->tile_state_bridge.lane_l0_retry_visible_requests = 0u;
     app->tile_state_bridge.lifecycle_frame_index = 0u;
     app->tile_state_bridge.lifecycle_transition_count = 0u;
     app->tile_state_bridge.lifecycle_invalid_transition_count = 0u;
@@ -593,6 +648,10 @@ static void app_process_tile_queue(AppState *app,
         }
         TileZoomBand band = app->tile_state_bridge.queue_band[kind];
         if (!tile_loader_enqueue(&app->tile_state_bridge.tile_loader, item.coord, kind, band, app->worker_state_bridge.tile_generation)) {
+            if (lane == TILE_QUEUE_LANE_L0_VISIBLE_MISSING) {
+                app->tile_state_bridge.lane_l0_dropped_visible_requests += 1u;
+                app_tile_lifecycle_mark_visible_drop(app, kind, item.coord, band);
+            }
             break;
         }
         app_tile_lifecycle_transition(app,
@@ -604,6 +663,10 @@ static void app_process_tile_queue(AppState *app,
                                       false,
                                       false,
                                       false);
+        if (lane == TILE_QUEUE_LANE_L0_VISIBLE_MISSING &&
+            app_tile_lifecycle_consume_visible_drop_retry(app, kind, item.coord, band)) {
+            app->tile_state_bridge.lane_l0_retry_visible_requests += 1u;
+        }
         queue->index += 1u;
         remaining_budget -= 1u;
         lane_used[lane] += 1u;
@@ -847,21 +910,70 @@ void app_update_tile_queue(AppState *app) {
             app->tile_state_bridge.stable_target_band[kind] = proposed;
             app->tile_state_bridge.layer_target_band[kind] = proposed;
             app->tile_state_bridge.layer_band_last_change_time[kind] = now;
+            app->tile_state_bridge.coverage_gate_pending[kind] = false;
+            app->tile_state_bridge.coverage_gate_target_band[kind] = proposed;
+            app->tile_state_bridge.coverage_gate_pending_since[kind] = 0.0;
             continue;
         }
 
+        if (current == proposed) {
+            app->tile_state_bridge.coverage_gate_pending[kind] = false;
+            app->tile_state_bridge.coverage_gate_target_band[kind] = proposed;
+            app->tile_state_bridge.coverage_gate_pending_since[kind] = 0.0;
+            app->tile_state_bridge.layer_target_band[kind] = current;
+            continue;
+        }
+
+        bool should_commit_band = false;
+        bool defer_commit = false;
         if (current != proposed) {
             double elapsed = now - app->tile_state_bridge.layer_band_last_change_time[kind];
             if (elapsed >= APP_TILE_BAND_SWITCH_DEBOUNCE_SEC) {
-                app->tile_state_bridge.previous_target_band[kind] = current;
-                app->tile_state_bridge.stable_target_band[kind] = proposed;
-                app->tile_state_bridge.layer_band_last_change_time[kind] = now;
-                band_plan_changed = true;
+                bool pending_target_changed = !app->tile_state_bridge.coverage_gate_pending[kind] ||
+                    app->tile_state_bridge.coverage_gate_target_band[kind] != proposed;
+                if (pending_target_changed) {
+                    app->tile_state_bridge.coverage_gate_pending[kind] = true;
+                    app->tile_state_bridge.coverage_gate_target_band[kind] = proposed;
+                    app->tile_state_bridge.coverage_gate_pending_since[kind] = now;
+                }
+
+                float global_coverage = app->tile_state_bridge.visible_coverage_ratio;
+                float layer_coverage = app_visible_layer_ideal_coverage_for_band(app, kind, proposed);
+                bool coverage_ready =
+                    global_coverage >= APP_TILE_COVERAGE_GATE_GLOBAL_MIN &&
+                    layer_coverage >= APP_TILE_COVERAGE_GATE_LAYER_MIN;
+                if (coverage_ready) {
+                    should_commit_band = true;
+                } else {
+                    app->tile_state_bridge.coverage_gate_deferred_count += 1u;
+                    double wait_elapsed = now - app->tile_state_bridge.coverage_gate_pending_since[kind];
+                    if (wait_elapsed >= APP_TILE_COVERAGE_GATE_MAX_WAIT_SEC) {
+                        app->tile_state_bridge.coverage_gate_timeout_count += 1u;
+                        should_commit_band = true;
+                    } else {
+                        defer_commit = true;
+                    }
+                }
             } else {
                 app->tile_state_bridge.band_switch_deferred_count += 1u;
+                defer_commit = true;
             }
         }
-        app->tile_state_bridge.layer_target_band[kind] = app->tile_state_bridge.stable_target_band[kind];
+
+        if (should_commit_band) {
+            app->tile_state_bridge.previous_target_band[kind] = current;
+            app->tile_state_bridge.stable_target_band[kind] = proposed;
+            app->tile_state_bridge.layer_target_band[kind] = proposed;
+            app->tile_state_bridge.layer_band_last_change_time[kind] = now;
+            app->tile_state_bridge.coverage_gate_pending[kind] = false;
+            app->tile_state_bridge.coverage_gate_pending_since[kind] = 0.0;
+            app->tile_state_bridge.coverage_gate_target_band[kind] = proposed;
+            band_plan_changed = true;
+        } else if (defer_commit) {
+            app->tile_state_bridge.layer_target_band[kind] = current;
+        } else {
+            app->tile_state_bridge.layer_target_band[kind] = app->tile_state_bridge.stable_target_band[kind];
+        }
     }
 
     bool visible_bounds_changed = !app->tile_state_bridge.queue_valid ||
@@ -874,7 +986,11 @@ void app_update_tile_queue(AppState *app) {
             if (!policy) {
                 continue;
             }
-            if (app->tile_state_bridge.queue_band[policy->kind] != app->tile_state_bridge.layer_target_band[policy->kind]) {
+            TileZoomBand desired_queue_band = app->tile_state_bridge.layer_target_band[policy->kind];
+            if (app->tile_state_bridge.coverage_gate_pending[policy->kind]) {
+                desired_queue_band = app->tile_state_bridge.coverage_gate_target_band[policy->kind];
+            }
+            if (app->tile_state_bridge.queue_band[policy->kind] != desired_queue_band) {
                 band_plan_changed = true;
                 break;
             }
@@ -900,6 +1016,9 @@ void app_update_tile_queue(AppState *app) {
             }
             TileLayerKind kind = policy->kind;
             TileZoomBand band = app->tile_state_bridge.layer_target_band[kind];
+            if (app->tile_state_bridge.coverage_gate_pending[kind]) {
+                band = app->tile_state_bridge.coverage_gate_target_band[kind];
+            }
             app->tile_state_bridge.queue_band[kind] = band;
             app_rebuild_tile_queue_for_kind(app,
                                             &app->tile_state_bridge.tile_queues[kind],
@@ -1049,5 +1168,16 @@ void app_update_tile_queue(AppState *app) {
     }
     if (app->tile_state_bridge.lane_l0_pending > 0u) {
         app->tile_state_bridge.lane_l0_saturation_total += (uint64_t)app->tile_state_bridge.lane_l0_pending;
+        if (!app->tile_state_bridge.lane_l0_pending_active) {
+            app->tile_state_bridge.lane_l0_pending_active = true;
+            app->tile_state_bridge.lane_l0_pending_since = now;
+        }
+        double now_end = time_now_seconds();
+        app->tile_state_bridge.lane_l0_latency_ms =
+            (float)((now_end - app->tile_state_bridge.lane_l0_pending_since) * 1000.0);
+    } else {
+        app->tile_state_bridge.lane_l0_pending_active = false;
+        app->tile_state_bridge.lane_l0_pending_since = 0.0;
+        app->tile_state_bridge.lane_l0_latency_ms = 0.0f;
     }
 }

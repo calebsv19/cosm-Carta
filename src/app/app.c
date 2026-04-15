@@ -84,6 +84,28 @@ static bool app_env_flag_enabled(const char *name) {
     return false;
 }
 
+static double app_env_double_clamped(const char *name, double fallback, double min_value, double max_value) {
+    if (!name) {
+        return fallback;
+    }
+    const char *value = getenv(name);
+    if (!value || value[0] == '\0') {
+        return fallback;
+    }
+    char *end = NULL;
+    double parsed = strtod(value, &end);
+    if (end == value) {
+        return fallback;
+    }
+    if (parsed < min_value) {
+        parsed = min_value;
+    }
+    if (parsed > max_value) {
+        parsed = max_value;
+    }
+    return parsed;
+}
+
 static void app_default_input_root(char *out_path, size_t out_cap) {
     const char *home = getenv("HOME");
     if (!out_path || out_cap == 0u) {
@@ -272,6 +294,26 @@ static bool app_init(AppState *app) {
     app->ingest_import_progress_path[0] = '\0';
     app_load_persisted_view_state(app);
     snprintf(app->input_root_edit, sizeof(app->input_root_edit), "%s", app->input_root);
+    const char *forced_region = getenv("MAPFORGE_START_REGION");
+    if (forced_region && forced_region[0] != '\0') {
+        snprintf(app->latest_imported_region, sizeof(app->latest_imported_region), "%s", forced_region);
+    }
+    app->viewport_scenario_active = false;
+    app->viewport_scenario_completed = false;
+    app->viewport_scenario_start_time = 0.0;
+    app->viewport_scenario_duration_sec = 0.0;
+    app->viewport_scenario_origin_x = 0.0f;
+    app->viewport_scenario_origin_y = 0.0f;
+    app->viewport_scenario_origin_zoom = 0.0f;
+    const char *viewport_scenario = getenv("MAPFORGE_VIEWPORT_SCENARIO");
+    if (viewport_scenario && strcmp(viewport_scenario, "phase_a") == 0) {
+        app->viewport_scenario_active = true;
+        app->viewport_scenario_duration_sec =
+            app_env_double_clamped("MAPFORGE_VIEWPORT_SCENARIO_DURATION_SEC", 45.0, 10.0, 300.0);
+        log_info("Viewport scenario active: phase_a duration=%.1fs region_pref=%s",
+                 app->viewport_scenario_duration_sec,
+                 forced_region && forced_region[0] != '\0' ? forced_region : "(none)");
+    }
 
     int total_regions = region_count();
     app->region_index = -1;
@@ -456,10 +498,22 @@ static bool app_init(AppState *app) {
     app->tile_state_bridge.visible_ideal_count = 0u;
     app->tile_state_bridge.visible_renderable_count = 0u;
     app->tile_state_bridge.visible_missing_count = 0u;
+    app->tile_state_bridge.visible_coverage_ratio = 1.0f;
+    memset(app->tile_state_bridge.layer_coverage_ratio, 0, sizeof(app->tile_state_bridge.layer_coverage_ratio));
+    memset(app->tile_state_bridge.coverage_gate_pending, 0, sizeof(app->tile_state_bridge.coverage_gate_pending));
+    memset(app->tile_state_bridge.coverage_gate_target_band, 0, sizeof(app->tile_state_bridge.coverage_gate_target_band));
+    memset(app->tile_state_bridge.coverage_gate_pending_since, 0, sizeof(app->tile_state_bridge.coverage_gate_pending_since));
+    app->tile_state_bridge.coverage_gate_deferred_count = 0u;
+    app->tile_state_bridge.coverage_gate_timeout_count = 0u;
     memset(app->tile_state_bridge.lane_queue_depth, 0, sizeof(app->tile_state_bridge.lane_queue_depth));
     memset(app->tile_state_bridge.lane_service_count, 0, sizeof(app->tile_state_bridge.lane_service_count));
     app->tile_state_bridge.lane_l0_pending = 0u;
+    app->tile_state_bridge.lane_l0_pending_active = false;
+    app->tile_state_bridge.lane_l0_pending_since = 0.0;
+    app->tile_state_bridge.lane_l0_latency_ms = 0.0f;
     app->tile_state_bridge.lane_l0_saturation_total = 0u;
+    app->tile_state_bridge.lane_l0_dropped_visible_requests = 0u;
+    app->tile_state_bridge.lane_l0_retry_visible_requests = 0u;
     app->tile_state_bridge.lifecycle_frame_index = 0u;
     app->tile_state_bridge.lifecycle_transition_count = 0u;
     app->tile_state_bridge.lifecycle_invalid_transition_count = 0u;
@@ -809,7 +863,35 @@ int app_run_legacy(void) {
                          app.tile_state_bridge.present_hold_hits,
                          app.tile_state_bridge.present_hold_misses,
                          app.tile_state_bridge.present_hold_updates);
+                log_info("perf_phase_a cov(global=%.3f layer(a=%.3f l=%.3f c=%.3f w=%.3f p=%.3f lu=%.3f b=%.3f)) "
+                         "l0(lat_ms=%.2f pending=%u sat=%llu drop=%llu retry=%llu) "
+                         "gate(defer=%u timeout=%u) poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu)",
+                         app.tile_state_bridge.visible_coverage_ratio,
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_ARTERY],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_LOCAL],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_CONTOUR],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_POLY_WATER],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_POLY_PARK],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_POLY_LANDUSE],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_POLY_BUILDING],
+                         app.tile_state_bridge.lane_l0_latency_ms,
+                         app.tile_state_bridge.lane_l0_pending,
+                         (unsigned long long)app.tile_state_bridge.lane_l0_saturation_total,
+                         (unsigned long long)app.tile_state_bridge.lane_l0_dropped_visible_requests,
+                         (unsigned long long)app.tile_state_bridge.lane_l0_retry_visible_requests,
+                         app.tile_state_bridge.coverage_gate_deferred_count,
+                         app.tile_state_bridge.coverage_gate_timeout_count,
+                         (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_WATER],
+                         (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_PARK],
+                         (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_LANDUSE],
+                         (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_BUILDING],
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_WATER],
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_PARK],
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_LANDUSE],
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_BUILDING]);
             } else {
+                VkPolyPrepStats poly_prep_stats = {0};
+                app_vk_poly_prep_get_stats(&app, &poly_prep_stats);
                 log_info("perf region=%s backend=sdl frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f rderive=%.1f rsubmit=%.1f draw_pass=%u zoom=%.2f vis=%u viewset(i=%u r=%u m=%u) load=%u/%u active=%s "
                          "input(frame_raw=%u frame_actions=%u gate=%u route_g=%u route_p=%u route_f=%u inval_t=%u inval_f=%u inval_bits=0x%x) "
                          "input(total_raw=%llu total_actions=%llu total_gated=%llu total_route(g=%llu p=%llu f=%llu) total_inval(t=%llu f=%llu)) "
@@ -892,6 +974,32 @@ int app_run_legacy(void) {
                          app.tile_state_bridge.present_hold_hits,
                          app.tile_state_bridge.present_hold_misses,
                          app.tile_state_bridge.present_hold_updates);
+                log_info("perf_phase_a cov(global=%.3f layer(a=%.3f l=%.3f c=%.3f w=%.3f p=%.3f lu=%.3f b=%.3f)) "
+                         "l0(lat_ms=%.2f pending=%u sat=%llu drop=%llu retry=%llu) "
+                         "gate(defer=%u timeout=%u) poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu)",
+                         app.tile_state_bridge.visible_coverage_ratio,
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_ARTERY],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_LOCAL],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_CONTOUR],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_POLY_WATER],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_POLY_PARK],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_POLY_LANDUSE],
+                         app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_POLY_BUILDING],
+                         app.tile_state_bridge.lane_l0_latency_ms,
+                         app.tile_state_bridge.lane_l0_pending,
+                         (unsigned long long)app.tile_state_bridge.lane_l0_saturation_total,
+                         (unsigned long long)app.tile_state_bridge.lane_l0_dropped_visible_requests,
+                         (unsigned long long)app.tile_state_bridge.lane_l0_retry_visible_requests,
+                         app.tile_state_bridge.coverage_gate_deferred_count,
+                         app.tile_state_bridge.coverage_gate_timeout_count,
+                         (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_WATER],
+                         (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_PARK],
+                         (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_LANDUSE],
+                         (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_BUILDING],
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_WATER],
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_PARK],
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_LANDUSE],
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_BUILDING]);
             }
             perf_next_log = frame.after_render + 1.0;
         }

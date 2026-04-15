@@ -617,6 +617,9 @@ test-polygon-cache-guardrails: $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
 test-input-policy: $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 	./$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 
+test-phase-a-viewport-scenario: app
+	./tests/test_phase_a_viewport_scenario.sh
+
 $(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(MAP_SPACE_TEST_SRCS) $(CORE_SPACE_LIB) $(CORE_BASE_LIB) -o $@ $(TOOL_LDLIBS)
@@ -770,6 +773,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-archive-metrics-rollup metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy route route-rebuild region region-validate region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-archive-metrics-rollup metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-phase-a-viewport-scenario route route-rebuild region region-validate region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

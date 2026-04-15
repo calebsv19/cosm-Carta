@@ -145,6 +145,9 @@ void app_tile_lifecycle_transition(AppState *app,
         app->tile_state_bridge.lifecycle_transition_count += 1u;
         app->tile_state_bridge.lifecycle_transition_to_state[next_state] += 1u;
     }
+    if (next_state == APP_TILE_LIFECYCLE_STALE) {
+        entry->visible_drop_pending = false;
+    }
     if (next_state == APP_TILE_LIFECYCLE_RENDERABLE) {
         if (is_ideal_renderable) {
             app->tile_state_bridge.lifecycle_renderable_ideal_count += 1u;
@@ -152,6 +155,35 @@ void app_tile_lifecycle_transition(AppState *app,
             app->tile_state_bridge.lifecycle_renderable_fallback_count += 1u;
         }
     }
+}
+
+void app_tile_lifecycle_mark_visible_drop(AppState *app,
+                                          TileLayerKind kind,
+                                          TileCoord coord,
+                                          TileZoomBand band) {
+    if (!app || kind < 0 || kind >= TILE_LAYER_COUNT) {
+        return;
+    }
+    AppTileLifecycleEntry *entry = app_tile_lifecycle_find_slot(app, kind, coord, band, true);
+    if (!entry) {
+        return;
+    }
+    entry->visible_drop_pending = true;
+}
+
+bool app_tile_lifecycle_consume_visible_drop_retry(AppState *app,
+                                                   TileLayerKind kind,
+                                                   TileCoord coord,
+                                                   TileZoomBand band) {
+    if (!app || kind < 0 || kind >= TILE_LAYER_COUNT) {
+        return false;
+    }
+    AppTileLifecycleEntry *entry = app_tile_lifecycle_find_slot(app, kind, coord, band, false);
+    if (!entry || !entry->visible_drop_pending) {
+        return false;
+    }
+    entry->visible_drop_pending = false;
+    return true;
 }
 
 void app_tile_lifecycle_mark_stale_outside_queue(AppState *app,

@@ -62,6 +62,7 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.visible_ideal_count);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.visible_renderable_count);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.visible_missing_count);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)(app->tile_state_bridge.visible_coverage_ratio * 1000.0f));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.active_layer_kind);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.active_layer_valid);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.loading_done));
@@ -109,13 +110,21 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lane_service_count[i]));
     }
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lane_l0_pending));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)(app->tile_state_bridge.lane_l0_latency_ms * 10.0f));
     hash = app_hash_mix_u64(hash, app->tile_state_bridge.lane_l0_saturation_total);
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.lane_l0_dropped_visible_requests);
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.lane_l0_retry_visible_requests);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.coverage_gate_deferred_count));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.coverage_gate_timeout_count));
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_expected[i]));
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_done[i]));
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_visible_loaded[i]));
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_visible_expected[i]));
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_inflight[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)(app->tile_state_bridge.layer_coverage_ratio[i] * 1000.0f));
+        hash = app_hash_mix_u64(hash, app->worker_state_bridge.vk_poly_prep_quarantine_jobs_by_layer[i]);
+        hash = app_hash_mix_u64(hash, app->worker_state_bridge.vk_poly_prep_quarantine_rings_by_layer[i]);
     }
     return hash;
 }
@@ -125,11 +134,12 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return false;
     }
     if (index == 0) {
-        snprintf(line, line_size, "Visible tiles: %u viewset i=%u r=%u m=%u",
+        snprintf(line, line_size, "Visible tiles: %u viewset i=%u r=%u m=%u cov=%.2f",
                  app->tile_state_bridge.visible_tile_count,
                  app->tile_state_bridge.visible_ideal_count,
                  app->tile_state_bridge.visible_renderable_count,
-                 app->tile_state_bridge.visible_missing_count);
+                 app->tile_state_bridge.visible_missing_count,
+                 app->tile_state_bridge.visible_coverage_ratio);
         return true;
     }
     if (index == 1) {
@@ -146,7 +156,7 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return true;
     }
     if (index == 3) {
-        snprintf(line, line_size, "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) lanes q=%u/%u/%u/%u svc=%u/%u/%u/%u l0p=%u fallback=%u",
+        snprintf(line, line_size, "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) lanes q=%u/%u/%u/%u svc=%u/%u/%u/%u l0(p=%u lat=%.1fms drop=%llu retry=%llu) gate=%u/%u fallback=%u",
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_COARSE], app->tile_state_bridge.band_visible_expected[TILE_BAND_COARSE],
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_MID], app->tile_state_bridge.band_visible_expected[TILE_BAND_MID],
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_FINE], app->tile_state_bridge.band_visible_expected[TILE_BAND_FINE],
@@ -162,6 +172,11 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
                  app->tile_state_bridge.lane_service_count[TILE_QUEUE_LANE_L2_NEAR_PREFETCH],
                  app->tile_state_bridge.lane_service_count[TILE_QUEUE_LANE_L3_FAR_PREFETCH],
                  app->tile_state_bridge.lane_l0_pending,
+                 app->tile_state_bridge.lane_l0_latency_ms,
+                 (unsigned long long)app->tile_state_bridge.lane_l0_dropped_visible_requests,
+                 (unsigned long long)app->tile_state_bridge.lane_l0_retry_visible_requests,
+                 app->tile_state_bridge.coverage_gate_deferred_count,
+                 app->tile_state_bridge.coverage_gate_timeout_count,
                  app->tile_state_bridge.vk_road_band_fallback_draws);
         return true;
     }
@@ -174,7 +189,7 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return true;
     }
     if (index == 5) {
-        snprintf(line, line_size, "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u life f=%llu tx=%u bad=%u req=%u cpu=%u gpu=%u ren=%u st=%u polyq(j=%llu p=%llu b=%llu m=%llu d=%llu w=%llu)",
+        snprintf(line, line_size, "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u life f=%llu tx=%u bad=%u req=%u cpu=%u gpu=%u ren=%u st=%u polyq(j=%llu p=%llu b=%llu m=%llu d=%llu w=%llu) ql(w=%llu p=%llu l=%llu b=%llu)",
                  app->tile_state_bridge.draw_path_vk_count,
                  app->tile_state_bridge.draw_path_fallback_count,
                  app->tile_state_bridge.transition_blend_draw_count,
@@ -195,7 +210,11 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
                  (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_ring_bounds_count,
                  (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_ring_min_points_count,
                  (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_ring_degenerate_count,
-                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_winding_normalized_count);
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_winding_normalized_count,
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_rings_by_layer[TILE_LAYER_POLY_WATER],
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_rings_by_layer[TILE_LAYER_POLY_PARK],
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_rings_by_layer[TILE_LAYER_POLY_LANDUSE],
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_rings_by_layer[TILE_LAYER_POLY_BUILDING]);
         return true;
     }
     if (index == 6) {
@@ -240,7 +259,7 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
     }
     TileLayerKind kind = policy->kind;
     float start = app_layer_zoom_start(app, kind);
-    snprintf(line, line_size, "%s z>=%.2f band=%s exp %u done %u vis %u/%u in %u state=%s runtime=%s",
+    snprintf(line, line_size, "%s z>=%.2f band=%s exp %u done %u vis %u/%u cov %.2f in %u state=%s runtime=%s",
              app_layer_label(kind),
              start,
              layer_policy_band_label(app->tile_state_bridge.layer_target_band[kind]),
@@ -248,6 +267,7 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
              app->tile_state_bridge.layer_done[kind],
              app->tile_state_bridge.layer_visible_loaded[kind],
              app->tile_state_bridge.layer_visible_expected[kind],
+             app->tile_state_bridge.layer_coverage_ratio[kind],
              app->tile_state_bridge.layer_inflight[kind],
              layer_policy_readiness_label(app->tile_state_bridge.layer_state[kind]),
              app_layer_runtime_state_label(app, kind));
