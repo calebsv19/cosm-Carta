@@ -49,6 +49,83 @@ static void app_run_viewport_scenario_phase_a(AppState *app, double now_sec) {
     camera->zoom_target = zoom;
 }
 
+static void app_run_viewport_scenario_phase_b(AppState *app, double now_sec) {
+    if (!app || !app->viewport_scenario_active || app->viewport_scenario_completed) {
+        return;
+    }
+    Camera *camera = &app->view_state_bridge.camera;
+    if (app->viewport_scenario_start_time <= 0.0) {
+        app->viewport_scenario_start_time = now_sec;
+        app->viewport_scenario_origin_x = camera->x;
+        app->viewport_scenario_origin_y = camera->y;
+        app->viewport_scenario_origin_zoom = camera->zoom;
+    }
+
+    double elapsed = now_sec - app->viewport_scenario_start_time;
+    double duration = app->viewport_scenario_duration_sec;
+    if (duration <= 0.0) {
+        duration = 45.0;
+    }
+    if (elapsed >= duration) {
+        app->viewport_scenario_completed = true;
+        app->viewport_scenario_active = false;
+        app->ui_state_bridge.input.quit = true;
+        return;
+    }
+
+    float t = (float)(elapsed / duration);
+    const float tau = 6.28318530718f;
+
+    /* Box-like sweep with harmonic jitter to force continuity churn under pan. */
+    float cycle = fmodf(t * 8.0f, 4.0f);
+    float side_t = cycle - floorf(cycle);
+    float edge_x = 0.0f;
+    float edge_y = 0.0f;
+    if (cycle < 1.0f) {
+        edge_x = -1.0f + 2.0f * side_t;
+        edge_y = -1.0f;
+    } else if (cycle < 2.0f) {
+        edge_x = 1.0f;
+        edge_y = -1.0f + 2.0f * side_t;
+    } else if (cycle < 3.0f) {
+        edge_x = 1.0f - 2.0f * side_t;
+        edge_y = 1.0f;
+    } else {
+        edge_x = -1.0f;
+        edge_y = 1.0f - 2.0f * side_t;
+    }
+
+    float jitter_x = cosf(t * tau * 9.0f) * 110.0f + sinf(t * tau * 5.0f) * 70.0f;
+    float jitter_y = sinf(t * tau * 8.0f) * 95.0f + cosf(t * tau * 6.0f) * 60.0f;
+    float pan_x = edge_x * 950.0f + jitter_x;
+    float pan_y = edge_y * 760.0f + jitter_y;
+
+    /* Aggressive stepped zoom with wave overlay to stress cross-band continuity. */
+    int step_phase = ((int)floorf(t * 10.0f)) % 4;
+    float zoom_step = 0.0f;
+    if (step_phase == 0) {
+        zoom_step = -0.95f;
+    } else if (step_phase == 1) {
+        zoom_step = 0.55f;
+    } else if (step_phase == 2) {
+        zoom_step = -0.35f;
+    } else {
+        zoom_step = 0.80f;
+    }
+    float zoom_wave = sinf(t * tau * 7.5f) * 0.28f + cosf(t * tau * 3.2f) * 0.18f;
+    float zoom = app->viewport_scenario_origin_zoom + zoom_step + zoom_wave;
+    float min_zoom = app->viewport_scenario_origin_zoom - 1.5f;
+    float max_zoom = app->viewport_scenario_origin_zoom + 1.2f;
+    zoom = app_clampf(zoom, min_zoom, max_zoom);
+
+    camera->x = app->viewport_scenario_origin_x + pan_x;
+    camera->y = app->viewport_scenario_origin_y + pan_y;
+    camera->x_target = camera->x;
+    camera->y_target = camera->y;
+    camera->zoom = zoom;
+    camera->zoom_target = zoom;
+}
+
 void app_runtime_update_frame(AppState *app,
                               double *io_last_time,
                               float *out_dt,
@@ -107,7 +184,11 @@ void app_runtime_update_frame(AppState *app,
     }
     camera_handle_input(&app->view_state_bridge.camera, &camera_input, app->width, app->height, dt, allow_mouse_pan);
     camera_update(&app->view_state_bridge.camera, dt);
-    app_run_viewport_scenario_phase_a(app, now);
+    if (app->viewport_scenario_mode == APP_VIEWPORT_SCENARIO_PHASE_B) {
+        app_run_viewport_scenario_phase_b(app, now);
+    } else {
+        app_run_viewport_scenario_phase_a(app, now);
+    }
     debug_overlay_update(&app->ui_state_bridge.overlay, dt);
 
     app_update_hover(app);

@@ -171,6 +171,8 @@ POLYGON_CACHE_GUARDRAILS_TEST_TARGET := build/tests/polygon_cache_guardrails_tes
 POLYGON_CACHE_GUARDRAILS_TEST_SRCS := tests/polygon_cache_guardrails_test.c src/map/polygon_cache.c src/map/polygon_triangulator.c
 APP_RUNTIME_INPUT_POLICY_TEST_TARGET := build/tests/app_runtime_input_policy_test
 APP_RUNTIME_INPUT_POLICY_TEST_SRCS := tests/app_runtime_input_policy_test.c src/app/app_runtime_input_policy.c
+TILE_MANAGER_RESIDENCY_TEST_TARGET := build/tests/tile_manager_residency_test
+TILE_MANAGER_RESIDENCY_TEST_SRCS := tests/tile_manager_residency_test.c src/map/tile_manager.c src/map/tile_source.c src/map/mft_loader.c src/core/log.c
 
 ifeq ($(VK_APP_ENABLED),1)
 CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
@@ -278,7 +280,7 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
-run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-polygon-cache-guardrails test-input-policy test-region-validate-strict test-archive-metrics-rollup
+run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-region-validate-strict test-archive-metrics-rollup
 	@echo "map_forge headless smoke passed (non-interactive)"
 
 visual-harness: app
@@ -577,6 +579,7 @@ test: test-route-service
 test: test-tile-presenter-policy
 test: test-presentation-stability
 test: test-input-policy
+test: test-tile-manager-residency
 
 test-region-validate-strict: tools-build
 	./tests/test_region_validate_strict.sh
@@ -617,8 +620,14 @@ test-polygon-cache-guardrails: $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
 test-input-policy: $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 	./$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 
+test-tile-manager-residency: $(TILE_MANAGER_RESIDENCY_TEST_TARGET)
+	./$(TILE_MANAGER_RESIDENCY_TEST_TARGET)
+
 test-phase-a-viewport-scenario: app
 	./tests/test_phase_a_viewport_scenario.sh
+
+test-phase-b-continuity-stress: app
+	./tests/test_phase_b_continuity_stress.sh
 
 $(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -659,6 +668,10 @@ $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET): $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS)
 $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET): $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(TILE_MANAGER_RESIDENCY_TEST_TARGET): $(TILE_MANAGER_RESIDENCY_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(TILE_MANAGER_RESIDENCY_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
 
 route: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" $(GRAPH_TOOL_FLAGS)
@@ -773,6 +786,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-archive-metrics-rollup metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-phase-a-viewport-scenario route route-rebuild region region-validate region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-archive-metrics-rollup metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-a-viewport-scenario test-phase-b-continuity-stress route route-rebuild region region-validate region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

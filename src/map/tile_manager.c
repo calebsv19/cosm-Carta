@@ -9,6 +9,22 @@ static bool tile_coord_equals(TileCoord a, TileCoord b) {
     return a.z == b.z && a.x == b.x && a.y == b.y;
 }
 
+static bool tile_coord_in_bounds(TileCoord coord,
+                                 uint16_t zoom,
+                                 TileCoord top_left,
+                                 TileCoord bottom_right) {
+    if (coord.z != zoom) {
+        return false;
+    }
+    if (coord.x < top_left.x || coord.y < top_left.y) {
+        return false;
+    }
+    if (coord.x > bottom_right.x || coord.y > bottom_right.y) {
+        return false;
+    }
+    return true;
+}
+
 static void tile_entry_reset(TileEntry *entry) {
     if (!entry) {
         return;
@@ -116,6 +132,57 @@ static TileEntry *tile_manager_pick_slot(TileManager *manager) {
     return empty ? empty : oldest;
 }
 
+static uint32_t tile_manager_entry_policy_score(const TileEntry *entry,
+                                                const TileManagerTrimPolicy *policy) {
+    if (!entry || !entry->occupied || !policy) {
+        return 0u;
+    }
+
+    uint32_t score = 0u;
+    if (policy->protect_visible_bounds &&
+        tile_coord_in_bounds(entry->coord,
+                             policy->visible_zoom,
+                             policy->visible_top_left,
+                             policy->visible_bottom_right)) {
+        score += 1000u;
+    }
+    if (policy->protect_queue_bounds &&
+        tile_coord_in_bounds(entry->coord,
+                             policy->queue_zoom,
+                             policy->queue_top_left,
+                             policy->queue_bottom_right)) {
+        score += 200u;
+    }
+    if (policy->prefer_band && entry->band == policy->preferred_band) {
+        score += 100u;
+    }
+    return score;
+}
+
+static TileEntry *tile_manager_pick_trim_candidate(TileManager *manager,
+                                                   const TileManagerTrimPolicy *policy) {
+    if (!manager || !manager->entries || manager->count == 0u) {
+        return NULL;
+    }
+
+    TileEntry *best = NULL;
+    uint32_t best_score = 0u;
+    for (uint32_t i = 0u; i < manager->capacity; ++i) {
+        TileEntry *entry = &manager->entries[i];
+        if (!entry->occupied) {
+            continue;
+        }
+        uint32_t score = tile_manager_entry_policy_score(entry, policy);
+        if (!best ||
+            score < best_score ||
+            (score == best_score && entry->last_used < best->last_used)) {
+            best = entry;
+            best_score = score;
+        }
+    }
+    return best;
+}
+
 const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord, TileZoomBand band) {
     if (!manager) {
         return NULL;
@@ -221,4 +288,26 @@ bool tile_manager_ensure_capacity(TileManager *manager, uint32_t capacity) {
     manager->entries = entries;
     manager->capacity = capacity;
     return true;
+}
+
+uint32_t tile_manager_trim_to_count(TileManager *manager,
+                                    uint32_t target_count,
+                                    const TileManagerTrimPolicy *policy) {
+    if (!manager || !manager->entries || manager->count <= target_count) {
+        return 0u;
+    }
+
+    uint32_t evicted = 0u;
+    while (manager->count > target_count) {
+        TileEntry *candidate = tile_manager_pick_trim_candidate(manager, policy);
+        if (!candidate) {
+            break;
+        }
+        tile_entry_reset(candidate);
+        if (manager->count > 0u) {
+            manager->count -= 1u;
+        }
+        evicted += 1u;
+    }
+    return evicted;
 }

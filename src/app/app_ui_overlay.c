@@ -116,7 +116,17 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     hash = app_hash_mix_u64(hash, app->tile_state_bridge.lane_l0_retry_visible_requests);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.coverage_gate_deferred_count));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.coverage_gate_timeout_count));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_commit_frame_count));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.queue_rebuild_frame_count));
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.band_commit_total);
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.queue_rebuild_total);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.cache_evicted_frame_total));
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.cache_evicted_total);
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.cache_target[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.cache_resident[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.cache_evicted_frame[i]));
+        hash = app_hash_mix_u64(hash, app->tile_state_bridge.cache_evicted_total_by_layer[i]);
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_expected[i]));
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_done[i]));
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_visible_loaded[i]));
@@ -156,7 +166,7 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return true;
     }
     if (index == 3) {
-        snprintf(line, line_size, "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) lanes q=%u/%u/%u/%u svc=%u/%u/%u/%u l0(p=%u lat=%.1fms drop=%llu retry=%llu) gate=%u/%u fallback=%u",
+        snprintf(line, line_size, "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) lanes q=%u/%u/%u/%u svc=%u/%u/%u/%u l0(p=%u lat=%.1fms drop=%llu retry=%llu) gate=%u/%u fallback=%u churn(b=%u q=%u) cache(evict=%u total=%llu)",
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_COARSE], app->tile_state_bridge.band_visible_expected[TILE_BAND_COARSE],
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_MID], app->tile_state_bridge.band_visible_expected[TILE_BAND_MID],
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_FINE], app->tile_state_bridge.band_visible_expected[TILE_BAND_FINE],
@@ -177,7 +187,11 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
                  (unsigned long long)app->tile_state_bridge.lane_l0_retry_visible_requests,
                  app->tile_state_bridge.coverage_gate_deferred_count,
                  app->tile_state_bridge.coverage_gate_timeout_count,
-                 app->tile_state_bridge.vk_road_band_fallback_draws);
+                 app->tile_state_bridge.vk_road_band_fallback_draws,
+                 app->tile_state_bridge.band_commit_frame_count,
+                 app->tile_state_bridge.queue_rebuild_frame_count,
+                 app->tile_state_bridge.cache_evicted_frame_total,
+                 (unsigned long long)app->tile_state_bridge.cache_evicted_total);
         return true;
     }
     if (index == 4) {
@@ -259,7 +273,7 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
     }
     TileLayerKind kind = policy->kind;
     float start = app_layer_zoom_start(app, kind);
-    snprintf(line, line_size, "%s z>=%.2f band=%s exp %u done %u vis %u/%u cov %.2f in %u state=%s runtime=%s",
+    snprintf(line, line_size, "%s z>=%.2f band=%s exp %u done %u vis %u/%u cov %.2f in %u cache %u/%u ev=%u state=%s runtime=%s",
              app_layer_label(kind),
              start,
              layer_policy_band_label(app->tile_state_bridge.layer_target_band[kind]),
@@ -269,6 +283,9 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
              app->tile_state_bridge.layer_visible_expected[kind],
              app->tile_state_bridge.layer_coverage_ratio[kind],
              app->tile_state_bridge.layer_inflight[kind],
+             app->tile_state_bridge.cache_resident[kind],
+             app->tile_state_bridge.cache_target[kind],
+             app->tile_state_bridge.cache_evicted_frame[kind],
              layer_policy_readiness_label(app->tile_state_bridge.layer_state[kind]),
              app_layer_runtime_state_label(app, kind));
     return true;
@@ -486,7 +503,8 @@ void app_copy_overlay_text(AppState *app) {
         app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_BUILDING];
     int written = snprintf(buffer + offset, sizeof(buffer) - offset,
                            "Region: %s\nZoom: %.2f\nVisible tiles: %u\nLoad total: %u/%u no_data=%.1fs\n"
-                           "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u\n"
+                           "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u churn(b=%u q=%u)\n"
+                           "Cache pressure evict=%u total=%llu\n"
                            "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u\n"
                            "Hardening invariants=%s contour=%s\n"
                            "Pkg rollup rows=%llu bytes=%llu fine(road=%llu poly=%llu)\n",
@@ -503,6 +521,10 @@ void app_copy_overlay_text(AppState *app) {
                            app->tile_state_bridge.band_queue_depth[TILE_BAND_COARSE], app->tile_state_bridge.band_queue_depth[TILE_BAND_MID],
                            app->tile_state_bridge.band_queue_depth[TILE_BAND_FINE], app->tile_state_bridge.band_queue_depth[TILE_BAND_DEFAULT],
                            app->tile_state_bridge.vk_road_band_fallback_draws,
+                           app->tile_state_bridge.band_commit_frame_count,
+                           app->tile_state_bridge.queue_rebuild_frame_count,
+                           app->tile_state_bridge.cache_evicted_frame_total,
+                           (unsigned long long)app->tile_state_bridge.cache_evicted_total,
                            app->tile_state_bridge.draw_path_vk_count,
                            app->tile_state_bridge.draw_path_fallback_count,
                            app->tile_state_bridge.transition_blend_draw_count,
@@ -541,7 +563,7 @@ void app_copy_overlay_text(AppState *app) {
         TileLayerKind kind = policy->kind;
         float start = app_layer_zoom_start(app, kind);
         written = snprintf(buffer + offset, sizeof(buffer) - offset,
-                           "%s z>=%.2f band=%s exp %u done %u vis %u/%u in %u state=%s runtime=%s\n",
+                           "%s z>=%.2f band=%s exp %u done %u vis %u/%u in %u cache %u/%u ev=%u state=%s runtime=%s\n",
                            app_layer_label(kind),
                            start,
                            layer_policy_band_label(app->tile_state_bridge.layer_target_band[kind]),
@@ -550,6 +572,9 @@ void app_copy_overlay_text(AppState *app) {
                            app->tile_state_bridge.layer_visible_loaded[kind],
                            app->tile_state_bridge.layer_visible_expected[kind],
                            app->tile_state_bridge.layer_inflight[kind],
+                           app->tile_state_bridge.cache_resident[kind],
+                           app->tile_state_bridge.cache_target[kind],
+                           app->tile_state_bridge.cache_evicted_frame[kind],
                            layer_policy_readiness_label(app->tile_state_bridge.layer_state[kind]),
                            app_layer_runtime_state_label(app, kind));
         if (written < 0) {

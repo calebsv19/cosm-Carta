@@ -294,6 +294,12 @@ typedef struct AppTileState {
     uint32_t band_visible_expected[TILE_BAND_COUNT];
     uint32_t band_visible_loaded[TILE_BAND_COUNT];
     uint32_t band_queue_depth[TILE_BAND_COUNT];
+    uint32_t cache_target[TILE_LAYER_COUNT];
+    uint32_t cache_resident[TILE_LAYER_COUNT];
+    uint32_t cache_evicted_frame[TILE_LAYER_COUNT];
+    uint64_t cache_evicted_total_by_layer[TILE_LAYER_COUNT];
+    uint32_t cache_evicted_frame_total;
+    uint64_t cache_evicted_total;
     uint32_t layer_expected[TILE_LAYER_COUNT];
     uint32_t layer_done[TILE_LAYER_COUNT];
     uint32_t layer_inflight[TILE_LAYER_COUNT];
@@ -351,6 +357,10 @@ typedef struct AppTileState {
     uint32_t vk_road_band_fallback_draws;
     uint32_t draw_path_vk_count;
     uint32_t draw_path_fallback_count;
+    uint32_t band_commit_frame_count;
+    uint32_t queue_rebuild_frame_count;
+    uint64_t band_commit_total;
+    uint64_t queue_rebuild_total;
     uint32_t band_switch_deferred_count;
     uint32_t queue_rebuild_deferred_count;
     uint32_t transition_blend_draw_count;
@@ -550,6 +560,12 @@ typedef struct AppRuntimeLifetime {
     bool shutdown_completed;
 } AppRuntimeLifetime;
 
+typedef enum AppViewportScenarioMode {
+    APP_VIEWPORT_SCENARIO_NONE = 0,
+    APP_VIEWPORT_SCENARIO_PHASE_A = 1,
+    APP_VIEWPORT_SCENARIO_PHASE_B = 2
+} AppViewportScenarioMode;
+
 /* Owns core application state for the main loop. */
 typedef struct AppState {
     /* Phase 2 ownership buckets (canonical state). */
@@ -604,6 +620,7 @@ typedef struct AppState {
     char ingest_import_progress_path[MAPFORGE_REGION_PATH_CAPACITY];
     bool viewport_scenario_active;
     bool viewport_scenario_completed;
+    AppViewportScenarioMode viewport_scenario_mode;
     double viewport_scenario_start_time;
     double viewport_scenario_duration_sec;
     float viewport_scenario_origin_x;

@@ -300,17 +300,27 @@ static bool app_init(AppState *app) {
     }
     app->viewport_scenario_active = false;
     app->viewport_scenario_completed = false;
+    app->viewport_scenario_mode = APP_VIEWPORT_SCENARIO_NONE;
     app->viewport_scenario_start_time = 0.0;
     app->viewport_scenario_duration_sec = 0.0;
     app->viewport_scenario_origin_x = 0.0f;
     app->viewport_scenario_origin_y = 0.0f;
     app->viewport_scenario_origin_zoom = 0.0f;
     const char *viewport_scenario = getenv("MAPFORGE_VIEWPORT_SCENARIO");
+    const char *viewport_scenario_label = NULL;
     if (viewport_scenario && strcmp(viewport_scenario, "phase_a") == 0) {
+        app->viewport_scenario_mode = APP_VIEWPORT_SCENARIO_PHASE_A;
+        viewport_scenario_label = "phase_a";
+    } else if (viewport_scenario && strcmp(viewport_scenario, "phase_b") == 0) {
+        app->viewport_scenario_mode = APP_VIEWPORT_SCENARIO_PHASE_B;
+        viewport_scenario_label = "phase_b";
+    }
+    if (app->viewport_scenario_mode != APP_VIEWPORT_SCENARIO_NONE) {
         app->viewport_scenario_active = true;
         app->viewport_scenario_duration_sec =
             app_env_double_clamped("MAPFORGE_VIEWPORT_SCENARIO_DURATION_SEC", 45.0, 10.0, 300.0);
-        log_info("Viewport scenario active: phase_a duration=%.1fs region_pref=%s",
+        log_info("Viewport scenario active: %s duration=%.1fs region_pref=%s",
+                 viewport_scenario_label ? viewport_scenario_label : "unknown",
                  app->viewport_scenario_duration_sec,
                  forced_region && forced_region[0] != '\0' ? forced_region : "(none)");
     }
@@ -499,6 +509,12 @@ static bool app_init(AppState *app) {
     app->tile_state_bridge.visible_renderable_count = 0u;
     app->tile_state_bridge.visible_missing_count = 0u;
     app->tile_state_bridge.visible_coverage_ratio = 1.0f;
+    memset(app->tile_state_bridge.cache_target, 0, sizeof(app->tile_state_bridge.cache_target));
+    memset(app->tile_state_bridge.cache_resident, 0, sizeof(app->tile_state_bridge.cache_resident));
+    memset(app->tile_state_bridge.cache_evicted_frame, 0, sizeof(app->tile_state_bridge.cache_evicted_frame));
+    memset(app->tile_state_bridge.cache_evicted_total_by_layer, 0, sizeof(app->tile_state_bridge.cache_evicted_total_by_layer));
+    app->tile_state_bridge.cache_evicted_frame_total = 0u;
+    app->tile_state_bridge.cache_evicted_total = 0u;
     memset(app->tile_state_bridge.layer_coverage_ratio, 0, sizeof(app->tile_state_bridge.layer_coverage_ratio));
     memset(app->tile_state_bridge.coverage_gate_pending, 0, sizeof(app->tile_state_bridge.coverage_gate_pending));
     memset(app->tile_state_bridge.coverage_gate_target_band, 0, sizeof(app->tile_state_bridge.coverage_gate_target_band));
@@ -524,6 +540,10 @@ static bool app_init(AppState *app) {
     memset(app->tile_state_bridge.lifecycle_entries, 0, sizeof(app->tile_state_bridge.lifecycle_entries));
     app->tile_state_bridge.draw_path_vk_count = 0u;
     app->tile_state_bridge.draw_path_fallback_count = 0u;
+    app->tile_state_bridge.band_commit_frame_count = 0u;
+    app->tile_state_bridge.queue_rebuild_frame_count = 0u;
+    app->tile_state_bridge.band_commit_total = 0u;
+    app->tile_state_bridge.queue_rebuild_total = 0u;
     app->tile_state_bridge.band_switch_deferred_count = 0u;
     app->tile_state_bridge.queue_rebuild_deferred_count = 0u;
     app->tile_state_bridge.transition_blend_draw_count = 0u;
@@ -865,7 +885,9 @@ int app_run_legacy(void) {
                          app.tile_state_bridge.present_hold_updates);
                 log_info("perf_phase_a cov(global=%.3f layer(a=%.3f l=%.3f c=%.3f w=%.3f p=%.3f lu=%.3f b=%.3f)) "
                          "l0(lat_ms=%.2f pending=%u sat=%llu drop=%llu retry=%llu) "
-                         "gate(defer=%u timeout=%u) poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu)",
+                         "gate(defer=%u timeout=%u) cache(evict=%u total=%llu a=%u/%u l=%u/%u b=%u/%u) "
+                         "churn(frame_band=%u frame_rebuild=%u total_band=%llu total_rebuild=%llu) "
+                         "poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu)",
                          app.tile_state_bridge.visible_coverage_ratio,
                          app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_ARTERY],
                          app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_LOCAL],
@@ -881,6 +903,18 @@ int app_run_legacy(void) {
                          (unsigned long long)app.tile_state_bridge.lane_l0_retry_visible_requests,
                          app.tile_state_bridge.coverage_gate_deferred_count,
                          app.tile_state_bridge.coverage_gate_timeout_count,
+                         app.tile_state_bridge.cache_evicted_frame_total,
+                         (unsigned long long)app.tile_state_bridge.cache_evicted_total,
+                         app.tile_state_bridge.cache_resident[TILE_LAYER_ROAD_ARTERY],
+                         app.tile_state_bridge.cache_target[TILE_LAYER_ROAD_ARTERY],
+                         app.tile_state_bridge.cache_resident[TILE_LAYER_ROAD_LOCAL],
+                         app.tile_state_bridge.cache_target[TILE_LAYER_ROAD_LOCAL],
+                         app.tile_state_bridge.cache_resident[TILE_LAYER_POLY_BUILDING],
+                         app.tile_state_bridge.cache_target[TILE_LAYER_POLY_BUILDING],
+                         app.tile_state_bridge.band_commit_frame_count,
+                         app.tile_state_bridge.queue_rebuild_frame_count,
+                         (unsigned long long)app.tile_state_bridge.band_commit_total,
+                         (unsigned long long)app.tile_state_bridge.queue_rebuild_total,
                          (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_WATER],
                          (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_PARK],
                          (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_LANDUSE],
@@ -976,7 +1010,9 @@ int app_run_legacy(void) {
                          app.tile_state_bridge.present_hold_updates);
                 log_info("perf_phase_a cov(global=%.3f layer(a=%.3f l=%.3f c=%.3f w=%.3f p=%.3f lu=%.3f b=%.3f)) "
                          "l0(lat_ms=%.2f pending=%u sat=%llu drop=%llu retry=%llu) "
-                         "gate(defer=%u timeout=%u) poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu)",
+                         "gate(defer=%u timeout=%u) cache(evict=%u total=%llu a=%u/%u l=%u/%u b=%u/%u) "
+                         "churn(frame_band=%u frame_rebuild=%u total_band=%llu total_rebuild=%llu) "
+                         "poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu)",
                          app.tile_state_bridge.visible_coverage_ratio,
                          app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_ARTERY],
                          app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_LOCAL],
@@ -992,6 +1028,18 @@ int app_run_legacy(void) {
                          (unsigned long long)app.tile_state_bridge.lane_l0_retry_visible_requests,
                          app.tile_state_bridge.coverage_gate_deferred_count,
                          app.tile_state_bridge.coverage_gate_timeout_count,
+                         app.tile_state_bridge.cache_evicted_frame_total,
+                         (unsigned long long)app.tile_state_bridge.cache_evicted_total,
+                         app.tile_state_bridge.cache_resident[TILE_LAYER_ROAD_ARTERY],
+                         app.tile_state_bridge.cache_target[TILE_LAYER_ROAD_ARTERY],
+                         app.tile_state_bridge.cache_resident[TILE_LAYER_ROAD_LOCAL],
+                         app.tile_state_bridge.cache_target[TILE_LAYER_ROAD_LOCAL],
+                         app.tile_state_bridge.cache_resident[TILE_LAYER_POLY_BUILDING],
+                         app.tile_state_bridge.cache_target[TILE_LAYER_POLY_BUILDING],
+                         app.tile_state_bridge.band_commit_frame_count,
+                         app.tile_state_bridge.queue_rebuild_frame_count,
+                         (unsigned long long)app.tile_state_bridge.band_commit_total,
+                         (unsigned long long)app.tile_state_bridge.queue_rebuild_total,
                          (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_WATER],
                          (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_PARK],
                          (unsigned long long)poly_prep_stats.quarantine_jobs_by_layer[TILE_LAYER_POLY_LANDUSE],

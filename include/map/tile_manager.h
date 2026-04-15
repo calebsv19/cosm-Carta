@@ -26,6 +26,20 @@ typedef struct TileManager {
     TileSourceConfig source;
 } TileManager;
 
+// Residency pressure policy used when trimming cached tiles.
+typedef struct TileManagerTrimPolicy {
+    bool protect_visible_bounds;
+    TileCoord visible_top_left;
+    TileCoord visible_bottom_right;
+    uint16_t visible_zoom;
+    bool protect_queue_bounds;
+    TileCoord queue_top_left;
+    TileCoord queue_bottom_right;
+    uint16_t queue_zoom;
+    bool prefer_band;
+    TileZoomBand preferred_band;
+} TileManagerTrimPolicy;
+
 // Initializes the tile manager with a cache capacity and filesystem tile root.
 bool tile_manager_init(TileManager *manager, uint32_t capacity, const char *base_dir);
 // Initializes the tile manager with an explicit tile source contract.
@@ -51,5 +65,10 @@ uint32_t tile_manager_capacity(const TileManager *manager);
 
 // Ensures the cache can hold at least the requested capacity.
 bool tile_manager_ensure_capacity(TileManager *manager, uint32_t capacity);
+
+// Trims the cache to target_count using LRU + optional viewport/band protection policy.
+uint32_t tile_manager_trim_to_count(TileManager *manager,
+                                    uint32_t target_count,
+                                    const TileManagerTrimPolicy *policy);
 
 #endif
