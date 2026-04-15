@@ -313,6 +313,16 @@ bool app_tile_presenter_draw_road_layer(AppState *app,
     if (app_try_draw_vk_cached_tile(app, kind, coord, band)) {
         app_tile_presenter_present_hold_remember(app, kind, coord, band, now_sec);
         app->tile_state_bridge.draw_path_vk_count += 1u;
+        bool is_ideal = (app->tile_state_bridge.layer_target_band[kind] == band);
+        app_tile_lifecycle_transition(app,
+                                      kind,
+                                      coord,
+                                      band,
+                                      APP_TILE_LIFECYCLE_RENDERABLE,
+                                      true,
+                                      true,
+                                      !is_ideal,
+                                      is_ideal);
         return true;
     }
 
@@ -328,6 +338,16 @@ bool app_tile_presenter_draw_road_layer(AppState *app,
     road_renderer_draw_tile(&app->renderer, &app->view_state_bridge.camera, tile, single_line, road_zoom_bias, road_opacity);
     app_tile_presenter_present_hold_remember(app, kind, coord, band, now_sec);
     app->tile_state_bridge.draw_path_fallback_count += 1u;
+    bool is_ideal = (app->tile_state_bridge.layer_target_band[kind] == band);
+    app_tile_lifecycle_transition(app,
+                                  kind,
+                                  coord,
+                                  band,
+                                  APP_TILE_LIFECYCLE_RENDERABLE,
+                                  true,
+                                  false,
+                                  !is_ideal,
+                                  is_ideal);
     return true;
 }
 
@@ -356,6 +376,16 @@ bool app_tile_presenter_draw_polygon_layer(AppState *app,
     if (app_try_draw_vk_cached_polygon_tile(app, kind, coord, band, poly_fill_budget, poly_asset_build_budget)) {
         app_tile_presenter_present_hold_remember(app, kind, coord, band, now_sec);
         app->tile_state_bridge.draw_path_vk_count += 1u;
+        bool is_ideal = (app->tile_state_bridge.layer_target_band[kind] == band);
+        app_tile_lifecycle_transition(app,
+                                      kind,
+                                      coord,
+                                      band,
+                                      APP_TILE_LIFECYCLE_RENDERABLE,
+                                      true,
+                                      true,
+                                      !is_ideal,
+                                      is_ideal);
         return true;
     }
 
@@ -379,6 +409,16 @@ bool app_tile_presenter_draw_polygon_layer(AppState *app,
                                    layer_opacity);
         app_tile_presenter_present_hold_remember(app, kind, coord, band, now_sec);
         app->tile_state_bridge.draw_path_fallback_count += 1u;
+        bool is_ideal = (app->tile_state_bridge.layer_target_band[kind] == band);
+        app_tile_lifecycle_transition(app,
+                                      kind,
+                                      coord,
+                                      band,
+                                      APP_TILE_LIFECYCLE_RENDERABLE,
+                                      true,
+                                      false,
+                                      !is_ideal,
+                                      is_ideal);
         return true;
     }
 

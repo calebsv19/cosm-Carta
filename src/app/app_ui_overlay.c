@@ -73,6 +73,13 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.draw_path_fallback_count));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.transition_blend_draw_count));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.presenter_invariant_fail_count));
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.lifecycle_frame_index);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lifecycle_transition_count));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lifecycle_invalid_transition_count));
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.lifecycle_invalid_transition_total);
+    for (size_t i = 0; i < APP_TILE_LIFECYCLE_STATE_COUNT; ++i) {
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lifecycle_transition_to_state[i]));
+    }
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->region.tile_source.storage_kind);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)(app->region.has_tile_archive ? 1u : 0u));
     hash = app_hash_mix_u64(hash, app->region.archive_rollup_total_rows);
@@ -161,14 +168,22 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return true;
     }
     if (index == 5) {
-        snprintf(line, line_size, "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u",
+        snprintf(line, line_size, "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u life f=%llu tx=%u bad=%u req=%u cpu=%u gpu=%u ren=%u st=%u",
                  app->tile_state_bridge.draw_path_vk_count,
                  app->tile_state_bridge.draw_path_fallback_count,
                  app->tile_state_bridge.transition_blend_draw_count,
                  app->tile_state_bridge.present_hold_hits,
                  app->tile_state_bridge.present_hold_misses,
                  app->tile_state_bridge.present_hold_updates,
-                 app->tile_state_bridge.presenter_invariant_fail_count);
+                 app->tile_state_bridge.presenter_invariant_fail_count,
+                 (unsigned long long)app->tile_state_bridge.lifecycle_frame_index,
+                 app->tile_state_bridge.lifecycle_transition_count,
+                 app->tile_state_bridge.lifecycle_invalid_transition_count,
+                 app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_REQUESTED],
+                 app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_DECODED_CPU],
+                 app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_UPLOADED_GPU],
+                 app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_RENDERABLE],
+                 app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_STALE]);
         return true;
     }
     if (index == 6) {

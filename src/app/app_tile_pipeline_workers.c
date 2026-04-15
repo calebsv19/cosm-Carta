@@ -498,6 +498,16 @@ void app_vk_poly_prep_drain(AppState *app, uint32_t max_results, double max_time
             mft_free_tile(&result.tile);
             continue;
         }
+        bool is_ideal = (app->tile_state_bridge.layer_target_band[result.kind] == result.band);
+        app_tile_lifecycle_transition(app,
+                                      result.kind,
+                                      result.coord,
+                                      result.band,
+                                      APP_TILE_LIFECYCLE_RENDERABLE,
+                                      true,
+                                      false,
+                                      !is_ideal,
+                                      is_ideal);
         app_vk_asset_enqueue(app, result.kind, result.coord, result.band);
         drained += 1u;
     }
@@ -610,7 +620,19 @@ bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord, Ti
     };
 
     if (!app->worker_state_bridge.vk_asset_worker_enabled) {
-        return app_vk_asset_main_admit_job(app, &in_job);
+        bool accepted_main = app_vk_asset_main_admit_job(app, &in_job);
+        if (accepted_main) {
+            app_tile_lifecycle_transition(app,
+                                          kind,
+                                          coord,
+                                          band,
+                                          APP_TILE_LIFECYCLE_UPLOADED_GPU,
+                                          true,
+                                          false,
+                                          false,
+                                          false);
+        }
+        return accepted_main;
     }
 
     bool accepted = false;
@@ -657,6 +679,17 @@ bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord, Ti
         app->worker_state_bridge.vk_asset_stage_drop_count += 1u;
     }
     pthread_mutex_unlock(&app->worker_state_bridge.vk_asset_worker_mutex);
+    if (accepted) {
+        app_tile_lifecycle_transition(app,
+                                      kind,
+                                      coord,
+                                      band,
+                                      APP_TILE_LIFECYCLE_UPLOADED_GPU,
+                                      true,
+                                      false,
+                                      false,
+                                      false);
+    }
     return accepted;
 }
 
@@ -761,6 +794,16 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
             continue;
         }
         if (vk_tile_cache_on_tile_loaded(&app->tile_state_bridge.vk_tile_cache, app->renderer.vk, job.kind, job.coord, job.band, tile)) {
+            bool is_ideal = (app->tile_state_bridge.layer_target_band[job.kind] == job.band);
+            app_tile_lifecycle_transition(app,
+                                          job.kind,
+                                          job.coord,
+                                          job.band,
+                                          APP_TILE_LIFECYCLE_RENDERABLE,
+                                          true,
+                                          true,
+                                          !is_ideal,
+                                          is_ideal);
             processed += 1u;
             if (job.kind < TILE_LAYER_COUNT) {
                 built_by_kind[job.kind] += 1u;

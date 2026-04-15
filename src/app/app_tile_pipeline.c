@@ -482,6 +482,14 @@ void app_clear_tile_queue(AppState *app) {
     memset(app->tile_state_bridge.lane_queue_depth, 0, sizeof(app->tile_state_bridge.lane_queue_depth));
     memset(app->tile_state_bridge.lane_service_count, 0, sizeof(app->tile_state_bridge.lane_service_count));
     app->tile_state_bridge.lane_l0_pending = 0u;
+    app->tile_state_bridge.lifecycle_frame_index = 0u;
+    app->tile_state_bridge.lifecycle_transition_count = 0u;
+    app->tile_state_bridge.lifecycle_invalid_transition_count = 0u;
+    app->tile_state_bridge.lifecycle_invalid_transition_total = 0u;
+    memset(app->tile_state_bridge.lifecycle_transition_to_state, 0, sizeof(app->tile_state_bridge.lifecycle_transition_to_state));
+    app->tile_state_bridge.lifecycle_renderable_ideal_count = 0u;
+    app->tile_state_bridge.lifecycle_renderable_fallback_count = 0u;
+    memset(app->tile_state_bridge.lifecycle_entries, 0, sizeof(app->tile_state_bridge.lifecycle_entries));
     app->tile_state_bridge.active_layer_valid = false;
     app->tile_state_bridge.transition_blend_draw_count = 0u;
     app->tile_state_bridge.present_hold_hits = 0u;
@@ -587,6 +595,15 @@ static void app_process_tile_queue(AppState *app,
         if (!tile_loader_enqueue(&app->tile_state_bridge.tile_loader, item.coord, kind, band, app->worker_state_bridge.tile_generation)) {
             break;
         }
+        app_tile_lifecycle_transition(app,
+                                      kind,
+                                      item.coord,
+                                      band,
+                                      APP_TILE_LIFECYCLE_REQUESTED,
+                                      false,
+                                      false,
+                                      false,
+                                      false);
         queue->index += 1u;
         remaining_budget -= 1u;
         lane_used[lane] += 1u;
@@ -652,12 +669,32 @@ void app_drain_tile_results(AppState *app, uint32_t budget) {
             continue;
         }
 
+        app_tile_lifecycle_transition(app,
+                                      result.kind,
+                                      result.coord,
+                                      result.band,
+                                      APP_TILE_LIFECYCLE_DECODED_CPU,
+                                      true,
+                                      false,
+                                      false,
+                                      false);
+
         if (app->tile_state_bridge.vk_assets_enabled && app_kind_is_polygon(result.kind)) {
             if (!app_vk_poly_prep_enqueue(app, &result)) {
                 if (!tile_manager_put_tile(&app->tile_state_bridge.tile_managers[result.kind], result.coord, result.band, &result.tile)) {
                     mft_free_tile(&result.tile);
                     continue;
                 }
+                bool is_ideal = (app->tile_state_bridge.layer_target_band[result.kind] == result.band);
+                app_tile_lifecycle_transition(app,
+                                              result.kind,
+                                              result.coord,
+                                              result.band,
+                                              APP_TILE_LIFECYCLE_RENDERABLE,
+                                              true,
+                                              false,
+                                              !is_ideal,
+                                              is_ideal);
                 app_vk_asset_enqueue(app, result.kind, result.coord, result.band);
             }
             continue;
@@ -667,6 +704,16 @@ void app_drain_tile_results(AppState *app, uint32_t budget) {
             mft_free_tile(&result.tile);
             continue;
         }
+        bool is_ideal = (app->tile_state_bridge.layer_target_band[result.kind] == result.band);
+        app_tile_lifecycle_transition(app,
+                                      result.kind,
+                                      result.coord,
+                                      result.band,
+                                      APP_TILE_LIFECYCLE_RENDERABLE,
+                                      true,
+                                      false,
+                                      !is_ideal,
+                                      is_ideal);
 
         if (app->tile_state_bridge.vk_assets_enabled &&
             (result.kind == TILE_LAYER_ROAD_ARTERY ||
@@ -674,6 +721,15 @@ void app_drain_tile_results(AppState *app, uint32_t budget) {
             const MftTile *cached = tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[result.kind], result.coord, result.band);
             if (cached) {
                 vk_tile_cache_on_tile_loaded(&app->tile_state_bridge.vk_tile_cache, app->renderer.vk, result.kind, result.coord, result.band, cached);
+                app_tile_lifecycle_transition(app,
+                                              result.kind,
+                                              result.coord,
+                                              result.band,
+                                              APP_TILE_LIFECYCLE_RENDERABLE,
+                                              true,
+                                              true,
+                                              !is_ideal,
+                                              is_ideal);
             }
         }
     }
@@ -739,6 +795,7 @@ void app_update_tile_queue(AppState *app) {
     if (!app) {
         return;
     }
+    app_tile_lifecycle_begin_frame(app);
     double now = time_now_seconds();
 
     uint16_t z = 0;
@@ -834,6 +891,7 @@ void app_update_tile_queue(AppState *app) {
     }
 
     if (bounds_changed) {
+        app_tile_lifecycle_mark_stale_outside_queue(app, queue_top_left, queue_bottom_right, z);
         app_worker_contract_bump_tile_generation(app);
         for (size_t i = 0; i < layer_policy_count(); ++i) {
             const LayerPolicy *policy = layer_policy_at(i);

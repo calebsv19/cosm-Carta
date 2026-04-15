@@ -460,6 +460,14 @@ static bool app_init(AppState *app) {
     memset(app->tile_state_bridge.lane_service_count, 0, sizeof(app->tile_state_bridge.lane_service_count));
     app->tile_state_bridge.lane_l0_pending = 0u;
     app->tile_state_bridge.lane_l0_saturation_total = 0u;
+    app->tile_state_bridge.lifecycle_frame_index = 0u;
+    app->tile_state_bridge.lifecycle_transition_count = 0u;
+    app->tile_state_bridge.lifecycle_invalid_transition_count = 0u;
+    app->tile_state_bridge.lifecycle_invalid_transition_total = 0u;
+    memset(app->tile_state_bridge.lifecycle_transition_to_state, 0, sizeof(app->tile_state_bridge.lifecycle_transition_to_state));
+    app->tile_state_bridge.lifecycle_renderable_ideal_count = 0u;
+    app->tile_state_bridge.lifecycle_renderable_fallback_count = 0u;
+    memset(app->tile_state_bridge.lifecycle_entries, 0, sizeof(app->tile_state_bridge.lifecycle_entries));
     app->tile_state_bridge.draw_path_vk_count = 0u;
     app->tile_state_bridge.draw_path_fallback_count = 0u;
     app->tile_state_bridge.band_switch_deferred_count = 0u;
@@ -671,6 +679,7 @@ int app_run_legacy(void) {
                          "input(frame_raw=%u frame_actions=%u gate=%u route_g=%u route_p=%u route_f=%u inval_t=%u inval_f=%u inval_bits=0x%x) "
                          "input(total_raw=%llu total_actions=%llu total_gated=%llu total_route(g=%llu p=%llu f=%llu) total_inval(t=%llu f=%llu)) "
                          "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
+                         "life(frame=%llu tx=%u bad=%u req=%u cpu=%u gpu=%u ren=%u stale=%u ideal=%u fallback=%u bad_total=%llu) "
                          "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu "
                          "src=%s arch(req=%llu hit=%llu ext=%llu fail=%llu tree=%llu) "
                          "vk_begin=%d vk_begin_fail_total=%llu vk_recreate=%u vk_geom=%u/%u vk_geom_skip=%u vk_lines=%u vk_line_skip=%u vk_line_budget=%u vk_rect=%u vk_fill=%u "
@@ -715,6 +724,17 @@ int app_run_legacy(void) {
                          app.tile_state_bridge.band_queue_depth[TILE_BAND_COARSE], app.tile_state_bridge.band_queue_depth[TILE_BAND_MID],
                          app.tile_state_bridge.band_queue_depth[TILE_BAND_FINE], app.tile_state_bridge.band_queue_depth[TILE_BAND_DEFAULT],
                          app.tile_state_bridge.vk_road_band_fallback_draws,
+                         (unsigned long long)app.tile_state_bridge.lifecycle_frame_index,
+                         app.tile_state_bridge.lifecycle_transition_count,
+                         app.tile_state_bridge.lifecycle_invalid_transition_count,
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_REQUESTED],
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_DECODED_CPU],
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_UPLOADED_GPU],
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_RENDERABLE],
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_STALE],
+                         app.tile_state_bridge.lifecycle_renderable_ideal_count,
+                         app.tile_state_bridge.lifecycle_renderable_fallback_count,
+                         (unsigned long long)app.tile_state_bridge.lifecycle_invalid_transition_total,
                          stats.req_count, stats.req_capacity,
                          stats.res_count, stats.res_capacity,
                          (unsigned long long)stats.enqueued_count,
@@ -786,6 +806,7 @@ int app_run_legacy(void) {
                          "input(frame_raw=%u frame_actions=%u gate=%u route_g=%u route_p=%u route_f=%u inval_t=%u inval_f=%u inval_bits=0x%x) "
                          "input(total_raw=%llu total_actions=%llu total_gated=%llu total_route(g=%llu p=%llu f=%llu) total_inval(t=%llu f=%llu)) "
                          "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
+                         "life(frame=%llu tx=%u bad=%u req=%u cpu=%u gpu=%u ren=%u stale=%u ideal=%u fallback=%u bad_total=%llu) "
                          "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu "
                          "src=%s arch(req=%llu hit=%llu ext=%llu fail=%llu tree=%llu) "
                          "draw_path(vk=%u fallback=%u blend=%u) defer(band=%u queue=%u) hold(hit=%u miss=%u upd=%u)",
@@ -827,6 +848,17 @@ int app_run_legacy(void) {
                          app.tile_state_bridge.band_queue_depth[TILE_BAND_COARSE], app.tile_state_bridge.band_queue_depth[TILE_BAND_MID],
                          app.tile_state_bridge.band_queue_depth[TILE_BAND_FINE], app.tile_state_bridge.band_queue_depth[TILE_BAND_DEFAULT],
                          app.tile_state_bridge.vk_road_band_fallback_draws,
+                         (unsigned long long)app.tile_state_bridge.lifecycle_frame_index,
+                         app.tile_state_bridge.lifecycle_transition_count,
+                         app.tile_state_bridge.lifecycle_invalid_transition_count,
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_REQUESTED],
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_DECODED_CPU],
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_UPLOADED_GPU],
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_RENDERABLE],
+                         app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_STALE],
+                         app.tile_state_bridge.lifecycle_renderable_ideal_count,
+                         app.tile_state_bridge.lifecycle_renderable_fallback_count,
+                         (unsigned long long)app.tile_state_bridge.lifecycle_invalid_transition_total,
                          stats.req_count, stats.req_capacity,
                          stats.res_count, stats.res_capacity,
                          (unsigned long long)stats.enqueued_count,

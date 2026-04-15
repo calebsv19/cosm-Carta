@@ -67,6 +67,20 @@ typedef enum TileQueueLane {
     TILE_QUEUE_LANE_COUNT = 4
 } TileQueueLane;
 
+typedef enum AppTileLifecycleState {
+    APP_TILE_LIFECYCLE_ABSENT = 0,
+    APP_TILE_LIFECYCLE_REQUESTED = 1,
+    APP_TILE_LIFECYCLE_DECODED_CPU = 2,
+    APP_TILE_LIFECYCLE_UPLOADED_GPU = 3,
+    APP_TILE_LIFECYCLE_RENDERABLE = 4,
+    APP_TILE_LIFECYCLE_STALE = 5,
+    APP_TILE_LIFECYCLE_STATE_COUNT = 6
+} AppTileLifecycleState;
+
+enum {
+    APP_TILE_LIFECYCLE_CAPACITY = 32768u
+};
+
 /* Per-tile queue entry sorted by distance from camera center tile. */
 typedef struct TileQueueItem {
     TileCoord coord;
@@ -81,6 +95,20 @@ typedef struct TileQueue {
     uint32_t index;
     uint32_t capacity;
 } TileQueue;
+
+typedef struct AppTileLifecycleEntry {
+    bool occupied;
+    TileCoord coord;
+    TileLayerKind kind;
+    TileZoomBand band;
+    AppTileLifecycleState state;
+    bool has_cpu;
+    bool has_gpu;
+    bool is_fallback_renderable;
+    bool is_ideal_renderable;
+    uint64_t last_transition_frame;
+    double last_transition_time;
+} AppTileLifecycleEntry;
 
 /* Runtime polygon fill budget for Vulkan tile cache rendering. */
 typedef struct VkPolyFillBudget {
@@ -257,6 +285,13 @@ typedef struct AppTileState {
     uint32_t lane_service_count[TILE_QUEUE_LANE_COUNT];
     uint32_t lane_l0_pending;
     uint64_t lane_l0_saturation_total;
+    uint64_t lifecycle_frame_index;
+    uint32_t lifecycle_transition_count;
+    uint32_t lifecycle_invalid_transition_count;
+    uint64_t lifecycle_invalid_transition_total;
+    uint32_t lifecycle_transition_to_state[APP_TILE_LIFECYCLE_STATE_COUNT];
+    uint32_t lifecycle_renderable_ideal_count;
+    uint32_t lifecycle_renderable_fallback_count;
     uint32_t layer_visible_expected[TILE_LAYER_COUNT];
     uint32_t layer_visible_loaded[TILE_LAYER_COUNT];
     LayerReadinessState layer_state[TILE_LAYER_COUNT];
@@ -299,6 +334,7 @@ typedef struct AppTileState {
     bool contour_runtime_enabled;
     uint64_t present_hold_tick;
     TilePresentHoldEntry present_hold[TILE_LAYER_COUNT][APP_TILE_PRESENT_HOLD_CAPACITY];
+    AppTileLifecycleEntry lifecycle_entries[APP_TILE_LIFECYCLE_CAPACITY];
     double last_queue_rebuild_time;
 } AppTileState;
 
@@ -684,6 +720,20 @@ void app_clear_tile_queue(AppState *app);
 void app_drain_tile_results(AppState *app, uint32_t budget);
 void app_refresh_layer_states(AppState *app);
 void app_update_tile_queue(AppState *app);
+void app_tile_lifecycle_begin_frame(AppState *app);
+void app_tile_lifecycle_transition(AppState *app,
+                                   TileLayerKind kind,
+                                   TileCoord coord,
+                                   TileZoomBand band,
+                                   AppTileLifecycleState next_state,
+                                   bool has_cpu,
+                                   bool has_gpu,
+                                   bool is_fallback_renderable,
+                                   bool is_ideal_renderable);
+void app_tile_lifecycle_mark_stale_outside_queue(AppState *app,
+                                                 TileCoord queue_top_left,
+                                                 TileCoord queue_bottom_right,
+                                                 uint16_t queue_zoom);
 bool app_vk_poly_prep_init(AppState *app);
 void app_vk_poly_prep_shutdown(AppState *app);
 void app_vk_poly_prep_clear(AppState *app);
