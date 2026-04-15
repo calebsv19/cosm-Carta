@@ -59,10 +59,19 @@
 #define APP_INGEST_LIST_MAX 256
 #define APP_INGEST_NAME_CAP 128
 
+typedef enum TileQueueLane {
+    TILE_QUEUE_LANE_L0_VISIBLE_MISSING = 0,
+    TILE_QUEUE_LANE_L1_VISIBLE_REFINE = 1,
+    TILE_QUEUE_LANE_L2_NEAR_PREFETCH = 2,
+    TILE_QUEUE_LANE_L3_FAR_PREFETCH = 3,
+    TILE_QUEUE_LANE_COUNT = 4
+} TileQueueLane;
+
 /* Per-tile queue entry sorted by distance from camera center tile. */
 typedef struct TileQueueItem {
     TileCoord coord;
     uint32_t dist2;
+    TileQueueLane lane;
 } TileQueueItem;
 
 /* Per-layer tile loading queue and cursor state. */
@@ -244,6 +253,10 @@ typedef struct AppTileState {
     uint32_t layer_expected[TILE_LAYER_COUNT];
     uint32_t layer_done[TILE_LAYER_COUNT];
     uint32_t layer_inflight[TILE_LAYER_COUNT];
+    uint32_t lane_queue_depth[TILE_QUEUE_LANE_COUNT];
+    uint32_t lane_service_count[TILE_QUEUE_LANE_COUNT];
+    uint32_t lane_l0_pending;
+    uint64_t lane_l0_saturation_total;
     uint32_t layer_visible_expected[TILE_LAYER_COUNT];
     uint32_t layer_visible_loaded[TILE_LAYER_COUNT];
     LayerReadinessState layer_state[TILE_LAYER_COUNT];

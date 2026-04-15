@@ -456,6 +456,10 @@ static bool app_init(AppState *app) {
     app->tile_state_bridge.visible_ideal_count = 0u;
     app->tile_state_bridge.visible_renderable_count = 0u;
     app->tile_state_bridge.visible_missing_count = 0u;
+    memset(app->tile_state_bridge.lane_queue_depth, 0, sizeof(app->tile_state_bridge.lane_queue_depth));
+    memset(app->tile_state_bridge.lane_service_count, 0, sizeof(app->tile_state_bridge.lane_service_count));
+    app->tile_state_bridge.lane_l0_pending = 0u;
+    app->tile_state_bridge.lane_l0_saturation_total = 0u;
     app->tile_state_bridge.draw_path_vk_count = 0u;
     app->tile_state_bridge.draw_path_fallback_count = 0u;
     app->tile_state_bridge.band_switch_deferred_count = 0u;

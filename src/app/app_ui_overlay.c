@@ -91,6 +91,12 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_visible_expected[i]));
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_queue_depth[i]));
     }
+    for (size_t i = 0; i < TILE_QUEUE_LANE_COUNT; ++i) {
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lane_queue_depth[i]));
+        hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lane_service_count[i]));
+    }
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lane_l0_pending));
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.lane_l0_saturation_total);
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_expected[i]));
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.layer_done[i]));
@@ -127,13 +133,22 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return true;
     }
     if (index == 3) {
-        snprintf(line, line_size, "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u",
+        snprintf(line, line_size, "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) lanes q=%u/%u/%u/%u svc=%u/%u/%u/%u l0p=%u fallback=%u",
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_COARSE], app->tile_state_bridge.band_visible_expected[TILE_BAND_COARSE],
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_MID], app->tile_state_bridge.band_visible_expected[TILE_BAND_MID],
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_FINE], app->tile_state_bridge.band_visible_expected[TILE_BAND_FINE],
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_DEFAULT], app->tile_state_bridge.band_visible_expected[TILE_BAND_DEFAULT],
                  app->tile_state_bridge.band_queue_depth[TILE_BAND_COARSE], app->tile_state_bridge.band_queue_depth[TILE_BAND_MID],
                  app->tile_state_bridge.band_queue_depth[TILE_BAND_FINE], app->tile_state_bridge.band_queue_depth[TILE_BAND_DEFAULT],
+                 app->tile_state_bridge.lane_queue_depth[TILE_QUEUE_LANE_L0_VISIBLE_MISSING],
+                 app->tile_state_bridge.lane_queue_depth[TILE_QUEUE_LANE_L1_VISIBLE_REFINE],
+                 app->tile_state_bridge.lane_queue_depth[TILE_QUEUE_LANE_L2_NEAR_PREFETCH],
+                 app->tile_state_bridge.lane_queue_depth[TILE_QUEUE_LANE_L3_FAR_PREFETCH],
+                 app->tile_state_bridge.lane_service_count[TILE_QUEUE_LANE_L0_VISIBLE_MISSING],
+                 app->tile_state_bridge.lane_service_count[TILE_QUEUE_LANE_L1_VISIBLE_REFINE],
+                 app->tile_state_bridge.lane_service_count[TILE_QUEUE_LANE_L2_NEAR_PREFETCH],
+                 app->tile_state_bridge.lane_service_count[TILE_QUEUE_LANE_L3_FAR_PREFETCH],
+                 app->tile_state_bridge.lane_l0_pending,
                  app->tile_state_bridge.vk_road_band_fallback_draws);
         return true;
     }

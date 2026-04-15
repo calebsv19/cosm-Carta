@@ -199,6 +199,12 @@ static bool app_compute_visible_tile_bounds(AppState *app, uint16_t *out_z, Tile
 static int app_tile_queue_compare(const void *a, const void *b) {
     const TileQueueItem *item_a = (const TileQueueItem *)a;
     const TileQueueItem *item_b = (const TileQueueItem *)b;
+    if (item_a->lane < item_b->lane) {
+        return -1;
+    }
+    if (item_a->lane > item_b->lane) {
+        return 1;
+    }
     if (item_a->dist2 < item_b->dist2) {
         return -1;
     }
@@ -213,6 +219,24 @@ static bool app_kind_is_polygon(TileLayerKind kind) {
            kind == TILE_LAYER_POLY_PARK ||
            kind == TILE_LAYER_POLY_LANDUSE ||
            kind == TILE_LAYER_POLY_BUILDING;
+}
+
+static uint32_t app_tile_ring_distance_from_bounds(TileCoord coord,
+                                                   TileCoord top_left,
+                                                   TileCoord bottom_right) {
+    uint32_t dx = 0u;
+    uint32_t dy = 0u;
+    if (coord.x < top_left.x) {
+        dx = top_left.x - coord.x;
+    } else if (coord.x > bottom_right.x) {
+        dx = coord.x - bottom_right.x;
+    }
+    if (coord.y < top_left.y) {
+        dy = top_left.y - coord.y;
+    } else if (coord.y > bottom_right.y) {
+        dy = coord.y - bottom_right.y;
+    }
+    return dx > dy ? dx : dy;
 }
 
 static TileZoomBand app_layer_target_band(const AppState *app, TileLayerKind kind) {
@@ -455,6 +479,9 @@ void app_clear_tile_queue(AppState *app) {
     app->tile_state_bridge.visible_ideal_count = 0u;
     app->tile_state_bridge.visible_renderable_count = 0u;
     app->tile_state_bridge.visible_missing_count = 0u;
+    memset(app->tile_state_bridge.lane_queue_depth, 0, sizeof(app->tile_state_bridge.lane_queue_depth));
+    memset(app->tile_state_bridge.lane_service_count, 0, sizeof(app->tile_state_bridge.lane_service_count));
+    app->tile_state_bridge.lane_l0_pending = 0u;
     app->tile_state_bridge.active_layer_valid = false;
     app->tile_state_bridge.transition_blend_draw_count = 0u;
     app->tile_state_bridge.present_hold_hits = 0u;
@@ -467,12 +494,17 @@ void app_clear_tile_queue(AppState *app) {
 }
 
 static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, TileLayerKind kind,
-    uint16_t z, TileCoord top_left, TileCoord bottom_right, TileZoomBand band) {
+    uint16_t z,
+    TileCoord queue_top_left,
+    TileCoord queue_bottom_right,
+    TileCoord visible_top_left,
+    TileCoord visible_bottom_right,
+    TileZoomBand band) {
     if (!app) {
         return;
     }
 
-    uint32_t total_tiles = (bottom_right.x - top_left.x + 1) * (bottom_right.y - top_left.y + 1);
+    uint32_t total_tiles = (queue_bottom_right.x - queue_top_left.x + 1) * (queue_bottom_right.y - queue_top_left.y + 1);
     if (total_tiles == 0) {
         if (queue) {
             queue->count = 0;
@@ -498,17 +530,25 @@ static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, Til
 
     TileCoord center = tile_from_meters(z, (MercatorMeters){app->view_state_bridge.camera.x, app->view_state_bridge.camera.y});
     uint32_t count = 0;
-    for (uint32_t y = top_left.y; y <= bottom_right.y; ++y) {
-        for (uint32_t x = top_left.x; x <= bottom_right.x; ++x) {
+    for (uint32_t y = queue_top_left.y; y <= queue_bottom_right.y; ++y) {
+        for (uint32_t x = queue_top_left.x; x <= queue_bottom_right.x; ++x) {
             TileCoord coord = {z, x, y};
-            const MftTile *tile = tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, band);
-            if (tile) {
+            const MftTile *ideal = tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, band);
+            if (ideal) {
                 continue;
+            }
+            TileQueueLane lane = TILE_QUEUE_LANE_L3_FAR_PREFETCH;
+            uint32_t ring = app_tile_ring_distance_from_bounds(coord, visible_top_left, visible_bottom_right);
+            if (ring == 0u) {
+                bool has_fallback = app_has_visible_tile_with_fallback(app, kind, coord, band);
+                lane = has_fallback ? TILE_QUEUE_LANE_L1_VISIBLE_REFINE : TILE_QUEUE_LANE_L0_VISIBLE_MISSING;
+            } else if (ring == 1u) {
+                lane = TILE_QUEUE_LANE_L2_NEAR_PREFETCH;
             }
             int dx = (int)x - (int)center.x;
             int dy = (int)y - (int)center.y;
             uint32_t dist2 = (uint32_t)(dx * dx + dy * dy);
-            queue->items[count++] = (TileQueueItem){coord, dist2};
+            queue->items[count++] = (TileQueueItem){coord, dist2, lane};
         }
     }
 
@@ -523,22 +563,60 @@ static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, Til
     app->tile_state_bridge.layer_inflight[kind] = 0;
 }
 
-static void app_process_tile_queue(AppState *app, TileQueue *queue, TileLayerKind kind, uint32_t budget) {
+static void app_process_tile_queue(AppState *app,
+                                   TileQueue *queue,
+                                   TileLayerKind kind,
+                                   uint32_t budget,
+                                   const uint32_t lane_caps[TILE_QUEUE_LANE_COUNT]) {
     if (!app || !queue || budget == 0 || queue->index >= queue->count) {
         return;
     }
 
-    uint32_t remaining = queue->count - queue->index;
-    uint32_t load_count = budget < remaining ? budget : remaining;
-    for (uint32_t i = 0; i < load_count; ++i) {
-        TileQueueItem item = queue->items[queue->index++];
-        TileZoomBand band = app->tile_state_bridge.queue_band[kind];
-        if (!tile_loader_enqueue(&app->tile_state_bridge.tile_loader, item.coord, kind, band, app->worker_state_bridge.tile_generation)) {
-            queue->index -= 1;
+    uint32_t lane_used[TILE_QUEUE_LANE_COUNT] = {0u, 0u, 0u, 0u};
+    uint32_t remaining_budget = budget;
+    while (remaining_budget > 0u && queue->index < queue->count) {
+        TileQueueItem item = queue->items[queue->index];
+        TileQueueLane lane = item.lane;
+        if ((uint32_t)lane >= TILE_QUEUE_LANE_COUNT) {
+            lane = TILE_QUEUE_LANE_L3_FAR_PREFETCH;
+        }
+        if (lane_used[lane] >= lane_caps[lane]) {
             break;
         }
+        TileZoomBand band = app->tile_state_bridge.queue_band[kind];
+        if (!tile_loader_enqueue(&app->tile_state_bridge.tile_loader, item.coord, kind, band, app->worker_state_bridge.tile_generation)) {
+            break;
+        }
+        queue->index += 1u;
+        remaining_budget -= 1u;
+        lane_used[lane] += 1u;
         app->tile_state_bridge.layer_inflight[kind] += 1;
+        app->tile_state_bridge.lane_service_count[lane] += 1u;
     }
+}
+
+static void app_accumulate_queue_lane_depth(const TileQueue *queue, uint32_t io_depth[TILE_QUEUE_LANE_COUNT], uint32_t *io_l0_pending) {
+    if (!queue || !io_depth) {
+        return;
+    }
+    for (uint32_t i = queue->index; i < queue->count; ++i) {
+        TileQueueLane lane = queue->items[i].lane;
+        if ((uint32_t)lane >= TILE_QUEUE_LANE_COUNT) {
+            lane = TILE_QUEUE_LANE_L3_FAR_PREFETCH;
+        }
+        io_depth[lane] += 1u;
+    }
+    if (!io_l0_pending) {
+        return;
+    }
+    uint32_t pending = 0u;
+    for (uint32_t i = queue->index; i < queue->count; ++i) {
+        if (queue->items[i].lane != TILE_QUEUE_LANE_L0_VISIBLE_MISSING) {
+            break;
+        }
+        pending += 1u;
+    }
+    *io_l0_pending += pending;
 }
 
 void app_drain_tile_results(AppState *app, uint32_t budget) {
@@ -686,20 +764,14 @@ void app_update_tile_queue(AppState *app) {
     queue_bottom_right = bottom_right;
     {
         const uint32_t tile_limit = tile_count(z);
-        // Keep one-tile prefetch margin around the viewport to avoid edge pop-in during pan/zoom.
+        // Keep two-tile prefetch margin around the viewport so A2 can schedule near/far lanes.
+        const uint32_t prefetch_margin = 2u;
         if (tile_limit > 0u) {
-            if (queue_top_left.x > 0u) {
-                queue_top_left.x -= 1u;
-            }
-            if (queue_top_left.y > 0u) {
-                queue_top_left.y -= 1u;
-            }
-            if (queue_bottom_right.x + 1u < tile_limit) {
-                queue_bottom_right.x += 1u;
-            }
-            if (queue_bottom_right.y + 1u < tile_limit) {
-                queue_bottom_right.y += 1u;
-            }
+            queue_top_left.x = queue_top_left.x > prefetch_margin ? queue_top_left.x - prefetch_margin : 0u;
+            queue_top_left.y = queue_top_left.y > prefetch_margin ? queue_top_left.y - prefetch_margin : 0u;
+            uint32_t max_index = tile_limit - 1u;
+            queue_bottom_right.x = queue_bottom_right.x + prefetch_margin < max_index ? queue_bottom_right.x + prefetch_margin : max_index;
+            queue_bottom_right.y = queue_bottom_right.y + prefetch_margin < max_index ? queue_bottom_right.y + prefetch_margin : max_index;
         }
     }
 
@@ -771,7 +843,15 @@ void app_update_tile_queue(AppState *app) {
             TileLayerKind kind = policy->kind;
             TileZoomBand band = app->tile_state_bridge.layer_target_band[kind];
             app->tile_state_bridge.queue_band[kind] = band;
-            app_rebuild_tile_queue_for_kind(app, &app->tile_state_bridge.tile_queues[kind], kind, z, queue_top_left, queue_bottom_right, band);
+            app_rebuild_tile_queue_for_kind(app,
+                                            &app->tile_state_bridge.tile_queues[kind],
+                                            kind,
+                                            z,
+                                            queue_top_left,
+                                            queue_bottom_right,
+                                            top_left,
+                                            bottom_right,
+                                            band);
         }
         uint32_t queue_tile_count = (queue_bottom_right.x - queue_top_left.x + 1u) *
                                     (queue_bottom_right.y - queue_top_left.y + 1u);
@@ -802,6 +882,11 @@ void app_update_tile_queue(AppState *app) {
     for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
         app->tile_state_bridge.band_queue_depth[i] = 0u;
     }
+    for (size_t i = 0; i < TILE_QUEUE_LANE_COUNT; ++i) {
+        app->tile_state_bridge.lane_queue_depth[i] = 0u;
+        app->tile_state_bridge.lane_service_count[i] = 0u;
+    }
+    app->tile_state_bridge.lane_l0_pending = 0u;
     for (size_t i = 0; i < layer_policy_count(); ++i) {
         const LayerPolicy *policy = layer_policy_at(i);
         if (!policy || !app_layer_active_runtime(app, policy->kind)) {
@@ -816,6 +901,9 @@ void app_update_tile_queue(AppState *app) {
         if ((size_t)band < TILE_BAND_COUNT) {
             app->tile_state_bridge.band_queue_depth[band] += remaining + app->tile_state_bridge.layer_inflight[policy->kind];
         }
+        app_accumulate_queue_lane_depth(queue,
+                                        app->tile_state_bridge.lane_queue_depth,
+                                        &app->tile_state_bridge.lane_l0_pending);
     }
 
     app_refresh_layer_states(app);
@@ -867,12 +955,22 @@ void app_update_tile_queue(AppState *app) {
                 budget = polygon_cap;
             }
         }
-        app_process_tile_queue(app, queue, policy->kind, budget);
+        uint32_t lane_caps[TILE_QUEUE_LANE_COUNT] = {
+            budget,
+            budget,
+            budget >= 3u ? 2u : 1u,
+            budget >= 6u ? 1u : 0u
+        };
+        app_process_tile_queue(app, queue, policy->kind, budget, lane_caps);
     }
 
     for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
         app->tile_state_bridge.band_queue_depth[i] = 0u;
     }
+    for (size_t i = 0; i < TILE_QUEUE_LANE_COUNT; ++i) {
+        app->tile_state_bridge.lane_queue_depth[i] = 0u;
+    }
+    app->tile_state_bridge.lane_l0_pending = 0u;
     for (size_t i = 0; i < layer_policy_count(); ++i) {
         const LayerPolicy *policy = layer_policy_at(i);
         if (!policy || !app_layer_active_runtime(app, policy->kind)) {
@@ -887,5 +985,11 @@ void app_update_tile_queue(AppState *app) {
         if ((size_t)band < TILE_BAND_COUNT) {
             app->tile_state_bridge.band_queue_depth[band] += remaining + app->tile_state_bridge.layer_inflight[policy->kind];
         }
+        app_accumulate_queue_lane_depth(queue,
+                                        app->tile_state_bridge.lane_queue_depth,
+                                        &app->tile_state_bridge.lane_l0_pending);
+    }
+    if (app->tile_state_bridge.lane_l0_pending > 0u) {
+        app->tile_state_bridge.lane_l0_saturation_total += (uint64_t)app->tile_state_bridge.lane_l0_pending;
     }
 }
