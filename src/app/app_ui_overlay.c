@@ -59,6 +59,9 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->width);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->height);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.visible_tile_count);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.visible_ideal_count);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.visible_renderable_count);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.visible_missing_count);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.active_layer_kind);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->tile_state_bridge.active_layer_valid);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.loading_done));
@@ -103,7 +106,11 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return false;
     }
     if (index == 0) {
-        snprintf(line, line_size, "Visible tiles: %u", app->tile_state_bridge.visible_tile_count);
+        snprintf(line, line_size, "Visible tiles: %u viewset i=%u r=%u m=%u",
+                 app->tile_state_bridge.visible_tile_count,
+                 app->tile_state_bridge.visible_ideal_count,
+                 app->tile_state_bridge.visible_renderable_count,
+                 app->tile_state_bridge.visible_missing_count);
         return true;
     }
     if (index == 1) {

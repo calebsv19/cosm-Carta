@@ -260,6 +260,9 @@ typedef struct AppTileState {
     float loading_no_data_time;
     size_t loading_layer_index;
     uint32_t visible_tile_count;
+    uint32_t visible_ideal_count;
+    uint32_t visible_renderable_count;
+    uint32_t visible_missing_count;
     TileLayerKind active_layer_kind;
     uint32_t active_layer_expected;
     bool active_layer_valid;

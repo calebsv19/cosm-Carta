@@ -453,6 +453,9 @@ static bool app_init(AppState *app) {
     app->tile_state_bridge.loading_done = 0;
     app->tile_state_bridge.loading_no_data_time = 0.0f;
     app->tile_state_bridge.loading_layer_index = 0;
+    app->tile_state_bridge.visible_ideal_count = 0u;
+    app->tile_state_bridge.visible_renderable_count = 0u;
+    app->tile_state_bridge.visible_missing_count = 0u;
     app->tile_state_bridge.draw_path_vk_count = 0u;
     app->tile_state_bridge.draw_path_fallback_count = 0u;
     app->tile_state_bridge.band_switch_deferred_count = 0u;
@@ -660,7 +663,7 @@ int app_run_legacy(void) {
                 uint32_t filt_major = app_sum_road_classes(road_stats.filtered_by_class, ROAD_CLASS_MOTORWAY, ROAD_CLASS_TERTIARY);
                 uint32_t filt_local = app_sum_road_classes(road_stats.filtered_by_class, ROAD_CLASS_RESIDENTIAL, ROAD_CLASS_SERVICE);
                 uint32_t filt_path = app_sum_road_classes(road_stats.filtered_by_class, ROAD_CLASS_FOOTWAY, ROAD_CLASS_PATH);
-                log_info("perf region=%s backend=vk frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f rderive=%.1f rsubmit=%.1f draw_pass=%u zoom=%.2f vis=%u load=%u/%u active=%s "
+                log_info("perf region=%s backend=vk frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f rderive=%.1f rsubmit=%.1f draw_pass=%u zoom=%.2f vis=%u viewset(i=%u r=%u m=%u) load=%u/%u active=%s "
                          "input(frame_raw=%u frame_actions=%u gate=%u route_g=%u route_p=%u route_f=%u inval_t=%u inval_f=%u inval_bits=0x%x) "
                          "input(total_raw=%llu total_actions=%llu total_gated=%llu total_route(g=%llu p=%llu f=%llu) total_inval(t=%llu f=%llu)) "
                          "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
@@ -677,6 +680,9 @@ int app_run_legacy(void) {
                          render_derive_ms, render_submit_ms, frame.render_draw_pass_count,
                          app.view_state_bridge.camera.zoom,
                          app.tile_state_bridge.visible_tile_count,
+                         app.tile_state_bridge.visible_ideal_count,
+                         app.tile_state_bridge.visible_renderable_count,
+                         app.tile_state_bridge.visible_missing_count,
                          app.tile_state_bridge.loading_done, app.tile_state_bridge.loading_expected,
                          app.tile_state_bridge.active_layer_valid ? layer_policy_label(app.tile_state_bridge.active_layer_kind) : "none",
                          frame.input.raw.sdl_event_count,
@@ -772,7 +778,7 @@ int app_run_legacy(void) {
                          app.tile_state_bridge.present_hold_misses,
                          app.tile_state_bridge.present_hold_updates);
             } else {
-                log_info("perf region=%s backend=sdl frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f rderive=%.1f rsubmit=%.1f draw_pass=%u zoom=%.2f vis=%u load=%u/%u active=%s "
+                log_info("perf region=%s backend=sdl frame=%.1fms events=%.1f update=%.1f queue=%.1f integrate=%.1f route=%.1f render=%.1f present=%.1f rderive=%.1f rsubmit=%.1f draw_pass=%u zoom=%.2f vis=%u viewset(i=%u r=%u m=%u) load=%u/%u active=%s "
                          "input(frame_raw=%u frame_actions=%u gate=%u route_g=%u route_p=%u route_f=%u inval_t=%u inval_f=%u inval_bits=0x%x) "
                          "input(total_raw=%llu total_actions=%llu total_gated=%llu total_route(g=%llu p=%llu f=%llu) total_inval(t=%llu f=%llu)) "
                          "band_target(a=%s l=%s) band_vis(c=%u/%u m=%u/%u f=%u/%u d=%u/%u) band_q(c=%u m=%u f=%u d=%u) band_fallback=%u "
@@ -786,6 +792,9 @@ int app_run_legacy(void) {
                          render_derive_ms, render_submit_ms, frame.render_draw_pass_count,
                          app.view_state_bridge.camera.zoom,
                          app.tile_state_bridge.visible_tile_count,
+                         app.tile_state_bridge.visible_ideal_count,
+                         app.tile_state_bridge.visible_renderable_count,
+                         app.tile_state_bridge.visible_missing_count,
                          app.tile_state_bridge.loading_done, app.tile_state_bridge.loading_expected,
                          app.tile_state_bridge.active_layer_valid ? layer_policy_label(app.tile_state_bridge.active_layer_kind) : "none",
                          frame.input.raw.sdl_event_count,

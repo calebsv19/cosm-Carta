@@ -409,6 +409,11 @@ bool app_tile_presenter_validate_frame_invariants(AppState *app,
          app->tile_state_bridge.draw_path_fallback_count > 0u)) {
         valid = false;
     }
+    if (app->tile_state_bridge.visible_missing_count > 0u &&
+        app->tile_state_bridge.visible_renderable_count > 0u &&
+        app->tile_state_bridge.draw_path_fallback_count == 0u) {
+        valid = false;
+    }
     if (valid) {
         return true;
     }
@@ -417,11 +422,14 @@ bool app_tile_presenter_validate_frame_invariants(AppState *app,
     static uint64_t next_log_ms = 0u;
     uint64_t now_ms = SDL_GetTicks64();
     if (now_ms >= next_log_ms) {
-        log_error("tile_presenter invariant fail visible=%u vk_miss=%u backend=%s vk_assets=%s draw(vk=%u fallback=%u blend=%u)",
+        log_error("tile_presenter invariant fail visible=%u vk_miss=%u backend=%s vk_assets=%s viewset(i=%u r=%u m=%u) draw(vk=%u fallback=%u blend=%u)",
                   visible_tiles,
                   vk_asset_misses,
                   vk_backend ? "vk" : "sdl",
                   app->tile_state_bridge.vk_assets_enabled ? "on" : "off",
+                  app->tile_state_bridge.visible_ideal_count,
+                  app->tile_state_bridge.visible_renderable_count,
+                  app->tile_state_bridge.visible_missing_count,
                   app->tile_state_bridge.draw_path_vk_count,
                   app->tile_state_bridge.draw_path_fallback_count,
                   app->tile_state_bridge.transition_blend_draw_count);

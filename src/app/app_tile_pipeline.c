@@ -336,11 +336,39 @@ static bool app_has_visible_tile_with_fallback(const AppState *app,
     return tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, target_band) != NULL;
 }
 
+static bool app_visible_coord_has_present_hold_tile(const AppState *app,
+                                                    TileLayerKind kind,
+                                                    TileCoord coord,
+                                                    double now_sec) {
+    if (!app || kind < 0 || kind >= TILE_LAYER_COUNT) {
+        return false;
+    }
+    for (uint32_t i = 0u; i < APP_TILE_PRESENT_HOLD_CAPACITY; ++i) {
+        const TilePresentHoldEntry *entry = &app->tile_state_bridge.present_hold[kind][i];
+        if (!entry->occupied) {
+            continue;
+        }
+        if (entry->expires_at <= now_sec) {
+            continue;
+        }
+        if (entry->coord.z != coord.z || entry->coord.x != coord.x || entry->coord.y != coord.y) {
+            continue;
+        }
+        if (tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, entry->band)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void app_refresh_visible_layer_coverage(AppState *app) {
     if (!app) {
         return;
     }
 
+    app->tile_state_bridge.visible_ideal_count = 0u;
+    app->tile_state_bridge.visible_renderable_count = 0u;
+    app->tile_state_bridge.visible_missing_count = 0u;
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         app->tile_state_bridge.layer_visible_expected[i] = 0u;
         app->tile_state_bridge.layer_visible_loaded[i] = 0u;
@@ -353,9 +381,12 @@ static void app_refresh_visible_layer_coverage(AppState *app) {
         return;
     }
 
+    double now_sec = time_now_seconds();
     for (uint32_t y = app->tile_state_bridge.visible_top_left.y; y <= app->tile_state_bridge.visible_bottom_right.y; ++y) {
         for (uint32_t x = app->tile_state_bridge.visible_top_left.x; x <= app->tile_state_bridge.visible_bottom_right.x; ++x) {
             TileCoord coord = {app->tile_state_bridge.visible_zoom, x, y};
+            bool coord_has_runtime_layer = false;
+            bool coord_renderable = false;
             for (size_t i = 0; i < layer_policy_count(); ++i) {
                 const LayerPolicy *policy = layer_policy_at(i);
                 if (!policy) {
@@ -365,16 +396,30 @@ static void app_refresh_visible_layer_coverage(AppState *app) {
                 if (!app_layer_active_runtime(app, kind)) {
                     continue;
                 }
+                coord_has_runtime_layer = true;
                 app->tile_state_bridge.layer_visible_expected[kind] += 1u;
                 TileZoomBand band = app->tile_state_bridge.layer_target_band[kind];
                 if ((size_t)band < TILE_BAND_COUNT) {
                     app->tile_state_bridge.band_visible_expected[band] += 1u;
                 }
-                if (app_has_visible_tile_with_fallback(app, kind, coord, band)) {
+                bool layer_renderable = app_has_visible_tile_with_fallback(app, kind, coord, band);
+                if (!layer_renderable) {
+                    layer_renderable = app_visible_coord_has_present_hold_tile(app, kind, coord, now_sec);
+                }
+                if (layer_renderable) {
                     app->tile_state_bridge.layer_visible_loaded[kind] += 1u;
                     if ((size_t)band < TILE_BAND_COUNT) {
                         app->tile_state_bridge.band_visible_loaded[band] += 1u;
                     }
+                    coord_renderable = true;
+                }
+            }
+            if (coord_has_runtime_layer) {
+                app->tile_state_bridge.visible_ideal_count += 1u;
+                if (coord_renderable) {
+                    app->tile_state_bridge.visible_renderable_count += 1u;
+                } else {
+                    app->tile_state_bridge.visible_missing_count += 1u;
                 }
             }
         }
@@ -407,6 +452,9 @@ void app_clear_tile_queue(AppState *app) {
     }
     app->tile_state_bridge.queue_valid = false;
     app->tile_state_bridge.loading_layer_index = 0;
+    app->tile_state_bridge.visible_ideal_count = 0u;
+    app->tile_state_bridge.visible_renderable_count = 0u;
+    app->tile_state_bridge.visible_missing_count = 0u;
     app->tile_state_bridge.active_layer_valid = false;
     app->tile_state_bridge.transition_blend_draw_count = 0u;
     app->tile_state_bridge.present_hold_hits = 0u;
