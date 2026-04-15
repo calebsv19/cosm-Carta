@@ -246,6 +246,12 @@ typedef struct VkPolyPrepStats {
     uint64_t enqueued_count;
     uint64_t done_count;
     uint64_t drop_count;
+    uint64_t quarantine_job_count;
+    uint64_t quarantine_polygon_count;
+    uint64_t quarantine_ring_bounds_count;
+    uint64_t quarantine_ring_min_points_count;
+    uint64_t quarantine_ring_degenerate_count;
+    uint64_t winding_normalized_count;
 } VkPolyPrepStats;
 
 /* Phase 2 bridge: target ownership bucket for view/persisted runtime controls. */
@@ -386,6 +392,12 @@ typedef struct AppWorkerState {
     uint64_t vk_poly_prep_enqueued_count;
     uint64_t vk_poly_prep_done_count;
     uint64_t vk_poly_prep_drop_count;
+    uint64_t vk_poly_prep_quarantine_job_count;
+    uint64_t vk_poly_prep_quarantine_polygon_count;
+    uint64_t vk_poly_prep_quarantine_ring_bounds_count;
+    uint64_t vk_poly_prep_quarantine_ring_min_points_count;
+    uint64_t vk_poly_prep_quarantine_ring_degenerate_count;
+    uint64_t vk_poly_prep_winding_normalized_count;
     VkAssetJob vk_asset_jobs[APP_VK_ASSET_QUEUE_CAPACITY];
     uint32_t vk_asset_job_head;
     uint32_t vk_asset_job_tail;

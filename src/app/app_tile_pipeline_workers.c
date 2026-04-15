@@ -329,11 +329,20 @@ static void *app_vk_poly_prep_thread_main(void *userdata) {
             continue;
         }
 
+        PolygonCacheBuildStats poly_stats = {0};
         if (job.ok && app_kind_is_polygon(job.kind)) {
-            polygon_cache_build(&job.tile);
+            polygon_cache_build_with_stats(&job.tile, &poly_stats);
         }
 
         pthread_mutex_lock(&app->worker_state_bridge.vk_poly_prep_mutex);
+        if (poly_stats.polygon_quarantined > 0u || poly_stats.ring_quarantine_total > 0u) {
+            app->worker_state_bridge.vk_poly_prep_quarantine_job_count += 1u;
+        }
+        app->worker_state_bridge.vk_poly_prep_quarantine_polygon_count += poly_stats.polygon_quarantined;
+        app->worker_state_bridge.vk_poly_prep_quarantine_ring_bounds_count += poly_stats.ring_bounds_quarantined;
+        app->worker_state_bridge.vk_poly_prep_quarantine_ring_min_points_count += poly_stats.ring_min_points_quarantined;
+        app->worker_state_bridge.vk_poly_prep_quarantine_ring_degenerate_count += poly_stats.ring_degenerate_quarantined;
+        app->worker_state_bridge.vk_poly_prep_winding_normalized_count += poly_stats.ring_winding_normalized;
         bool pushed = app_vk_poly_prep_queue_push(
             &app->worker_state_bridge.vk_poly_prep_out_queue,
             app->worker_state_bridge.vk_poly_prep_out_jobs,
@@ -364,6 +373,12 @@ bool app_vk_poly_prep_init(AppState *app) {
     app->worker_state_bridge.vk_poly_prep_enqueued_count = 0u;
     app->worker_state_bridge.vk_poly_prep_done_count = 0u;
     app->worker_state_bridge.vk_poly_prep_drop_count = 0u;
+    app->worker_state_bridge.vk_poly_prep_quarantine_job_count = 0u;
+    app->worker_state_bridge.vk_poly_prep_quarantine_polygon_count = 0u;
+    app->worker_state_bridge.vk_poly_prep_quarantine_ring_bounds_count = 0u;
+    app->worker_state_bridge.vk_poly_prep_quarantine_ring_min_points_count = 0u;
+    app->worker_state_bridge.vk_poly_prep_quarantine_ring_degenerate_count = 0u;
+    app->worker_state_bridge.vk_poly_prep_winding_normalized_count = 0u;
     if (!core_queue_mutex_init(&app->worker_state_bridge.vk_poly_prep_in_queue,
                                app->worker_state_bridge.vk_poly_prep_in_queue_backing,
                                APP_VK_POLY_PREP_QUEUE_CAPACITY)) {
@@ -527,6 +542,12 @@ void app_vk_poly_prep_get_stats(AppState *app, VkPolyPrepStats *out_stats) {
     out_stats->enqueued_count = app->worker_state_bridge.vk_poly_prep_enqueued_count;
     out_stats->done_count = app->worker_state_bridge.vk_poly_prep_done_count;
     out_stats->drop_count = app->worker_state_bridge.vk_poly_prep_drop_count;
+    out_stats->quarantine_job_count = app->worker_state_bridge.vk_poly_prep_quarantine_job_count;
+    out_stats->quarantine_polygon_count = app->worker_state_bridge.vk_poly_prep_quarantine_polygon_count;
+    out_stats->quarantine_ring_bounds_count = app->worker_state_bridge.vk_poly_prep_quarantine_ring_bounds_count;
+    out_stats->quarantine_ring_min_points_count = app->worker_state_bridge.vk_poly_prep_quarantine_ring_min_points_count;
+    out_stats->quarantine_ring_degenerate_count = app->worker_state_bridge.vk_poly_prep_quarantine_ring_degenerate_count;
+    out_stats->winding_normalized_count = app->worker_state_bridge.vk_poly_prep_winding_normalized_count;
     pthread_mutex_unlock(&app->worker_state_bridge.vk_poly_prep_mutex);
 }
 

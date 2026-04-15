@@ -167,6 +167,8 @@ APP_ROUTE_SERVICE_TEST_TARGET := build/tests/app_route_service_test
 APP_ROUTE_SERVICE_TEST_SRCS := tests/app_route_service_test.c src/app/route/app_route_service.c
 APP_TILE_PRESENTER_POLICY_TEST_TARGET := build/tests/app_tile_presenter_policy_test
 APP_TILE_PRESENTER_POLICY_TEST_SRCS := tests/app_tile_presenter_policy_test.c src/app/app_tile_presenter.c src/app/app_tile_lifecycle.c src/core/time.c
+POLYGON_CACHE_GUARDRAILS_TEST_TARGET := build/tests/polygon_cache_guardrails_test
+POLYGON_CACHE_GUARDRAILS_TEST_SRCS := tests/polygon_cache_guardrails_test.c src/map/polygon_cache.c src/map/polygon_triangulator.c
 APP_RUNTIME_INPUT_POLICY_TEST_TARGET := build/tests/app_runtime_input_policy_test
 APP_RUNTIME_INPUT_POLICY_TEST_SRCS := tests/app_runtime_input_policy_test.c src/app/app_runtime_input_policy.c
 
@@ -276,7 +278,7 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
-run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-input-policy test-region-validate-strict test-archive-metrics-rollup
+run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-polygon-cache-guardrails test-input-policy test-region-validate-strict test-archive-metrics-rollup
 	@echo "map_forge headless smoke passed (non-interactive)"
 
 visual-harness: app
@@ -609,6 +611,9 @@ test-tile-presenter-policy: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 test-presentation-stability: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 	./$(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 
+test-polygon-cache-guardrails: $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
+	./$(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
+
 test-input-policy: $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 	./$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 
@@ -643,6 +648,10 @@ $(APP_ROUTE_SERVICE_TEST_TARGET): $(APP_ROUTE_SERVICE_TEST_SRCS)
 $(APP_TILE_PRESENTER_POLICY_TEST_TARGET): $(APP_TILE_PRESENTER_POLICY_TEST_SRCS) $(CORE_TIME_LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Iinclude $(APP_TILE_PRESENTER_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_TIME_LIB)
+
+$(POLYGON_CACHE_GUARDRAILS_TEST_TARGET): $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Iinclude $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET): $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -761,6 +770,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-archive-metrics-rollup metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-input-policy route route-rebuild region region-validate region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-archive-metrics-rollup metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy route route-rebuild region region-validate region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

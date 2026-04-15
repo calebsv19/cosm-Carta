@@ -683,7 +683,9 @@ int app_run_legacy(void) {
                          "req=%u/%u res=%u/%u enq=%llu drop=%llu evict=%llu out=%llu out_drop=%llu out_evict=%llu miss=%llu ok=%llu fail=%llu "
                          "src=%s arch(req=%llu hit=%llu ext=%llu fail=%llu tree=%llu) "
                          "vk_begin=%d vk_begin_fail_total=%llu vk_recreate=%u vk_geom=%u/%u vk_geom_skip=%u vk_lines=%u vk_line_skip=%u vk_line_budget=%u vk_rect=%u vk_fill=%u "
-                         "vk_assets=%u/%u builds=%u evict=%u miss=%u jobs(q=%u build=%llu drop=%llu evict=%llu) poly_prep(in=%u out=%u enq=%llu done=%llu drop=%llu) resident(a=%u l=%u) fill_resident(w=%u p=%u l=%u b=%u) "
+                         "vk_assets=%u/%u builds=%u evict=%u miss=%u jobs(q=%u build=%llu drop=%llu evict=%llu) "
+                         "poly_prep(in=%u out=%u enq=%llu done=%llu drop=%llu qj=%llu qp=%llu qb=%llu qm=%llu qd=%llu wind=%llu) "
+                         "resident(a=%u l=%u) fill_resident(w=%u p=%u l=%u b=%u) "
                          "mesh(v=%llu b=%llu fail=%u fill_fail=%u) vk_poly_fill(draw=%u skip=%u fail=%u idx=%u) "
                          "road_draw(m=%u l=%u p=%u) road_filter(m=%u l=%u p=%u) draw_path(vk=%u fallback=%u blend=%u) defer(band=%u queue=%u) hold(hit=%u miss=%u upd=%u)",
                          app.region.name,
@@ -777,6 +779,12 @@ int app_run_legacy(void) {
                          (unsigned long long)poly_prep_stats.enqueued_count,
                          (unsigned long long)poly_prep_stats.done_count,
                          (unsigned long long)poly_prep_stats.drop_count,
+                         (unsigned long long)poly_prep_stats.quarantine_job_count,
+                         (unsigned long long)poly_prep_stats.quarantine_polygon_count,
+                         (unsigned long long)poly_prep_stats.quarantine_ring_bounds_count,
+                         (unsigned long long)poly_prep_stats.quarantine_ring_min_points_count,
+                         (unsigned long long)poly_prep_stats.quarantine_ring_degenerate_count,
+                         (unsigned long long)poly_prep_stats.winding_normalized_count,
                          vk_asset_stats.resident_artery,
                          vk_asset_stats.resident_local,
                          vk_asset_stats.resident_fill_water,

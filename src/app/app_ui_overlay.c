@@ -77,6 +77,12 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lifecycle_transition_count));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lifecycle_invalid_transition_count));
     hash = app_hash_mix_u64(hash, app->tile_state_bridge.lifecycle_invalid_transition_total);
+    hash = app_hash_mix_u64(hash, app->worker_state_bridge.vk_poly_prep_quarantine_job_count);
+    hash = app_hash_mix_u64(hash, app->worker_state_bridge.vk_poly_prep_quarantine_polygon_count);
+    hash = app_hash_mix_u64(hash, app->worker_state_bridge.vk_poly_prep_quarantine_ring_bounds_count);
+    hash = app_hash_mix_u64(hash, app->worker_state_bridge.vk_poly_prep_quarantine_ring_min_points_count);
+    hash = app_hash_mix_u64(hash, app->worker_state_bridge.vk_poly_prep_quarantine_ring_degenerate_count);
+    hash = app_hash_mix_u64(hash, app->worker_state_bridge.vk_poly_prep_winding_normalized_count);
     for (size_t i = 0; i < APP_TILE_LIFECYCLE_STATE_COUNT; ++i) {
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lifecycle_transition_to_state[i]));
     }
@@ -168,7 +174,7 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return true;
     }
     if (index == 5) {
-        snprintf(line, line_size, "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u life f=%llu tx=%u bad=%u req=%u cpu=%u gpu=%u ren=%u st=%u",
+        snprintf(line, line_size, "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u life f=%llu tx=%u bad=%u req=%u cpu=%u gpu=%u ren=%u st=%u polyq(j=%llu p=%llu b=%llu m=%llu d=%llu w=%llu)",
                  app->tile_state_bridge.draw_path_vk_count,
                  app->tile_state_bridge.draw_path_fallback_count,
                  app->tile_state_bridge.transition_blend_draw_count,
@@ -183,7 +189,13 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
                  app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_DECODED_CPU],
                  app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_UPLOADED_GPU],
                  app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_RENDERABLE],
-                 app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_STALE]);
+                 app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_STALE],
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_job_count,
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_polygon_count,
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_ring_bounds_count,
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_ring_min_points_count,
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_quarantine_ring_degenerate_count,
+                 (unsigned long long)app->worker_state_bridge.vk_poly_prep_winding_normalized_count);
         return true;
     }
     if (index == 6) {
