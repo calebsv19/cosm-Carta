@@ -92,6 +92,39 @@ static uint32_t app_tile_presenter_fill_candidates(TileLayerKind kind,
     return count;
 }
 
+static bool app_tile_presenter_pick_parent_tile_with_fallback(const AppState *app,
+                                                              TileLayerKind kind,
+                                                              TileCoord coord,
+                                                              TileZoomBand target_band,
+                                                              const MftTile **out_tile,
+                                                              TileZoomBand *out_band) {
+    if (!app || !out_tile || !out_band || kind < 0 || kind >= TILE_LAYER_COUNT) {
+        return false;
+    }
+    TileCoord parent = coord;
+    for (uint32_t depth = 0u; depth < APP_TILE_RETENTION_PARENT_MAX_DEPTH; ++depth) {
+        if (parent.z == 0u) {
+            break;
+        }
+        parent.z -= 1u;
+        parent.x >>= 1u;
+        parent.y >>= 1u;
+        TileZoomBand candidates[4];
+        uint32_t count = app_tile_presenter_fill_candidates(kind, target_band, candidates);
+        for (uint32_t i = 0u; i < count; ++i) {
+            TileZoomBand band = candidates[i];
+            const MftTile *tile = tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], parent, band);
+            if (!tile) {
+                continue;
+            }
+            *out_tile = tile;
+            *out_band = band;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool app_tile_presenter_pick_tile_with_fallback(const AppState *app,
                                                 TileLayerKind kind,
                                                 TileCoord coord,
@@ -110,6 +143,14 @@ bool app_tile_presenter_pick_tile_with_fallback(const AppState *app,
         }
         *out_tile = tile;
         *out_band = band;
+        return true;
+    }
+    if (app_tile_presenter_pick_parent_tile_with_fallback(app,
+                                                          kind,
+                                                          coord,
+                                                          app->tile_state_bridge.layer_target_band[kind],
+                                                          out_tile,
+                                                          out_band)) {
         return true;
     }
     return false;
@@ -166,7 +207,20 @@ void app_tile_presenter_present_hold_remember(AppState *app,
     entry->occupied = true;
     entry->coord = coord;
     entry->band = band;
-    entry->expires_at = now_sec + APP_TILE_PRESENT_HOLD_TTL_SEC;
+    double ttl = APP_TILE_PRESENT_HOLD_TTL_SEC;
+    if (app->tile_state_bridge.visible_valid) {
+        int zoom_delta = (int)app->tile_state_bridge.visible_zoom - (int)coord.z;
+        if (zoom_delta < 0) {
+            zoom_delta = -zoom_delta;
+        }
+        if (zoom_delta > 0) {
+            ttl /= (double)(zoom_delta + 1);
+            if (ttl < 0.06) {
+                ttl = 0.06;
+            }
+        }
+    }
+    entry->expires_at = now_sec + ttl;
     entry->stamp = app->tile_state_bridge.present_hold_tick++;
     app->tile_state_bridge.present_hold_updates += 1u;
 }
@@ -204,18 +258,16 @@ bool app_tile_presenter_resolve_tile_for_present(AppState *app,
     if (!app || !out_tile || !out_band || kind < 0 || kind >= TILE_LAYER_COUNT) {
         return false;
     }
+    TileZoomBand hold_band = TILE_BAND_DEFAULT;
+    if (app_tile_presenter_present_hold_lookup(app, kind, coord, now_sec, &hold_band) &&
+        app_tile_presenter_peek_tile_for_band(app, kind, coord, hold_band, out_tile)) {
+        *out_band = hold_band;
+        return true;
+    }
     if (app_tile_presenter_pick_tile_with_fallback(app, kind, coord, out_tile, out_band)) {
         return true;
     }
-    TileZoomBand hold_band = TILE_BAND_DEFAULT;
-    if (!app_tile_presenter_present_hold_lookup(app, kind, coord, now_sec, &hold_band)) {
-        return false;
-    }
-    if (!app_tile_presenter_peek_tile_for_band(app, kind, coord, hold_band, out_tile)) {
-        return false;
-    }
-    *out_band = hold_band;
-    return true;
+    return false;
 }
 
 bool app_tile_presenter_draw_polygon_band_blend(AppState *app,

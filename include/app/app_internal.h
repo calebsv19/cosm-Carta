@@ -55,6 +55,8 @@
 /* Per-layer tile presentation hold cache capacity and TTL. */
 #define APP_TILE_PRESENT_HOLD_CAPACITY 4096u
 #define APP_TILE_PRESENT_HOLD_TTL_SEC 0.28
+/* Maximum ancestor depth when resolving parent retention fallbacks. */
+#define APP_TILE_RETENTION_PARENT_MAX_DEPTH 4u
 /* Route recompute debounce while dragging endpoints. */
 #define APP_ROUTE_DRAG_DEBOUNCE_SEC 0.045
 /* Runtime trace sample/marker ring capacities. */

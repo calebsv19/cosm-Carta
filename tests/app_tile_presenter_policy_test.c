@@ -233,6 +233,8 @@ int main(void) {
 
     MftTile mid_tile = {0};
     MftTile fine_tile = {0};
+    mid_tile.coord = coord;
+    fine_tile.coord = coord;
 
     // Rapid band oscillation should not drop draw path when both bands are available.
     memset(&app, 0, sizeof(app));
@@ -304,6 +306,28 @@ int main(void) {
                                                        TILE_LAYER_ROAD_LOCAL,
                                                        coord,
                                                        50.10,
+                                                       &resolved_tile,
+                                                       &resolved_band));
+    assert(resolved_tile == &mid_tile);
+    assert(resolved_band == TILE_BAND_MID);
+
+    // Parent retention path: when exact tile is unavailable, resolver can retain parent zoom tile.
+    memset(&app, 0, sizeof(app));
+    app.tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL] = TILE_BAND_MID;
+    TileCoord child_coord = {15u, 2468u, 11356u};
+    TileCoord parent_coord = {14u, 1234u, 5678u};
+    mid_tile.coord = parent_coord;
+    g_tile_lookup_app = &app;
+    g_tile_lookup_coord_enabled = true;
+    g_tile_lookup_coord = parent_coord;
+    memset(g_tile_lookup_band_tiles, 0, sizeof(g_tile_lookup_band_tiles));
+    g_tile_lookup_band_tiles[TILE_LAYER_ROAD_LOCAL][TILE_BAND_MID] = &mid_tile;
+    resolved_tile = NULL;
+    resolved_band = TILE_BAND_DEFAULT;
+    assert(app_tile_presenter_resolve_tile_for_present(&app,
+                                                       TILE_LAYER_ROAD_LOCAL,
+                                                       child_coord,
+                                                       70.0,
                                                        &resolved_tile,
                                                        &resolved_band));
     assert(resolved_tile == &mid_tile);

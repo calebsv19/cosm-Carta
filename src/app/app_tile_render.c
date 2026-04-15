@@ -590,18 +590,32 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
             TileZoomBand contour_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_CONTOUR];
             TileZoomBand artery_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_ARTERY];
             const MftTile *local = NULL;
+            TileCoord local_draw_coord = coord;
             if (app_layer_active_runtime(app, TILE_LAYER_ROAD_LOCAL) && local_ready) {
                 app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_ROAD_LOCAL, coord, now_sec, &local, &local_band);
+                if (local) {
+                    local_draw_coord = local->coord;
+                }
             }
             const MftTile *contour = (app_layer_active_runtime(app, TILE_LAYER_CONTOUR) &&
                 contour_ready)
                 ? tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[TILE_LAYER_CONTOUR], coord, contour_band) : NULL;
             const MftTile *artery = NULL;
+            TileCoord artery_draw_coord = coord;
             app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_ROAD_ARTERY, coord, now_sec, &artery, &artery_band);
-            if (local && local_band != app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL]) {
+            if (artery) {
+                artery_draw_coord = artery->coord;
+            }
+            if (local && (local_band != app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL] ||
+                          local_draw_coord.z != coord.z ||
+                          local_draw_coord.x != coord.x ||
+                          local_draw_coord.y != coord.y)) {
                 app->tile_state_bridge.vk_road_band_fallback_draws += 1u;
             }
-            if (artery && artery_band != app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_ARTERY]) {
+            if (artery && (artery_band != app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_ARTERY] ||
+                           artery_draw_coord.z != coord.z ||
+                           artery_draw_coord.x != coord.x ||
+                           artery_draw_coord.y != coord.y)) {
                 app->tile_state_bridge.vk_road_band_fallback_draws += 1u;
             }
             if (local) {
@@ -609,7 +623,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                 float road_opacity = app_layer_opacity_scale(app, TILE_LAYER_ROAD_LOCAL);
                 (void)app_tile_presenter_draw_road_layer(app,
                                                          TILE_LAYER_ROAD_LOCAL,
-                                                         coord,
+                                                         local_draw_coord,
                                                          local,
                                                          local_band,
                                                          app->single_line,
@@ -624,7 +638,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                 float road_opacity = app_layer_opacity_scale(app, TILE_LAYER_ROAD_ARTERY);
                 (void)app_tile_presenter_draw_road_layer(app,
                                                          TILE_LAYER_ROAD_ARTERY,
-                                                         coord,
+                                                         artery_draw_coord,
                                                          artery,
                                                          artery_band,
                                                          app->single_line,
@@ -658,21 +672,37 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
             const MftTile *park = NULL;
             const MftTile *landuse = NULL;
             const MftTile *building = NULL;
+            TileCoord water_draw_coord = coord;
+            TileCoord park_draw_coord = coord;
+            TileCoord landuse_draw_coord = coord;
+            TileCoord building_draw_coord = coord;
             TileZoomBand water_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_WATER];
             TileZoomBand park_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_PARK];
             TileZoomBand landuse_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_LANDUSE];
             TileZoomBand building_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_BUILDING];
             if (app_layer_active_runtime(app, TILE_LAYER_POLY_WATER)) {
                 app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_POLY_WATER, coord, now_sec, &water, &water_band);
+                if (water) {
+                    water_draw_coord = water->coord;
+                }
             }
             if (app_layer_active_runtime(app, TILE_LAYER_POLY_PARK)) {
                 app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_POLY_PARK, coord, now_sec, &park, &park_band);
+                if (park) {
+                    park_draw_coord = park->coord;
+                }
             }
             if (app_layer_active_runtime(app, TILE_LAYER_POLY_LANDUSE)) {
                 app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_POLY_LANDUSE, coord, now_sec, &landuse, &landuse_band);
+                if (landuse) {
+                    landuse_draw_coord = landuse->coord;
+                }
             }
             if (app_layer_active_runtime(app, TILE_LAYER_POLY_BUILDING)) {
                 app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_POLY_BUILDING, coord, now_sec, &building, &building_band);
+                if (building) {
+                    building_draw_coord = building->coord;
+                }
             }
             if (water) {
                 float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;
@@ -681,7 +711,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                                                    app_allow_progressive_polygon_fallback(app, coord);
                 bool drew = app_tile_presenter_draw_polygon_layer(app,
                                                                   TILE_LAYER_POLY_WATER,
-                                                                  coord,
+                                                                  water_draw_coord,
                                                                   water,
                                                                   water_band,
                                                                   building_zoom_bias,
@@ -703,7 +733,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                                                    app_allow_progressive_polygon_fallback(app, coord);
                 bool drew = app_tile_presenter_draw_polygon_layer(app,
                                                                   TILE_LAYER_POLY_PARK,
-                                                                  coord,
+                                                                  park_draw_coord,
                                                                   park,
                                                                   park_band,
                                                                   building_zoom_bias,
@@ -725,7 +755,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                                                    app_allow_progressive_polygon_fallback(app, coord);
                 bool drew = app_tile_presenter_draw_polygon_layer(app,
                                                                   TILE_LAYER_POLY_LANDUSE,
-                                                                  coord,
+                                                                  landuse_draw_coord,
                                                                   landuse,
                                                                   landuse_band,
                                                                   building_zoom_bias,
@@ -751,7 +781,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                                                    app_allow_progressive_polygon_fallback(app, coord);
                 bool drew = app_tile_presenter_draw_polygon_layer(app,
                                                                   TILE_LAYER_POLY_BUILDING,
-                                                                  coord,
+                                                                  building_draw_coord,
                                                                   building,
                                                                   building_band,
                                                                   building_zoom_bias,

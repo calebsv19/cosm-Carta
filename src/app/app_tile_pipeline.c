@@ -314,6 +314,32 @@ static uint32_t app_polygon_fallback_candidates(TileLayerKind kind,
     return count;
 }
 
+static bool app_tile_has_parent_retention_with_candidates(const AppState *app,
+                                                          TileLayerKind kind,
+                                                          TileCoord coord,
+                                                          const TileZoomBand *candidates,
+                                                          uint32_t candidate_count) {
+    if (!app || !candidates || candidate_count == 0u) {
+        return false;
+    }
+    TileCoord parent = coord;
+    for (uint32_t depth = 0u; depth < APP_TILE_RETENTION_PARENT_MAX_DEPTH; ++depth) {
+        if (parent.z == 0u) {
+            break;
+        }
+        parent.z -= 1u;
+        parent.x >>= 1u;
+        parent.y >>= 1u;
+        for (uint32_t i = 0u; i < candidate_count; ++i) {
+            TileZoomBand band = candidates[i];
+            if (tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], parent, band)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static bool app_has_visible_tile_with_fallback(const AppState *app,
                                                TileLayerKind kind,
                                                TileCoord coord,
@@ -340,6 +366,9 @@ static bool app_has_visible_tile_with_fallback(const AppState *app,
                 return true;
             }
         }
+        if (app_tile_has_parent_retention_with_candidates(app, kind, coord, candidates, count)) {
+            return true;
+        }
         return false;
     }
 
@@ -354,10 +383,17 @@ static bool app_has_visible_tile_with_fallback(const AppState *app,
                 return true;
             }
         }
+        if (app_tile_has_parent_retention_with_candidates(app, kind, coord, candidates, count)) {
+            return true;
+        }
         return false;
     }
 
-    return tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, target_band) != NULL;
+    if (tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, target_band)) {
+        return true;
+    }
+    TileZoomBand fallback[1] = {target_band};
+    return app_tile_has_parent_retention_with_candidates(app, kind, coord, fallback, 1u);
 }
 
 static bool app_visible_coord_has_present_hold_tile(const AppState *app,
