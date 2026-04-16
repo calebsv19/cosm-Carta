@@ -7,6 +7,83 @@
 #include <stdlib.h>
 #include <string.h>
 
+static uint32_t app_budget_env_u32(const char *name,
+                                   uint32_t fallback,
+                                   uint32_t min_value,
+                                   uint32_t max_value) {
+    const char *value = getenv(name);
+    if (!value || value[0] == '\0') {
+        return fallback;
+    }
+    char *end = NULL;
+    unsigned long parsed = strtoul(value, &end, 10);
+    if (end == value) {
+        return fallback;
+    }
+    if (parsed < (unsigned long)min_value) {
+        return min_value;
+    }
+    if (parsed > (unsigned long)max_value) {
+        return max_value;
+    }
+    return (uint32_t)parsed;
+}
+
+static double app_budget_env_f64(const char *name,
+                                 double fallback,
+                                 double min_value,
+                                 double max_value) {
+    const char *value = getenv(name);
+    if (!value || value[0] == '\0') {
+        return fallback;
+    }
+    char *end = NULL;
+    double parsed = strtod(value, &end);
+    if (end == value) {
+        return fallback;
+    }
+    if (parsed < min_value) {
+        return min_value;
+    }
+    if (parsed > max_value) {
+        return max_value;
+    }
+    return parsed;
+}
+
+void app_runtime_budget_policy_init(AppState *app) {
+    if (!app) {
+        return;
+    }
+
+    AppRuntimeBudgetPolicy policy = {0};
+    policy.load_road_cap = app_budget_env_u32("MAPFORGE_BUDGET_LOAD_ROAD_CAP", 8u, 1u, 128u);
+    policy.load_polygon_cap_small_view = app_budget_env_u32("MAPFORGE_BUDGET_LOAD_POLY_CAP_SMALL", 4u, 1u, 64u);
+    policy.load_polygon_cap_medium_view = app_budget_env_u32("MAPFORGE_BUDGET_LOAD_POLY_CAP_MEDIUM", 3u, 1u, 64u);
+    policy.load_polygon_cap_large_view = app_budget_env_u32("MAPFORGE_BUDGET_LOAD_POLY_CAP_LARGE", 2u, 1u, 64u);
+    policy.load_polygon_building_bonus = app_budget_env_u32("MAPFORGE_BUDGET_LOAD_POLY_BUILDING_BONUS", 1u, 0u, 8u);
+    policy.lane_l2_cap_low_budget = app_budget_env_u32("MAPFORGE_BUDGET_LANE_L2_LOW", 2u, 0u, 64u);
+    policy.lane_l2_cap_high_budget = app_budget_env_u32("MAPFORGE_BUDGET_LANE_L2_HIGH", 3u, 0u, 64u);
+    policy.lane_l3_cap_low_budget = app_budget_env_u32("MAPFORGE_BUDGET_LANE_L3_LOW", 0u, 0u, 64u);
+    policy.lane_l3_cap_high_budget = app_budget_env_u32("MAPFORGE_BUDGET_LANE_L3_HIGH", 1u, 0u, 64u);
+    policy.integrate_fallback_budget = app_budget_env_u32("MAPFORGE_BUDGET_INTEGRATE_FALLBACK", APP_TILE_INTEGRATE_BUDGET, 1u, 256u);
+    policy.integrate_cap = app_budget_env_u32("MAPFORGE_BUDGET_INTEGRATE_CAP", 64u, 1u, 256u);
+    policy.vk_poly_prep_integrate_budget = app_budget_env_u32("MAPFORGE_BUDGET_VK_POLY_PREP_INTEGRATE", APP_VK_POLY_PREP_INTEGRATE_BUDGET, 1u, 64u);
+    policy.vk_poly_prep_integrate_time_slice_sec = app_budget_env_f64("MAPFORGE_BUDGET_VK_POLY_PREP_SLICE_SEC", APP_VK_POLY_PREP_INTEGRATE_TIME_SLICE_SEC, 0.0001, 0.0500);
+    policy.vk_asset_build_budget = app_budget_env_u32("MAPFORGE_BUDGET_VK_ASSET_BUILD", APP_VK_ASSET_BUILD_BUDGET, 1u, 256u);
+    policy.vk_asset_build_time_slice_sec = app_budget_env_f64("MAPFORGE_BUDGET_VK_ASSET_SLICE_SEC", APP_VK_ASSET_BUILD_TIME_SLICE_SEC, 0.0001, 0.0500);
+    policy.vk_poly_asset_cap_small_view = app_budget_env_u32("MAPFORGE_BUDGET_VK_POLY_ASSET_CAP_SMALL", 2u, 0u, 64u);
+    policy.vk_poly_asset_cap_default = app_budget_env_u32("MAPFORGE_BUDGET_VK_POLY_ASSET_CAP_DEFAULT", 1u, 0u, 64u);
+    app->tile_state_bridge.budget_policy = policy;
+}
+
+void app_runtime_budget_reset_frame(AppState *app) {
+    if (!app) {
+        return;
+    }
+    memset(&app->tile_state_bridge.budget_frame, 0, sizeof(app->tile_state_bridge.budget_frame));
+}
+
 uint32_t app_tile_load_budget(TileLayerKind kind, uint32_t expected) {
     bool polygon_layer = (kind == TILE_LAYER_POLY_WATER ||
                           kind == TILE_LAYER_POLY_PARK ||
@@ -219,6 +296,16 @@ static bool app_kind_is_polygon(TileLayerKind kind) {
            kind == TILE_LAYER_POLY_PARK ||
            kind == TILE_LAYER_POLY_LANDUSE ||
            kind == TILE_LAYER_POLY_BUILDING;
+}
+
+static bool app_tile_request_in_region_coverage(const AppState *app,
+                                                TileLayerKind kind,
+                                                TileZoomBand band,
+                                                TileCoord coord) {
+    if (!app) {
+        return true;
+    }
+    return region_tile_coverage_contains(&app->region, kind, band, coord);
 }
 
 static uint32_t app_tile_ring_distance_from_bounds(TileCoord coord,
@@ -628,6 +715,9 @@ static float app_visible_layer_ideal_coverage_for_band(const AppState *app,
     for (uint32_t y = app->tile_state_bridge.visible_top_left.y; y <= app->tile_state_bridge.visible_bottom_right.y; ++y) {
         for (uint32_t x = app->tile_state_bridge.visible_top_left.x; x <= app->tile_state_bridge.visible_bottom_right.x; ++x) {
             TileCoord coord = {app->tile_state_bridge.visible_zoom, x, y};
+            if (!app_tile_request_in_region_coverage(app, kind, band, coord)) {
+                continue;
+            }
             expected += 1u;
             if (tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, band)) {
                 loaded += 1u;
@@ -677,9 +767,12 @@ static void app_refresh_visible_layer_coverage(AppState *app) {
                 if (!app_layer_active_runtime(app, kind)) {
                     continue;
                 }
+                TileZoomBand band = app->tile_state_bridge.layer_target_band[kind];
+                if (!app_tile_request_in_region_coverage(app, kind, band, coord)) {
+                    continue;
+                }
                 coord_has_runtime_layer = true;
                 app->tile_state_bridge.layer_visible_expected[kind] += 1u;
-                TileZoomBand band = app->tile_state_bridge.layer_target_band[kind];
                 if ((size_t)band < TILE_BAND_COUNT) {
                     app->tile_state_bridge.band_visible_expected[band] += 1u;
                 }
@@ -768,6 +861,10 @@ void app_clear_tile_queue(AppState *app) {
     app->tile_state_bridge.lane_l0_latency_ms = 0.0f;
     app->tile_state_bridge.lane_l0_dropped_visible_requests = 0u;
     app->tile_state_bridge.lane_l0_retry_visible_requests = 0u;
+    app->tile_state_bridge.coverage_suppressed_frame = 0u;
+    app->tile_state_bridge.coverage_suppressed_visible_frame = 0u;
+    app->tile_state_bridge.coverage_suppressed_total = 0u;
+    app->tile_state_bridge.coverage_suppressed_visible_total = 0u;
     app->tile_state_bridge.lifecycle_frame_index = 0u;
     app->tile_state_bridge.lifecycle_transition_count = 0u;
     app->tile_state_bridge.lifecycle_invalid_transition_count = 0u;
@@ -787,6 +884,7 @@ void app_clear_tile_queue(AppState *app) {
     app->tile_state_bridge.present_hold_updates = 0u;
     memset(app->tile_state_bridge.present_hold, 0, sizeof(app->tile_state_bridge.present_hold));
     app->tile_state_bridge.last_queue_rebuild_time = 0.0;
+    app_runtime_budget_reset_frame(app);
     app_vk_poly_prep_clear(app);
     app_vk_asset_queue_clear(app);
 }
@@ -835,8 +933,17 @@ static void app_rebuild_tile_queue_for_kind(AppState *app, TileQueue *queue, Til
             if (ideal) {
                 continue;
             }
-            TileQueueLane lane = TILE_QUEUE_LANE_L3_FAR_PREFETCH;
             uint32_t ring = app_tile_ring_distance_from_bounds(coord, visible_top_left, visible_bottom_right);
+            if (!app_tile_request_in_region_coverage(app, kind, band, coord)) {
+                app->tile_state_bridge.coverage_suppressed_frame += 1u;
+                app->tile_state_bridge.coverage_suppressed_total += 1u;
+                if (ring == 0u) {
+                    app->tile_state_bridge.coverage_suppressed_visible_frame += 1u;
+                    app->tile_state_bridge.coverage_suppressed_visible_total += 1u;
+                }
+                continue;
+            }
+            TileQueueLane lane = TILE_QUEUE_LANE_L3_FAR_PREFETCH;
             if (ring == 0u) {
                 bool has_fallback = app_has_visible_tile_with_fallback(app, kind, coord, band);
                 lane = has_fallback ? TILE_QUEUE_LANE_L1_VISIBLE_REFINE : TILE_QUEUE_LANE_L0_VISIBLE_MISSING;
@@ -865,7 +972,8 @@ static void app_process_tile_queue(AppState *app,
                                    TileQueue *queue,
                                    TileLayerKind kind,
                                    uint32_t budget,
-                                   const uint32_t lane_caps[TILE_QUEUE_LANE_COUNT]) {
+                                   const uint32_t lane_caps[TILE_QUEUE_LANE_COUNT],
+                                   AppRuntimeBudgetFrameStats *budget_stats) {
     if (!app || !queue || budget == 0 || queue->index >= queue->count) {
         return;
     }
@@ -879,6 +987,9 @@ static void app_process_tile_queue(AppState *app,
             lane = TILE_QUEUE_LANE_L3_FAR_PREFETCH;
         }
         if (lane_used[lane] >= lane_caps[lane]) {
+            if (budget_stats) {
+                budget_stats->lane_cap_hits[lane] += 1u;
+            }
             break;
         }
         TileZoomBand band = app->tile_state_bridge.queue_band[kind];
@@ -907,6 +1018,9 @@ static void app_process_tile_queue(AppState *app,
         lane_used[lane] += 1u;
         app->tile_state_bridge.layer_inflight[kind] += 1;
         app->tile_state_bridge.lane_service_count[lane] += 1u;
+    }
+    if (budget_stats && remaining_budget == 0u && queue->index < queue->count) {
+        budget_stats->load_budget_exhausted_count += 1u;
     }
 }
 
@@ -1093,9 +1207,15 @@ void app_update_tile_queue(AppState *app) {
     if (!app) {
         return;
     }
+    if (app->tile_state_bridge.budget_policy.integrate_cap == 0u) {
+        app_runtime_budget_policy_init(app);
+    }
+    app_runtime_budget_reset_frame(app);
     app_tile_lifecycle_begin_frame(app);
     app->tile_state_bridge.band_commit_frame_count = 0u;
     app->tile_state_bridge.queue_rebuild_frame_count = 0u;
+    app->tile_state_bridge.coverage_suppressed_frame = 0u;
+    app->tile_state_bridge.coverage_suppressed_visible_frame = 0u;
     double now = time_now_seconds();
 
     uint16_t z = 0;
@@ -1116,12 +1236,11 @@ void app_update_tile_queue(AppState *app) {
     app->tile_state_bridge.visible_bottom_right = bottom_right;
     app->tile_state_bridge.visible_valid = true;
     app->tile_state_bridge.visible_tile_count = (bottom_right.x - top_left.x + 1) * (bottom_right.y - top_left.y + 1);
-
     queue_top_left = top_left;
     queue_bottom_right = bottom_right;
     {
         const uint32_t tile_limit = tile_count(z);
-        // Keep two-tile prefetch margin around the viewport so A2 can schedule near/far lanes.
+        // Keep a stable two-tile prefetch margin around the viewport.
         const uint32_t prefetch_margin = 2u;
         if (tile_limit > 0u) {
             queue_top_left.x = queue_top_left.x > prefetch_margin ? queue_top_left.x - prefetch_margin : 0u;
@@ -1340,34 +1459,56 @@ void app_update_tile_queue(AppState *app) {
         TileQueue *queue = &app->tile_state_bridge.tile_queues[policy->kind];
         uint32_t expected = app->tile_state_bridge.layer_expected[policy->kind];
         uint32_t budget = app_tile_load_budget(policy->kind, expected);
+        app->tile_state_bridge.budget_frame.load_budget_requested_total += budget;
         if (policy->kind == TILE_LAYER_ROAD_ARTERY || policy->kind == TILE_LAYER_ROAD_LOCAL) {
-            if (budget > 8u) {
-                budget = 8u;
+            uint32_t road_cap = app->tile_state_bridge.budget_policy.load_road_cap;
+            if (budget > road_cap) {
+                budget = road_cap;
+                app->tile_state_bridge.budget_frame.load_budget_clamped_count += 1u;
             }
         } else if (policy->kind == TILE_LAYER_POLY_WATER ||
                    policy->kind == TILE_LAYER_POLY_PARK ||
                    policy->kind == TILE_LAYER_POLY_LANDUSE ||
                    policy->kind == TILE_LAYER_POLY_BUILDING) {
-            uint32_t polygon_cap = 2u;
+            uint32_t polygon_cap = app->tile_state_bridge.budget_policy.load_polygon_cap_large_view;
             if (app->tile_state_bridge.visible_tile_count <= 4u) {
-                polygon_cap = 4u;
+                polygon_cap = app->tile_state_bridge.budget_policy.load_polygon_cap_small_view;
             } else if (app->tile_state_bridge.visible_tile_count <= 16u) {
-                polygon_cap = 3u;
+                polygon_cap = app->tile_state_bridge.budget_policy.load_polygon_cap_medium_view;
             }
-            if (policy->kind == TILE_LAYER_POLY_BUILDING && polygon_cap < 4u) {
-                polygon_cap += 1u;
+            if (policy->kind == TILE_LAYER_POLY_BUILDING) {
+                polygon_cap += app->tile_state_bridge.budget_policy.load_polygon_building_bonus;
             }
             if (budget > polygon_cap) {
                 budget = polygon_cap;
+                app->tile_state_bridge.budget_frame.load_budget_clamped_count += 1u;
             }
+        }
+        app->tile_state_bridge.budget_frame.load_budget_applied_total += budget;
+        uint32_t lane_l2_cap = budget >= 3u
+            ? app->tile_state_bridge.budget_policy.lane_l2_cap_high_budget
+            : app->tile_state_bridge.budget_policy.lane_l2_cap_low_budget;
+        uint32_t lane_l3_cap = budget >= 6u
+            ? app->tile_state_bridge.budget_policy.lane_l3_cap_high_budget
+            : app->tile_state_bridge.budget_policy.lane_l3_cap_low_budget;
+        if (lane_l2_cap > budget) {
+            lane_l2_cap = budget;
+        }
+        if (lane_l3_cap > budget) {
+            lane_l3_cap = budget;
         }
         uint32_t lane_caps[TILE_QUEUE_LANE_COUNT] = {
             budget,
             budget,
-            budget >= 3u ? 2u : 1u,
-            budget >= 6u ? 1u : 0u
+            lane_l2_cap,
+            lane_l3_cap
         };
-        app_process_tile_queue(app, queue, policy->kind, budget, lane_caps);
+        app_process_tile_queue(app,
+                               queue,
+                               policy->kind,
+                               budget,
+                               lane_caps,
+                               &app->tile_state_bridge.budget_frame);
     }
 
     for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {

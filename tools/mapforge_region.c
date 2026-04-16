@@ -31,6 +31,12 @@
 
 extern char **environ;
 
+typedef enum OSMSourceKind {
+    OSM_SOURCE_KIND_XML = 0,
+    OSM_SOURCE_KIND_PBF = 1,
+    OSM_SOURCE_KIND_UNKNOWN = 2
+} OSMSourceKind;
+
 // Stores an OSM node coordinate keyed by ID.
 typedef struct NodeEntry {
     int64_t id;
@@ -97,6 +103,8 @@ enum {
     METRIC_LAYER_COUNT = 7
 };
 
+#define MAPFORGE_TILE_COVERAGE_MAX_ZOOM 30u
+
 static const char *k_metric_band_names[METRIC_BAND_COUNT] = {
     "default",
     "coarse",
@@ -144,6 +152,24 @@ typedef struct BuildContext {
     uint64_t archive_bytes_written;
     uint64_t archive_rollup_rows[METRIC_BAND_COUNT][METRIC_LAYER_COUNT];
     uint64_t archive_rollup_bytes[METRIC_BAND_COUNT][METRIC_LAYER_COUNT];
+    uint64_t coverage_total_tiles;
+    uint64_t coverage_tiles[METRIC_BAND_COUNT][METRIC_LAYER_COUNT];
+    bool coverage_has_zoom[METRIC_BAND_COUNT][METRIC_LAYER_COUNT][MAPFORGE_TILE_COVERAGE_MAX_ZOOM + 1u];
+    uint32_t coverage_zoom_min_x[METRIC_BAND_COUNT][METRIC_LAYER_COUNT][MAPFORGE_TILE_COVERAGE_MAX_ZOOM + 1u];
+    uint32_t coverage_zoom_max_x[METRIC_BAND_COUNT][METRIC_LAYER_COUNT][MAPFORGE_TILE_COVERAGE_MAX_ZOOM + 1u];
+    uint32_t coverage_zoom_min_y[METRIC_BAND_COUNT][METRIC_LAYER_COUNT][MAPFORGE_TILE_COVERAGE_MAX_ZOOM + 1u];
+    uint32_t coverage_zoom_max_y[METRIC_BAND_COUNT][METRIC_LAYER_COUNT][MAPFORGE_TILE_COVERAGE_MAX_ZOOM + 1u];
+    uint32_t coverage_zoom_tiles[METRIC_BAND_COUNT][METRIC_LAYER_COUNT][MAPFORGE_TILE_COVERAGE_MAX_ZOOM + 1u];
+    OSMSourceKind source_kind_detected;
+    bool source_is_canonical_pbf;
+    bool source_compat_xml_mode;
+    bool source_pbf_conversion_used;
+    bool source_fingerprint_ok;
+    bool source_mtime_ok;
+    uint64_t source_size_bytes;
+    uint64_t source_hash_fnv1a64;
+    uint64_t source_mtime_unix;
+    char source_converter_program[MAPFORGE_SOURCE_PATH_CAPACITY];
 } BuildContext;
 
 // Stores CLI options for the region build.
@@ -192,6 +218,18 @@ static const char *road_band_label(TileZoomBand band) {
         case TILE_BAND_DEFAULT:
         default:
             return "default";
+    }
+}
+
+static const char *osm_source_kind_label(OSMSourceKind kind) {
+    switch (kind) {
+        case OSM_SOURCE_KIND_PBF:
+            return "pbf";
+        case OSM_SOURCE_KIND_XML:
+            return "xml";
+        case OSM_SOURCE_KIND_UNKNOWN:
+        default:
+            return "unknown";
     }
 }
 
@@ -1337,8 +1375,65 @@ static bool road_class_is_artery(RoadClass road_class) {
         road_class == ROAD_CLASS_SECONDARY;
 }
 
+static int metric_band_index_from_tile_band(TileZoomBand band) {
+    if ((int)band < 0 || band >= TILE_BAND_COUNT) {
+        return -1;
+    }
+    return (int)band;
+}
+
+static void record_tile_coverage(BuildContext *ctx,
+                                 const char *suffix,
+                                 TileZoomBand band,
+                                 TileCoord coord) {
+    if (!ctx || !suffix) {
+        return;
+    }
+    if (coord.z > MAPFORGE_TILE_COVERAGE_MAX_ZOOM) {
+        return;
+    }
+    int band_index = metric_band_index_from_tile_band(band);
+    int layer_index = archive_metric_layer_index(archive_layer_from_suffix(suffix));
+    if (band_index < 0 || layer_index < 0) {
+        return;
+    }
+
+    ctx->coverage_total_tiles += 1u;
+    ctx->coverage_tiles[band_index][layer_index] += 1u;
+
+    if (!ctx->coverage_has_zoom[band_index][layer_index][coord.z]) {
+        ctx->coverage_has_zoom[band_index][layer_index][coord.z] = true;
+        ctx->coverage_zoom_min_x[band_index][layer_index][coord.z] = coord.x;
+        ctx->coverage_zoom_max_x[band_index][layer_index][coord.z] = coord.x;
+        ctx->coverage_zoom_min_y[band_index][layer_index][coord.z] = coord.y;
+        ctx->coverage_zoom_max_y[band_index][layer_index][coord.z] = coord.y;
+        ctx->coverage_zoom_tiles[band_index][layer_index][coord.z] = 1u;
+        return;
+    }
+
+    if (coord.x < ctx->coverage_zoom_min_x[band_index][layer_index][coord.z]) {
+        ctx->coverage_zoom_min_x[band_index][layer_index][coord.z] = coord.x;
+    }
+    if (coord.x > ctx->coverage_zoom_max_x[band_index][layer_index][coord.z]) {
+        ctx->coverage_zoom_max_x[band_index][layer_index][coord.z] = coord.x;
+    }
+    if (coord.y < ctx->coverage_zoom_min_y[band_index][layer_index][coord.z]) {
+        ctx->coverage_zoom_min_y[band_index][layer_index][coord.z] = coord.y;
+    }
+    if (coord.y > ctx->coverage_zoom_max_y[band_index][layer_index][coord.z]) {
+        ctx->coverage_zoom_max_y[band_index][layer_index][coord.z] = coord.y;
+    }
+    if (ctx->coverage_zoom_tiles[band_index][layer_index][coord.z] < UINT32_MAX) {
+        ctx->coverage_zoom_tiles[band_index][layer_index][coord.z] += 1u;
+    }
+}
+
 // Records per-layer and per-band file output counters for build diagnostics.
-static void record_file_write(BuildContext *ctx, const char *suffix, bool is_legacy, TileZoomBand band) {
+static void record_file_write(BuildContext *ctx,
+                              const char *suffix,
+                              bool is_legacy,
+                              TileZoomBand band,
+                              TileCoord coord) {
     if (!ctx || !suffix) {
         return;
     }
@@ -1384,6 +1479,7 @@ static void record_file_write(BuildContext *ctx, const char *suffix, bool is_leg
             }
         }
     }
+    record_tile_coverage(ctx, suffix, is_legacy ? TILE_BAND_DEFAULT : band, coord);
 }
 
 static bool write_tile_file_roads_at_root(const char *root_dir, const TileOutput *tile, const char *suffix, bool want_artery) {
@@ -1469,7 +1565,7 @@ static bool write_tile_file_roads(const char *base_dir,
         if (!write_tile_file_roads_at_root(legacy_root, tile, suffix, want_artery)) {
             return false;
         }
-        record_file_write(ctx, suffix, true, TILE_BAND_DEFAULT);
+        record_file_write(ctx, suffix, true, TILE_BAND_DEFAULT, tile->coord);
     }
     TileZoomBand band = road_band_for_tile_z(tile->coord.z, options->min_z, options->max_z);
     const char *band_label = road_band_label(band);
@@ -1480,7 +1576,7 @@ static bool write_tile_file_roads(const char *base_dir,
     if (!write_tile_file_roads_at_root(band_root, tile, suffix, want_artery)) {
         return false;
     }
-    record_file_write(ctx, suffix, false, band);
+    record_file_write(ctx, suffix, false, band, tile->coord);
     return true;
 }
 
@@ -1716,7 +1812,7 @@ static bool write_tile_file_polygons(const char *base_dir,
                 legacy_root, tile, suffix, polygon_class, TILE_BAND_DEFAULT)) {
             return false;
         }
-        record_file_write(ctx, suffix, true, TILE_BAND_DEFAULT);
+        record_file_write(ctx, suffix, true, TILE_BAND_DEFAULT, tile->coord);
     }
 
     bool band_enabled = (polygon_class == POLYGON_CLASS_WATER ||
@@ -1736,7 +1832,7 @@ static bool write_tile_file_polygons(const char *base_dir,
     if (!write_tile_file_polygons_at_root(band_root, tile, suffix, polygon_class, band)) {
         return false;
     }
-    record_file_write(ctx, suffix, false, band);
+    record_file_write(ctx, suffix, false, band, tile->coord);
     return true;
 }
 
@@ -1768,7 +1864,7 @@ static bool write_tile_file(const BuildOptions *options, BuildContext *ctx, cons
         if (!write_empty_tile_file(options->out_dir, tile->coord, "contour.mft")) {
             return false;
         }
-        record_file_write(ctx, "contour.mft", true, TILE_BAND_DEFAULT);
+        record_file_write(ctx, "contour.mft", true, TILE_BAND_DEFAULT, tile->coord);
     }
     return true;
 }
@@ -2043,6 +2139,117 @@ static bool format_archive_rollups_json(const BuildContext *ctx, char *out_json,
     return true;
 }
 
+static bool format_tile_coverage_json(const BuildContext *ctx, char *out_json, size_t out_size) {
+    if (!ctx || !out_json || out_size == 0u) {
+        return false;
+    }
+    size_t off = 0u;
+    int n = snprintf(out_json + off, out_size - off,
+                     "{\n"
+                     "            \"rows\": %llu,\n"
+                     "            \"bands\": {\n",
+                     (unsigned long long)ctx->coverage_total_tiles);
+    if (n <= 0 || (size_t)n >= (out_size - off)) {
+        return false;
+    }
+    off += (size_t)n;
+
+    for (int b = 0; b < METRIC_BAND_COUNT; ++b) {
+        n = snprintf(out_json + off, out_size - off, "                \"%s\": {\n", k_metric_band_names[b]);
+        if (n <= 0 || (size_t)n >= (out_size - off)) {
+            return false;
+        }
+        off += (size_t)n;
+
+        bool wrote_layer = false;
+        for (int l = 0; l < METRIC_LAYER_COUNT; ++l) {
+            if (ctx->coverage_tiles[b][l] == 0u) {
+                continue;
+            }
+            if (wrote_layer) {
+                n = snprintf(out_json + off, out_size - off, ",\n");
+                if (n <= 0 || (size_t)n >= (out_size - off)) {
+                    return false;
+                }
+                off += (size_t)n;
+            }
+
+            n = snprintf(out_json + off, out_size - off,
+                         "                    \"%s\": {\n"
+                         "                        \"tile_count\": %llu,\n"
+                         "                        \"zoom_bounds\": {\n",
+                         k_metric_layer_names[l],
+                         (unsigned long long)ctx->coverage_tiles[b][l]);
+            if (n <= 0 || (size_t)n >= (out_size - off)) {
+                return false;
+            }
+            off += (size_t)n;
+
+            bool wrote_zoom = false;
+            for (uint32_t z = 0u; z <= MAPFORGE_TILE_COVERAGE_MAX_ZOOM; ++z) {
+                if (!ctx->coverage_has_zoom[b][l][z]) {
+                    continue;
+                }
+                if (wrote_zoom) {
+                    n = snprintf(out_json + off, out_size - off, ",\n");
+                    if (n <= 0 || (size_t)n >= (out_size - off)) {
+                        return false;
+                    }
+                    off += (size_t)n;
+                }
+                n = snprintf(out_json + off, out_size - off,
+                             "                            \"%u\": {\"tiles\": %u, \"min_x\": %u, \"max_x\": %u, \"min_y\": %u, \"max_y\": %u}",
+                             z,
+                             ctx->coverage_zoom_tiles[b][l][z],
+                             ctx->coverage_zoom_min_x[b][l][z],
+                             ctx->coverage_zoom_max_x[b][l][z],
+                             ctx->coverage_zoom_min_y[b][l][z],
+                             ctx->coverage_zoom_max_y[b][l][z]);
+                if (n <= 0 || (size_t)n >= (out_size - off)) {
+                    return false;
+                }
+                off += (size_t)n;
+                wrote_zoom = true;
+            }
+
+            n = snprintf(out_json + off, out_size - off,
+                         "\n"
+                         "                        }\n"
+                         "                    }");
+            if (n <= 0 || (size_t)n >= (out_size - off)) {
+                return false;
+            }
+            off += (size_t)n;
+            wrote_layer = true;
+        }
+
+        if (wrote_layer) {
+            n = snprintf(out_json + off, out_size - off, "\n");
+            if (n <= 0 || (size_t)n >= (out_size - off)) {
+                return false;
+            }
+            off += (size_t)n;
+        }
+
+        n = snprintf(out_json + off, out_size - off, "                }%s\n",
+                     (b + 1 < METRIC_BAND_COUNT) ? "," : "");
+        if (n <= 0 || (size_t)n >= (out_size - off)) {
+            return false;
+        }
+        off += (size_t)n;
+    }
+
+    n = snprintf(out_json + off, out_size - off, "            }\n        }");
+    if (n <= 0 || (size_t)n >= (out_size - off)) {
+        return false;
+    }
+    off += (size_t)n;
+    if (off >= out_size) {
+        return false;
+    }
+    return true;
+}
+
 // Writes meta.json for the region pack.
 static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx) {
     if (!options || !ctx || !options->out_dir) {
@@ -2060,8 +2267,17 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         ? options->archive_path
         : "tiles.mbtiles";
     const char *tile_store_kind = options->emit_archive ? "archive_indexed" : "filesystem_tree";
+    const char *runtime_source_policy = options->emit_archive ? "archive_preferred" : "filesystem_only";
+    const char *source_kind_label = osm_source_kind_label(ctx->source_kind_detected);
+    const char *source_ingest_mode = ctx->source_is_canonical_pbf
+        ? "canonical_pbf"
+        : (ctx->source_compat_xml_mode ? "compat_xml" : "unknown");
     char tile_store_archive_line[1200];
     char archive_rollups_json[8192];
+    char tile_coverage_json[65536];
+    char source_hash_json[64];
+    char source_mtime_json[64];
+    char converter_program_json[MAPFORGE_SOURCE_PATH_CAPACITY + 4];
     if (utc) {
         strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", utc);
     }
@@ -2082,11 +2298,60 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
     if (!format_archive_rollups_json(ctx, archive_rollups_json, sizeof(archive_rollups_json))) {
         return false;
     }
-    char json[24576];
+    if (!format_tile_coverage_json(ctx, tile_coverage_json, sizeof(tile_coverage_json))) {
+        return false;
+    }
+    if (ctx->source_fingerprint_ok) {
+        snprintf(source_hash_json,
+                 sizeof(source_hash_json),
+                 "\"0x%016llx\"",
+                 (unsigned long long)ctx->source_hash_fnv1a64);
+    } else {
+        snprintf(source_hash_json, sizeof(source_hash_json), "null");
+    }
+    if (ctx->source_mtime_ok) {
+        snprintf(source_mtime_json,
+                 sizeof(source_mtime_json),
+                 "%llu",
+                 (unsigned long long)ctx->source_mtime_unix);
+    } else {
+        snprintf(source_mtime_json, sizeof(source_mtime_json), "null");
+    }
+    if (ctx->source_converter_program[0] != '\0') {
+        snprintf(converter_program_json,
+                 sizeof(converter_program_json),
+                 "\"%s\"",
+                 ctx->source_converter_program);
+    } else {
+        snprintf(converter_program_json, sizeof(converter_program_json), "null");
+    }
+    char json[131072];
     int n = snprintf(
         json, sizeof(json),
         "{\n"
         "    \"region\": \"%s\",\n"
+        "    \"package_contract\": {\n"
+        "        \"family\": \"map_forge.region_package\",\n"
+        "        \"version\": 1,\n"
+        "        \"tile_store_contract\": \"map_forge.tile_store.v1\"\n"
+        "    },\n"
+        "    \"build_manifest\": {\n"
+        "        \"family\": \"map_forge.region_build_manifest\",\n"
+        "        \"version\": 1,\n"
+        "        \"canonical_input_format\": \"osm.pbf\",\n"
+        "        \"detected_source_kind\": \"%s\",\n"
+        "        \"ingest_mode\": \"%s\",\n"
+        "        \"canonical_source\": %s,\n"
+        "        \"compat_source_mode\": %s,\n"
+        "        \"source_size_bytes\": %llu,\n"
+        "        \"source_hash_fnv1a64\": %s,\n"
+        "        \"source_mtime_unix\": %s,\n"
+        "        \"pbf_conversion_used\": %s,\n"
+        "        \"converter_program\": %s,\n"
+        "        \"archive_target_enabled\": %s,\n"
+        "        \"archive_target_path\": \"%s\",\n"
+        "        \"runtime_source_policy\": \"%s\"\n"
+        "    },\n"
         "    \"city_source\": \"%s\",\n"
         "    \"terrain_source\": %s,\n"
         "    \"created_utc\": \"%s\",\n"
@@ -2103,7 +2368,8 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         "    },\n"
         "    \"tile_store\": {\n"
         "        \"kind\": \"%s\",\n"
-        "        \"root\": \"tiles\"%s\n"
+        "        \"root\": \"tiles\",\n"
+        "        \"runtime_source_policy\": \"%s\"%s\n"
         "    },\n"
         "    \"tile_pyramid\": {\n"
         "        \"roads\": {\n"
@@ -2165,10 +2431,23 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         "            \"mid\": %llu,\n"
         "            \"fine\": %llu\n"
         "        },\n"
-        "        \"archive_rollups\": %s\n"
+        "        \"archive_rollups\": %s,\n"
+        "        \"tile_coverage\": %s\n"
         "    }\n"
         "}\n",
         options->region,
+        source_kind_label,
+        source_ingest_mode,
+        ctx->source_is_canonical_pbf ? "true" : "false",
+        ctx->source_compat_xml_mode ? "true" : "false",
+        (unsigned long long)ctx->source_size_bytes,
+        source_hash_json,
+        source_mtime_json,
+        ctx->source_pbf_conversion_used ? "true" : "false",
+        converter_program_json,
+        options->emit_archive ? "true" : "false",
+        archive_rel,
+        runtime_source_policy,
         options->osm_path,
         terrain_source_json,
         timestamp,
@@ -2180,6 +2459,7 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         options->max_z,
         (unsigned)TILE_EXTENT,
         tile_store_kind,
+        runtime_source_policy,
         tile_store_archive_line,
         (options->dem_path && options->dem_path[0] != '\0') ? "true" : "false",
         options->pad_bounds ? "true" : "false",
@@ -2209,7 +2489,8 @@ static bool write_meta_json(const BuildOptions *options, const BuildContext *ctx
         (unsigned long long)ctx->building_band_coarse_files,
         (unsigned long long)ctx->building_band_mid_files,
         (unsigned long long)ctx->building_band_fine_files,
-        archive_rollups_json);
+        archive_rollups_json,
+        tile_coverage_json);
     if (n <= 0 || (size_t)n >= sizeof(json)) {
         return false;
     }
@@ -2228,6 +2509,9 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
 
     CoreDataset dataset;
     core_dataset_init(&dataset);
+    char source_hash_hex[32];
+    char source_mtime_json[64];
+    const char *source_kind = osm_source_kind_label(ctx->source_kind_detected);
 
     CoreResult r = core_dataset_add_metadata_string(&dataset, "profile", "map_forge_tile_layer_feature_dataset_v1");
     if (r.code != CORE_OK) goto fail;
@@ -2250,6 +2534,35 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
     r = core_dataset_add_metadata_string(&dataset, "archive_rollups_table", "map_forge_archive_rollups_v1");
     if (r.code != CORE_OK) goto fail;
     r = core_dataset_add_metadata_string(&dataset, "region", options->region ? options->region : "");
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "canonical_input_format", "osm.pbf");
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "detected_source_kind", source_kind);
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset,
+                                         "ingest_mode",
+                                         ctx->source_is_canonical_pbf ? "canonical_pbf"
+                                                                      : (ctx->source_compat_xml_mode ? "compat_xml" : "unknown"));
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_string(&dataset, "pbf_conversion_used", ctx->source_pbf_conversion_used ? "true" : "false");
+    if (r.code != CORE_OK) goto fail;
+    if (ctx->source_fingerprint_ok) {
+        snprintf(source_hash_hex, sizeof(source_hash_hex), "0x%016llx", (unsigned long long)ctx->source_hash_fnv1a64);
+    } else {
+        snprintf(source_hash_hex, sizeof(source_hash_hex), "unknown");
+    }
+    if (ctx->source_mtime_ok) {
+        snprintf(source_mtime_json, sizeof(source_mtime_json), "%llu", (unsigned long long)ctx->source_mtime_unix);
+    } else {
+        snprintf(source_mtime_json, sizeof(source_mtime_json), "null");
+    }
+    r = core_dataset_add_metadata_string(&dataset, "source_hash_fnv1a64", source_hash_hex);
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_i64(&dataset, "source_size_bytes", (int64_t)ctx->source_size_bytes);
+    if (r.code != CORE_OK) goto fail;
+    r = core_dataset_add_metadata_i64(&dataset,
+                                      "source_mtime_unix",
+                                      ctx->source_mtime_ok ? (int64_t)ctx->source_mtime_unix : -1);
     if (r.code != CORE_OK) goto fail;
 
     r = core_dataset_add_scalar_f64(&dataset, "tile_count", (double)ctx->tile_count);
@@ -2384,7 +2697,14 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
         "    \"summary_table\": \"map_forge_summary_v1\",\n"
         "    \"layers_table\": \"map_forge_layers_v1\",\n"
         "    \"bands_table\": \"map_forge_bands_v1\",\n"
-        "    \"archive_rollups_table\": \"map_forge_archive_rollups_v1\"\n"
+        "    \"archive_rollups_table\": \"map_forge_archive_rollups_v1\",\n"
+        "    \"canonical_input_format\": \"osm.pbf\",\n"
+        "    \"detected_source_kind\": \"%s\",\n"
+        "    \"ingest_mode\": \"%s\",\n"
+        "    \"pbf_conversion_used\": %s,\n"
+        "    \"source_hash_fnv1a64\": \"%s\",\n"
+        "    \"source_size_bytes\": %llu,\n"
+        "    \"source_mtime_unix\": %s\n"
         "  },\n"
         "  \"items\": [\n"
         "    {\n"
@@ -2427,6 +2747,12 @@ static bool write_metrics_dataset_json(const BuildOptions *options, const BuildC
         "  ]\n"
         "}\n",
         options->region ? options->region : "",
+        source_kind,
+        ctx->source_is_canonical_pbf ? "canonical_pbf" : (ctx->source_compat_xml_mode ? "compat_xml" : "unknown"),
+        ctx->source_pbf_conversion_used ? "true" : "false",
+        source_hash_hex,
+        (unsigned long long)ctx->source_size_bytes,
+        ctx->source_mtime_ok ? source_mtime_json : "null",
         (long long)ctx->tile_count,
         (long long)ctx->files_written_total,
         (long long)ctx->files_written_legacy,
@@ -2778,12 +3104,6 @@ static bool parse_bounds(BuildContext *ctx, const char *line) {
     return true;
 }
 
-typedef enum OSMSourceKind {
-    OSM_SOURCE_KIND_XML = 0,
-    OSM_SOURCE_KIND_PBF = 1,
-    OSM_SOURCE_KIND_UNKNOWN = 2
-} OSMSourceKind;
-
 static bool source_name_has_suffix(const char *name, const char *suffix) {
     size_t name_len = 0u;
     size_t suffix_len = 0u;
@@ -2815,6 +3135,59 @@ static bool source_buffer_contains(const uint8_t *buffer,
         }
     }
     return false;
+}
+
+typedef struct SourceFingerprint {
+    bool ok;
+    bool has_mtime;
+    uint64_t size_bytes;
+    uint64_t hash_fnv1a64;
+    uint64_t mtime_unix;
+} SourceFingerprint;
+
+static bool source_compute_fingerprint(const char *path, SourceFingerprint *out_fp) {
+    FILE *file = NULL;
+    struct stat st;
+    uint8_t buffer[65536];
+    uint64_t hash = 1469598103934665603ULL;
+    size_t read_size = 0u;
+
+    if (!path || !out_fp) {
+        return false;
+    }
+    memset(out_fp, 0, sizeof(*out_fp));
+
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        return false;
+    }
+    out_fp->size_bytes = (uint64_t)st.st_size;
+    out_fp->mtime_unix = (uint64_t)st.st_mtime;
+    out_fp->has_mtime = true;
+
+    file = fopen(path, "rb");
+    if (!file) {
+        return false;
+    }
+    for (;;) {
+        read_size = fread(buffer, 1u, sizeof(buffer), file);
+        if (read_size > 0u) {
+            for (size_t i = 0u; i < read_size; ++i) {
+                hash ^= (uint64_t)buffer[i];
+                hash *= 1099511628211ULL;
+            }
+        }
+        if (read_size < sizeof(buffer)) {
+            if (ferror(file)) {
+                fclose(file);
+                return false;
+            }
+            break;
+        }
+    }
+    fclose(file);
+    out_fp->hash_fnv1a64 = hash;
+    out_fp->ok = true;
+    return true;
 }
 
 static OSMSourceKind detect_osm_source_kind(const char *path) {
@@ -2922,7 +3295,11 @@ static bool resolve_osmium_program(char *out_path, size_t out_path_cap) {
     return false;
 }
 
-static bool convert_pbf_to_xml(const char *pbf_path, char *xml_path, size_t xml_path_cap) {
+static bool convert_pbf_to_xml(const char *pbf_path,
+                               char *xml_path,
+                               size_t xml_path_cap,
+                               char *out_converter_path,
+                               size_t out_converter_path_cap) {
     char tmp_template[] = "/tmp/mapforge_osmxml_XXXXXX";
     char osmium_program[MAPFORGE_SOURCE_PATH_CAPACITY];
     int fd = -1;
@@ -2933,12 +3310,18 @@ static bool convert_pbf_to_xml(const char *pbf_path, char *xml_path, size_t xml_
         return false;
     }
     xml_path[0] = '\0';
+    if (out_converter_path && out_converter_path_cap > 0u) {
+        out_converter_path[0] = '\0';
+    }
 
     if (!resolve_osmium_program(osmium_program, sizeof(osmium_program))) {
         log_error("PBF source detected (%s) but converter is unavailable. Install `osmium` or set MAPFORGE_OSMIUM_PATH to the osmium binary.", pbf_path);
         return false;
     }
     osmium_argv[0] = osmium_program;
+    if (out_converter_path && out_converter_path_cap > 0u) {
+        snprintf(out_converter_path, out_converter_path_cap, "%s", osmium_program);
+    }
 
     fd = mkstemp(tmp_template);
     if (fd < 0) {
@@ -3129,19 +3512,58 @@ static bool parse_osm_xml(const BuildOptions *options,
 static bool parse_osm(const BuildOptions *options, BuildContext *ctx) {
     OSMSourceKind source_kind;
     bool ok = false;
+    SourceFingerprint fingerprint;
     char converted_xml_path[MAPFORGE_SOURCE_PATH_CAPACITY];
+    char converter_path[MAPFORGE_SOURCE_PATH_CAPACITY];
     const char *parse_path = NULL;
 
     if (!options || !ctx || !options->osm_path) {
         return false;
     }
 
+    memset(&fingerprint, 0, sizeof(fingerprint));
     converted_xml_path[0] = '\0';
+    converter_path[0] = '\0';
+    ctx->source_kind_detected = OSM_SOURCE_KIND_UNKNOWN;
+    ctx->source_is_canonical_pbf = false;
+    ctx->source_compat_xml_mode = false;
+    ctx->source_pbf_conversion_used = false;
+    ctx->source_fingerprint_ok = false;
+    ctx->source_mtime_ok = false;
+    ctx->source_size_bytes = 0u;
+    ctx->source_hash_fnv1a64 = 0u;
+    ctx->source_mtime_unix = 0u;
+    ctx->source_converter_program[0] = '\0';
+
+    if (source_compute_fingerprint(options->osm_path, &fingerprint)) {
+        ctx->source_fingerprint_ok = fingerprint.ok;
+        ctx->source_mtime_ok = fingerprint.has_mtime;
+        ctx->source_size_bytes = fingerprint.size_bytes;
+        ctx->source_hash_fnv1a64 = fingerprint.hash_fnv1a64;
+        ctx->source_mtime_unix = fingerprint.mtime_unix;
+    }
+
     parse_path = options->osm_path;
     source_kind = detect_osm_source_kind(options->osm_path);
+    ctx->source_kind_detected = source_kind;
+    ctx->source_is_canonical_pbf = source_kind == OSM_SOURCE_KIND_PBF;
+    ctx->source_compat_xml_mode = source_kind == OSM_SOURCE_KIND_XML;
+    if (source_kind == OSM_SOURCE_KIND_XML) {
+        log_info("OSM source input kind=xml (compat mode). Canonical input is .osm.pbf for deterministic ingest.");
+    } else if (source_kind == OSM_SOURCE_KIND_UNKNOWN) {
+        log_info("OSM source kind unknown for %s; attempting XML parse path", options->osm_path);
+    }
     if (source_kind == OSM_SOURCE_KIND_PBF) {
-        if (!convert_pbf_to_xml(options->osm_path, converted_xml_path, sizeof(converted_xml_path))) {
+        if (!convert_pbf_to_xml(options->osm_path,
+                                converted_xml_path,
+                                sizeof(converted_xml_path),
+                                converter_path,
+                                sizeof(converter_path))) {
             return false;
+        }
+        ctx->source_pbf_conversion_used = true;
+        if (converter_path[0] != '\0') {
+            snprintf(ctx->source_converter_program, sizeof(ctx->source_converter_program), "%s", converter_path);
         }
         parse_path = converted_xml_path;
     }

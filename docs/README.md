@@ -1,6 +1,7 @@
 # MapForge Docs
 
 Start here for the public, operator-facing documentation that ships with the repository.
+Last audited: 2026-04-15.
 
 ## Start Here
 
@@ -44,35 +45,39 @@ If you are new to the runtime code, read in this order:
 - `make test-presentation-stability`
 - `make test`
 - `make run-headless-smoke`
+- `make test-phase-a-viewport-scenario`
+- `make test-phase-b-continuity-stress`
+- `make test-tile-manager-residency`
+- `make test-phase-d-throughput`
 
 ## Scaffold Migration References
 
 - Private migration plan:
-  - `../docs/private_program_docs/map_forge/2026-03-27_map_forge_scaffold_standardization_switchover_plan.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-27_map_forge_scaffold_standardization_switchover_plan.md`
 - Baseline freeze snapshot:
-  - `../docs/private_program_docs/map_forge/2026-03-27_mf_s0_baseline_freeze_and_mapping.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-27_mf_s0_baseline_freeze_and_mapping.md`
 
 ## Connection Pass References
 
 - CP0/CP1 execution snapshot:
-  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp0_cp1_execution.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp0_cp1_execution.md`
 - CP2 dispatch extraction snapshot:
-  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp2_dispatch_extraction.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp2_dispatch_extraction.md`
 - CP3 update/render separation snapshot:
-  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp3_update_render_separation.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp3_update_render_separation.md`
 - CP4 resource lifetime hardening snapshot:
-  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp4_resource_lifetime_hardening.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp4_resource_lifetime_hardening.md`
 - CP5 closeout snapshot:
-  - `../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp5_closeout.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-30_map_forge_connection_pass_cp5_closeout.md`
 
 ## App Packaging References
 
 - Public packaging guide:
   - `docs/desktop_packaging.md`
 - PK0/PK1 execution snapshot:
-  - `../docs/private_program_docs/map_forge/2026-03-31_map_forge_app_packaging_cp0_cp1_execution.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-31_map_forge_app_packaging_cp0_cp1_execution.md`
 - PK2 closeout snapshot:
-  - `../docs/private_program_docs/map_forge/2026-03-31_map_forge_app_packaging_cp2_closeout.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-31_map_forge_app_packaging_cp2_closeout.md`
   - includes post-closeout hardening notes from real Finder-launch failures and fixes
 
 ## Runtime Config Persistence
@@ -89,4 +94,4 @@ If you are new to the runtime code, read in this order:
 
 Private plans, execution checklists, and internal runbooks were moved out of this repo lane. They live in the CodeWork workspace at:
 
-- `../docs/private_program_docs/map_forge/`
+- `../../docs/private_program_docs/map_forge/`

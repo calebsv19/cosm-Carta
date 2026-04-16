@@ -22,18 +22,20 @@ Use this file as the primary navigation map for project context.
 - `docs/desktop_packaging.md`: `.app` packaging targets, launcher contract, and desktop sync flow.
 - `make test-presentation-stability`: focused non-GUI presenter stability regression gate.
 - `make run-headless-smoke`: non-interactive smoke gate for scaffold migration slices.
+- `make test-phase-b-continuity-stress`: phase-b viewport continuity/churn stress gate.
+- `make test-tile-manager-residency`: tile-manager trim-policy residency contract gate.
 
 ## Private Planning Docs
 - Private MapForge plan/runbook docs are stored outside this repo path at:
-  - `../docs/private_program_docs/map_forge/`
+  - `../../docs/private_program_docs/map_forge/`
 - Migration snapshot from `2026-03-12`:
-  - `../docs/private_program_docs/map_forge/migrated_private_docs_2026-03-12/`
+  - `../../docs/private_program_docs/map_forge/migrated_private_docs_2026-03-12/`
 - Completed historical phase plans moved out of `map_forge/docs/` are stored at:
-  - `../docs/private_program_docs/map_forge/completed_plans/`
+  - `../../docs/private_program_docs/map_forge/completed_plans/`
 
 ## Notes
 - Keep `map_forge/docs/` public and operator-facing.
-- Keep private planning, implementation checklists, and internal runbooks in `docs/private_program_docs/map_forge/`.
+- Keep private planning, implementation checklists, and internal runbooks in `../../docs/private_program_docs/map_forge/`.
 - Runtime persistence policy:
   - tracked defaults in `config/app.config.json`
   - mutable runtime state in ignored `data/runtime/app_state.json`

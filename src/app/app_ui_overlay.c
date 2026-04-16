@@ -88,6 +88,7 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.lifecycle_transition_to_state[i]));
     }
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->region.tile_source.storage_kind);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app->region.tile_source.policy_mode);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)(app->region.has_tile_archive ? 1u : 0u));
     hash = app_hash_mix_u64(hash, app->region.archive_rollup_total_rows);
     hash = app_hash_mix_u64(hash, app->region.archive_rollup_total_bytes);
@@ -99,6 +100,7 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     hash = app_hash_mix_u64(hash, source_stats.archive_extract_count);
     hash = app_hash_mix_u64(hash, source_stats.archive_extract_fail_count);
     hash = app_hash_mix_u64(hash, source_stats.archive_fallback_tree_count);
+    hash = app_hash_mix_u64(hash, source_stats.archive_policy_block_count);
 
     for (size_t i = 0; i < TILE_BAND_COUNT; ++i) {
         hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_visible_loaded[i]));
@@ -114,6 +116,10 @@ static uint64_t app_layer_debug_layout_hash(const AppState *app) {
     hash = app_hash_mix_u64(hash, app->tile_state_bridge.lane_l0_saturation_total);
     hash = app_hash_mix_u64(hash, app->tile_state_bridge.lane_l0_dropped_visible_requests);
     hash = app_hash_mix_u64(hash, app->tile_state_bridge.lane_l0_retry_visible_requests);
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.coverage_suppressed_frame));
+    hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.coverage_suppressed_visible_frame));
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.coverage_suppressed_total);
+    hash = app_hash_mix_u64(hash, app->tile_state_bridge.coverage_suppressed_visible_total);
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.coverage_gate_deferred_count));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.coverage_gate_timeout_count));
     hash = app_hash_mix_u64(hash, (uint64_t)(uint32_t)app_digits_u32(app->tile_state_bridge.band_commit_frame_count));
@@ -166,7 +172,7 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
         return true;
     }
     if (index == 3) {
-        snprintf(line, line_size, "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) lanes q=%u/%u/%u/%u svc=%u/%u/%u/%u l0(p=%u lat=%.1fms drop=%llu retry=%llu) gate=%u/%u fallback=%u churn(b=%u q=%u) cache(evict=%u total=%llu)",
+        snprintf(line, line_size, "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) lanes q=%u/%u/%u/%u svc=%u/%u/%u/%u l0(p=%u lat=%.1fms drop=%llu retry=%llu) covsup=%u/%u total=%llu/%llu gate=%u/%u fallback=%u churn(b=%u q=%u) cache(evict=%u total=%llu)",
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_COARSE], app->tile_state_bridge.band_visible_expected[TILE_BAND_COARSE],
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_MID], app->tile_state_bridge.band_visible_expected[TILE_BAND_MID],
                  app->tile_state_bridge.band_visible_loaded[TILE_BAND_FINE], app->tile_state_bridge.band_visible_expected[TILE_BAND_FINE],
@@ -185,6 +191,10 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
                  app->tile_state_bridge.lane_l0_latency_ms,
                  (unsigned long long)app->tile_state_bridge.lane_l0_dropped_visible_requests,
                  (unsigned long long)app->tile_state_bridge.lane_l0_retry_visible_requests,
+                 app->tile_state_bridge.coverage_suppressed_frame,
+                 app->tile_state_bridge.coverage_suppressed_visible_frame,
+                 (unsigned long long)app->tile_state_bridge.coverage_suppressed_total,
+                 (unsigned long long)app->tile_state_bridge.coverage_suppressed_visible_total,
                  app->tile_state_bridge.coverage_gate_deferred_count,
                  app->tile_state_bridge.coverage_gate_timeout_count,
                  app->tile_state_bridge.vk_road_band_fallback_draws,
@@ -234,13 +244,15 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
     if (index == 6) {
         TileSourceRuntimeStats source_stats = {0};
         tile_source_runtime_stats_get(&source_stats);
-        snprintf(line, line_size, "Tile source=%s archive(req=%llu hit=%llu ext=%llu fail=%llu tree=%llu)",
+        snprintf(line, line_size, "Tile source=%s policy=%s archive(req=%llu hit=%llu ext=%llu fail=%llu tree=%llu block=%llu)",
                  tile_storage_kind_label(app->region.tile_source.storage_kind),
+                 tile_source_policy_mode_label(app->region.tile_source.policy_mode),
                  (unsigned long long)source_stats.archive_request_count,
                  (unsigned long long)source_stats.archive_hit_count,
                  (unsigned long long)source_stats.archive_extract_count,
                  (unsigned long long)source_stats.archive_extract_fail_count,
-                 (unsigned long long)source_stats.archive_fallback_tree_count);
+                 (unsigned long long)source_stats.archive_fallback_tree_count,
+                 (unsigned long long)source_stats.archive_policy_block_count);
         return true;
     }
 
@@ -503,7 +515,7 @@ void app_copy_overlay_text(AppState *app) {
         app->region.archive_rollup_rows[REGION_ROLLUP_BAND_FINE][REGION_ROLLUP_LAYER_BUILDING];
     int written = snprintf(buffer + offset, sizeof(buffer) - offset,
                            "Region: %s\nZoom: %.2f\nVisible tiles: %u\nLoad total: %u/%u no_data=%.1fs\n"
-                           "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) fallback=%u churn(b=%u q=%u)\n"
+                           "Bands vis c=%u/%u m=%u/%u f=%u/%u d=%u/%u q(c=%u m=%u f=%u d=%u) covsup=%u/%u total=%llu/%llu fallback=%u churn(b=%u q=%u)\n"
                            "Cache pressure evict=%u total=%llu\n"
                            "Draw vk=%u fallback=%u blend=%u hold %u/%u upd=%u inv_fail=%u\n"
                            "Hardening invariants=%s contour=%s\n"
@@ -520,6 +532,10 @@ void app_copy_overlay_text(AppState *app) {
                            app->tile_state_bridge.band_visible_loaded[TILE_BAND_DEFAULT], app->tile_state_bridge.band_visible_expected[TILE_BAND_DEFAULT],
                            app->tile_state_bridge.band_queue_depth[TILE_BAND_COARSE], app->tile_state_bridge.band_queue_depth[TILE_BAND_MID],
                            app->tile_state_bridge.band_queue_depth[TILE_BAND_FINE], app->tile_state_bridge.band_queue_depth[TILE_BAND_DEFAULT],
+                           app->tile_state_bridge.coverage_suppressed_frame,
+                           app->tile_state_bridge.coverage_suppressed_visible_frame,
+                           (unsigned long long)app->tile_state_bridge.coverage_suppressed_total,
+                           (unsigned long long)app->tile_state_bridge.coverage_suppressed_visible_total,
                            app->tile_state_bridge.vk_road_band_fallback_draws,
                            app->tile_state_bridge.band_commit_frame_count,
                            app->tile_state_bridge.queue_rebuild_frame_count,

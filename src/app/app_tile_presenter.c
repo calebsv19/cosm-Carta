@@ -447,7 +447,17 @@ bool app_tile_presenter_draw_polygon_layer(AppState *app,
         if (io_vk_asset_misses) {
             *io_vk_asset_misses += 1u;
         }
-        app_vk_asset_enqueue(app, kind, coord, band);
+        bool enqueue_allowed = true;
+        if (poly_asset_build_budget && poly_asset_build_budget->cap > 0u &&
+            poly_asset_build_budget->used >= poly_asset_build_budget->cap) {
+            enqueue_allowed = false;
+            app->tile_state_bridge.budget_frame.vk_poly_asset_budget_hit_count += 1u;
+        }
+        if (enqueue_allowed && app_vk_asset_enqueue(app, kind, coord, band)) {
+            if (poly_asset_build_budget && poly_asset_build_budget->cap > 0u) {
+                poly_asset_build_budget->used += 1u;
+            }
+        }
     }
 
     if (allow_immediate_polygon_fallback || (kind == TILE_LAYER_POLY_BUILDING && allow_building_fallback)) {

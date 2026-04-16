@@ -106,6 +106,27 @@ static const ArchiveLayerCase k_cases[] = {
     {TILE_LAYER_POLY_BUILDING, "building", 0x77}
 };
 
+static const char *layer_suffix(TileLayerKind kind) {
+    switch (kind) {
+        case TILE_LAYER_ROAD_ARTERY:
+            return "artery.mft";
+        case TILE_LAYER_ROAD_LOCAL:
+            return "local.mft";
+        case TILE_LAYER_CONTOUR:
+            return "contour.mft";
+        case TILE_LAYER_POLY_WATER:
+            return "water.mft";
+        case TILE_LAYER_POLY_PARK:
+            return "park.mft";
+        case TILE_LAYER_POLY_LANDUSE:
+            return "landuse.mft";
+        case TILE_LAYER_POLY_BUILDING:
+            return "building.mft";
+        default:
+            return "mft";
+    }
+}
+
 static size_t build_minimal_tile_blob(TileCoord coord, uint8_t marker, uint8_t *out, size_t cap) {
     const char magic[4] = {'M', 'F', 'T', '1'};
     uint16_t version = 1u;
@@ -196,11 +217,35 @@ static bool populate_archive_db(const char *db_path, TileCoord coord) {
     return true;
 }
 
+static bool write_tree_tile(const char *tiles_root, TileCoord coord, TileLayerKind kind, uint8_t marker) {
+    char dir_path[512];
+    char tile_path[512];
+    uint8_t blob[64];
+    size_t blob_size = 0u;
+    CoreResult write_res;
+    if (!tiles_root || tiles_root[0] == '\0') {
+        return false;
+    }
+    snprintf(dir_path, sizeof(dir_path), "%s/%u/%u", tiles_root, coord.z, coord.x);
+    if (!ensure_dir_recursive(dir_path)) {
+        return false;
+    }
+    snprintf(tile_path, sizeof(tile_path), "%s/%u.%s", dir_path, coord.y, layer_suffix(kind));
+    blob_size = build_minimal_tile_blob(coord, marker, blob, sizeof(blob));
+    if (blob_size == 0u) {
+        return false;
+    }
+    write_res = core_io_write_all(tile_path, blob, blob_size);
+    return write_res.code == CORE_OK;
+}
+
 int main(void) {
     char tmp_root[] = "/tmp/mapforge_tile_source_archive_test.XXXXXX";
     char cache_dir[512];
     char archive_path[512];
     char missing_tiles_root[512];
+    char fallback_tiles_root[512];
+    char missing_archive_path[512];
     TileCoord coord = {12u, 655u, 1582u};
     if (!mkdtemp(tmp_root)) {
         fprintf(stderr, "mkdtemp failed\n");
@@ -209,6 +254,8 @@ int main(void) {
     snprintf(cache_dir, sizeof(cache_dir), "%s/cache", tmp_root);
     snprintf(archive_path, sizeof(archive_path), "%s/tiles.mbtiles", tmp_root);
     snprintf(missing_tiles_root, sizeof(missing_tiles_root), "%s/no_tree_tiles", tmp_root);
+    snprintf(fallback_tiles_root, sizeof(fallback_tiles_root), "%s/fallback_tiles", tmp_root);
+    snprintf(missing_archive_path, sizeof(missing_archive_path), "%s/missing.mbtiles", tmp_root);
     if (!ensure_dir_recursive(cache_dir)) {
         fprintf(stderr, "failed to create cache dir\n");
         remove_tree(tmp_root);
@@ -257,6 +304,85 @@ int main(void) {
     assert(stats.archive_extract_count == case_count);
     assert(stats.archive_extract_fail_count == 0u);
     assert(stats.archive_fallback_tree_count == 0u);
+    assert(stats.archive_policy_block_count == 0u);
+
+    assert(write_tree_tile(fallback_tiles_root, coord, TILE_LAYER_ROAD_ARTERY, 0x91));
+
+    TileSourceConfig preferred_source = {0};
+    assert(tile_source_config_set_archive_with_policy(&preferred_source,
+                                                      fallback_tiles_root,
+                                                      missing_archive_path,
+                                                      TILE_SOURCE_POLICY_ARCHIVE_PREFERRED));
+    tile_source_runtime_stats_reset();
+    {
+        char resolved[MAPFORGE_TILE_SOURCE_PATH_CAPACITY];
+        assert(tile_source_resolve_path(&preferred_source,
+                                        coord,
+                                        TILE_LAYER_ROAD_ARTERY,
+                                        TILE_BAND_DEFAULT,
+                                        resolved,
+                                        sizeof(resolved)));
+        CoreBuffer readback = {0};
+        CoreResult rr = core_io_read_all(resolved, &readback);
+        assert(rr.code == CORE_OK);
+        assert(readback.size > 0u);
+        const uint8_t *bytes = (const uint8_t *)readback.data;
+        assert(bytes[readback.size - 1u] == 0x91);
+        core_io_buffer_free(&readback);
+    }
+    tile_source_runtime_stats_get(&stats);
+    assert(stats.archive_request_count == 1u);
+    assert(stats.archive_hit_count == 0u);
+    assert(stats.archive_extract_count == 0u);
+    assert(stats.archive_extract_fail_count == 1u);
+    assert(stats.archive_fallback_tree_count == 1u);
+    assert(stats.archive_policy_block_count == 0u);
+
+    TileSourceConfig required_source = {0};
+    assert(tile_source_config_set_archive_with_policy(&required_source,
+                                                      fallback_tiles_root,
+                                                      missing_archive_path,
+                                                      TILE_SOURCE_POLICY_ARCHIVE_REQUIRED));
+    tile_source_runtime_stats_reset();
+    {
+        char resolved[MAPFORGE_TILE_SOURCE_PATH_CAPACITY];
+        assert(!tile_source_resolve_path(&required_source,
+                                         coord,
+                                         TILE_LAYER_ROAD_ARTERY,
+                                         TILE_BAND_DEFAULT,
+                                         resolved,
+                                         sizeof(resolved)));
+    }
+    tile_source_runtime_stats_get(&stats);
+    assert(stats.archive_request_count == 1u);
+    assert(stats.archive_hit_count == 0u);
+    assert(stats.archive_extract_count == 0u);
+    assert(stats.archive_extract_fail_count == 1u);
+    assert(stats.archive_fallback_tree_count == 0u);
+    assert(stats.archive_policy_block_count == 1u);
+
+    TileSourceConfig filesystem_only_source = {0};
+    assert(tile_source_config_set_archive_with_policy(&filesystem_only_source,
+                                                      fallback_tiles_root,
+                                                      missing_archive_path,
+                                                      TILE_SOURCE_POLICY_FILESYSTEM_ONLY));
+    tile_source_runtime_stats_reset();
+    {
+        char resolved[MAPFORGE_TILE_SOURCE_PATH_CAPACITY];
+        assert(tile_source_resolve_path(&filesystem_only_source,
+                                        coord,
+                                        TILE_LAYER_ROAD_ARTERY,
+                                        TILE_BAND_DEFAULT,
+                                        resolved,
+                                        sizeof(resolved)));
+    }
+    tile_source_runtime_stats_get(&stats);
+    assert(stats.archive_request_count == 0u);
+    assert(stats.archive_hit_count == 0u);
+    assert(stats.archive_extract_count == 0u);
+    assert(stats.archive_extract_fail_count == 0u);
+    assert(stats.archive_fallback_tree_count == 0u);
+    assert(stats.archive_policy_block_count == 0u);
 
     remove_tree(tmp_root);
     printf("tile_source_archive_test: success\n");

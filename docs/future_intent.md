@@ -1,12 +1,19 @@
 # MapForge Future Intent
 
-Last updated: 2026-04-10
+Last updated: 2026-04-15
 
 ## Scaffold Alignment Intent
 1. Preserve current subsystem decomposition strengths (`app`, `map`, `route`, `render`, etc.).
 2. Keep locked scaffold lifecycle wrapper entrypoint stable while preserving behavior.
 3. Keep shared subtree usage explicit and stable.
 4. Keep verification gates deterministic and non-interactive for migration slices.
+
+## Post A-D Maintenance Intent (Current)
+- Runtime scaffold A-D lane is closed; next work is maintenance hardening, not structural reset.
+- Priority maintenance boundaries:
+  - stabilize D2 volatility handling with trend-window/quorum policy for throughput drift lanes.
+  - continue routing capability work in `src/app/route/*` without coupling route behavior back into tile pipeline/presenter/render files.
+  - preserve package contract and runtime-source-policy validation discipline for every region build/import lane.
 
 ## Planned Next Structural Intent
 - `MF-S3` (completed):
@@ -29,6 +36,15 @@ Last updated: 2026-04-10
 - keep the `src/app/route/*` runtime grouping stable and avoid moving route-runtime responsibilities back into `app.c` or unrelated app files.
 - preserve the `vk_tile_cache_policy` seam as policy-only code while `vk_tile_cache.c` remains focused on cache entry and mesh lifecycle behavior.
 - continue docs-first reconciliation after large-file decomposition passes so public module maps track the actual file ownership boundaries.
+
+## Phase B Runtime Continuity Intent
+- checkpoint commit (`f6deaa1`) is complete for Phase B continuity and stress hardening.
+- maintain continuity gates as non-optional runtime guardrails:
+  - `make -C map_forge test-phase-b-continuity-stress`
+  - `make -C map_forge test-tile-manager-residency`
+- keep cache-pressure and band-churn telemetry contract stable so thresholds in stress scripts remain meaningful release gates.
+- next posture:
+  - prefer tuning threshold values and policy constants over broad pipeline rewrites unless continuity gates regress.
 
 ## Post-Scaffold Connection Pass Intent
 - `MF-CP0`, `MF-CP1`, `MF-CP2`, and `MF-CP3` are complete:

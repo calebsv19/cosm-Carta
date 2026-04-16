@@ -196,17 +196,68 @@ void app_runtime_update_frame(AppState *app,
 
     app_route_poll_result(app);
     app_route_panel_model_update(app);
+    if (app->tile_state_bridge.budget_policy.integrate_cap == 0u) {
+        app_runtime_budget_policy_init(app);
+    }
     app_update_tile_queue(app);
     double after_queue = time_now_seconds();
-    uint32_t integrate_budget = app->tile_state_bridge.active_layer_valid
-        ? app_tile_integrate_budget(app->tile_state_bridge.active_layer_kind, app->tile_state_bridge.active_layer_expected)
+    uint32_t integrate_fallback_budget = app->tile_state_bridge.budget_policy.integrate_fallback_budget > 0u
+        ? app->tile_state_bridge.budget_policy.integrate_fallback_budget
         : APP_TILE_INTEGRATE_BUDGET;
+    uint32_t integrate_cap = app->tile_state_bridge.budget_policy.integrate_cap > 0u
+        ? app->tile_state_bridge.budget_policy.integrate_cap
+        : 64u;
+    uint32_t poly_prep_integrate_budget = app->tile_state_bridge.budget_policy.vk_poly_prep_integrate_budget > 0u
+        ? app->tile_state_bridge.budget_policy.vk_poly_prep_integrate_budget
+        : APP_VK_POLY_PREP_INTEGRATE_BUDGET;
+    double poly_prep_slice_sec = app->tile_state_bridge.budget_policy.vk_poly_prep_integrate_time_slice_sec > 0.0
+        ? app->tile_state_bridge.budget_policy.vk_poly_prep_integrate_time_slice_sec
+        : APP_VK_POLY_PREP_INTEGRATE_TIME_SLICE_SEC;
+    uint32_t vk_asset_build_budget = app->tile_state_bridge.budget_policy.vk_asset_build_budget > 0u
+        ? app->tile_state_bridge.budget_policy.vk_asset_build_budget
+        : APP_VK_ASSET_BUILD_BUDGET;
+    double vk_asset_build_slice_sec = app->tile_state_bridge.budget_policy.vk_asset_build_time_slice_sec > 0.0
+        ? app->tile_state_bridge.budget_policy.vk_asset_build_time_slice_sec
+        : APP_VK_ASSET_BUILD_TIME_SLICE_SEC;
+
+    uint32_t integrate_requested = app->tile_state_bridge.active_layer_valid
+        ? app_tile_integrate_budget(app->tile_state_bridge.active_layer_kind, app->tile_state_bridge.active_layer_expected)
+        : integrate_fallback_budget;
+    uint32_t integrate_budget = integrate_requested;
+    app->tile_state_bridge.budget_frame.integrate_budget_requested = integrate_requested;
+    if (integrate_budget > integrate_cap) {
+        integrate_budget = integrate_cap;
+        app->tile_state_bridge.budget_frame.integrate_budget_clamped_count += 1u;
+    }
+    app->tile_state_bridge.budget_frame.integrate_budget_applied = integrate_budget;
     app_drain_tile_results(app, integrate_budget);
+    if (integrate_budget > 0u &&
+        app->tile_state_bridge.active_layer_valid &&
+        app->tile_state_bridge.layer_inflight[app->tile_state_bridge.active_layer_kind] > 0u &&
+        app->tile_state_bridge.layer_done[app->tile_state_bridge.active_layer_kind] <
+            app->tile_state_bridge.layer_expected[app->tile_state_bridge.active_layer_kind]) {
+        app->tile_state_bridge.budget_frame.integrate_budget_exhausted_count += 1u;
+    }
     app_vk_poly_prep_drain(
         app,
-        APP_VK_POLY_PREP_INTEGRATE_BUDGET,
-        APP_VK_POLY_PREP_INTEGRATE_TIME_SLICE_SEC);
-    app_process_vk_asset_queue(app, APP_VK_ASSET_BUILD_BUDGET, APP_VK_ASSET_BUILD_TIME_SLICE_SEC);
+        poly_prep_integrate_budget,
+        poly_prep_slice_sec);
+    uint64_t vk_asset_build_before = app->worker_state_bridge.vk_asset_job_build_count;
+    uint32_t vk_asset_queue_before = app->worker_state_bridge.vk_asset_job_count;
+    app_process_vk_asset_queue(app,
+                               vk_asset_build_budget,
+                               vk_asset_build_slice_sec);
+    uint64_t vk_asset_build_after = app->worker_state_bridge.vk_asset_job_build_count;
+    uint64_t built_delta = vk_asset_build_after >= vk_asset_build_before
+        ? (vk_asset_build_after - vk_asset_build_before)
+        : 0u;
+    app->tile_state_bridge.budget_frame.vk_asset_jobs_budget = vk_asset_build_budget;
+    app->tile_state_bridge.budget_frame.vk_asset_jobs_built = (uint32_t)built_delta;
+    if (vk_asset_build_budget > 0u &&
+        built_delta >= (uint64_t)vk_asset_build_budget &&
+        (app->worker_state_bridge.vk_asset_job_count > 0u || vk_asset_queue_before > (uint32_t)built_delta)) {
+        app->tile_state_bridge.budget_frame.vk_asset_budget_saturated_count += 1u;
+    }
     app_refresh_layer_states(app);
     app_update_vk_line_budget(app);
     if (app->ui_state_bridge.input.copy_overlay_pressed) {

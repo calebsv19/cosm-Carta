@@ -23,7 +23,7 @@ typedef struct TileSourceStatsState {
 } TileSourceStatsState;
 
 static TileSourceStatsState g_tile_source_stats = {
-    {0u, 0u, 0u, 0u, 0u},
+    {0u, 0u, 0u, 0u, 0u, 0u},
     PTHREAD_MUTEX_INITIALIZER
 };
 
@@ -127,6 +127,12 @@ static void tile_source_stats_note_archive_fail(void) {
 static void tile_source_stats_note_fallback_tree(void) {
     pthread_mutex_lock(&g_tile_source_stats.mutex);
     g_tile_source_stats.stats.archive_fallback_tree_count += 1u;
+    pthread_mutex_unlock(&g_tile_source_stats.mutex);
+}
+
+static void tile_source_stats_note_policy_block(void) {
+    pthread_mutex_lock(&g_tile_source_stats.mutex);
+    g_tile_source_stats.stats.archive_policy_block_count += 1u;
     pthread_mutex_unlock(&g_tile_source_stats.mutex);
 }
 
@@ -455,6 +461,7 @@ void tile_source_config_init(TileSourceConfig *config) {
     }
     memset(config, 0, sizeof(*config));
     config->storage_kind = TILE_STORAGE_FILESYSTEM_TREE;
+    config->policy_mode = TILE_SOURCE_POLICY_FILESYSTEM_ONLY;
 }
 
 bool tile_source_config_set_filesystem(TileSourceConfig *config, const char *tiles_root) {
@@ -463,15 +470,28 @@ bool tile_source_config_set_filesystem(TileSourceConfig *config, const char *til
     }
     tile_source_config_init(config);
     config->storage_kind = TILE_STORAGE_FILESYSTEM_TREE;
+    config->policy_mode = TILE_SOURCE_POLICY_FILESYSTEM_ONLY;
     return tile_source_path_copy(config->tiles_root, sizeof(config->tiles_root), tiles_root);
 }
 
 bool tile_source_config_set_archive(TileSourceConfig *config, const char *tiles_root, const char *archive_path) {
+    return tile_source_config_set_archive_with_policy(
+        config,
+        tiles_root,
+        archive_path,
+        TILE_SOURCE_POLICY_ARCHIVE_PREFERRED);
+}
+
+bool tile_source_config_set_archive_with_policy(TileSourceConfig *config,
+                                                const char *tiles_root,
+                                                const char *archive_path,
+                                                TileSourcePolicyMode policy_mode) {
     if (!config) {
         return false;
     }
     tile_source_config_init(config);
     config->storage_kind = TILE_STORAGE_ARCHIVE_INDEXED;
+    config->policy_mode = policy_mode;
     if (tiles_root && tiles_root[0] != '\0') {
         if (!tile_source_path_copy(config->tiles_root, sizeof(config->tiles_root), tiles_root)) {
             return false;
@@ -482,6 +502,14 @@ bool tile_source_config_set_archive(TileSourceConfig *config, const char *tiles_
             return false;
         }
     }
+    return true;
+}
+
+bool tile_source_config_set_policy(TileSourceConfig *config, TileSourcePolicyMode policy_mode) {
+    if (!config) {
+        return false;
+    }
+    config->policy_mode = policy_mode;
     return true;
 }
 
@@ -506,6 +534,48 @@ TileStorageKind tile_storage_kind_from_string(const char *value) {
         return TILE_STORAGE_ARCHIVE_INDEXED;
     }
     return TILE_STORAGE_FILESYSTEM_TREE;
+}
+
+const char *tile_source_policy_mode_label(TileSourcePolicyMode mode) {
+    switch (mode) {
+        case TILE_SOURCE_POLICY_ARCHIVE_REQUIRED:
+            return "archive_required";
+        case TILE_SOURCE_POLICY_ARCHIVE_PREFERRED:
+            return "archive_preferred";
+        case TILE_SOURCE_POLICY_FILESYSTEM_ONLY:
+            return "filesystem_only";
+        default:
+            return "archive_preferred";
+    }
+}
+
+bool tile_source_policy_mode_from_string(const char *value, TileSourcePolicyMode *out_mode) {
+    if (!out_mode) {
+        return false;
+    }
+    if (!value || value[0] == '\0') {
+        return false;
+    }
+    if (strcmp(value, "archive_required") == 0) {
+        *out_mode = TILE_SOURCE_POLICY_ARCHIVE_REQUIRED;
+        return true;
+    }
+    if (strcmp(value, "archive_preferred") == 0) {
+        *out_mode = TILE_SOURCE_POLICY_ARCHIVE_PREFERRED;
+        return true;
+    }
+    if (strcmp(value, "filesystem_only") == 0) {
+        *out_mode = TILE_SOURCE_POLICY_FILESYSTEM_ONLY;
+        return true;
+    }
+    return false;
+}
+
+TileSourcePolicyMode tile_source_policy_mode_default(TileStorageKind storage_kind) {
+    if (storage_kind == TILE_STORAGE_ARCHIVE_INDEXED) {
+        return TILE_SOURCE_POLICY_ARCHIVE_PREFERRED;
+    }
+    return TILE_SOURCE_POLICY_FILESYSTEM_ONLY;
 }
 
 bool tile_source_archive_reader_supported(void) {
@@ -537,15 +607,28 @@ bool tile_source_resolve_path(const TileSourceConfig *config,
                               TileZoomBand band,
                               char *out_path,
                               size_t out_size) {
+    bool archive_capable = false;
+    bool archive_attempted = false;
     if (!config || !out_path || out_size == 0u) {
         return false;
     }
     out_path[0] = '\0';
 
-    if (config->storage_kind == TILE_STORAGE_ARCHIVE_INDEXED &&
-        config->archive_path[0] != '\0' &&
-        tile_source_archive_layer_supported(kind) &&
+    archive_capable = config->storage_kind == TILE_STORAGE_ARCHIVE_INDEXED &&
+                      config->archive_path[0] != '\0' &&
+                      tile_source_archive_layer_supported(kind);
+
+    if (config->policy_mode == TILE_SOURCE_POLICY_ARCHIVE_REQUIRED &&
+        (!archive_capable || !tile_source_archive_reader_supported())) {
+        tile_source_stats_note_policy_block();
+        out_path[0] = '\0';
+        return false;
+    }
+
+    if (archive_capable &&
+        config->policy_mode != TILE_SOURCE_POLICY_FILESYSTEM_ONLY &&
         tile_source_archive_reader_supported()) {
+        archive_attempted = true;
         tile_source_stats_note_archive_request();
 #if defined(MAPFORGE_HAVE_SQLITE)
         if (tile_source_try_materialize_archive(config, coord, kind, band, out_path, out_size)) {
@@ -553,13 +636,24 @@ bool tile_source_resolve_path(const TileSourceConfig *config,
         }
 #endif
         tile_source_stats_note_archive_fail();
+        if (config->policy_mode == TILE_SOURCE_POLICY_ARCHIVE_REQUIRED) {
+            tile_source_stats_note_policy_block();
+            out_path[0] = '\0';
+            return false;
+        }
     }
 
     if (tile_source_resolve_tree_path(config->tiles_root, coord, kind, band, false, out_path, out_size)) {
-        if (config->storage_kind == TILE_STORAGE_ARCHIVE_INDEXED) {
+        if (archive_capable &&
+            config->policy_mode == TILE_SOURCE_POLICY_ARCHIVE_PREFERRED &&
+            (archive_attempted || !tile_source_archive_reader_supported())) {
             tile_source_stats_note_fallback_tree();
         }
         return true;
+    }
+
+    if (config->policy_mode == TILE_SOURCE_POLICY_ARCHIVE_REQUIRED) {
+        tile_source_stats_note_policy_block();
     }
 
     out_path[0] = '\0';

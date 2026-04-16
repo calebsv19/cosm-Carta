@@ -5,6 +5,7 @@
 #include "core/input.h"
 #include "ui/debug_overlay.h"
 #include "app/region.h"
+#include "app/region_loader.h"
 #include "map/layer_policy.h"
 #include "map/tile_loader.h"
 #include "map/tile_manager.h"
@@ -132,6 +133,46 @@ typedef struct VkPolyAssetBuildBudget {
     uint32_t cap;
     uint32_t used;
 } VkPolyAssetBuildBudget;
+
+/* Centralized runtime budget knobs for tile/load/render throughput control. */
+typedef struct AppRuntimeBudgetPolicy {
+    uint32_t load_road_cap;
+    uint32_t load_polygon_cap_small_view;
+    uint32_t load_polygon_cap_medium_view;
+    uint32_t load_polygon_cap_large_view;
+    uint32_t load_polygon_building_bonus;
+    uint32_t lane_l2_cap_low_budget;
+    uint32_t lane_l2_cap_high_budget;
+    uint32_t lane_l3_cap_low_budget;
+    uint32_t lane_l3_cap_high_budget;
+    uint32_t integrate_fallback_budget;
+    uint32_t integrate_cap;
+    uint32_t vk_poly_prep_integrate_budget;
+    double vk_poly_prep_integrate_time_slice_sec;
+    uint32_t vk_asset_build_budget;
+    double vk_asset_build_time_slice_sec;
+    uint32_t vk_poly_asset_cap_small_view;
+    uint32_t vk_poly_asset_cap_default;
+} AppRuntimeBudgetPolicy;
+
+/* Per-frame budget diagnostics used for D1 throughput tuning. */
+typedef struct AppRuntimeBudgetFrameStats {
+    uint32_t load_budget_requested_total;
+    uint32_t load_budget_applied_total;
+    uint32_t load_budget_clamped_count;
+    uint32_t load_budget_exhausted_count;
+    uint32_t lane_cap_hits[TILE_QUEUE_LANE_COUNT];
+    uint32_t integrate_budget_requested;
+    uint32_t integrate_budget_applied;
+    uint32_t integrate_budget_clamped_count;
+    uint32_t integrate_budget_exhausted_count;
+    uint32_t vk_asset_jobs_budget;
+    uint32_t vk_asset_jobs_built;
+    uint32_t vk_asset_budget_saturated_count;
+    uint32_t vk_poly_asset_budget_cap;
+    uint32_t vk_poly_asset_budget_used;
+    uint32_t vk_poly_asset_budget_hit_count;
+} AppRuntimeBudgetFrameStats;
 
 /* Last-known tile presentation band retained briefly for visual continuity. */
 typedef struct TilePresentHoldEntry {
@@ -312,6 +353,10 @@ typedef struct AppTileState {
     uint64_t lane_l0_saturation_total;
     uint64_t lane_l0_dropped_visible_requests;
     uint64_t lane_l0_retry_visible_requests;
+    uint32_t coverage_suppressed_frame;
+    uint32_t coverage_suppressed_visible_frame;
+    uint64_t coverage_suppressed_total;
+    uint64_t coverage_suppressed_visible_total;
     uint64_t lifecycle_frame_index;
     uint32_t lifecycle_transition_count;
     uint32_t lifecycle_invalid_transition_count;
@@ -374,6 +419,8 @@ typedef struct AppTileState {
     TilePresentHoldEntry present_hold[TILE_LAYER_COUNT][APP_TILE_PRESENT_HOLD_CAPACITY];
     AppTileLifecycleEntry lifecycle_entries[APP_TILE_LIFECYCLE_CAPACITY];
     double last_queue_rebuild_time;
+    AppRuntimeBudgetPolicy budget_policy;
+    AppRuntimeBudgetFrameStats budget_frame;
 } AppTileState;
 
 /* Phase 2 bridge: target ownership bucket for route/path interaction state. */
@@ -602,6 +649,7 @@ typedef struct AppState {
     char input_root_edit[MAPFORGE_REGION_PATH_CAPACITY];
     char latest_imported_region[APP_INGEST_NAME_CAP];
     char ingest_status[APP_HUD_ROUTE_LINE_CAPACITY];
+    char ingest_package_status[APP_HUD_ROUTE_LINE_CAPACITY];
     char ingest_osm_files[APP_INGEST_LIST_MAX][APP_INGEST_NAME_CAP];
     int ingest_osm_count;
     int ingest_selected_osm;
@@ -774,6 +822,8 @@ bool app_layer_runtime_enabled(const AppState *app, TileLayerKind kind);
 bool app_layer_active_runtime(const AppState *app, TileLayerKind kind);
 float app_layer_fade_multiplier(const AppState *app, TileLayerKind kind);
 void app_update_vk_line_budget(AppState *app);
+void app_runtime_budget_policy_init(AppState *app);
+void app_runtime_budget_reset_frame(AppState *app);
 uint32_t app_tile_load_budget(TileLayerKind kind, uint32_t expected);
 uint32_t app_tile_integrate_budget(TileLayerKind kind, uint32_t expected);
 void app_clear_tile_queue(AppState *app);
@@ -930,6 +980,10 @@ void app_draw_ingest_panel(AppState *app);
 void app_ingest_rescan_sources(AppState *app);
 void app_ingest_rescan_active_regions(AppState *app);
 bool app_ingest_open_selected_active_region(AppState *app);
+void app_runtime_format_region_package_status(const char *region_name,
+                                              const RegionPackageValidationResult *validation,
+                                              char *out_status,
+                                              size_t out_size);
 
 void app_runtime_process_input_frame(AppState *app,
                                      AppRuntimeInputFrame *out_input,

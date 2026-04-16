@@ -274,6 +274,7 @@ static bool app_init(AppState *app) {
     app_default_input_root(app->input_root, sizeof(app->input_root));
     snprintf(app->input_root_edit, sizeof(app->input_root_edit), "%s", app->input_root);
     app->ingest_status[0] = '\0';
+    app->ingest_package_status[0] = '\0';
     app->latest_imported_region[0] = '\0';
     app->ingest_panel_open = true;
     app->ingest_show_active_tab = false;
@@ -329,9 +330,16 @@ static bool app_init(AppState *app) {
     app->region_index = -1;
     const RegionInfo *info = NULL;
     if (total_regions > 0) {
-        app->region_index = app_find_first_routable_region_index();
-        if (app->region_index < 0) {
+        if (app->latest_imported_region[0] != '\0') {
             app->region_index = app_find_region_index_by_name(app->latest_imported_region);
+            if (app->region_index < 0) {
+                log_error("Requested startup region '%s' was not found under %s",
+                          app->latest_imported_region,
+                          region_data_root());
+            }
+        }
+        if (app->region_index < 0) {
+            app->region_index = app_find_first_routable_region_index();
         }
         if (app->region_index < 0) {
             app->region_index = 0;
@@ -344,16 +352,36 @@ static bool app_init(AppState *app) {
                 log_error("Startup region '%s' failed package validation: %s",
                           info->name ? info->name : "unknown",
                           validation.summary);
+                snprintf(app->ingest_package_status,
+                         sizeof(app->ingest_package_status),
+                         "region=%s invalid=%s",
+                         info->name ? info->name : "unknown",
+                         validation.summary);
                 info = NULL;
                 app->region_index = -1;
                 snprintf(app->ingest_status,
                          sizeof(app->ingest_status),
                          "Region package invalid (%s). Open ingest panel (O) to repair/import.",
                          validation.summary);
-            } else if (validation.archive_storage && validation.archive_fallback_tree) {
-                log_info("Startup region '%s' archive package will use tree fallback (archive_reader_supported=%s)",
+            } else {
+                log_info("Startup region '%s' runtime source policy=%s storage=%s archive=%s",
                          info->name ? info->name : "unknown",
-                         validation.archive_reader_supported ? "yes" : "no");
+                         tile_source_policy_mode_label(validation.runtime_policy_mode),
+                         validation.archive_storage ? "archive_indexed" : "filesystem_tree",
+                         validation.has_archive_path ? "yes" : "no");
+                if (validation.archive_storage && validation.archive_fallback_tree) {
+                    log_info("Startup region '%s' runtime source degraded: tree fallback enabled (archive_reader_supported=%s)",
+                             info->name ? info->name : "unknown",
+                             validation.archive_reader_supported ? "yes" : "no");
+                }
+                app_runtime_format_region_package_status(info->name,
+                                                         &validation,
+                                                         app->ingest_package_status,
+                                                         sizeof(app->ingest_package_status));
+                snprintf(app->ingest_status,
+                         sizeof(app->ingest_status),
+                         "Startup package ready: %s",
+                         app->ingest_package_status);
             }
         }
     }
@@ -372,6 +400,9 @@ static bool app_init(AppState *app) {
         app->region.tile_archive_path[0] = '\0';
         tile_source_config_set_filesystem(&app->region.tile_source, app->region.tiles_dir);
         app->region.has_tile_archive = false;
+        snprintf(app->ingest_package_status,
+                 sizeof(app->ingest_package_status),
+                 "region=none storage=none policy=none degraded=none contract=none");
         if (!app_ensure_dir_recursive(region_data_root())) {
             log_error("Failed to ensure regions root exists: %s", region_data_root());
             return false;
@@ -480,6 +511,8 @@ static bool app_init(AppState *app) {
     app->view_state_bridge.zoom_logic_enabled = true;
     app->tile_state_bridge.presenter_invariants_enabled = !app_env_flag_enabled("MAPFORGE_DISABLE_PRESENTER_INVARIANTS");
     app->tile_state_bridge.contour_runtime_enabled = app_env_flag_enabled("MAPFORGE_ENABLE_CONTOUR");
+    app_runtime_budget_policy_init(app);
+    app_runtime_budget_reset_frame(app);
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         memset(&app->tile_state_bridge.tile_queues[i], 0, sizeof(app->tile_state_bridge.tile_queues[i]));
         app->view_state_bridge.layer_user_enabled[i] = true;
@@ -887,7 +920,8 @@ int app_run_legacy(void) {
                          "l0(lat_ms=%.2f pending=%u sat=%llu drop=%llu retry=%llu) "
                          "gate(defer=%u timeout=%u) cache(evict=%u total=%llu a=%u/%u l=%u/%u b=%u/%u) "
                          "churn(frame_band=%u frame_rebuild=%u total_band=%llu total_rebuild=%llu) "
-                         "poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu)",
+                         "poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu) "
+                         "budget(load req=%u app=%u clamp=%u ex=%u lane_hit=%u/%u/%u/%u integ req=%u app=%u clamp=%u ex=%u vk_asset=%u/%u sat=%u vk_poly_asset=%u/%u hit=%u)",
                          app.tile_state_bridge.visible_coverage_ratio,
                          app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_ARTERY],
                          app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_LOCAL],
@@ -922,7 +956,25 @@ int app_run_legacy(void) {
                          (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_WATER],
                          (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_PARK],
                          (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_LANDUSE],
-                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_BUILDING]);
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_BUILDING],
+                         app.tile_state_bridge.budget_frame.load_budget_requested_total,
+                         app.tile_state_bridge.budget_frame.load_budget_applied_total,
+                         app.tile_state_bridge.budget_frame.load_budget_clamped_count,
+                         app.tile_state_bridge.budget_frame.load_budget_exhausted_count,
+                         app.tile_state_bridge.budget_frame.lane_cap_hits[TILE_QUEUE_LANE_L0_VISIBLE_MISSING],
+                         app.tile_state_bridge.budget_frame.lane_cap_hits[TILE_QUEUE_LANE_L1_VISIBLE_REFINE],
+                         app.tile_state_bridge.budget_frame.lane_cap_hits[TILE_QUEUE_LANE_L2_NEAR_PREFETCH],
+                         app.tile_state_bridge.budget_frame.lane_cap_hits[TILE_QUEUE_LANE_L3_FAR_PREFETCH],
+                         app.tile_state_bridge.budget_frame.integrate_budget_requested,
+                         app.tile_state_bridge.budget_frame.integrate_budget_applied,
+                         app.tile_state_bridge.budget_frame.integrate_budget_clamped_count,
+                         app.tile_state_bridge.budget_frame.integrate_budget_exhausted_count,
+                         app.tile_state_bridge.budget_frame.vk_asset_jobs_built,
+                         app.tile_state_bridge.budget_frame.vk_asset_jobs_budget,
+                         app.tile_state_bridge.budget_frame.vk_asset_budget_saturated_count,
+                         app.tile_state_bridge.budget_frame.vk_poly_asset_budget_used,
+                         app.tile_state_bridge.budget_frame.vk_poly_asset_budget_cap,
+                         app.tile_state_bridge.budget_frame.vk_poly_asset_budget_hit_count);
             } else {
                 VkPolyPrepStats poly_prep_stats = {0};
                 app_vk_poly_prep_get_stats(&app, &poly_prep_stats);
@@ -1012,7 +1064,8 @@ int app_run_legacy(void) {
                          "l0(lat_ms=%.2f pending=%u sat=%llu drop=%llu retry=%llu) "
                          "gate(defer=%u timeout=%u) cache(evict=%u total=%llu a=%u/%u l=%u/%u b=%u/%u) "
                          "churn(frame_band=%u frame_rebuild=%u total_band=%llu total_rebuild=%llu) "
-                         "poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu)",
+                         "poly_layer(job w=%llu p=%llu lu=%llu b=%llu ring w=%llu p=%llu lu=%llu b=%llu) "
+                         "budget(load req=%u app=%u clamp=%u ex=%u lane_hit=%u/%u/%u/%u integ req=%u app=%u clamp=%u ex=%u vk_asset=%u/%u sat=%u vk_poly_asset=%u/%u hit=%u)",
                          app.tile_state_bridge.visible_coverage_ratio,
                          app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_ARTERY],
                          app.tile_state_bridge.layer_coverage_ratio[TILE_LAYER_ROAD_LOCAL],
@@ -1047,7 +1100,25 @@ int app_run_legacy(void) {
                          (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_WATER],
                          (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_PARK],
                          (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_LANDUSE],
-                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_BUILDING]);
+                         (unsigned long long)poly_prep_stats.quarantine_rings_by_layer[TILE_LAYER_POLY_BUILDING],
+                         app.tile_state_bridge.budget_frame.load_budget_requested_total,
+                         app.tile_state_bridge.budget_frame.load_budget_applied_total,
+                         app.tile_state_bridge.budget_frame.load_budget_clamped_count,
+                         app.tile_state_bridge.budget_frame.load_budget_exhausted_count,
+                         app.tile_state_bridge.budget_frame.lane_cap_hits[TILE_QUEUE_LANE_L0_VISIBLE_MISSING],
+                         app.tile_state_bridge.budget_frame.lane_cap_hits[TILE_QUEUE_LANE_L1_VISIBLE_REFINE],
+                         app.tile_state_bridge.budget_frame.lane_cap_hits[TILE_QUEUE_LANE_L2_NEAR_PREFETCH],
+                         app.tile_state_bridge.budget_frame.lane_cap_hits[TILE_QUEUE_LANE_L3_FAR_PREFETCH],
+                         app.tile_state_bridge.budget_frame.integrate_budget_requested,
+                         app.tile_state_bridge.budget_frame.integrate_budget_applied,
+                         app.tile_state_bridge.budget_frame.integrate_budget_clamped_count,
+                         app.tile_state_bridge.budget_frame.integrate_budget_exhausted_count,
+                         app.tile_state_bridge.budget_frame.vk_asset_jobs_built,
+                         app.tile_state_bridge.budget_frame.vk_asset_jobs_budget,
+                         app.tile_state_bridge.budget_frame.vk_asset_budget_saturated_count,
+                         app.tile_state_bridge.budget_frame.vk_poly_asset_budget_used,
+                         app.tile_state_bridge.budget_frame.vk_poly_asset_budget_cap,
+                         app.tile_state_bridge.budget_frame.vk_poly_asset_budget_hit_count);
             }
             perf_next_log = frame.after_render + 1.0;
         }

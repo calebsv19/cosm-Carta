@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #define MAPFORGE_REGION_PATH_CAPACITY 512u
+#define REGION_TILE_COVERAGE_MAX_ZOOM 30u
 
 enum {
     REGION_ROLLUP_BAND_DEFAULT = 0,
@@ -27,6 +28,15 @@ enum {
     REGION_ROLLUP_LAYER_CONTOUR = 6,
     REGION_ROLLUP_LAYER_COUNT = 7
 };
+
+typedef struct RegionTileCoverageZoom {
+    bool has_tiles;
+    uint32_t tile_count;
+    uint32_t min_x;
+    uint32_t max_x;
+    uint32_t min_y;
+    uint32_t max_y;
+} RegionTileCoverageZoom;
 
 // Stores region pack metadata for runtime selection.
 typedef struct RegionInfo {
@@ -48,6 +58,7 @@ typedef struct RegionInfo {
     bool has_tile_pyramid_buildings;
     bool has_tile_archive;
     bool has_archive_rollups;
+    bool has_tile_coverage;
     bool has_center;
     bool has_bounds;
     bool has_tile_range;
@@ -55,6 +66,9 @@ typedef struct RegionInfo {
     uint64_t archive_rollup_bytes[REGION_ROLLUP_BAND_COUNT][REGION_ROLLUP_LAYER_COUNT];
     uint64_t archive_rollup_total_rows;
     uint64_t archive_rollup_total_bytes;
+    uint64_t tile_coverage_total_tiles;
+    uint64_t tile_coverage_tiles[REGION_ROLLUP_BAND_COUNT][REGION_ROLLUP_LAYER_COUNT];
+    RegionTileCoverageZoom tile_coverage[REGION_ROLLUP_BAND_COUNT][REGION_ROLLUP_LAYER_COUNT][REGION_TILE_COVERAGE_MAX_ZOOM + 1u];
 } RegionInfo;
 
 // Returns the number of configured regions.
@@ -76,5 +90,18 @@ bool region_meta_path(const RegionInfo *info, char *out_path, size_t out_size);
 bool region_graph_path(const RegionInfo *info, char *out_path, size_t out_size);
 // Returns true when the region has a readable graph/graph.bin payload.
 bool region_has_graph(const RegionInfo *info);
+
+// Returns true when one tile coordinate is known to be covered for layer+band.
+// When coverage metadata is absent, this defaults to true (unknown coverage).
+bool region_tile_coverage_contains(const RegionInfo *info,
+                                   TileLayerKind kind,
+                                   TileZoomBand band,
+                                   TileCoord coord);
+
+// Returns true when a layer+band has any known coverage for one zoom level.
+bool region_tile_coverage_has_zoom(const RegionInfo *info,
+                                   TileLayerKind kind,
+                                   TileZoomBand band,
+                                   uint16_t zoom);
 
 #endif

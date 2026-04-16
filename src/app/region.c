@@ -43,6 +43,34 @@ static bool path_is_file_local(const char *path) {
     return S_ISREG(st.st_mode);
 }
 
+static int region_rollup_layer_index_for_tile_kind(TileLayerKind kind) {
+    switch (kind) {
+        case TILE_LAYER_ROAD_ARTERY:
+            return REGION_ROLLUP_LAYER_ARTERY;
+        case TILE_LAYER_ROAD_LOCAL:
+            return REGION_ROLLUP_LAYER_LOCAL;
+        case TILE_LAYER_CONTOUR:
+            return REGION_ROLLUP_LAYER_CONTOUR;
+        case TILE_LAYER_POLY_WATER:
+            return REGION_ROLLUP_LAYER_WATER;
+        case TILE_LAYER_POLY_PARK:
+            return REGION_ROLLUP_LAYER_PARK;
+        case TILE_LAYER_POLY_LANDUSE:
+            return REGION_ROLLUP_LAYER_LANDUSE;
+        case TILE_LAYER_POLY_BUILDING:
+            return REGION_ROLLUP_LAYER_BUILDING;
+        default:
+            return -1;
+    }
+}
+
+static int region_rollup_band_index_for_tile_band(TileZoomBand band) {
+    if ((int)band < 0 || band >= TILE_BAND_COUNT) {
+        return -1;
+    }
+    return (int)band;
+}
+
 static int region_catalog_entry_cmp(const void *left, const void *right) {
     const RegionCatalogEntry *a = (const RegionCatalogEntry *)left;
     const RegionCatalogEntry *b = (const RegionCatalogEntry *)right;
@@ -113,6 +141,7 @@ static int region_catalog_rebuild(void) {
         slot->info.has_tile_pyramid_roads = false;
         slot->info.has_tile_pyramid_buildings = false;
         slot->info.has_tile_archive = false;
+        slot->info.has_tile_coverage = false;
         slot->info.has_center = false;
         slot->info.has_bounds = false;
         slot->info.has_tile_range = false;
@@ -209,4 +238,57 @@ bool region_has_graph(const RegionInfo *info) {
         return false;
     }
     return S_ISREG(st.st_mode);
+}
+
+bool region_tile_coverage_contains(const RegionInfo *info,
+                                   TileLayerKind kind,
+                                   TileZoomBand band,
+                                   TileCoord coord) {
+    if (!info) {
+        return true;
+    }
+    if (!info->has_tile_coverage) {
+        return true;
+    }
+    int band_index = region_rollup_band_index_for_tile_band(band);
+    int layer_index = region_rollup_layer_index_for_tile_kind(kind);
+    if (band_index < 0 || layer_index < 0) {
+        return true;
+    }
+    if (coord.z > REGION_TILE_COVERAGE_MAX_ZOOM) {
+        return false;
+    }
+    const RegionTileCoverageZoom *entry = &info->tile_coverage[band_index][layer_index][coord.z];
+    if (!entry->has_tiles || entry->tile_count == 0u) {
+        return false;
+    }
+    if (coord.x < entry->min_x || coord.x > entry->max_x) {
+        return false;
+    }
+    if (coord.y < entry->min_y || coord.y > entry->max_y) {
+        return false;
+    }
+    return true;
+}
+
+bool region_tile_coverage_has_zoom(const RegionInfo *info,
+                                   TileLayerKind kind,
+                                   TileZoomBand band,
+                                   uint16_t zoom) {
+    if (!info) {
+        return false;
+    }
+    if (!info->has_tile_coverage) {
+        return true;
+    }
+    int band_index = region_rollup_band_index_for_tile_band(band);
+    int layer_index = region_rollup_layer_index_for_tile_kind(kind);
+    if (band_index < 0 || layer_index < 0) {
+        return true;
+    }
+    if (zoom > REGION_TILE_COVERAGE_MAX_ZOOM) {
+        return false;
+    }
+    const RegionTileCoverageZoom *entry = &info->tile_coverage[band_index][layer_index][zoom];
+    return entry->has_tiles && entry->tile_count > 0u;
 }

@@ -1,6 +1,6 @@
 # MapForge Current Truth
 
-Last updated: 2026-04-14
+Last updated: 2026-04-15
 
 ## Program Identity
 - Repository directory: `map_forge/`
@@ -18,6 +18,20 @@ Last updated: 2026-04-14
 - Header strategy:
   - include-dominant (`include/*`), with mirrored subsystem directories.
   - project-level entry/lifecycle headers use `include/map_forge/*`.
+
+## Runtime Scaffold A-D Closure Snapshot (2026-04-15)
+- Phase status:
+  - Phase A complete (viewport scenario gate active with current deterministic latency envelope).
+  - Phase B complete (continuity stress + residency guardrails active).
+  - Phase C complete (package contract, runtime source policy, coverage metadata validation active).
+  - Phase D complete (throughput tuning, D3 continuity hard-fail contract, D4 operator/release workflow).
+- Primary gate lanes now expected to stay green together:
+  - `make -C map_forge test-phase-a-viewport-scenario`
+  - `make -C map_forge test-phase-b-continuity-stress`
+  - `make -C map_forge test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract`
+  - `make -C map_forge test-route-service test-trace-contract test-tile-manager-residency`
+  - `make -C map_forge test-phase-d-throughput`
+  - `make -C map_forge run-headless-smoke`
 
 ## Dependency Lane Policy
 - `map_forge` keeps `third_party/` as an explicit scaffold exception because this repo runs in vendored-subtree mode (`third_party/codework_shared`).
@@ -66,6 +80,18 @@ Last updated: 2026-04-14
     - `meta.dataset.json` -> `map_forge_archive_rollups_v1`
   - runtime region-open diagnostics now log compact archive rollup summaries (`region_archive_rollup ...`).
 
+## Phase B Continuity + Residency Checkpoint (2026-04-14)
+- render continuity stress gate is now first-class in test lanes:
+  - `tests/test_phase_b_continuity_stress.sh`
+  - Makefile target: `make -C map_forge test-phase-b-continuity-stress`
+- tile cache residency trim policy now has direct contract coverage:
+  - `tests/tile_manager_residency_test.c`
+  - Makefile target: `make -C map_forge test-tile-manager-residency`
+- runtime tile pipeline now tracks explicit cache-eviction and continuity/churn telemetry at frame scope:
+  - frame + cumulative cache eviction counters on `tile_state_bridge`
+  - overlay/perf diagnostic lines include continuity pressure signals used by the stress gate thresholds
+- `run-headless-smoke` includes residency and archive-rollup checks in the non-interactive validation path.
+
 ## Runtime/Verification Contract (Current)
 - Build:
   - `make -C map_forge clean && make -C map_forge`
@@ -82,6 +108,10 @@ Last updated: 2026-04-14
 - Input policy gate:
   - `make -C map_forge test-input-policy`
   - validates text-entry shortcut precedence rules for top-level normalize lane.
+- Phase B continuity stress gate:
+  - `make -C map_forge test-phase-b-continuity-stress`
+- Tile residency trim-policy gate:
+  - `make -C map_forge test-tile-manager-residency`
 - Header UI behavior:
   - right-side layer chips render inside a clipped strip viewport and support mouse-wheel horizontal scrolling when hovered.
 
@@ -313,9 +343,9 @@ Last updated: 2026-04-14
 
 ## Active Scaffold Migration State
 - Private migration plan:
-  - `../docs/private_program_docs/map_forge/2026-03-27_map_forge_scaffold_standardization_switchover_plan.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-27_map_forge_scaffold_standardization_switchover_plan.md`
 - Baseline freeze:
-  - `../docs/private_program_docs/map_forge/2026-03-27_mf_s0_baseline_freeze_and_mapping.md`
+  - `../../docs/private_program_docs/map_forge/2026-03-27_mf_s0_baseline_freeze_and_mapping.md`
 - Completed phases:
   - `MF-S0`, `MF-S1`, `MF-S2`, `MF-S3`, `MF-S4`, `MF-S5`
 - Next phase:

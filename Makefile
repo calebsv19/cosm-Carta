@@ -280,7 +280,7 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
-run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-region-validate-strict test-archive-metrics-rollup
+run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-d-throughput test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
 	@echo "map_forge headless smoke passed (non-interactive)"
 
 visual-harness: app
@@ -570,7 +570,10 @@ build-safety-check: tools graph
 
 test: test-space build-safety-check
 test: test-region-validate-strict
+test: test-region-validate-contract
+test: test-runtime-source-policy
 test: test-archive-metrics-rollup
+test: test-coverage-metadata-contract
 test: test-trace-contract
 test: test-worker-contract
 test: test-tile-loader-shutdown
@@ -580,12 +583,22 @@ test: test-tile-presenter-policy
 test: test-presentation-stability
 test: test-input-policy
 test: test-tile-manager-residency
+test: test-phase-d-throughput
 
 test-region-validate-strict: tools-build
 	./tests/test_region_validate_strict.sh
 
+test-region-validate-contract: tools-build
+	./tests/test_region_validate_contract.sh
+
+test-runtime-source-policy: tools-build
+	./tests/test_runtime_source_policy.sh
+
 test-archive-metrics-rollup: tools-build
 	./tests/test_archive_metrics_rollup.sh
+
+test-coverage-metadata-contract: tools-build
+	./tests/test_coverage_metadata_contract.sh
 
 metrics-rollup-gate: test-archive-metrics-rollup
 	@echo "metrics-rollup-gate passed"
@@ -624,10 +637,77 @@ test-tile-manager-residency: $(TILE_MANAGER_RESIDENCY_TEST_TARGET)
 	./$(TILE_MANAGER_RESIDENCY_TEST_TARGET)
 
 test-phase-a-viewport-scenario: app
+	MAPFORGE_PHASE_A_MAX_L0_LATENCY_MS=1500 \
 	./tests/test_phase_a_viewport_scenario.sh
 
 test-phase-b-continuity-stress: app
 	./tests/test_phase_b_continuity_stress.sh
+
+test-phase-d1-budget-control: app
+	MAPFORGE_PHASE_B_MAX_L0_LATENCY_MS=2500 \
+	MAPFORGE_PHASE_D1_MAX_LOAD_CLAMP_TOTAL=48 \
+	MAPFORGE_PHASE_D1_MAX_LOAD_EX_TOTAL=72 \
+	MAPFORGE_PHASE_D1_MAX_L2_HITS_TOTAL=12 \
+	MAPFORGE_PHASE_D1_MAX_L3_HITS_TOTAL=12 \
+	MAPFORGE_PHASE_D1_MAX_INTEG_CLAMP_TOTAL=16 \
+	MAPFORGE_PHASE_D1_MAX_INTEG_EX_TOTAL=32 \
+	MAPFORGE_PHASE_D1_MAX_VK_ASSET_SAT_TOTAL=8 \
+	MAPFORGE_PHASE_D1_MAX_VK_POLY_HIT_TOTAL=8 \
+	./tests/test_phase_b_continuity_stress.sh
+
+test-phase-d1-budget-matrix: app
+	./tests/test_phase_d1_budget_matrix.sh
+
+test-phase-d2-trace-matrix: app
+	./tests/test_phase_d2_trace_matrix.sh
+
+test-phase-d2-tuning-profiles: app
+	./tests/test_phase_d2_tuning_profiles.sh
+
+test-phase-d2-trend-summary: app
+	MAPFORGE_PHASE_D2_SKIP_GUARDRAILS=1 \
+	MAPFORGE_PHASE_D2_TREND_WINDOW=8 \
+	./tests/test_phase_d2_tuning_profiles.sh
+
+test-phase-d2-guardrails: app
+	MAPFORGE_PHASE_D2_MAX_LOAD_EX_DELTA_SEATTLE=8 \
+	MAPFORGE_PHASE_D2_MAX_L0_PEAK_DELTA_MS_SEATTLE=1200 \
+	MAPFORGE_PHASE_D2_MAX_LOAD_EX_DELTA_DOWNTOWN=10 \
+	MAPFORGE_PHASE_D2_MAX_L0_PEAK_DELTA_MS_DOWNTOWN=500 \
+	MAPFORGE_PHASE_D2_MAX_MIN_COV_DROP=0.010 \
+	MAPFORGE_PHASE_D2_MAX_FB_RATIO_DELTA=0.001 \
+	MAPFORGE_PHASE_D2_MAX_CHURN_BAND_DELTA=0 \
+	MAPFORGE_PHASE_D2_MAX_CHURN_QUEUE_DELTA=0 \
+	MAPFORGE_PHASE_D2_MAX_BAND_FB_PEAK_DELTA=0 \
+	./tests/test_phase_d2_tuning_profiles.sh
+
+test-phase-d3-regression-gate: app
+	MAPFORGE_PHASE_D_GATE_MODE=d3 \
+	MAPFORGE_D2_BASELINE_PROFILE_NAME=baseline \
+	MAPFORGE_D2_BASELINE_PRESET=baseline \
+	MAPFORGE_D2_CANDIDATE_PROFILE_NAME=l0_relief_candidate \
+	MAPFORGE_D2_CANDIDATE_PRESET=l0_relief_candidate \
+	MAPFORGE_PHASE_D2_MAX_LOAD_EX_DELTA_SEATTLE=100000 \
+	MAPFORGE_PHASE_D2_MAX_LOAD_EX_DELTA_DOWNTOWN=100000 \
+	MAPFORGE_PHASE_D2_MAX_L0_PEAK_DELTA_MS_SEATTLE=100000 \
+	MAPFORGE_PHASE_D2_MAX_L0_PEAK_DELTA_MS_DOWNTOWN=100000 \
+	MAPFORGE_PHASE_D2_MAX_MIN_COV_DROP=0.010 \
+	MAPFORGE_PHASE_D2_MAX_FB_RATIO_DELTA=0.001 \
+	MAPFORGE_PHASE_D2_MAX_CHURN_BAND_DELTA=0 \
+	MAPFORGE_PHASE_D2_MAX_CHURN_QUEUE_DELTA=0 \
+	MAPFORGE_PHASE_D2_MAX_BAND_FB_PEAK_DELTA=0 \
+	MAPFORGE_PHASE_D3_ALERT_LOAD_EX_DELTA_SEATTLE=8 \
+	MAPFORGE_PHASE_D3_ALERT_L0_PEAK_DELTA_MS_SEATTLE=1200 \
+	MAPFORGE_PHASE_D3_ALERT_LOAD_EX_DELTA_DOWNTOWN=10 \
+	MAPFORGE_PHASE_D3_ALERT_L0_PEAK_DELTA_MS_DOWNTOWN=500 \
+	./tests/test_phase_d2_tuning_profiles.sh
+
+test-phase-d3-contract-preview: test-phase-d3-regression-gate
+
+test-phase-d-throughput: app
+	$(MAKE) --no-print-directory test-phase-d1-budget-control
+	$(MAKE) --no-print-directory test-phase-d2-guardrails
+	$(MAKE) --no-print-directory test-phase-d3-regression-gate
 
 $(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -679,11 +759,17 @@ route: graph
 region: tools
 	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out "$(REGIONS_DIR)/$(REGION)" --min-z $(MIN_Z) --max-z $(MAX_Z) $(REGION_TOOL_FLAGS)
 
+region-archive:
+	$(MAKE) --no-print-directory region EMIT_ARCHIVE=1 EMIT_LEGACY_TILES=0
+
 region-validate: tools-build
 	./$(REGION_VALIDATE_TARGET) $(if $(REGION),--region $(REGION),) $(if $(filter 1,$(STRICT)),--strict,)
 
 region-rebuild: tools
 	./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out "$(REGIONS_DIR)/$(REGION)" --min-z $(MIN_Z) --max-z $(MAX_Z) --replace $(REGION_TOOL_FLAGS)
+
+region-rebuild-archive:
+	$(MAKE) --no-print-directory region-rebuild EMIT_ARCHIVE=1 EMIT_LEGACY_TILES=0
 
 route-rebuild: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" --replace $(GRAPH_TOOL_FLAGS)
@@ -694,6 +780,9 @@ graph-progress: graph
 
 region-progress:
 	tools/run_with_progress.sh --label "region $(REGION)" ./$(TOOL_TARGET) --region $(REGION) --osm $(OSM) $(if $(DEM),--dem $(DEM),) --out "$(REGIONS_DIR)/$(REGION)" --min-z $(MIN_Z) --max-z $(MAX_Z) $(REGION_TOOL_FLAGS)
+
+region-progress-archive:
+	$(MAKE) --no-print-directory region-progress EMIT_ARCHIVE=1 EMIT_LEGACY_TILES=0
 
 route-progress:
 	tools/run_with_progress.sh --label "route $(REGION)" ./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" $(GRAPH_TOOL_FLAGS)
@@ -786,6 +875,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-archive-metrics-rollup metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-a-viewport-scenario test-phase-b-continuity-stress route route-rebuild region region-validate region-rebuild tools-progress graph-progress region-progress route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-a-viewport-scenario test-phase-b-continuity-stress test-phase-d1-budget-control test-phase-d1-budget-matrix test-phase-d2-trace-matrix test-phase-d2-tuning-profiles test-phase-d2-trend-summary test-phase-d2-guardrails test-phase-d3-regression-gate test-phase-d3-contract-preview test-phase-d-throughput route route-rebuild region region-archive region-validate region-rebuild region-rebuild-archive tools-progress graph-progress region-progress region-progress-archive route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

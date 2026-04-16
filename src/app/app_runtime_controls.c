@@ -79,6 +79,85 @@ static void app_runtime_set_ingest_status(AppState *app, const char *message) {
     snprintf(app->ingest_status, sizeof(app->ingest_status), "%s", message);
 }
 
+static const char *app_runtime_package_degraded_label(const RegionPackageValidationResult *validation) {
+    if (!validation) {
+        return "unknown";
+    }
+    if (!validation->ok) {
+        return "invalid";
+    }
+    if (!validation->archive_storage) {
+        return "none";
+    }
+    if (validation->runtime_policy_mode == TILE_SOURCE_POLICY_FILESYSTEM_ONLY) {
+        return "archive_bypassed";
+    }
+    if (validation->archive_fallback_tree) {
+        return "tree_fallback";
+    }
+    return "none";
+}
+
+void app_runtime_format_region_package_status(const char *region_name,
+                                              const RegionPackageValidationResult *validation,
+                                              char *out_status,
+                                              size_t out_size) {
+    const char *resolved_region_name = NULL;
+    const char *storage = "unknown";
+    const char *policy = "unknown";
+    const char *degraded = "unknown";
+    const char *contract = "unknown";
+    if (!out_status || out_size == 0u) {
+        return;
+    }
+    resolved_region_name = (region_name && region_name[0] != '\0') ? region_name : "unknown";
+    if (!validation) {
+        snprintf(out_status, out_size, "region=%s package=unknown", resolved_region_name);
+        return;
+    }
+    storage = validation->archive_storage ? "archive_indexed" : "filesystem_tree";
+    policy = tile_source_policy_mode_label(validation->runtime_policy_mode);
+    degraded = app_runtime_package_degraded_label(validation);
+    if (validation->package_contract_v1) {
+        contract = "v1";
+    } else if (validation->package_contract_legacy) {
+        contract = "legacy";
+    } else if (validation->has_package_contract) {
+        contract = "custom";
+    } else {
+        contract = "unspecified";
+    }
+    snprintf(out_status,
+             out_size,
+             "region=%s storage=%s policy=%s degraded=%s contract=%s",
+             resolved_region_name,
+             storage,
+             policy ? policy : "unknown",
+             degraded,
+             contract);
+}
+
+static void app_runtime_set_region_package_invalid_status(AppState *app,
+                                                          const RegionInfo *info,
+                                                          const RegionPackageValidationResult *validation) {
+    const char *region_name = "unknown";
+    const char *summary = "validation_failed";
+    if (!app) {
+        return;
+    }
+    if (info && info->name && info->name[0] != '\0') {
+        region_name = info->name;
+    }
+    if (validation && validation->summary[0] != '\0') {
+        summary = validation->summary;
+    }
+    snprintf(app->ingest_package_status,
+             sizeof(app->ingest_package_status),
+             "region=%s invalid=%s",
+             region_name,
+             summary);
+}
+
 static void app_runtime_clear_import_process_state(AppState *app) {
     if (!app) {
         return;
@@ -304,7 +383,11 @@ static bool app_runtime_open_region_index(AppState *app, int region_index) {
         log_error("Region package validation failed for '%s': %s",
                   info->name ? info->name : "unknown",
                   validation.summary);
-        app_runtime_set_ingest_status(app, validation.summary);
+        app_runtime_set_region_package_invalid_status(app, info, &validation);
+        snprintf(app->ingest_status,
+                 sizeof(app->ingest_status),
+                 "Failed to open region package: %s",
+                 app->ingest_package_status);
         return false;
     }
 
@@ -320,9 +403,15 @@ static bool app_runtime_open_region_index(AppState *app, int region_index) {
         log_error("Failed to resolve tiles directory for region: %s", app->region.name);
         return false;
     }
+    log_info("Region '%s' runtime source policy=%s storage=%s archive=%s",
+             app->region.name ? app->region.name : "unknown",
+             tile_source_policy_mode_label(app->region.tile_source.policy_mode),
+             tile_storage_kind_label(app->region.tile_source.storage_kind),
+             app->region.has_tile_archive ? "yes" : "no");
     if (validation.archive_storage && validation.archive_fallback_tree) {
-        log_info("Region '%s' archive package opened with tree fallback (archive_reader_supported=%s)",
+        log_info("Region '%s' runtime source degraded: tree fallback enabled (policy=%s archive_reader_supported=%s)",
                  app->region.name ? app->region.name : "unknown",
+                 tile_source_policy_mode_label(app->region.tile_source.policy_mode),
                  validation.archive_reader_supported ? "yes" : "no");
     }
     tile_source_runtime_stats_reset();
@@ -350,6 +439,8 @@ static bool app_runtime_open_region_index(AppState *app, int region_index) {
     app->view_state_bridge.building_zoom_bias = app_building_zoom_bias_for_region(&app->region);
     app->view_state_bridge.road_zoom_bias = app_road_zoom_bias_for_region(&app->region);
     app_center_camera_on_region(&app->view_state_bridge.camera, &app->region, app->width, app->height);
+    app_runtime_format_region_package_status(app->region.name, &validation, app->ingest_package_status, sizeof(app->ingest_package_status));
+    snprintf(app->ingest_status, sizeof(app->ingest_status), "Opened region package: %s", app->ingest_package_status);
     snprintf(app->latest_imported_region, sizeof(app->latest_imported_region), "%s", app->region.name ? app->region.name : "");
     return true;
 }
@@ -379,7 +470,6 @@ bool app_ingest_open_selected_active_region(AppState *app) {
         return false;
     }
     snprintf(app->latest_imported_region, sizeof(app->latest_imported_region), "%s", region_name);
-    snprintf(app->ingest_status, sizeof(app->ingest_status), "Opened region: %s", region_name);
     return true;
 }
 
@@ -410,7 +500,7 @@ static void app_runtime_poll_import_process(AppState *app) {
         app_ingest_rescan_active_regions(app);
         if (opened_region[0] != '\0' && app_runtime_open_region_by_name(app, opened_region)) {
             snprintf(app->latest_imported_region, sizeof(app->latest_imported_region), "%s", opened_region);
-            snprintf(app->ingest_status, sizeof(app->ingest_status), "Imported and opened region: %s", opened_region);
+            snprintf(app->ingest_status, sizeof(app->ingest_status), "Imported and opened region package: %s", app->ingest_package_status);
         } else if (expected_count > 0) {
             if (import_all) {
                 snprintf(app->ingest_status, sizeof(app->ingest_status), "Imported %d region(s)", expected_count);

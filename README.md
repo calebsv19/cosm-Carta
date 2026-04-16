@@ -10,6 +10,7 @@ This repository currently lives in the CodeWork workspace under `map_forge/`, bu
 - Local route solving with on-disk region data.
 - Region-pack build tooling for OSM-derived inputs.
 - Shared CodeWork runtime integrations for queues, workers, wake paths, tracing, theme, and font adapters.
+- Phase-B continuity hardening gates for tile residency + viewport churn stress are active in `tests/`.
 
 ## Build Requirements
 
@@ -34,6 +35,8 @@ Useful variants:
 make tools
 make graph
 make test
+make test-phase-b-continuity-stress
+make test-tile-manager-residency
 make run-ide-theme
 make run-daw-theme
 ```

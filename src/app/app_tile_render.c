@@ -87,10 +87,16 @@ static void app_init_vk_poly_asset_build_budget(AppState *app, VkPolyAssetBuildB
     }
 
     // Keep polygon asset creation tightly bounded to avoid frame hitches on dense tiles.
+    uint32_t small_cap = app->tile_state_bridge.budget_policy.vk_poly_asset_cap_small_view;
+    uint32_t default_cap = app->tile_state_bridge.budget_policy.vk_poly_asset_cap_default;
+    if (small_cap == 0u && default_cap == 0u) {
+        small_cap = 2u;
+        default_cap = 1u;
+    }
     if (app->tile_state_bridge.visible_tile_count <= 2u) {
-        budget->cap = 2u;
+        budget->cap = small_cap;
     } else {
-        budget->cap = 1u;
+        budget->cap = default_cap;
     }
 }
 
@@ -561,6 +567,9 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
     app->tile_state_bridge.vk_road_band_fallback_draws = 0u;
     app->tile_state_bridge.draw_path_vk_count = 0u;
     app->tile_state_bridge.draw_path_fallback_count = 0u;
+    app->tile_state_bridge.budget_frame.vk_poly_asset_budget_cap = poly_asset_build_budget.cap;
+    app->tile_state_bridge.budget_frame.vk_poly_asset_budget_used = 0u;
+    app->tile_state_bridge.budget_frame.vk_poly_asset_budget_hit_count = 0u;
     app_tile_presenter_reset_frame_counters(app);
     BuildingTileDebugStats building_debug = {0};
     uint32_t expected = 0;
@@ -802,6 +811,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
     if (vk_backend && total_line_budget > 0u) {
         app->renderer.vk_line_budget = total_line_budget;
     }
+    app->tile_state_bridge.budget_frame.vk_poly_asset_budget_used = poly_asset_build_budget.used;
 
     out_stats->visible_tiles = visible;
     out_stats->loading_expected = expected;

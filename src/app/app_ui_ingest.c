@@ -336,13 +336,18 @@ void app_draw_ingest_panel(AppState *app) {
     ui_draw_text(&app->renderer, (int)import_all_btn.x + 8, (int)import_all_btn.y + 4, "IMPORT ALL", text, 1.0f);
 
     const char *path_text = app->ingest_edit_mode ? app->input_root_edit : app->input_root;
+    const char *package_status_text = app->ingest_package_status[0] != '\0'
+        ? app->ingest_package_status
+        : "region package status unavailable";
     ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)panel.y + 52, "Input Root:", text, 1.0f, (int)panel.w - 22);
     ui_draw_text_clipped(&app->renderer, (int)panel.x + 92, (int)panel.y + 52, path_text, muted, 1.0f, (int)panel.w - 214);
     ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)panel.y + 68, "Status:", text, 1.0f, (int)panel.w - 22);
     ui_draw_text_clipped(&app->renderer, (int)panel.x + 62, (int)panel.y + 68, app->ingest_status, muted, 1.0f, (int)panel.w - 74);
+    ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)panel.y + 84, "Package:", text, 1.0f, (int)panel.w - 22);
+    ui_draw_text_clipped(&app->renderer, (int)panel.x + 72, (int)panel.y + 84, package_status_text, muted, 1.0f, (int)panel.w - 84);
 
-    float list_y = panel.y + 88.0f;
-    float list_bottom_pad = 98.0f;
+    float list_y = panel.y + 104.0f;
+    float list_bottom_pad = 114.0f;
     bool show_import_progress = app->ingest_import_running || app->ingest_import_total_steps > 0;
     if (show_import_progress) {
         int total_steps = app->ingest_import_total_steps;
@@ -357,7 +362,7 @@ void app_draw_ingest_panel(AppState *app) {
             completed_steps = total_steps;
         }
 
-        float progress_label_y = panel.y + 82.0f;
+        float progress_label_y = panel.y + 98.0f;
         float progress_track_x = panel.x + 86.0f;
         float progress_track_w = panel.w - 250.0f;
         if (progress_track_w < 120.0f) {

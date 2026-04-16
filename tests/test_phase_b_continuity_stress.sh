@@ -6,9 +6,14 @@ binary="$repo_root/build/mapforge"
 if [[ ! -x "$binary" ]]; then
     make -C "$repo_root" app >/dev/null
 fi
+validator="$repo_root/build/tools/mapforge_region_validate"
+if [[ ! -x "$validator" ]]; then
+    make -C "$repo_root" tools-build >/dev/null
+fi
 
 region_name="${MAPFORGE_START_REGION:-seattle_downtown}"
 duration_sec="${MAPFORGE_VIEWPORT_SCENARIO_DURATION_SEC:-22}"
+require_valid_region="${MAPFORGE_PHASE_B_REQUIRE_VALID_REGION:-1}"
 coverage_min="${MAPFORGE_PHASE_B_COVERAGE_MIN:-0.78}"
 warmup_samples="${MAPFORGE_PHASE_B_WARMUP_SAMPLES:-4}"
 max_consecutive_below="${MAPFORGE_PHASE_B_MAX_CONSEC_BELOW:-3}"
@@ -19,21 +24,49 @@ max_queue_rebuild_frame="${MAPFORGE_PHASE_B_MAX_QUEUE_REBUILD_FRAME:-3}"
 max_fallback_ratio="${MAPFORGE_PHASE_B_MAX_FALLBACK_RATIO:-0.70}"
 max_fallback_ratio_violations="${MAPFORGE_PHASE_B_MAX_FALLBACK_RATIO_VIOLATIONS:-2}"
 max_band_fallback="${MAPFORGE_PHASE_B_MAX_BAND_FALLBACK:-64}"
+max_load_clamp_total="${MAPFORGE_PHASE_D1_MAX_LOAD_CLAMP_TOTAL:-96}"
+max_load_ex_total="${MAPFORGE_PHASE_D1_MAX_LOAD_EX_TOTAL:-64}"
+max_lane_l2_hits_total="${MAPFORGE_PHASE_D1_MAX_L2_HITS_TOTAL:-24}"
+max_lane_l3_hits_total="${MAPFORGE_PHASE_D1_MAX_L3_HITS_TOTAL:-24}"
+max_integrate_clamp_total="${MAPFORGE_PHASE_D1_MAX_INTEG_CLAMP_TOTAL:-32}"
+max_integrate_ex_total="${MAPFORGE_PHASE_D1_MAX_INTEG_EX_TOTAL:-32}"
+max_vk_asset_sat_total="${MAPFORGE_PHASE_D1_MAX_VK_ASSET_SAT_TOTAL:-16}"
+max_vk_poly_hit_total="${MAPFORGE_PHASE_D1_MAX_VK_POLY_HIT_TOTAL:-16}"
 
 log_file="$(mktemp /tmp/mapforge_phase_b_continuity.XXXXXX)"
+validate_log="$(mktemp /tmp/mapforge_phase_b_validate.XXXXXX)"
 cleanup_log=1
-trap 'if [[ "$cleanup_log" -eq 1 ]]; then rm -f "$log_file"; fi' EXIT
+cleanup_validate_log=1
+trap 'if [[ "$cleanup_log" -eq 1 ]]; then rm -f "$log_file"; fi; if [[ "$cleanup_validate_log" -eq 1 ]]; then rm -f "$validate_log"; fi' EXIT
 
-if ! SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}" \
+if [[ "$require_valid_region" != "0" ]]; then
+    if ! (cd "$repo_root" && "$validator" --region "$region_name" >"$validate_log" 2>&1); then
+        cleanup_log=0
+        cleanup_validate_log=0
+        echo "phase_b continuity stress precondition failed: startup region '$region_name' did not validate" >&2
+        echo "validator log: $validate_log" >&2
+        echo "scenario log: $log_file" >&2
+        exit 1
+    fi
+fi
+
+if ! (cd "$repo_root" && SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}" \
     SDL_RENDER_DRIVER="${SDL_RENDER_DRIVER:-software}" \
     MAPFORGE_RENDER_BACKEND="${MAPFORGE_RENDER_BACKEND:-sdl}" \
     MAPFORGE_VK_DEBUG=1 \
     MAPFORGE_START_REGION="$region_name" \
     MAPFORGE_VIEWPORT_SCENARIO=phase_b \
     MAPFORGE_VIEWPORT_SCENARIO_DURATION_SEC="$duration_sec" \
-    "$binary" >"$log_file" 2>&1; then
+    "$binary" >"$log_file" 2>&1); then
     cleanup_log=0
     echo "phase_b continuity stress failed to run executable" >&2
+    echo "log: $log_file" >&2
+    exit 1
+fi
+
+if rg -q "perf region=no-region" "$log_file"; then
+    cleanup_log=0
+    echo "phase_b continuity stress precondition failed: runtime fell back to no-region" >&2
     echo "log: $log_file" >&2
     exit 1
 fi
@@ -59,6 +92,14 @@ summary="$(
         -v max_fb_ratio="$max_fallback_ratio" \
         -v max_fb_ratio_viol="$max_fallback_ratio_violations" \
         -v max_band_fb="$max_band_fallback" \
+        -v max_load_clamp_total="$max_load_clamp_total" \
+        -v max_load_ex_total="$max_load_ex_total" \
+        -v max_lane_l2_hits_total="$max_lane_l2_hits_total" \
+        -v max_lane_l3_hits_total="$max_lane_l3_hits_total" \
+        -v max_integrate_clamp_total="$max_integrate_clamp_total" \
+        -v max_integrate_ex_total="$max_integrate_ex_total" \
+        -v max_vk_asset_sat_total="$max_vk_asset_sat_total" \
+        -v max_vk_poly_hit_total="$max_vk_poly_hit_total" \
         '
         /perf_phase_a/ {
             cov = -1.0;
@@ -66,6 +107,14 @@ summary="$(
             evict = -1;
             band_commit = -1;
             queue_rebuild = -1;
+            load_clamp = 0;
+            load_ex = 0;
+            lane_l2_hits = 0;
+            lane_l3_hits = 0;
+            integ_clamp = 0;
+            integ_ex = 0;
+            vk_asset_sat = 0;
+            vk_poly_hit = 0;
             if (match($0, /cov\(global=[0-9.]+/)) {
                 cov = substr($0, RSTART + 11, RLENGTH - 11) + 0.0;
             }
@@ -80,6 +129,40 @@ summary="$(
             }
             if (match($0, /frame_rebuild=[0-9]+/)) {
                 queue_rebuild = substr($0, RSTART + 14, RLENGTH - 14) + 0;
+            }
+            if (match($0, /load req=[0-9]+ app=[0-9]+ clamp=[0-9]+ ex=[0-9]+/)) {
+                seg = substr($0, RSTART, RLENGTH);
+                split(seg, parts, / /);
+                split(parts[4], pair, /=/);
+                load_clamp = pair[2] + 0;
+                split(parts[5], pair, /=/);
+                load_ex = pair[2] + 0;
+            }
+            if (match($0, /lane_hit=[0-9]+\/[0-9]+\/[0-9]+\/[0-9]+/)) {
+                seg = substr($0, RSTART + 9, RLENGTH - 9);
+                split(seg, lane_parts, /\//);
+                lane_l2_hits = lane_parts[3] + 0;
+                lane_l3_hits = lane_parts[4] + 0;
+            }
+            if (match($0, /integ req=[0-9]+ app=[0-9]+ clamp=[0-9]+ ex=[0-9]+/)) {
+                seg = substr($0, RSTART, RLENGTH);
+                split(seg, parts, / /);
+                split(parts[4], pair, /=/);
+                integ_clamp = pair[2] + 0;
+                split(parts[5], pair, /=/);
+                integ_ex = pair[2] + 0;
+            }
+            if (match($0, /vk_asset=[0-9]+\/[0-9]+ sat=[0-9]+/)) {
+                seg = substr($0, RSTART, RLENGTH);
+                split(seg, parts, / /);
+                split(parts[2], pair, /=/);
+                vk_asset_sat = pair[2] + 0;
+            }
+            if (match($0, /vk_poly_asset=[0-9]+\/[0-9]+ hit=[0-9]+/)) {
+                seg = substr($0, RSTART, RLENGTH);
+                split(seg, parts, / /);
+                split(parts[2], pair, /=/);
+                vk_poly_hit = pair[2] + 0;
             }
             phase_count += 1;
             if (samples_total == 0 || (cov >= 0.0 && cov < cov_min_seen)) {
@@ -120,6 +203,14 @@ summary="$(
                 if (queue_rebuild > max_queue_rebuild) {
                     queue_rebuild_violations += 1;
                 }
+                load_clamp_total += load_clamp;
+                load_ex_total += load_ex;
+                lane_l2_hits_total += lane_l2_hits;
+                lane_l3_hits_total += lane_l3_hits;
+                integ_clamp_total += integ_clamp;
+                integ_ex_total += integ_ex;
+                vk_asset_sat_total += vk_asset_sat;
+                vk_poly_hit_total += vk_poly_hit;
             }
             samples_total += 1;
         }
@@ -190,7 +281,39 @@ summary="$(
                 printf("FAIL band_fallback_violations=%d peak=%d\n", band_fb_violations, band_fb_peak);
                 exit 0;
             }
-            printf("OK phase=%d draw=%d min_cov=%.3f l0_peak=%.2f evict_peak=%d churn_peak(b=%d q=%d) fb_ratio_peak=%.3f fb_ratio_samples=%d band_fb_peak=%d\n",
+            if (load_clamp_total > max_load_clamp_total) {
+                printf("FAIL budget_load_clamp_total=%d max=%d\n", load_clamp_total, max_load_clamp_total);
+                exit 0;
+            }
+            if (load_ex_total > max_load_ex_total) {
+                printf("FAIL budget_load_exhaust_total=%d max=%d\n", load_ex_total, max_load_ex_total);
+                exit 0;
+            }
+            if (lane_l2_hits_total > max_lane_l2_hits_total) {
+                printf("FAIL budget_lane_l2_hits_total=%d max=%d\n", lane_l2_hits_total, max_lane_l2_hits_total);
+                exit 0;
+            }
+            if (lane_l3_hits_total > max_lane_l3_hits_total) {
+                printf("FAIL budget_lane_l3_hits_total=%d max=%d\n", lane_l3_hits_total, max_lane_l3_hits_total);
+                exit 0;
+            }
+            if (integ_clamp_total > max_integrate_clamp_total) {
+                printf("FAIL budget_integrate_clamp_total=%d max=%d\n", integ_clamp_total, max_integrate_clamp_total);
+                exit 0;
+            }
+            if (integ_ex_total > max_integrate_ex_total) {
+                printf("FAIL budget_integrate_exhaust_total=%d max=%d\n", integ_ex_total, max_integrate_ex_total);
+                exit 0;
+            }
+            if (vk_asset_sat_total > max_vk_asset_sat_total) {
+                printf("FAIL budget_vk_asset_sat_total=%d max=%d\n", vk_asset_sat_total, max_vk_asset_sat_total);
+                exit 0;
+            }
+            if (vk_poly_hit_total > max_vk_poly_hit_total) {
+                printf("FAIL budget_vk_poly_hit_total=%d max=%d\n", vk_poly_hit_total, max_vk_poly_hit_total);
+                exit 0;
+            }
+            printf("OK phase=%d draw=%d min_cov=%.3f l0_peak=%.2f evict_peak=%d churn_peak(b=%d q=%d) fb_ratio_peak=%.3f fb_ratio_samples=%d band_fb_peak=%d budget(load_clamp=%d load_ex=%d lane_l2=%d lane_l3=%d integ_clamp=%d integ_ex=%d vk_sat=%d vk_poly_hit=%d)\n",
                    phase_count,
                    draw_count,
                    cov_min_seen,
@@ -200,7 +323,15 @@ summary="$(
                    queue_rebuild_peak,
                    fb_ratio_peak,
                    fb_ratio_samples,
-                   band_fb_peak);
+                   band_fb_peak,
+                   load_clamp_total,
+                   load_ex_total,
+                   lane_l2_hits_total,
+                   lane_l3_hits_total,
+                   integ_clamp_total,
+                   integ_ex_total,
+                   vk_asset_sat_total,
+                   vk_poly_hit_total);
         }
         ' "$log_file"
 )"

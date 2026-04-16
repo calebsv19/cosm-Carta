@@ -5,10 +5,14 @@ workspace="$(mktemp -d /tmp/mapforge_archive_metrics.XXXXXX)"
 trap 'rm -rf "$workspace"' EXIT
 
 region_tool="build/tools/mapforge_region"
+validate_tool="build/tools/mapforge_region_validate"
 region_root="$workspace/regions/rollup_city"
 
 if [[ ! -x "$region_tool" ]]; then
     make tools >/dev/null
+fi
+if [[ ! -x "$validate_tool" ]]; then
+    make tools-build >/dev/null
 fi
 
 cat > "$workspace/base.osm" <<'OSM'
@@ -51,18 +55,67 @@ OSM
 [[ -f "$region_root/meta.json" ]]
 [[ -f "$region_root/meta.dataset.json" ]]
 [[ -f "$region_root/tiles.mbtiles" ]]
+MAPFORGE_REGIONS_DIR="$workspace/regions" "$validate_tool" --region rollup_city >/dev/null
 
 if ! rg -q "\"archive_rollups\": \\{" "$region_root/meta.json"; then
     echo "meta.json missing archive_rollups object" >&2
+    exit 1
+fi
+if ! rg -q "\"tile_coverage\": \\{" "$region_root/meta.json"; then
+    echo "meta.json missing tile_coverage object" >&2
+    exit 1
+fi
+if ! rg -q "\"build_manifest\": \\{" "$region_root/meta.json"; then
+    echo "meta.json missing build_manifest object" >&2
+    exit 1
+fi
+if ! rg -q "\"canonical_input_format\": \"osm.pbf\"" "$region_root/meta.json"; then
+    echo "meta.json build_manifest missing canonical_input_format" >&2
+    exit 1
+fi
+if ! rg -q "\"detected_source_kind\": \"xml\"" "$region_root/meta.json"; then
+    echo "meta.json build_manifest missing detected_source_kind=xml for XML fixture" >&2
+    exit 1
+fi
+if ! rg -q "\"compat_source_mode\": true" "$region_root/meta.json"; then
+    echo "meta.json build_manifest missing compat_source_mode=true for XML fixture" >&2
+    exit 1
+fi
+if ! rg -q "\"runtime_source_policy\": \"archive_preferred\"" "$region_root/meta.json"; then
+    echo "meta.json missing runtime_source_policy=archive_preferred for archive build" >&2
+    exit 1
+fi
+if ! rg -q "\"source_hash_fnv1a64\": \"0x[0-9a-f]{16}\"" "$region_root/meta.json"; then
+    echo "meta.json build_manifest missing deterministic source hash" >&2
     exit 1
 fi
 if ! rg -q "\"local\": \\{\"rows\": [1-9][0-9]*, \"bytes\": [1-9][0-9]*\\}" "$region_root/meta.json"; then
     echo "meta.json missing non-empty local archive rollup entry" >&2
     exit 1
 fi
+if ! rg -q "\"local\": \\{" "$region_root/meta.json"; then
+    echo "meta.json tile_coverage missing local layer object" >&2
+    exit 1
+fi
+if ! rg -q "\"zoom_bounds\": \\{" "$region_root/meta.json"; then
+    echo "meta.json tile_coverage missing zoom_bounds object" >&2
+    exit 1
+fi
+if ! rg -q "\"12\": \\{\"tiles\": [1-9][0-9]*, \"min_x\": [0-9]+, \"max_x\": [0-9]+, \"min_y\": [0-9]+, \"max_y\": [0-9]+\\}" "$region_root/meta.json"; then
+    echo "meta.json tile_coverage missing zoom=12 bounds payload" >&2
+    exit 1
+fi
 
 if ! rg -q "\"archive_rollups_table\": \"map_forge_archive_rollups_v1\"" "$region_root/meta.dataset.json"; then
     echo "meta.dataset.json missing archive_rollups_table metadata" >&2
+    exit 1
+fi
+if ! rg -q "\"canonical_input_format\": \"osm.pbf\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing canonical_input_format metadata" >&2
+    exit 1
+fi
+if ! rg -q "\"detected_source_kind\": \"xml\"" "$region_root/meta.dataset.json"; then
+    echo "meta.dataset.json missing detected_source_kind metadata" >&2
     exit 1
 fi
 if ! rg -q "\"name\": \"map_forge_archive_rollups_v1\"" "$region_root/meta.dataset.json"; then
