@@ -52,9 +52,17 @@ static void app_runtime_input_intake(AppState *app, AppInputEventRaw *out_raw, i
 
     SDL_Event event;
     if (wait_timeout_ms > 0) {
+        double wait_begin = time_now_seconds();
         if (SDL_WaitEventTimeout(&event, wait_timeout_ms) == 1) {
             app_runtime_input_record_event(app, out_raw, &event);
         }
+        double wait_end = time_now_seconds();
+        double blocked_sec = wait_end - wait_begin;
+        if (blocked_sec > 0.0) {
+            uint32_t blocked_ms = (uint32_t)(blocked_sec * 1000.0);
+            out_raw->wait_blocked_ms += blocked_ms;
+        }
+        out_raw->wait_call_count += 1u;
     }
 
     while (SDL_PollEvent(&event)) {

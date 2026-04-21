@@ -194,10 +194,17 @@ static bool app_vk_asset_ready_push(AppState *app, const VkAssetReadyJob *job) {
     if (!app || !job) {
         return false;
     }
+    if (core_queue_mutex_size(&app->worker_state_bridge.vk_asset_ready_queue) >=
+        APP_VK_ASSET_READY_QUEUE_CAPACITY) {
+        return false;
+    }
     uint32_t slot = app->worker_state_bridge.vk_asset_ready_write_seq % APP_VK_ASSET_READY_QUEUE_CAPACITY;
     app->worker_state_bridge.vk_asset_ready_jobs[slot] = *job;
     void *token = (void *)(uintptr_t)(slot + 1u);
     if (!core_queue_mutex_push(&app->worker_state_bridge.vk_asset_ready_queue, token)) {
+        memset(&app->worker_state_bridge.vk_asset_ready_jobs[slot],
+               0,
+               sizeof(app->worker_state_bridge.vk_asset_ready_jobs[slot]));
         return false;
     }
     app->worker_state_bridge.vk_asset_ready_write_seq += 1u;
@@ -273,10 +280,14 @@ static bool app_vk_poly_prep_queue_push(CoreQueueMutex *queue,
     if (!queue || !storage || !write_seq || !item) {
         return false;
     }
+    if (core_queue_mutex_size(queue) >= APP_VK_POLY_PREP_QUEUE_CAPACITY) {
+        return false;
+    }
     uint32_t slot = *write_seq % APP_VK_POLY_PREP_QUEUE_CAPACITY;
     storage[slot] = *item;
     void *token = (void *)(uintptr_t)(slot + 1u);
     if (!core_queue_mutex_push(queue, token)) {
+        memset(&storage[slot], 0, sizeof(storage[slot]));
         return false;
     }
     *write_seq += 1u;

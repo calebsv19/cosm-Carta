@@ -702,6 +702,8 @@ typedef enum AppInputInvalidationReasonBits {
 
 typedef struct AppInputEventRaw {
     uint32_t sdl_event_count;
+    uint32_t wait_call_count;
+    uint32_t wait_blocked_ms;
     uint32_t quit_event_count;
     uint32_t window_event_count;
     uint32_t mouse_event_count;
@@ -1016,6 +1018,7 @@ void app_runtime_render_apply_title_frame(AppState *app,
                                           const AppRuntimeRenderTitleFrame *title);
 bool app_runtime_has_immediate_work(const AppState *app, double now_sec);
 int app_runtime_compute_wait_timeout_ms(const AppState *app, double now_sec);
+void app_runtime_loop_diag_tick(const AppRuntimeDispatchFrame *frame);
 void app_runtime_render_frame(AppState *app,
                               RendererBackend *io_last_backend,
                               const AppRuntimeInputFrame *input_frame,

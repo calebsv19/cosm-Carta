@@ -709,6 +709,7 @@ int app_run_legacy(void) {
         if (frame.skipped_for_global_controls) {
             continue;
         }
+        app_runtime_loop_diag_tick(&frame);
 
         RoadRenderStats road_stats = {0};
         road_renderer_stats_get(&road_stats);
