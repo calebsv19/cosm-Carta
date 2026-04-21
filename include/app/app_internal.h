@@ -867,6 +867,8 @@ void app_runtime_format_region_package_status(const char *region_name,
                                               const RegionPackageValidationResult *validation,
                                               char *out_status,
                                               size_t out_size);
+bool app_runtime_ingest_tick(AppState *app);
+bool app_runtime_cycle_next_region(AppState *app);
 bool app_init(AppState *app);
 void app_shutdown(AppState *app);
 
