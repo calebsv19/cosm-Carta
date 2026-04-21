@@ -14,6 +14,7 @@ Its core job is to keep rendering, tile loading, and routing synchronized around
 - `app_runtime_controls.c`: Global command/key handlers (including font/theme controls).
 - `app_runtime_dispatch.c`: Frame dispatch seam across input/update/render phases.
 - `app_runtime_events.c`: Input intake/normalize/route/invalidate top-level flow.
+- `app_runtime_wait_policy.c`: Main-loop sleep/wake timeout policy (idle blocking vs immediate-work ticks).
 - `app_runtime_input_policy.c`: Text-entry shortcut gating policy helpers for normalize phase.
 - `app_runtime_render.c`: Render-stage orchestration with explicit derive/submit phase contracts and frame-present boundaries.
 - `app_runtime_update.c`: Update-stage orchestration for camera/state/queue/route sequencing.

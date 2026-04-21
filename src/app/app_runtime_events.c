@@ -9,41 +9,56 @@ static uint32_t app_runtime_count_bool(bool value) {
     return value ? 1u : 0u;
 }
 
-static void app_runtime_input_intake(AppState *app, AppInputEventRaw *out_raw) {
+static void app_runtime_input_record_event(AppState *app,
+                                           AppInputEventRaw *out_raw,
+                                           const SDL_Event *event) {
+    if (!app || !out_raw || !event) {
+        return;
+    }
+    out_raw->sdl_event_count += 1u;
+    switch (event->type) {
+        case SDL_QUIT:
+            out_raw->quit_event_count += 1u;
+            break;
+        case SDL_WINDOWEVENT:
+            out_raw->window_event_count += 1u;
+            break;
+        case SDL_MOUSEMOTION:
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP:
+            out_raw->mouse_event_count += 1u;
+            break;
+        case SDL_MOUSEWHEEL:
+            out_raw->wheel_event_count += 1u;
+            break;
+        case SDL_KEYDOWN:
+            out_raw->keydown_event_count += 1u;
+            break;
+        case SDL_KEYUP:
+            out_raw->keyup_event_count += 1u;
+            break;
+        default:
+            out_raw->other_event_count += 1u;
+            break;
+    }
+    input_handle_event(&app->ui_state_bridge.input, event);
+}
+
+static void app_runtime_input_intake(AppState *app, AppInputEventRaw *out_raw, int wait_timeout_ms) {
     if (!app || !out_raw) {
         return;
     }
     input_begin_frame(&app->ui_state_bridge.input);
 
     SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-        out_raw->sdl_event_count += 1u;
-        switch (event.type) {
-            case SDL_QUIT:
-                out_raw->quit_event_count += 1u;
-                break;
-            case SDL_WINDOWEVENT:
-                out_raw->window_event_count += 1u;
-                break;
-            case SDL_MOUSEMOTION:
-            case SDL_MOUSEBUTTONDOWN:
-            case SDL_MOUSEBUTTONUP:
-                out_raw->mouse_event_count += 1u;
-                break;
-            case SDL_MOUSEWHEEL:
-                out_raw->wheel_event_count += 1u;
-                break;
-            case SDL_KEYDOWN:
-                out_raw->keydown_event_count += 1u;
-                break;
-            case SDL_KEYUP:
-                out_raw->keyup_event_count += 1u;
-                break;
-            default:
-                out_raw->other_event_count += 1u;
-                break;
+    if (wait_timeout_ms > 0) {
+        if (SDL_WaitEventTimeout(&event, wait_timeout_ms) == 1) {
+            app_runtime_input_record_event(app, out_raw, &event);
         }
-        input_handle_event(&app->ui_state_bridge.input, &event);
+    }
+
+    while (SDL_PollEvent(&event)) {
+        app_runtime_input_record_event(app, out_raw, &event);
     }
     out_raw->quit_requested = app->ui_state_bridge.input.quit;
 }
@@ -221,7 +236,8 @@ void app_runtime_process_input_frame(AppState *app,
 
     double frame_begin = time_now_seconds();
     memset(&app->frame_timings, 0, sizeof(app->frame_timings));
-    app_runtime_input_intake(app, &out_input->raw);
+    int wait_timeout_ms = app_runtime_compute_wait_timeout_ms(app, frame_begin);
+    app_runtime_input_intake(app, &out_input->raw, wait_timeout_ms);
     app_runtime_input_normalize(app, &out_input->raw, &out_input->normalized);
     app_runtime_input_route(&out_input->normalized, &out_input->route);
     app_runtime_input_invalidate(out_input, &out_input->invalidation);

@@ -1014,6 +1014,8 @@ void app_runtime_render_derive_title_frame(const AppState *app,
                                            AppRuntimeRenderTitleFrame *out_title);
 void app_runtime_render_apply_title_frame(AppState *app,
                                           const AppRuntimeRenderTitleFrame *title);
+bool app_runtime_has_immediate_work(const AppState *app, double now_sec);
+int app_runtime_compute_wait_timeout_ms(const AppState *app, double now_sec);
 void app_runtime_render_frame(AppState *app,
                               RendererBackend *io_last_backend,
                               const AppRuntimeInputFrame *input_frame,
