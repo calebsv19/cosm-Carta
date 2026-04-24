@@ -110,6 +110,29 @@ typedef struct KitRenderTextMetrics {
     float height_px;
 } KitRenderTextMetrics;
 
+typedef enum KitRenderTextHintingMode {
+    KIT_RENDER_TEXT_HINTING_DEFAULT = 0,
+    KIT_RENDER_TEXT_HINTING_LIGHT = 1
+} KitRenderTextHintingMode;
+
+typedef enum KitRenderTextUploadFilter {
+    KIT_RENDER_TEXT_UPLOAD_FILTER_LINEAR = 0,
+    KIT_RENDER_TEXT_UPLOAD_FILTER_NEAREST = 1
+} KitRenderTextUploadFilter;
+
+typedef struct KitRenderResolvedTextRun {
+    CoreFontRoleSpec role_spec;
+    CoreFontTextSizeTier text_tier;
+    int zoom_percent;
+    int logical_point_size;
+    int raster_point_size;
+    float render_scale;
+    float raster_scale;
+    int kerning_enabled;
+    KitRenderTextHintingMode hinting;
+    KitRenderTextUploadFilter upload_filter;
+} KitRenderResolvedTextRun;
+
 typedef struct KitRenderCommand {
     KitRenderCommandKind kind;
     union {
@@ -139,6 +162,7 @@ typedef struct KitRenderContext {
     KitRenderBackendKind backend;
     CoreThemePreset theme;
     CoreFontPreset font;
+    int text_zoom_step;
     void *backend_state;
     const void *backend_ops;
     int frame_open;
@@ -152,6 +176,11 @@ CoreResult kit_render_context_init(KitRenderContext *ctx,
                                    CoreFontPresetId font_id);
 CoreResult kit_render_set_theme_preset(KitRenderContext *ctx, CoreThemePresetId theme_id);
 CoreResult kit_render_set_font_preset(KitRenderContext *ctx, CoreFontPresetId font_id);
+int kit_render_text_zoom_step(const KitRenderContext *ctx);
+int kit_render_text_zoom_percent(const KitRenderContext *ctx);
+CoreResult kit_render_set_text_zoom_step(KitRenderContext *ctx, int step);
+CoreResult kit_render_adjust_text_zoom_step(KitRenderContext *ctx, int delta);
+CoreResult kit_render_reset_text_zoom_step(KitRenderContext *ctx);
 CoreResult kit_render_attach_external_backend(KitRenderContext *ctx, void *backend_handle);
 CoreResult kit_render_adopt_external_backend(KitRenderContext *ctx,
                                              void *backend_handle,
@@ -181,6 +210,11 @@ CoreResult kit_render_measure_text(const KitRenderContext *ctx,
                                    CoreFontTextSizeTier text_tier,
                                    const char *text,
                                    KitRenderTextMetrics *out_metrics);
+CoreResult kit_render_resolve_text_run(const KitRenderContext *ctx,
+                                       CoreFontRoleId font_role,
+                                       CoreFontTextSizeTier text_tier,
+                                       float render_scale,
+                                       KitRenderResolvedTextRun *out_run);
 
 CoreResult kit_render_resolve_theme_color(const KitRenderContext *ctx,
                                           CoreThemeColorToken token,

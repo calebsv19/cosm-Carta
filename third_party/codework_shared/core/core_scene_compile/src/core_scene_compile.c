@@ -9,6 +9,7 @@
 #include "core_io.h"
 
 #include <ctype.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -32,11 +33,24 @@ typedef struct StringList {
     size_t cap;
 } StringList;
 
+typedef struct NormalizedEntry {
+    char *id_a;
+    char *id_b;
+    char *json;
+} NormalizedEntry;
+
+typedef struct NormalizedArray {
+    NormalizedEntry *items;
+    size_t count;
+    size_t cap;
+} NormalizedArray;
+
 static const char *k_schema_family = "codework_scene";
 static const char *k_authoring_variant = "scene_authoring_v1";
-static const char *k_compiler_version = "0.1.0";
+static const char *k_compiler_version = "0.2.0";
 
 static bool json_slice_is_string(const JsonSlice *slice);
+static const char *skip_ws(const char *p);
 
 static void diag_write(char *diag, size_t diag_size, const char *fmt, ...) {
     va_list args;
@@ -135,6 +149,97 @@ static bool string_list_push_owned(StringList *list, char *owned) {
     return true;
 }
 
+static char *dup_cstr(const char *text) {
+    size_t len;
+    char *copy;
+    if (!text) return NULL;
+    len = strlen(text);
+    copy = (char *)core_alloc(len + 1u);
+    if (!copy) return NULL;
+    memcpy(copy, text, len + 1u);
+    return copy;
+}
+
+static void normalized_array_init(NormalizedArray *arr) {
+    if (!arr) return;
+    arr->items = NULL;
+    arr->count = 0;
+    arr->cap = 0;
+}
+
+static void normalized_array_free(NormalizedArray *arr) {
+    size_t i;
+    if (!arr) return;
+    for (i = 0; i < arr->count; ++i) {
+        core_free(arr->items[i].id_a);
+        core_free(arr->items[i].id_b);
+        core_free(arr->items[i].json);
+    }
+    core_free(arr->items);
+    arr->items = NULL;
+    arr->count = 0;
+    arr->cap = 0;
+}
+
+static bool normalized_array_push_owned(NormalizedArray *arr, NormalizedEntry *entry) {
+    NormalizedEntry *next;
+    size_t cap;
+    if (!arr || !entry || !entry->json) return false;
+    if (arr->count == arr->cap) {
+        cap = arr->cap ? arr->cap * 2u : 8u;
+        next = (NormalizedEntry *)core_realloc(arr->items, cap * sizeof(NormalizedEntry));
+        if (!next) return false;
+        arr->items = next;
+        arr->cap = cap;
+    }
+    arr->items[arr->count++] = *entry;
+    entry->id_a = NULL;
+    entry->id_b = NULL;
+    entry->json = NULL;
+    return true;
+}
+
+static int cmp_norm_entry_ida(const void *lhs, const void *rhs) {
+    const NormalizedEntry *a = (const NormalizedEntry *)lhs;
+    const NormalizedEntry *b = (const NormalizedEntry *)rhs;
+    if (!a->id_a && !b->id_a) return 0;
+    if (!a->id_a) return -1;
+    if (!b->id_a) return 1;
+    return strcmp(a->id_a, b->id_a);
+}
+
+static int cmp_norm_entry_pair(const void *lhs, const void *rhs) {
+    const NormalizedEntry *a = (const NormalizedEntry *)lhs;
+    const NormalizedEntry *b = (const NormalizedEntry *)rhs;
+    int cmp = 0;
+    if (!a->id_a && !b->id_a) cmp = 0;
+    else if (!a->id_a) cmp = -1;
+    else if (!b->id_a) cmp = 1;
+    else cmp = strcmp(a->id_a, b->id_a);
+    if (cmp != 0) return cmp;
+
+    if (!a->id_b && !b->id_b) return 0;
+    if (!a->id_b) return -1;
+    if (!b->id_b) return 1;
+    return strcmp(a->id_b, b->id_b);
+}
+
+static bool normalized_array_sort_by_id(NormalizedArray *arr) {
+    if (!arr) return false;
+    if (arr->count > 1u) {
+        qsort(arr->items, arr->count, sizeof(NormalizedEntry), cmp_norm_entry_ida);
+    }
+    return true;
+}
+
+static bool normalized_array_sort_by_pair(NormalizedArray *arr) {
+    if (!arr) return false;
+    if (arr->count > 1u) {
+        qsort(arr->items, arr->count, sizeof(NormalizedEntry), cmp_norm_entry_pair);
+    }
+    return true;
+}
+
 static bool json_slice_to_owned_text(const JsonSlice *slice, char **out_text) {
     char *text;
     if (!slice || !out_text) return false;
@@ -158,6 +263,39 @@ static bool json_slice_extract_string_copy(const JsonSlice *slice, char **out_te
     memcpy(text, slice->begin + 1, text_len);
     text[text_len] = '\0';
     *out_text = text;
+    return true;
+}
+
+static bool json_slice_extract_owned_copy(const JsonSlice *slice, char **out_text) {
+    char *text;
+    if (!slice || !slice->begin || !out_text) return false;
+    *out_text = NULL;
+    text = (char *)core_alloc(slice->len + 1u);
+    if (!text) return false;
+    memcpy(text, slice->begin, slice->len);
+    text[slice->len] = '\0';
+    *out_text = text;
+    return true;
+}
+
+static bool json_slice_parse_number(const JsonSlice *slice, double *out_value) {
+    char *text = NULL;
+    char *end = NULL;
+    double value;
+    if (!slice || !out_value) return false;
+    if (!json_slice_to_owned_text(slice, &text)) return false;
+    value = strtod(text, &end);
+    if (end == text) {
+        core_free(text);
+        return false;
+    }
+    end = (char *)skip_ws(end);
+    if (*end != '\0') {
+        core_free(text);
+        return false;
+    }
+    *out_value = value;
+    core_free(text);
     return true;
 }
 
@@ -302,31 +440,96 @@ static bool json_slice_eq_string(const JsonSlice *slice, const char *text) {
     return strncmp(slice->begin + 1, text, expected_len) == 0;
 }
 
-static CoreResult collect_material_ids(const JsonSlice *materials,
-                                       StringList *material_ids,
-                                       char *diagnostics,
-                                       size_t diagnostics_size) {
+static bool render_normalized_array_json(const NormalizedArray *arr, char **out_json) {
+    StrBuf out;
+    size_t i;
+    if (!arr || !out_json) return false;
+    *out_json = NULL;
+
+    sb_init(&out);
+    if (!sb_append(&out, "[")) goto oom;
+    for (i = 0; i < arr->count; ++i) {
+        if (i > 0u && !sb_append(&out, ",")) goto oom;
+        if (!sb_append(&out, arr->items[i].json)) goto oom;
+    }
+    if (!sb_append(&out, "]")) goto oom;
+    *out_json = out.data;
+    return true;
+
+oom:
+    sb_free(&out);
+    return false;
+}
+
+static bool json_object_with_prefixed_string_field(const JsonSlice *object_slice,
+                                                   const char *field_key,
+                                                   const char *field_value,
+                                                   char **out_json) {
+    StrBuf out;
+    const char *body_begin;
+    size_t body_len;
+    if (!object_slice || !field_key || !field_value || !out_json) return false;
+    if (!json_slice_is_object(object_slice) || object_slice->len < 2u) return false;
+    *out_json = NULL;
+
+    body_begin = object_slice->begin + 1;
+    body_len = object_slice->len - 2u;
+
+    sb_init(&out);
+    if (!sb_append(&out, "{\"")) goto oom;
+    if (!sb_append(&out, field_key)) goto oom;
+    if (!sb_append(&out, "\":\"")) goto oom;
+    if (!sb_append(&out, field_value)) goto oom;
+    if (!sb_append(&out, "\"")) goto oom;
+    if (body_len > 0u) {
+        if (!sb_append(&out, ",")) goto oom;
+        if (!sb_appendn(&out, body_begin, body_len)) goto oom;
+    }
+    if (!sb_append(&out, "}")) goto oom;
+    *out_json = out.data;
+    return true;
+
+oom:
+    sb_free(&out);
+    return false;
+}
+
+static CoreResult normalize_unique_id_array(const JsonSlice *array_slice,
+                                            const char *array_name,
+                                            const char *id_key,
+                                            const char *fallback_prefix,
+                                            StringList *out_ids,
+                                            NormalizedArray *out_norm,
+                                            char *diagnostics,
+                                            size_t diagnostics_size) {
     char *array_text = NULL;
     const char *p;
     size_t index = 0;
+    NormalizedEntry entry = {0};
     CoreResult out = core_result_ok();
+    if (!array_slice || !array_name || !id_key || !out_ids || !out_norm) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid argument" };
+    }
 
-    if (!json_slice_to_owned_text(materials, &array_text)) {
+    if (!json_slice_to_owned_text(array_slice, &array_text)) {
         return (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
     }
 
     p = skip_ws(array_text);
     if (!p || *p != '[') {
-        out = (CoreResult){ CORE_ERR_FORMAT, "invalid materials array" };
+        out = (CoreResult){ CORE_ERR_FORMAT, "invalid array" };
         goto done;
     }
     ++p;
 
     while (*p) {
-        JsonSlice mat = {0};
-        JsonSlice material_id = {0};
-        char *id_text = NULL;
+        JsonSlice item = {0};
+        JsonSlice item_id = {0};
         const char *value_end;
+        bool id_generated = false;
+        entry.id_a = NULL;
+        entry.id_b = NULL;
+        entry.json = NULL;
 
         p = skip_ws(p);
         if (*p == ']') break;
@@ -337,55 +540,93 @@ static CoreResult collect_material_ids(const JsonSlice *materials,
 
         value_end = parse_json_value_end(p);
         if (!value_end) {
-            out = (CoreResult){ CORE_ERR_FORMAT, "invalid materials value" };
+            out = (CoreResult){ CORE_ERR_FORMAT, "invalid array value" };
             goto done;
         }
-        mat.begin = p;
-        mat.len = (size_t)(value_end - p);
+        item.begin = p;
+        item.len = (size_t)(value_end - p);
 
-        if (!json_slice_is_object(&mat)) {
-            diag_write(diagnostics, diagnostics_size, "materials[%zu] must be object", index);
-            out = (CoreResult){ CORE_ERR_FORMAT, "invalid material entry" };
+        if (!json_slice_is_object(&item)) {
+            diag_write(diagnostics, diagnostics_size, "%s[%zu] must be object", array_name, index);
+            out = (CoreResult){ CORE_ERR_FORMAT, "invalid array entry" };
             goto done;
         }
-        if (!json_find_top_level_value(mat.begin, "material_id", &material_id) ||
-            !json_slice_extract_string_copy(&material_id, &id_text)) {
-            diag_write(diagnostics, diagnostics_size, "materials[%zu] missing material_id string", index);
-            out = (CoreResult){ CORE_ERR_FORMAT, "missing material_id" };
+        if (!json_find_top_level_value(item.begin, id_key, &item_id) ||
+            !json_slice_extract_string_copy(&item_id, &entry.id_a)) {
+            if (fallback_prefix) {
+                char generated[96];
+                snprintf(generated, sizeof(generated), "%s_%04zu", fallback_prefix, index);
+                entry.id_a = dup_cstr(generated);
+                if (!entry.id_a) {
+                    out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+                    goto done;
+                }
+                id_generated = true;
+            } else {
+                diag_write(diagnostics, diagnostics_size, "%s[%zu] missing %s string", array_name, index, id_key);
+                out = (CoreResult){ CORE_ERR_FORMAT, "missing id" };
+                goto done;
+            }
+        }
+        if (string_list_has(out_ids, entry.id_a)) {
+            diag_write(diagnostics, diagnostics_size, "duplicate %s: %s", id_key, entry.id_a);
+            out = (CoreResult){ CORE_ERR_FORMAT, "duplicate id" };
             goto done;
         }
-        if (string_list_has(material_ids, id_text)) {
-            diag_write(diagnostics, diagnostics_size, "duplicate material_id: %s", id_text);
-            core_free(id_text);
-            out = (CoreResult){ CORE_ERR_FORMAT, "duplicate material_id" };
-            goto done;
+        if (id_generated) {
+            if (!json_object_with_prefixed_string_field(&item, id_key, entry.id_a, &entry.json)) {
+                out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+                goto done;
+            }
+        } else {
+            if (!json_slice_extract_owned_copy(&item, &entry.json)) {
+                out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+                goto done;
+            }
         }
-        if (!string_list_push_owned(material_ids, id_text)) {
-            core_free(id_text);
+        {
+            char *id_for_list = dup_cstr(entry.id_a);
+            if (!id_for_list) {
+                out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+                goto done;
+            }
+            if (!string_list_push_owned(out_ids, id_for_list)) {
+                core_free(id_for_list);
+                out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+                goto done;
+            }
+        }
+        if (!normalized_array_push_owned(out_norm, &entry)) {
             out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
             goto done;
         }
-
         p = value_end;
         ++index;
     }
 
 done:
     core_free(array_text);
+    if (out.code != CORE_OK) {
+        core_free(entry.id_a);
+        core_free(entry.id_b);
+        core_free(entry.json);
+    }
     return out;
 }
 
-static CoreResult validate_objects(const JsonSlice *objects,
-                                   const StringList *material_ids,
-                                   char *diagnostics,
-                                   size_t diagnostics_size) {
+static CoreResult normalize_objects_array(const JsonSlice *objects,
+                                          const StringList *material_ids,
+                                          StringList *object_ids,
+                                          NormalizedArray *out_norm,
+                                          char *diagnostics,
+                                          size_t diagnostics_size) {
     char *array_text = NULL;
     const char *p;
     size_t index = 0;
-    StringList object_ids;
+    NormalizedEntry entry = {0};
+    char *material_id_text = NULL;
     CoreResult out = core_result_ok();
 
-    string_list_init(&object_ids);
     if (!json_slice_to_owned_text(objects, &array_text)) {
         return (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
     }
@@ -402,9 +643,14 @@ static CoreResult validate_objects(const JsonSlice *objects,
         JsonSlice object_id = {0};
         JsonSlice material_ref = {0};
         JsonSlice material_ref_id = {0};
-        char *object_id_text = NULL;
-        char *material_id_text = NULL;
+        JsonSlice geometry_ref = {0};
+        JsonSlice geometry_ref_id = {0};
         const char *value_end;
+        entry.id_a = NULL;
+        entry.id_b = NULL;
+        entry.json = NULL;
+        core_free(material_id_text);
+        material_id_text = NULL;
 
         p = skip_ws(p);
         if (*p == ']') break;
@@ -428,20 +674,14 @@ static CoreResult validate_objects(const JsonSlice *objects,
         }
 
         if (!json_find_top_level_value(obj.begin, "object_id", &object_id) ||
-            !json_slice_extract_string_copy(&object_id, &object_id_text)) {
+            !json_slice_extract_string_copy(&object_id, &entry.id_a)) {
             diag_write(diagnostics, diagnostics_size, "objects[%zu] missing object_id string", index);
             out = (CoreResult){ CORE_ERR_FORMAT, "missing object_id" };
             goto done;
         }
-        if (string_list_has(&object_ids, object_id_text)) {
-            diag_write(diagnostics, diagnostics_size, "duplicate object_id: %s", object_id_text);
-            core_free(object_id_text);
+        if (string_list_has(object_ids, entry.id_a)) {
+            diag_write(diagnostics, diagnostics_size, "duplicate object_id: %s", entry.id_a);
             out = (CoreResult){ CORE_ERR_FORMAT, "duplicate object_id" };
-            goto done;
-        }
-        if (!string_list_push_owned(&object_ids, object_id_text)) {
-            core_free(object_id_text);
-            out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
             goto done;
         }
 
@@ -456,12 +696,144 @@ static CoreResult validate_objects(const JsonSlice *objects,
             if (!string_list_has(material_ids, material_id_text)) {
                 diag_write(diagnostics, diagnostics_size,
                            "objects[%zu] material_ref.id unresolved: %s", index, material_id_text);
-                core_free(material_id_text);
                 out = (CoreResult){ CORE_ERR_FORMAT, "unresolved material_ref" };
                 goto done;
             }
             core_free(material_id_text);
             material_id_text = NULL;
+        }
+
+        if (json_find_top_level_value(obj.begin, "geometry_ref", &geometry_ref)) {
+            if (!json_slice_is_object(&geometry_ref) ||
+                !json_find_top_level_value(geometry_ref.begin, "id", &geometry_ref_id) ||
+                !json_slice_is_string(&geometry_ref_id)) {
+                diag_write(diagnostics, diagnostics_size, "objects[%zu] has invalid geometry_ref.id", index);
+                out = (CoreResult){ CORE_ERR_FORMAT, "invalid geometry_ref" };
+                goto done;
+            }
+        }
+
+        if (!json_slice_extract_owned_copy(&obj, &entry.json)) {
+            out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+            goto done;
+        }
+        {
+            char *id_for_list = dup_cstr(entry.id_a);
+            if (!id_for_list) {
+                out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+                goto done;
+            }
+            if (!string_list_push_owned(object_ids, id_for_list)) {
+                core_free(id_for_list);
+                out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+                goto done;
+            }
+        }
+        if (!normalized_array_push_owned(out_norm, &entry)) {
+            out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+            goto done;
+        }
+        p = value_end;
+        ++index;
+    }
+
+done:
+    core_free(array_text);
+    core_free(material_id_text);
+    if (out.code != CORE_OK) {
+        core_free(entry.id_a);
+        core_free(entry.id_b);
+        core_free(entry.json);
+    }
+    return out;
+}
+
+static CoreResult normalize_hierarchy_array(const JsonSlice *hierarchy,
+                                            const StringList *object_ids,
+                                            NormalizedArray *out_norm,
+                                            char *diagnostics,
+                                            size_t diagnostics_size) {
+    char *array_text = NULL;
+    const char *p;
+    size_t index = 0;
+    NormalizedEntry entry = {0};
+    CoreResult out = core_result_ok();
+
+    if (!json_slice_to_owned_text(hierarchy, &array_text)) {
+        return (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+    }
+
+    p = skip_ws(array_text);
+    if (!p || *p != '[') {
+        out = (CoreResult){ CORE_ERR_FORMAT, "invalid hierarchy array" };
+        goto done;
+    }
+    ++p;
+
+    while (*p) {
+        JsonSlice relation = {0};
+        JsonSlice parent_id = {0};
+        JsonSlice child_id = {0};
+        const char *value_end;
+        entry.id_a = NULL;
+        entry.id_b = NULL;
+        entry.json = NULL;
+
+        p = skip_ws(p);
+        if (*p == ']') break;
+        if (*p == ',') {
+            ++p;
+            continue;
+        }
+
+        value_end = parse_json_value_end(p);
+        if (!value_end) {
+            out = (CoreResult){ CORE_ERR_FORMAT, "invalid hierarchy value" };
+            goto done;
+        }
+        relation.begin = p;
+        relation.len = (size_t)(value_end - p);
+
+        if (!json_slice_is_object(&relation)) {
+            diag_write(diagnostics, diagnostics_size, "hierarchy[%zu] must be object", index);
+            out = (CoreResult){ CORE_ERR_FORMAT, "invalid hierarchy entry" };
+            goto done;
+        }
+        if (!json_find_top_level_value(relation.begin, "parent_object_id", &parent_id) ||
+            !json_slice_extract_string_copy(&parent_id, &entry.id_a)) {
+            diag_write(diagnostics, diagnostics_size, "hierarchy[%zu] missing parent_object_id string", index);
+            out = (CoreResult){ CORE_ERR_FORMAT, "missing hierarchy parent" };
+            goto done;
+        }
+        if (!json_find_top_level_value(relation.begin, "child_object_id", &child_id) ||
+            !json_slice_extract_string_copy(&child_id, &entry.id_b)) {
+            diag_write(diagnostics, diagnostics_size, "hierarchy[%zu] missing child_object_id string", index);
+            out = (CoreResult){ CORE_ERR_FORMAT, "missing hierarchy child" };
+            goto done;
+        }
+        if (strcmp(entry.id_a, entry.id_b) == 0) {
+            diag_write(diagnostics, diagnostics_size, "hierarchy[%zu] parent and child cannot match: %s",
+                       index, entry.id_a);
+            out = (CoreResult){ CORE_ERR_FORMAT, "invalid hierarchy self edge" };
+            goto done;
+        }
+        if (!string_list_has(object_ids, entry.id_a)) {
+            diag_write(diagnostics, diagnostics_size, "hierarchy[%zu] parent unresolved: %s", index, entry.id_a);
+            out = (CoreResult){ CORE_ERR_FORMAT, "unresolved hierarchy parent" };
+            goto done;
+        }
+        if (!string_list_has(object_ids, entry.id_b)) {
+            diag_write(diagnostics, diagnostics_size, "hierarchy[%zu] child unresolved: %s", index, entry.id_b);
+            out = (CoreResult){ CORE_ERR_FORMAT, "unresolved hierarchy child" };
+            goto done;
+        }
+        if (!json_slice_extract_owned_copy(&relation, &entry.json)) {
+            out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+            goto done;
+        }
+        if (!normalized_array_push_owned(out_norm, &entry)) {
+            out = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+            goto done;
         }
 
         p = value_end;
@@ -470,7 +842,11 @@ static CoreResult validate_objects(const JsonSlice *objects,
 
 done:
     core_free(array_text);
-    string_list_free(&object_ids);
+    if (out.code != CORE_OK) {
+        core_free(entry.id_a);
+        core_free(entry.id_b);
+        core_free(entry.json);
+    }
     return out;
 }
 
@@ -492,14 +868,29 @@ static CoreResult compile_inner(const char *authoring_json,
     JsonSlice unit_system = {0};
     JsonSlice world_scale = {0};
     JsonSlice objects = {0};
+    JsonSlice hierarchy = {0};
     JsonSlice materials = {0};
     JsonSlice lights = {0};
     JsonSlice cameras = {0};
     JsonSlice constraints = {0};
     JsonSlice extensions = {0};
+    StringList object_ids;
     StringList material_ids;
+    StringList light_ids;
+    StringList camera_ids;
+    NormalizedArray norm_objects;
+    NormalizedArray norm_hierarchy;
+    NormalizedArray norm_materials;
+    NormalizedArray norm_lights;
+    NormalizedArray norm_cameras;
     StrBuf out;
+    char *norm_objects_json = NULL;
+    char *norm_hierarchy_json = NULL;
+    char *norm_materials_json = NULL;
+    char *norm_lights_json = NULL;
+    char *norm_cameras_json = NULL;
     char compile_meta[192];
+    double world_scale_number = 1.0;
     CoreResult validate_result;
 
     if (!authoring_json || !out_runtime_json) {
@@ -533,6 +924,10 @@ static CoreResult compile_inner(const char *authoring_json,
     if (!json_find_top_level_value(authoring_json, "objects", &objects) || !json_slice_is_array(&objects)) {
         diag_write(diagnostics, diagnostics_size, "missing or invalid objects array");
         return (CoreResult){ CORE_ERR_FORMAT, "missing objects" };
+    }
+    if (!json_find_top_level_value(authoring_json, "hierarchy", &hierarchy)) {
+        hierarchy.begin = "[]";
+        hierarchy.len = 2;
     }
 
     if (!json_find_top_level_value(authoring_json, "space_mode_default", &space_mode_default)) {
@@ -568,31 +963,105 @@ static CoreResult compile_inner(const char *authoring_json,
         extensions.len = 2;
     }
 
-    if (!json_slice_is_array(&materials) || !json_slice_is_array(&lights) ||
+    if (!json_slice_is_array(&hierarchy) || !json_slice_is_array(&materials) || !json_slice_is_array(&lights) ||
         !json_slice_is_array(&cameras) || !json_slice_is_array(&constraints)) {
-        diag_write(diagnostics, diagnostics_size, "materials/lights/cameras/constraints must be arrays");
+        diag_write(diagnostics, diagnostics_size,
+                   "hierarchy/materials/lights/cameras/constraints must be arrays");
         return (CoreResult){ CORE_ERR_FORMAT, "invalid array fields" };
     }
     if (!json_slice_is_object(&extensions)) {
         diag_write(diagnostics, diagnostics_size, "extensions must be object");
         return (CoreResult){ CORE_ERR_FORMAT, "invalid extensions" };
     }
+    if (!json_slice_is_string(&space_mode_default) ||
+        !(json_slice_eq_string(&space_mode_default, "2d") || json_slice_eq_string(&space_mode_default, "3d"))) {
+        diag_write(diagnostics, diagnostics_size, "space_mode_default must be \"2d\" or \"3d\"");
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid space_mode_default" };
+    }
+    if (!json_slice_is_string(&unit_system)) {
+        diag_write(diagnostics, diagnostics_size, "unit_system must be string");
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid unit_system" };
+    }
+    if (!json_slice_parse_number(&world_scale, &world_scale_number) || world_scale_number <= 0.0) {
+        diag_write(diagnostics, diagnostics_size, "world_scale must be a positive number");
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid world_scale" };
+    }
 
+    string_list_init(&object_ids);
     string_list_init(&material_ids);
-    validate_result = collect_material_ids(&materials, &material_ids, diagnostics, diagnostics_size);
+    string_list_init(&light_ids);
+    string_list_init(&camera_ids);
+    normalized_array_init(&norm_objects);
+    normalized_array_init(&norm_hierarchy);
+    normalized_array_init(&norm_materials);
+    normalized_array_init(&norm_lights);
+    normalized_array_init(&norm_cameras);
+
+    validate_result =
+        normalize_unique_id_array(&materials,
+                                  "materials",
+                                  "material_id",
+                                  NULL,
+                                  &material_ids,
+                                  &norm_materials,
+                                  diagnostics,
+                                  diagnostics_size);
     if (validate_result.code != CORE_OK) {
-        string_list_free(&material_ids);
-        return validate_result;
+        goto validation_fail;
     }
-    validate_result = validate_objects(&objects, &material_ids, diagnostics, diagnostics_size);
+    validate_result =
+        normalize_objects_array(&objects, &material_ids, &object_ids, &norm_objects, diagnostics, diagnostics_size);
     if (validate_result.code != CORE_OK) {
-        string_list_free(&material_ids);
-        return validate_result;
+        goto validation_fail;
     }
-    string_list_free(&material_ids);
+    validate_result = normalize_unique_id_array(&lights,
+                                                "lights",
+                                                "light_id",
+                                                "light",
+                                                &light_ids,
+                                                &norm_lights,
+                                                diagnostics,
+                                                diagnostics_size);
+    if (validate_result.code != CORE_OK) {
+        goto validation_fail;
+    }
+    validate_result = normalize_unique_id_array(&cameras,
+                                                "cameras",
+                                                "camera_id",
+                                                "camera",
+                                                &camera_ids,
+                                                &norm_cameras,
+                                                diagnostics,
+                                                diagnostics_size);
+    if (validate_result.code != CORE_OK) {
+        goto validation_fail;
+    }
+    validate_result =
+        normalize_hierarchy_array(&hierarchy, &object_ids, &norm_hierarchy, diagnostics, diagnostics_size);
+    if (validate_result.code != CORE_OK) {
+        goto validation_fail;
+    }
+
+    if (!normalized_array_sort_by_id(&norm_objects) || !normalized_array_sort_by_id(&norm_materials) ||
+        !normalized_array_sort_by_id(&norm_lights) || !normalized_array_sort_by_id(&norm_cameras) ||
+        !normalized_array_sort_by_pair(&norm_hierarchy)) {
+        validate_result = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+        diag_write(diagnostics, diagnostics_size, "out of memory while sorting normalized arrays");
+        goto validation_fail;
+    }
+
+    if (!render_normalized_array_json(&norm_objects, &norm_objects_json) ||
+        !render_normalized_array_json(&norm_hierarchy, &norm_hierarchy_json) ||
+        !render_normalized_array_json(&norm_materials, &norm_materials_json) ||
+        !render_normalized_array_json(&norm_lights, &norm_lights_json) ||
+        !render_normalized_array_json(&norm_cameras, &norm_cameras_json)) {
+        validate_result = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+        diag_write(diagnostics, diagnostics_size, "out of memory while rendering normalized arrays");
+        goto validation_fail;
+    }
 
     snprintf(compile_meta, sizeof(compile_meta),
-             "{\"compiler_version\":\"%s\",\"compiled_at_ns\":%lld}",
+             "{\"compiler_version\":\"%s\",\"compiled_at_ns\":%lld,\"normalization\":\"v0.2_sorted_lanes\"}",
              k_compiler_version,
              unix_ns_now());
 
@@ -620,16 +1089,19 @@ static CoreResult compile_inner(const char *authoring_json,
     if (!sb_appendn(&out, world_scale.begin, world_scale.len)) goto oom;
     if (!sb_append(&out, ",\n")) goto oom;
     if (!sb_append(&out, "  \"objects\":")) goto oom;
-    if (!sb_appendn(&out, objects.begin, objects.len)) goto oom;
+    if (!sb_append(&out, norm_objects_json)) goto oom;
+    if (!sb_append(&out, ",\n")) goto oom;
+    if (!sb_append(&out, "  \"hierarchy\":")) goto oom;
+    if (!sb_append(&out, norm_hierarchy_json)) goto oom;
     if (!sb_append(&out, ",\n")) goto oom;
     if (!sb_append(&out, "  \"materials\":")) goto oom;
-    if (!sb_appendn(&out, materials.begin, materials.len)) goto oom;
+    if (!sb_append(&out, norm_materials_json)) goto oom;
     if (!sb_append(&out, ",\n")) goto oom;
     if (!sb_append(&out, "  \"lights\":")) goto oom;
-    if (!sb_appendn(&out, lights.begin, lights.len)) goto oom;
+    if (!sb_append(&out, norm_lights_json)) goto oom;
     if (!sb_append(&out, ",\n")) goto oom;
     if (!sb_append(&out, "  \"cameras\":")) goto oom;
-    if (!sb_appendn(&out, cameras.begin, cameras.len)) goto oom;
+    if (!sb_append(&out, norm_cameras_json)) goto oom;
     if (!sb_append(&out, ",\n")) goto oom;
     if (!sb_append(&out, "  \"constraints\":")) goto oom;
     if (!sb_appendn(&out, constraints.begin, constraints.len)) goto oom;
@@ -639,12 +1111,57 @@ static CoreResult compile_inner(const char *authoring_json,
     if (!sb_append(&out, "\n}\n")) goto oom;
 
     *out_runtime_json = out.data;
+    core_free(norm_objects_json);
+    core_free(norm_hierarchy_json);
+    core_free(norm_materials_json);
+    core_free(norm_lights_json);
+    core_free(norm_cameras_json);
+    normalized_array_free(&norm_objects);
+    normalized_array_free(&norm_hierarchy);
+    normalized_array_free(&norm_materials);
+    normalized_array_free(&norm_lights);
+    normalized_array_free(&norm_cameras);
+    string_list_free(&object_ids);
+    string_list_free(&material_ids);
+    string_list_free(&light_ids);
+    string_list_free(&camera_ids);
     return core_result_ok();
 
 oom:
     sb_free(&out);
+    core_free(norm_objects_json);
+    core_free(norm_hierarchy_json);
+    core_free(norm_materials_json);
+    core_free(norm_lights_json);
+    core_free(norm_cameras_json);
+    normalized_array_free(&norm_objects);
+    normalized_array_free(&norm_hierarchy);
+    normalized_array_free(&norm_materials);
+    normalized_array_free(&norm_lights);
+    normalized_array_free(&norm_cameras);
+    string_list_free(&object_ids);
+    string_list_free(&material_ids);
+    string_list_free(&light_ids);
+    string_list_free(&camera_ids);
     diag_write(diagnostics, diagnostics_size, "out of memory while compiling scene");
     return (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+
+validation_fail:
+    core_free(norm_objects_json);
+    core_free(norm_hierarchy_json);
+    core_free(norm_materials_json);
+    core_free(norm_lights_json);
+    core_free(norm_cameras_json);
+    normalized_array_free(&norm_objects);
+    normalized_array_free(&norm_hierarchy);
+    normalized_array_free(&norm_materials);
+    normalized_array_free(&norm_lights);
+    normalized_array_free(&norm_cameras);
+    string_list_free(&object_ids);
+    string_list_free(&material_ids);
+    string_list_free(&light_ids);
+    string_list_free(&camera_ids);
+    return validate_result;
 }
 
 CoreResult core_scene_compile_authoring_to_runtime(const char *authoring_json,

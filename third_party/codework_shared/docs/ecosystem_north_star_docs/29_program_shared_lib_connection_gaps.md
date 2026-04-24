@@ -1,6 +1,6 @@
 # Program Shared-Lib Connection Gaps
 
-Last updated: 2026-03-09
+Last updated: 2026-04-02
 Purpose: canonical per-program list of shared-lib connection gaps and next integrations.
 
 Use this with:
@@ -27,14 +27,15 @@ Gaps:
 
 ### `daw`
 Current shared profile:
-- `core_base`, `core_io`, `core_time`, `core_theme`, `core_font`, `kit_viz` adopted.
+- `core_base`, `core_io`, `core_time`, `core_queue`, `core_sched`, `core_jobs`, `core_wake`, `core_kernel`, `core_theme`, `core_font`, `kit_viz` adopted.
 - `core_data` + `core_pack` mainly additive/diagnostics.
 
 Gaps:
-- `Partial`: deepen `core_data` from diagnostics exports into richer canonical session/timeline model usage.
-- `Partial`: align `core_pack` payloads to the `core_data` table contracts used by DAW diagnostics.
-- `Missing`: optional `core_trace` diagnostics lane export for transport/scheduler timing.
-- `Missing`: execution-core migration beyond `core_time` (`queue/sched/jobs/workers/wake/kernel`) where runtime loop paths benefit.
+- `Stabilize`: no mandatory shared-lib gap remains for the current DAW rollout plan.
+- `Stabilize`: Slice 3 complete (data contract hardening) - DAW dataset metadata now includes additive `schema_family`/`schema_variant` keys and deterministic contract coverage for canonical `daw_selection_v1` table.
+- `Stabilize`: Slice 2 complete (pack/data contract parity guard) - deterministic `daw_pack_contract_parity_test` now verifies `DAWH/WMIN/WMAX/MRKS/JSON` chunk presence plus canonical `core_dataset` schema keys (`daw_timeline_v1`, `dataset_schema`, `dataset_contract_version`).
+- `Stabilize`: Slice 4 complete (trace diagnostics lane) - deterministic `daw_trace_export_contract_test` now verifies canonical transport/scheduler timing lanes and `trace_start/trace_end` markers exported through shared `core_trace`.
+- `Stabilize`: Slice 5 complete (workers lane adoption) - async diagnostics trace export now uses shared `core_workers` with deterministic completion/contract coverage (`daw_trace_export_async_contract_test`), while preserving runtime-loop behavior.
 
 ### `fisiCs`
 Current shared profile:
@@ -62,9 +63,11 @@ Current shared profile:
 - `core_io/core_data/core_pack/core_trace` are additive/partial.
 
 Gaps:
-- `Partial`: decide and lock runtime import policy (JSON-only vs JSON+pack).
-- `Partial`: unify tooling contracts for `core_data` + `core_pack` outputs with 3D sibling.
-- `Partial`: harden `core_trace` tooling consistency and documented output lanes.
+- `Stabilize`: runtime import policy locked to JSON-only (`.pack` remains diagnostics-tooling only).
+- `Stabilize`: `core_data` schema parity with 3D is now locked for shared metadata + shared `anchors_v1`/`walls_v1` tables; 3D-only fields are additive via `anchors_3d_ext_v1`.
+- `Stabilize`: `core_pack` diagnostics contract parity with 3D is now locked (shared chunk sequence + shared base `LDAN` layout + additive `LDA3` extension).
+- `Stabilize`: `core_trace` tooling consistency now aligned with 3D sibling (shared targets, CLI, and output lane contract).
+- `Stabilize`: low-risk `core_io` cleanup completed for theme preset persistence (`core_io_path_exists` + `core_io_read_all`/`core_io_write_all`); remaining directory/create helpers stay app-local for now.
 - `Missing`: execution-core adoption beyond `core_time` where background/task orchestration appears.
 
 ### `line_drawing3d`
@@ -72,17 +75,23 @@ Current shared profile:
 - Mirrors `line_drawing` shared adoption shape.
 
 Gaps:
-- `Partial`: same runtime import contract decision as 2D.
-- `Partial`: maintain schema/tooling parity with 2D (`core_data/core_pack/core_trace`).
+- `Stabilize`: follows 2D runtime policy lock (JSON-only runtime import; `.pack` tooling-only).
+- `Stabilize`: `core_data`/`core_pack`/`core_trace` parity with 2D is now locked (shared dataset contract, shared pack contract, shared trace tooling).
 - `Missing`: evaluate `core_space` only if cross-app 3D placement parity becomes a real requirement.
 
 ### `map_forge`
 Current shared profile:
-- `core_base/core_io/core_space/core_time/core_queue/core_workers/core_wake/core_theme/core_font` adopted.
+- `core_base/core_io/core_space/core_time/core_queue/core_sched/core_jobs/core_workers/core_wake/core_kernel/core_theme/core_font` adopted.
+- `kit_runtime_diag` adopted for runtime perf diagnostics stage timing and input counter totals.
 - `core_data/core_pack/core_trace` partial/additive.
 
 Gaps:
-- `Missing`: execution-core completion (`core_sched`, `core_jobs`, `core_kernel`) if moving toward full standardized runtime loop.
+- `Stabilize`: Slice 1 execution-core completion in tile-loader lane now integrated (`core_sched/core_jobs/core_kernel`) with additive behavior.
+- `Stabilize`: Slice 2 execution-core queue migration complete in `app_tile_pipeline` Vulkan asset ready-handoff (shared `core_queue` with additive eviction/retry behavior retained).
+- `Stabilize`: Slice 3 execution-core queue migration complete in `app_tile_pipeline` Vulkan polygon prep in/out handoff queues (shared `core_queue` with additive worker policy retained).
+- `Stabilize`: Slice 4 diagnostics contract guard complete - deterministic `test_build_safety.sh` assertions now lock required `meta.dataset.json` schema/table keys, and deterministic `map_trace_contract_test` locks shared trace pack chunk presence (`TRHD/TRSM/TREV`) plus canonical runtime lane/marker vocabulary (including `trace_start/trace_end` lifecycle markers).
+- `Stabilize`: Slice 5 trace pack parity guard complete - deterministic `map_trace_contract_test` now locks exact shared `core_pack` chunk count/order (`TRHD` -> `TRSM` -> `TREV`) and deterministic payload sizes for sample/marker chunks.
+- `Stabilize`: runtime diagnostics math/counter consolidation now uses shared `kit_runtime_diag` helpers; app-specific routing/render semantics remain local.
 - `Partial`: consolidate map diagnostics into stronger `core_data` contracts and route optional diagnostics archives through `core_pack`.
 - `Partial`: expand standardized trace-lane usage (`core_trace`) from tooling-level into clearer runtime diagnostics surfaces.
 
@@ -95,24 +104,37 @@ Gaps:
 - `Partial`: deepen `core_data` model breadth beyond current export tables into broader sim-domain datasets.
 - `Partial`: further align `core_pack` payload semantics with canonical `core_data` schema.
 - `Partial`: standardize `core_trace` lanes/contracts beyond tooling-centric usage.
+- `Stabilize`: Slice 1 complete (tooling hardening) - `physics_trace_tool` manifest/path IO now uses shared `core_io` helpers with no lane/output behavior change.
+- `Stabilize`: Slice 2 complete (trace contract guard) - deterministic `manifest_to_trace` smoke test now verifies canonical lanes/markers.
+- `Stabilize`: Slice 3 complete (data contract hardening) - VF2D dataset sidecars now include additive `schema_family`/`schema_variant` metadata keys with test coverage.
+- `Stabilize`: Slice 4 complete (pack/data parity guard) - deterministic parity test now verifies VF2D `.pack` chunk contract and sidecar dataset schema together.
 - `Missing`: evaluate `core_time`/execution-core adoption where loop scheduling/work dispatch patterns justify it.
 
 ### `ray_tracing`
 Current shared profile:
 - Broad shared adoption: `core_base/core_io/core_scene/core_space/core_time`, theme/font, `kit_viz`.
 - `core_data/core_pack/core_trace` are partly additive/tooling-oriented.
+- `core_scene_compile` pre-`TP-S3` baseline wiring is now in place for authoring->runtime handoff preflight.
 
 Gaps:
 - `Partial`: raise `core_data` usage from render-metrics export slice into broader analyzable runtime datasets.
 - `Partial`: lock `core_pack` export/import schemas around that data model for cross-app reuse.
 - `Partial`: promote `core_trace` from tooling-first to clearer runtime contract lanes where useful.
+- `Stabilize`: Slice 1 complete (io hardening) - `fluid_import` now uses shared `core_io` for file-exists and manifest file reads in low-risk paths.
+- `Stabilize`: Slice 2 complete (data contract hardening) - render metrics dataset now includes additive `schema_family`/`schema_variant` metadata with test coverage.
+- `Stabilize`: Slice 3 complete (io cleanup) - shared theme preset persistence now uses shared `core_io` helpers in `ui/shared_theme_font_adapter`.
+- `Stabilize`: trace tooling source lane restored - `ray_trace_tool` now builds and `manifest_to_trace` now exports valid trace packs through shared `core_trace`.
+- `Stabilize`: deterministic trace contract smoke assertions are now in place (`make -C ray_tracing test-manifest-to-trace-export`) for canonical lanes/markers.
+- `Stabilize`: deterministic `core_pack` parity guard is now in place (`make -C ray_tracing test-fluid-pack-contract-parity`) for `VFHD/DENS/VELX/VELY` import contract parity.
+- `Stabilize`: pre-`TP-S3` runtime-scene preflight lane is in place (`import/runtime_scene_bridge`) with contract tests against trio fixtures (`scene_runtime_v1` accept, authoring-variant reject).
 - `Missing`: execution-core adoption beyond `core_time` if worker/job/scheduler behavior should be standardized with IDE/MapForge.
 
 ## Cross-System Priority Order (next)
-1. Complete `core_data` + `core_pack` consolidation in `daw`, `physics_sim`, `ray_tracing`, `map_forge`.
-2. Complete execution-core rollout in `map_forge` (`sched/jobs/kernel`) and evaluate high-value candidates in `daw`/`ray_tracing`.
-3. Lock `line_drawing` + `line_drawing3d` import/tooling contract parity.
-4. Expand `fisiCs` shared-core usage only where it improves compiler/runtime clarity without disrupting shim-focused flows.
+1. Complete `core_data` + `core_pack` consolidation in `map_forge`, `ray_tracing`, `physics_sim` (DAW is now stabilize-only for this lane).
+2. Expand standardized runtime `core_trace` lanes in `map_forge` and `physics_sim` where tooling-first usage still dominates.
+3. Evaluate high-value execution-core adoption candidates in `ray_tracing` (`queue/sched/jobs/workers/wake/kernel`) beyond `core_time`.
+4. Keep `line_drawing` + `line_drawing3d` in stabilize mode and only migrate additional IO helpers when shared directory APIs are available.
+5. Expand `fisiCs` shared-core usage only where it improves compiler/runtime clarity without disrupting shim-focused flows.
 
 ## Maintenance Rule
 When any app materially changes shared-lib usage:

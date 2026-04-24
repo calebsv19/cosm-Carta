@@ -10,7 +10,7 @@ Convert Memory DB + `mem_cli` into a Codex skill with a predictable command cont
 
 Checklist:
 1. lock command surface used by the skill:
-   - `query`, `show`, `add`, `batch-add`, `pin`, `canonical`, `rollup`, `health`, `audit-list`, `neighbors`, `link-add`
+   - `query`, `show`, `add`, `batch-add`, `pin`, `canonical`, `item-retag`, `rollup`, `health`, `audit-list`, `neighbors`, `link-add`
    - wrapper linked write: `mem_agent_flow.sh write-linked`
 2. keep outputs line-oriented and stable
    - rollup summary shape should remain stable: concise synthesis paragraph + coverage list
@@ -35,6 +35,7 @@ Checklist:
    - enforce write cap per session
    - nightly rollup recommendation must remain policy-gated (`min_active_nodes_before_rollup`, `min_stale_candidates_before_rollup`)
    - preserve canonical connection-pass shape (including neighbor-link propagation bounds) when rollup is enabled
+   - emit one suggestion memory node per codex nightly run so improvement ideas can be graph-clustered over time
 2. define default db path policy per project/workspace
 3. define id-follow-up flow (`query -> show -> optional add`)
 

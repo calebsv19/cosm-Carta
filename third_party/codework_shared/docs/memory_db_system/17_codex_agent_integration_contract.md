@@ -14,7 +14,8 @@ Primary tool binary:
 Optional wrapper for skill/runtime integration:
 - `shared/core/core_memdb/tools/mem_agent_flow.sh`
 - linked-write helper:
-  - `mem_agent_flow.sh write-linked --db <path> --title <text> --body <text> [add flags...] --link-from <id>|--link-to <id> [--link-kind <kind>] [--link-note <text>]`
+  - `mem_agent_flow.sh write-linked --db <path> --title <text> --body <text> [add flags...] --link-from <id>...|--link-to <id>... [--link-kind <kind>] [--link-note <text>]`
+  - `mem_agent_flow.sh write-hier-linked --db <path> --title <text> --body <text> --workspace <key> --project <key> --kind <value> [--parent-id <id>...] [--related-id <id>...] [--importance low|normal|high|critical] [--max-links <1-5>] [--link-note <text>]`
 
 Required commands:
 - bounded retrieval:
@@ -27,6 +28,7 @@ Required commands:
 - control lanes:
   - `mem_cli pin --db <path> --id <rowid> --on|--off [--session-id <id>]`
   - `mem_cli canonical --db <path> --id <rowid> --on|--off [--session-id <id>]`
+  - `mem_cli item-retag --db <path> --id <rowid> [--workspace <key>] [--project <key>] [--kind <value>] [--include-archived] [--session-id <id>]`
 - maintenance:
   - `mem_cli rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>]`
   - `mem_cli health --db <path> [--format text|json]`
@@ -69,6 +71,32 @@ Graph link policy:
 - use canonical kinds only: `supports`, `depends_on`, `references`, `summarizes`, `implements`, `blocks`, `contradicts`, `related`
 - links are explicit only; agents must run `link-add` (or `write-linked`) for graph connectivity
 - keep neighbor retrieval bounded with explicit `--max-edges` and `--max-nodes`
+- hierarchy-first anchor model per project:
+  - `scope-<project>`, `plans-<project>`, `decisions-<project>`, `issues-<project>`, `misc-<project>`
+  - prefer parent/branch links into pillar lanes before adding lateral links
+- dynamic link budget for new nodes:
+  - front-loaded target distribution: `1` default, `2` occasional, `3` uncommon, `4` rare, `5` exceptional
+  - most nodes should end at `1-2` links; use `3-5` only for high-importance bridge nodes
+  - minimum `1` link required (non-isolation invariant)
+- fallback anchor:
+  - if no high-confidence semantic target exists, link to `misc-<project>`
+- cross-project link gate:
+  - allow only when explicit implementation/dependency bridge exists across projects
+  - avoid broad fan-out cross-project linking
+- hierarchy-first helper behavior (`write-hier-linked`):
+  - resolves pillar anchors by stable id within `(workspace, project)` scope
+  - candidate ordering: `parent` -> `primary pillar` -> `scope pillar` -> explicit related ids -> `misc fallback`
+  - front-loaded link count selection:
+    - `importance=low` -> 1
+    - `importance=normal` -> 1 (2 when parent+primary anchors are both present)
+    - `importance=high` -> up to 3 (bounded by `--max-links`)
+    - `importance=critical` -> up to 4 (bounded by `--max-links`)
+  - hard cap remains `--max-links <= 5`
+
+Light recategorization policy (migration-safe):
+- when reorganizing existing memory graphs, prioritize high-confidence relinking first
+- prefer adding pillar links over deleting historical links during first pass
+- defer ambiguous cases to `misc-<project>` instead of forcing uncertain classification
 
 Nightly rollup orchestration policy (reader/pruner wrappers):
 - rollup recommendation is policy-gated, not automatic:
@@ -80,6 +108,9 @@ Nightly rollup orchestration policy (reader/pruner wrappers):
   - `operations.rollup.scope = { workspace, project, kind }`
 - preserve graph connectivity for rollup nodes through connection pass:
   - `operations.connection_pass = { enabled, link_kind, anchor_kind, anchor_item_id, ensure_min_degree, propagate_neighbor_links, max_neighbor_links_per_rollup, neighbor_scan_max_edges, neighbor_scan_max_nodes }`
+- codex nightly orchestrator records one suggestion memory node per run for longitudinal diagnostics:
+  - default suggestion bucket: `workspace=codework`, `project=memory_console_codex_suggestions`, `kind=decision`
+  - suggestion nodes link to prior suggestion nodes with `related`
 
 ## Output Contract
 

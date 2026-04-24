@@ -86,6 +86,20 @@ This is not an implementation guide.
 
 ---
 
+### core_scene_compile (BOOTSTRAP)
+**Role:** Shared compile boundary between scene authoring and runtime handoff.
+**Responsibilities:**
+- Compile `scene_authoring_v1` payloads into `scene_runtime_v1`
+- Emit deterministic runtime envelope order and compile metadata
+- Preserve unknown extension namespaces while stripping authoring-only lanes from runtime contract
+
+**Boundary:**
+- No app UI/editor behavior
+- No renderer/solver policy ownership
+- No app-specific override semantics
+
+---
+
 ### core_space (ACTIVE)
 **Role:** Shared spatial conversion contract.
 **Responsibilities:**
@@ -96,6 +110,34 @@ This is not an implementation guide.
 **Boundary:**
 - Defines *where/how to place*
 - Does not parse scene bundles or own asset formats
+
+---
+
+### core_units (BOOTSTRAP)
+**Role:** Canonical unit vocabulary and conversion contract.
+**Responsibilities:**
+- Unit identifiers and parser helpers
+- Unit-to-unit conversion helpers
+- World-scale conversion helpers for scene/object interchange
+
+**Boundary:**
+- No scene schema ownership
+- No app-specific policy
+- No rendering/UI coupling
+
+---
+
+### core_object (BOOTSTRAP)
+**Role:** App-neutral object identity and transform contract.
+**Responsibilities:**
+- Stable object identity/type metadata
+- Dimensional mode contract (`plane_locked`/`full_3d`)
+- Transform + basic object flag validation helpers
+
+**Boundary:**
+- No full scene container ownership (`core_scene` owns scene envelope)
+- No app namespace overlay ownership
+- No solver/render runtime ownership
 
 ---
 
@@ -367,6 +409,13 @@ This is not an implementation guide.
 - Owns pane chrome visuals (border/header/title/splitter states).
 - Owns authoring-mode structural overlay affordances.
 - Does not own pane topology solve, module lifecycle, or workspace persistence policy.
+
+### kit_runtime_diag (BOOTSTRAP)
+**Role:** Shared runtime diagnostics contract helpers.
+**Notes:**
+- Owns app-neutral frame-stage timing math helpers.
+- Owns app-neutral input-frame cumulative totals helpers.
+- Does not own program input policy, routing behavior, or render behavior.
 
 ### kit_graph (ACTIVE)
 **Role:** Shared graph visualization kit.

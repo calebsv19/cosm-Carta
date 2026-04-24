@@ -340,6 +340,24 @@ if [ -n "$QUERY_SCOPE_EMPTY_OUTPUT" ]; then
   exit 1
 fi
 
+ITEM_RETAG_OUTPUT="$("$CLI_BIN" item-retag --db "$DB_PATH" --id 3 --workspace shared --project mem_console)"
+case "$ITEM_RETAG_OUTPUT" in
+  *"item-retag id=3 workspace=shared project=mem_console kind=transient"* ) ;;
+  *)
+    echo "unexpected item-retag output: $ITEM_RETAG_OUTPUT" >&2
+    exit 1
+    ;;
+esac
+
+QUERY_RETAG_OUTPUT="$("$CLI_BIN" query --db "$DB_PATH" --workspace shared --project mem_console --kind transient --limit 10)"
+case "$QUERY_RETAG_OUTPUT" in
+  *"Third Note"* ) ;;
+  *)
+    echo "query output missing retagged Third Note: $QUERY_RETAG_OUTPUT" >&2
+    exit 1
+    ;;
+esac
+
 QUERY_CANONICAL_OUTPUT="$("$CLI_BIN" query --db "$DB_PATH" --canonical-only --limit 10)"
 case "$QUERY_CANONICAL_OUTPUT" in
   *"canonical=1"* ) ;;

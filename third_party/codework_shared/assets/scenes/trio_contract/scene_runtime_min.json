@@ -5,8 +5,9 @@
   "scene_id": "scene_trio_min",
   "source_scene_id": "scene_trio_min",
   "compile_meta": {
-    "compiler_version": "0.1.0",
-    "compiled_at_ns": 0
+    "compiler_version": "0.2.0",
+    "compiled_at_ns": 0,
+    "normalization": "v0.2_sorted_lanes"
   },
   "space_mode_default": "2d",
   "unit_system": "meters",
@@ -33,6 +34,7 @@
       }
     }
   ],
+  "hierarchy": [],
   "materials": [
     {
       "material_id": "mat_default",

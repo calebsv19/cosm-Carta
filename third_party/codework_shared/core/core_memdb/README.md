@@ -19,7 +19,7 @@ Implemented capabilities:
 Current status:
 - the SQLite amalgamation is now vendored under `external/` and compiled into the module archive
 - the core DB API runs against real SQLite handles
-- `mem_cli` supports `add`, `list`, `find`, `show`, `pin`, `canonical`, and `rollup`
+- `mem_cli` supports `add`, `list`, `find`, `show`, `pin`, `canonical`, `item-retag`, and `rollup`
 - `mem_cli` now includes bounded retrieval via `query` for agent-oriented fetch flows
 - `mem_cli add` now supports scoped metadata (`workspace_key`, `project_key`, `kind`)
 - `mem_cli query` now supports scoped filters (`--workspace`, `--project`, `--kind`)
@@ -83,6 +83,8 @@ Current status:
   - `tools/mem_nightly_rollup_cycle_test.sh` (copies main DB -> test DB, dry run, auto-approve test plan, locked apply, checksum guard on main DB)
 - one-line official main-db rollup harness now exists for intentional real apply:
   - `tools/mem_nightly_rollup_cycle_main_apply.sh` (dry pass, auto-approve scoped/chunked rollup + connection pass, locked apply on main DB)
+- hierarchy migration helper now exists for staged graph-structure rollout:
+  - `tools/mem_hierarchy_migrate.sh` (`--dry-run`/`--apply`, pillar anchor seeding, bounded recategorization link plan, structured run artifacts)
 - rollup command now supports scoped and chunked compression:
   - `mem_cli rollup --before <ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>]`
 - rollup summary bodies are now synthesized for readability:
@@ -117,6 +119,11 @@ Agent helper wrapper:
 - `retrieve-search` enforces `--query` and defaults to `--limit 24`
 - `write` maps to `add`
 - `write-linked` maps to `add` + `link-add` (uses created id for immediate graph connectivity)
+- `write-linked` now supports repeated `--link-from`/`--link-to` anchors in one write
+- `write-linked` now performs wrapper-side link-kind validation and dedupes repeated edge requests
+- `write-hier-linked` maps to `add` + hierarchy-first bounded `link-add` selection:
+  - resolves project pillar anchors (`scope/plans/decisions/issues/misc`) by stable id
+  - defaults to front-loaded link counts (1 typical, 2 occasional, 3+ rare/high-importance)
 - scoped flags pass through on both retrieval and write:
   - retrieval filters: `--workspace`, `--project`, `--kind`
   - write metadata: `--workspace`, `--project`, `--kind`
@@ -158,6 +165,7 @@ Current CLI surface:
 - `mem_cli event-backfill --db <path> [--session-id <id>] [--dry-run] [--format text|json]`
 - `mem_cli pin --db <path> --id <rowid> --on|--off [--session-id <id>]`
 - `mem_cli canonical --db <path> --id <rowid> --on|--off [--session-id <id>]`
+- `mem_cli item-retag --db <path> --id <rowid> [--workspace <key>] [--project <key>] [--kind <value>] [--include-archived] [--session-id <id>]`
 - `mem_cli rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>]`
 - `mem_cli link-add --db <path> --from <item_id> --to <item_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>]`
 - `mem_cli link-list --db <path> --item-id <item_id>`

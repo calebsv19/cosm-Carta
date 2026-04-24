@@ -6,7 +6,8 @@
   "source_scene_id": "scene_trio_min",
   "compile_meta": {
     "compiled_at_ns": 999,
-    "compiler_version": "0.1.0"
+    "compiler_version": "0.2.0",
+    "normalization": "v0.2_sorted_lanes"
   },
   "unit_system": "meters",
   "space_mode_default": "2d",
@@ -33,6 +34,7 @@
       }
     }
   ],
+  "hierarchy": [],
   "materials": [
     {
       "kind": "lambert",

@@ -73,6 +73,44 @@ static int parse_tsv_fields(char *line, char **fields, int max_fields) {
     return field_count;
 }
 
+static CoreResult item_exists_any(CoreMemDb *db, int64_t item_id, int *out_exists) {
+    CoreMemStmt stmt = {0};
+    CoreResult result;
+    int has_row = 0;
+
+    if (!db || item_id <= 0 || !out_exists) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid argument" };
+    }
+
+    *out_exists = 0;
+    result = core_memdb_prepare(db,
+                                "SELECT 1 FROM mem_item WHERE id = ?1;",
+                                &stmt);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+    result = core_memdb_stmt_bind_i64(&stmt, 1, item_id);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    result = core_memdb_stmt_step(&stmt, &has_row);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+
+    *out_exists = has_row ? 1 : 0;
+    result = core_result_ok();
+
+cleanup:
+    {
+        CoreResult finalize_result = core_memdb_stmt_finalize(&stmt);
+        if (result.code == CORE_OK && finalize_result.code != CORE_OK) {
+            result = finalize_result;
+        }
+    }
+    return result;
+}
+
 static int build_fingerprint(const char *title,
                              const char *body,
                              char *out_fingerprint,
@@ -455,6 +493,126 @@ static CoreResult build_item_archive_event_payload_alloc(CoreMemDb *db,
     }
     if (!has_row) {
         result = (CoreResult){ CORE_ERR_NOT_FOUND, "item archive payload source not found" };
+        goto cleanup;
+    }
+    result = core_memdb_stmt_column_text(&stmt, 0, &json_text);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+
+    if (!json_text.data || json_text.len == 0u) {
+        buffer = (char *)core_alloc(3u);
+        if (!buffer) {
+            result = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+            goto cleanup;
+        }
+        memcpy(buffer, "{}", 3u);
+        *out_json = buffer;
+        buffer = 0;
+        result = core_result_ok();
+        goto cleanup;
+    }
+
+    buffer = (char *)core_alloc(json_text.len + 1u);
+    if (!buffer) {
+        result = (CoreResult){ CORE_ERR_OUT_OF_MEMORY, "out of memory" };
+        goto cleanup;
+    }
+    memcpy(buffer, json_text.data, json_text.len);
+    buffer[json_text.len] = '\0';
+    *out_json = buffer;
+    buffer = 0;
+    result = core_result_ok();
+
+cleanup:
+    core_free(buffer);
+    {
+        CoreResult finalize_result = core_memdb_stmt_finalize(&stmt);
+        if (result.code == CORE_OK && finalize_result.code != CORE_OK) {
+            result = finalize_result;
+        }
+    }
+    return result;
+}
+
+static CoreResult build_item_metadata_patch_payload_alloc(CoreMemDb *db,
+                                                          int64_t item_id,
+                                                          const char *workspace_key,
+                                                          const char *project_key,
+                                                          const char *item_kind,
+                                                          int64_t updated_ns,
+                                                          char **out_json) {
+    CoreMemStmt stmt = {0};
+    CoreResult result;
+    int has_row = 0;
+    CoreStr json_text = {0};
+    char *buffer = 0;
+
+    if (!db || item_id <= 0 || !out_json) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid argument" };
+    }
+    *out_json = 0;
+
+    result = core_memdb_prepare(db,
+                                "SELECT json_set("
+                                "json_set("
+                                "json_set("
+                                "json_set("
+                                "json_object("
+                                "'title', title, "
+                                "'body', body, "
+                                "'fingerprint', fingerprint, "
+                                "'stable_id', COALESCE(stable_id, ''), "
+                                "'workspace_key', workspace_key, "
+                                "'project_key', project_key, "
+                                "'kind', kind, "
+                                "'created_ns', created_ns, "
+                                "'updated_ns', updated_ns, "
+                                "'pinned', pinned, "
+                                "'canonical', canonical, "
+                                "'ttl_until_ns', ttl_until_ns, "
+                                "'archived_ns', archived_ns"
+                                "), "
+                                "'$.workspace_key', COALESCE(?2, workspace_key)"
+                                "), "
+                                "'$.project_key', COALESCE(?3, project_key)"
+                                "), "
+                                "'$.kind', COALESCE(?4, kind)"
+                                "), "
+                                "'$.updated_ns', ?5"
+                                ") "
+                                "FROM mem_item "
+                                "WHERE id = ?1;",
+                                &stmt);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+    result = core_memdb_stmt_bind_i64(&stmt, 1, item_id);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    result = bind_optional_text_or_null(&stmt, 2, workspace_key);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    result = bind_optional_text_or_null(&stmt, 3, project_key);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    result = bind_optional_text_or_null(&stmt, 4, item_kind);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    result = core_memdb_stmt_bind_i64(&stmt, 5, updated_ns);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    result = core_memdb_stmt_step(&stmt, &has_row);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    if (!has_row) {
+        result = (CoreResult){ CORE_ERR_NOT_FOUND, "item metadata patch payload source not found" };
         goto cleanup;
     }
     result = core_memdb_stmt_column_text(&stmt, 0, &json_text);
@@ -1145,6 +1303,227 @@ cleanup:
     if (tx_started) {
         (void)core_memdb_tx_rollback(&db);
     }
+    (void)core_memdb_close(&db);
+    return exit_code;
+}
+
+int cmd_item_retag(int argc, char **argv) {
+    const char *db_path = find_flag_value(argc, argv, "--db");
+    const char *id_text = find_flag_value(argc, argv, "--id");
+    const char *session_id = find_flag_value(argc, argv, "--session-id");
+    const char *workspace_key_override = find_flag_value(argc, argv, "--workspace");
+    const char *project_key_override = find_flag_value(argc, argv, "--project");
+    const char *item_kind_override = find_flag_value(argc, argv, "--kind");
+    int include_archived = has_flag(argc, argv, "--include-archived");
+    int64_t item_id = 0;
+    int64_t changed_rows = 0;
+    int64_t now_ns = 0;
+    char stable_id[128];
+    char old_workspace_key[128];
+    char old_project_key[128];
+    char old_item_kind[128];
+    char new_workspace_key[128];
+    char new_project_key[128];
+    char new_item_kind[128];
+    char detail[512];
+    const char *event_workspace_key = 0;
+    const char *event_project_key = 0;
+    const char *event_item_kind = 0;
+    char *event_payload = 0;
+    CoreMemDb db = {0};
+    CoreMemStmt apply_stmt = {0};
+    CoreResult result;
+    int tx_started = 0;
+    int item_active = 0;
+    int has_row = 0;
+    int exit_code = 1;
+
+    if (!db_path || !id_text || !parse_i64_arg(id_text, &item_id) ||
+        (!workspace_key_override && !project_key_override && !item_kind_override)) {
+        print_usage(argv[0]);
+        return 1;
+    }
+    if (!open_db_or_fail(db_path, &db)) {
+        return 1;
+    }
+
+    now_ns = current_time_ns();
+    result = core_memdb_tx_begin(&db);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    tx_started = 1;
+
+    if (include_archived) {
+        result = item_exists_any(&db, item_id, &item_active);
+    } else {
+        result = item_exists_active(&db, item_id, &item_active);
+    }
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    if (!item_active) {
+        fprintf(stderr, "item-retag: id %lld not found\n", (long long)item_id);
+        goto cleanup;
+    }
+
+    result = fetch_item_audit_metadata(&db,
+                                       item_id,
+                                       stable_id,
+                                       sizeof(stable_id),
+                                       old_workspace_key,
+                                       sizeof(old_workspace_key),
+                                       old_project_key,
+                                       sizeof(old_project_key),
+                                       old_item_kind,
+                                       sizeof(old_item_kind));
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+
+    result = build_item_metadata_patch_payload_alloc(&db,
+                                                     item_id,
+                                                     workspace_key_override,
+                                                     project_key_override,
+                                                     item_kind_override,
+                                                     now_ns,
+                                                     &event_payload);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+
+    event_workspace_key = workspace_key_override ? workspace_key_override : old_workspace_key;
+    event_project_key = project_key_override ? project_key_override : old_project_key;
+    event_item_kind = item_kind_override ? item_kind_override : old_item_kind;
+
+    result = append_event_entry(&db,
+                                session_id,
+                                "NodeMetadataPatched",
+                                item_id,
+                                0,
+                                stable_id[0] != '\0' ? stable_id : 0,
+                                event_workspace_key,
+                                event_project_key,
+                                event_item_kind,
+                                event_payload);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+
+    result = core_memdb_prepare(&db, kApplyItemEventSql, &apply_stmt);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_bind_i64(&apply_stmt, 1, item_id);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_bind_text(&apply_stmt, 2, event_payload);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_bind_i64(&apply_stmt, 3, 0);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_bind_i64(&apply_stmt, 4, now_ns);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_step(&apply_stmt, &has_row);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    if (has_row) {
+        print_core_error("item-retag", (CoreResult){ CORE_ERR_FORMAT, "item-retag apply returned unexpected row" });
+        goto cleanup;
+    }
+    result = core_memdb_stmt_finalize(&apply_stmt);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+
+    result = fetch_changes(&db, &changed_rows);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    if (changed_rows != 1) {
+        print_core_error("item-retag", (CoreResult){ CORE_ERR_FORMAT, "item-retag changed unexpected row count" });
+        goto cleanup;
+    }
+
+    result = fetch_item_audit_metadata(&db,
+                                       item_id,
+                                       stable_id,
+                                       sizeof(stable_id),
+                                       new_workspace_key,
+                                       sizeof(new_workspace_key),
+                                       new_project_key,
+                                       sizeof(new_project_key),
+                                       new_item_kind,
+                                       sizeof(new_item_kind));
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+
+    (void)snprintf(detail,
+                   sizeof(detail),
+                   "workspace=%s->%s project=%s->%s kind=%s->%s",
+                   old_workspace_key,
+                   new_workspace_key,
+                   old_project_key,
+                   new_project_key,
+                   old_item_kind,
+                   new_item_kind);
+    result = append_audit_entry(&db,
+                                session_id,
+                                "item-retag",
+                                "ok",
+                                item_id,
+                                stable_id[0] != '\0' ? stable_id : 0,
+                                new_workspace_key,
+                                new_project_key,
+                                new_item_kind,
+                                detail);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+
+    result = core_memdb_tx_commit(&db);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    tx_started = 0;
+
+    printf("item-retag id=%lld workspace=%s project=%s kind=%s\n",
+           (long long)item_id,
+           new_workspace_key,
+           new_project_key,
+           new_item_kind);
+    exit_code = 0;
+
+cleanup:
+    (void)core_memdb_stmt_finalize(&apply_stmt);
+    if (tx_started) {
+        (void)core_memdb_tx_rollback(&db);
+    }
+    core_free(event_payload);
     (void)core_memdb_close(&db);
     return exit_code;
 }
