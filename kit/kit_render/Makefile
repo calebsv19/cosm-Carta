@@ -33,6 +33,9 @@ endif
 
 LIB = $(OBJ_DIR)/libkit_render.a
 LIB_OBJ = $(OBJ_DIR)/kit_render.o $(OBJ_DIR)/kit_render_backend_null.o $(OBJ_DIR)/kit_render_backend_vk.o
+ifeq ($(KIT_RENDER_ENABLE_VK),1)
+LIB_OBJ += $(OBJ_DIR)/kit_render_external_text.o
+endif
 TEST_BIN = $(OBJ_DIR)/kit_render_test
 VALIDATION_BIN = $(OBJ_DIR)/kit_render_vk_validation
 
@@ -81,6 +84,9 @@ $(OBJ_DIR)/kit_render_backend_null.o: src/kit_render_backend_null.c src/kit_rend
 	$(CC) $(CFLAGS) $(VK_ENABLE_CFLAGS) $(INC) -c $< -o $@
 
 $(OBJ_DIR)/kit_render_backend_vk.o: src/kit_render_backend_vk.c src/kit_render_backend.h | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(VK_ENABLE_CFLAGS) $(INC) -c $< -o $@
+
+$(OBJ_DIR)/kit_render_external_text.o: src/kit_render_external_text.c include/kit_render_external_text.h | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(VK_ENABLE_CFLAGS) $(INC) -c $< -o $@
 
 $(LIB): $(LIB_OBJ)

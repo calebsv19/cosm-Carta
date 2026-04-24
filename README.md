@@ -31,3 +31,30 @@ Module checks:
 
 ## Versioning
 Shared module versioning policy is documented in `docs/VERSIONING.md`.
+
+## Shared Commit Staging Rule
+When committing shared-library changes, stage full library/doc subsets instead of individual files.
+
+Required workflow:
+1. Run `git -C shared status --short`.
+2. Identify new module directories (`?? core/core_*`, `?? kit/kit_*`) and updated module/doc directories.
+3. Stage by top-level subset directory (or explicitly removed subset dir) so each commit captures complete module state.
+4. Request/confirm commit title from user before any `git commit` command.
+
+Staging helper (review first, then run):
+```sh
+git -C shared status --short
+```
+
+Example full-subset staging pattern:
+```sh
+git -C shared add \
+  core/<module_dir> \
+  kit/<module_dir> \
+  docs \
+  showcase/<removed_or_updated_subset>
+```
+
+Commit title delegation rule:
+- The commit title is always user-owned.
+- Do not run `git commit` until the user explicitly confirms the exact commit title text.

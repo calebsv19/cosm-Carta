@@ -18,8 +18,9 @@ LIB = $(OBJ_DIR)/libcore_scene_compile.a
 LIB_OBJ = $(OBJ_DIR)/core_scene_compile.o
 TEST_BIN = $(OBJ_DIR)/core_scene_compile_test
 DIFF_BIN = $(OBJ_DIR)/scene_contract_diff
+COMPILE_TOOL_BIN = $(OBJ_DIR)/scene_compile_tool
 
-.PHONY: all clean test scene-contract-diff
+.PHONY: all clean test scene-contract-diff scene-compile-tool
 
 all: $(LIB)
 
@@ -49,6 +50,12 @@ $(DIFF_BIN): tools/scene_contract_diff.c | $(OBJ_DIR)
 
 scene-contract-diff: $(DIFF_BIN)
 	@echo "built $(DIFF_BIN)"
+
+$(COMPILE_TOOL_BIN): tools/scene_compile_tool.c $(LIB) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) $< $(LIB) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a -o $@
+
+scene-compile-tool: $(COMPILE_TOOL_BIN)
+	@echo "built $(COMPILE_TOOL_BIN)"
 
 clean:
 	rm -rf $(OBJ_DIR)

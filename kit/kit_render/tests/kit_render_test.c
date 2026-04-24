@@ -188,6 +188,78 @@ static int test_text_metrics(void) {
     return 0;
 }
 
+static int test_text_run_resolution(void) {
+    KitRenderContext ctx;
+    KitRenderResolvedTextRun run;
+    CoreFontRoleSpec role_spec;
+    CoreResult result;
+    int expected_point_size = 0;
+
+    result = kit_render_context_init(&ctx,
+                                     KIT_RENDER_BACKEND_NULL,
+                                     CORE_THEME_PRESET_IDE_GRAY,
+                                     CORE_FONT_PRESET_IDE);
+    if (result.code != CORE_OK) return 1;
+
+    result = kit_render_set_text_zoom_step(&ctx, 2);
+    if (result.code != CORE_OK) return 1;
+
+    result = core_font_resolve_role(&ctx.font, CORE_FONT_ROLE_UI_MONO_SMALL, &role_spec);
+    if (result.code != CORE_OK) return 1;
+    result = core_font_point_size_for_tier(&role_spec, CORE_FONT_TEXT_SIZE_CAPTION, &expected_point_size);
+    if (result.code != CORE_OK) {
+        expected_point_size = role_spec.point_size;
+    }
+    expected_point_size = (expected_point_size * kit_render_text_zoom_percent(&ctx)) / 100;
+    if (expected_point_size < 6) {
+        expected_point_size = 6;
+    }
+
+    result = kit_render_resolve_text_run(&ctx,
+                                         CORE_FONT_ROLE_UI_MONO_SMALL,
+                                         CORE_FONT_TEXT_SIZE_CAPTION,
+                                         2.5f,
+                                         &run);
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "text run resolution failed: %d\n", (int)result.code);
+        return 1;
+    }
+
+    if (run.role_spec.role != CORE_FONT_ROLE_UI_MONO_SMALL) return 1;
+    if (run.text_tier != CORE_FONT_TEXT_SIZE_CAPTION) return 1;
+    if (run.zoom_percent != 120) return 1;
+    if (run.logical_point_size != expected_point_size) return 1;
+    if (run.raster_point_size <= run.logical_point_size) return 1;
+    if (run.render_scale != 2.5f) return 1;
+    if (run.raster_scale <= 1.0f) return 1;
+    if (run.kerning_enabled != 0) return 1;
+    if (run.hinting != KIT_RENDER_TEXT_HINTING_LIGHT) return 1;
+    if (run.upload_filter != KIT_RENDER_TEXT_UPLOAD_FILTER_NEAREST) return 1;
+
+    result = kit_render_resolve_text_run(&ctx,
+                                         CORE_FONT_ROLE_UI_REGULAR,
+                                         CORE_FONT_TEXT_SIZE_BASIC,
+                                         0.5f,
+                                         &run);
+    if (result.code != CORE_OK) return 1;
+    if (run.render_scale != 1.0f) return 1;
+    if (run.raster_point_size != run.logical_point_size) return 1;
+    if (run.upload_filter != KIT_RENDER_TEXT_UPLOAD_FILTER_LINEAR) return 1;
+    if (run.kerning_enabled != 1) return 1;
+
+    result = kit_render_resolve_text_run(&ctx,
+                                         CORE_FONT_ROLE_UI_REGULAR,
+                                         CORE_FONT_TEXT_SIZE_BASIC,
+                                         1.0f,
+                                         0);
+    if (result.code != CORE_ERR_INVALID_ARG) {
+        fprintf(stderr, "expected invalid-arg for null text-run out\n");
+        return 1;
+    }
+
+    return 0;
+}
+
 static int test_runtime_preset_switching(void) {
     KitRenderContext ctx;
     KitRenderCommand storage[2];
@@ -355,6 +427,7 @@ int main(void) {
     if (test_frame_recording() != 0) return 1;
     if (test_theme_color_resolution() != 0) return 1;
     if (test_text_metrics() != 0) return 1;
+    if (test_text_run_resolution() != 0) return 1;
     if (test_runtime_preset_switching() != 0) return 1;
     if (test_invalid_commands() != 0) return 1;
     if (test_external_backend_attachment() != 0) return 1;

@@ -12,7 +12,10 @@ Modules covered:
 - `shared/core/core_config`
 - `shared/core/core_action`
 - `shared/core/core_scene`
+- `shared/core/core_scene_compile`
 - `shared/core/core_space`
+- `shared/core/core_units`
+- `shared/core/core_object`
 - `shared/core/core_trace`
 - `shared/core/core_math`
 - `shared/core/core_pane`

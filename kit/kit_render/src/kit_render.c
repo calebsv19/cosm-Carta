@@ -15,6 +15,30 @@ static CoreResult kit_render_invalid(const char *message) {
     return r;
 }
 
+enum {
+    KIT_RENDER_TEXT_ZOOM_STEP_MIN = -4,
+    KIT_RENDER_TEXT_ZOOM_STEP_MAX = 5
+};
+
+static int kit_render_clamp_int(int value, int min_value, int max_value) {
+    if (value < min_value) return min_value;
+    if (value > max_value) return max_value;
+    return value;
+}
+
+static float kit_render_clamp_float(float value, float min_value, float max_value) {
+    if (value < min_value) return min_value;
+    if (value > max_value) return max_value;
+    return value;
+}
+
+static int kit_render_role_kerning_enabled(CoreFontRoleId role_id) {
+    if (role_id == CORE_FONT_ROLE_UI_MONO || role_id == CORE_FONT_ROLE_UI_MONO_SMALL) {
+        return 0;
+    }
+    return 1;
+}
+
 static const KitRenderBackendOps *kit_render_select_backend_ops(KitRenderBackendKind backend) {
     switch (backend) {
         case KIT_RENDER_BACKEND_VULKAN:
@@ -70,6 +94,7 @@ CoreResult kit_render_context_init(KitRenderContext *ctx,
         return result;
     }
 
+    ctx->text_zoom_step = 0;
     ctx->frame_open = 0;
     return ops->init(ctx);
 }
@@ -92,6 +117,44 @@ CoreResult kit_render_set_font_preset(KitRenderContext *ctx, CoreFontPresetId fo
         return kit_render_invalid("cannot change font during frame");
     }
     return core_font_get_preset(font_id, &ctx->font);
+}
+
+int kit_render_text_zoom_step(const KitRenderContext *ctx) {
+    if (!ctx) {
+        return 0;
+    }
+    return kit_render_clamp_int(ctx->text_zoom_step,
+                                KIT_RENDER_TEXT_ZOOM_STEP_MIN,
+                                KIT_RENDER_TEXT_ZOOM_STEP_MAX);
+}
+
+int kit_render_text_zoom_percent(const KitRenderContext *ctx) {
+    int pct = 100 + (kit_render_text_zoom_step(ctx) * 10);
+    return kit_render_clamp_int(pct, 60, 180);
+}
+
+CoreResult kit_render_set_text_zoom_step(KitRenderContext *ctx, int step) {
+    if (!ctx) {
+        return kit_render_invalid("null context");
+    }
+    if (ctx->frame_open) {
+        return kit_render_invalid("cannot change text zoom during frame");
+    }
+    ctx->text_zoom_step = kit_render_clamp_int(step,
+                                               KIT_RENDER_TEXT_ZOOM_STEP_MIN,
+                                               KIT_RENDER_TEXT_ZOOM_STEP_MAX);
+    return core_result_ok();
+}
+
+CoreResult kit_render_adjust_text_zoom_step(KitRenderContext *ctx, int delta) {
+    if (!ctx) {
+        return kit_render_invalid("null context");
+    }
+    return kit_render_set_text_zoom_step(ctx, kit_render_text_zoom_step(ctx) + delta);
+}
+
+CoreResult kit_render_reset_text_zoom_step(KitRenderContext *ctx) {
+    return kit_render_set_text_zoom_step(ctx, 0);
 }
 
 CoreResult kit_render_attach_external_backend(KitRenderContext *ctx, void *backend_handle) {
@@ -336,6 +399,64 @@ CoreResult kit_render_measure_text(const KitRenderContext *ctx,
     }
 
     return ops->measure_text(ctx, font_role, text_tier, text, out_metrics);
+}
+
+CoreResult kit_render_resolve_text_run(const KitRenderContext *ctx,
+                                       CoreFontRoleId font_role,
+                                       CoreFontTextSizeTier text_tier,
+                                       float render_scale,
+                                       KitRenderResolvedTextRun *out_run) {
+    CoreFontRoleSpec role_spec;
+    CoreResult result;
+    int logical_point_size = 0;
+    int raster_point_size = 0;
+    int zoom_percent = 0;
+    float applied_render_scale = 1.0f;
+
+    if (!ctx || !out_run) {
+        return kit_render_invalid("invalid argument");
+    }
+
+    result = core_font_resolve_role(&ctx->font, font_role, &role_spec);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+
+    result = core_font_point_size_for_tier(&role_spec, text_tier, &logical_point_size);
+    if (result.code != CORE_OK) {
+        logical_point_size = role_spec.point_size;
+    }
+
+    zoom_percent = kit_render_text_zoom_percent(ctx);
+    logical_point_size = (logical_point_size * zoom_percent) / 100;
+    if (logical_point_size <= 0) {
+        logical_point_size = 10;
+    }
+    if (logical_point_size < 6) {
+        logical_point_size = 6;
+    }
+
+    applied_render_scale = kit_render_clamp_float(render_scale, 1.0f, 4.0f);
+    raster_point_size = (int)(((float)logical_point_size * applied_render_scale) + 0.5f);
+    if (raster_point_size < logical_point_size) {
+        raster_point_size = logical_point_size;
+    }
+
+    memset(out_run, 0, sizeof(*out_run));
+    out_run->role_spec = role_spec;
+    out_run->text_tier = text_tier;
+    out_run->zoom_percent = zoom_percent;
+    out_run->logical_point_size = logical_point_size;
+    out_run->raster_point_size = raster_point_size;
+    out_run->render_scale = applied_render_scale;
+    out_run->raster_scale =
+        (logical_point_size > 0) ? ((float)raster_point_size / (float)logical_point_size) : 1.0f;
+    out_run->kerning_enabled = kit_render_role_kerning_enabled(font_role);
+    out_run->hinting = KIT_RENDER_TEXT_HINTING_LIGHT;
+    out_run->upload_filter =
+        (out_run->raster_scale > 1.0f) ? KIT_RENDER_TEXT_UPLOAD_FILTER_NEAREST
+                                       : KIT_RENDER_TEXT_UPLOAD_FILTER_LINEAR;
+    return core_result_ok();
 }
 
 CoreResult kit_render_resolve_theme_color(const KitRenderContext *ctx,

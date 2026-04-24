@@ -119,8 +119,11 @@ static CoreResult null_backend_measure_text(const KitRenderContext *ctx,
         line_height = 16;
     }
 
-    out_metrics->width_px = (float)((int)len * char_width);
-    out_metrics->height_px = (float)line_height;
+    {
+        float pct = (float)kit_render_text_zoom_percent(ctx) / 100.0f;
+        out_metrics->width_px = (float)((int)len * char_width) * pct;
+        out_metrics->height_px = (float)line_height * pct;
+    }
     return core_result_ok();
 }
 

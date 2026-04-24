@@ -17,7 +17,10 @@ This document defines what each shared library owns so behavior does not overlap
 - `core_wake`: cross-thread wake/wait abstraction for kernel orchestration.
 - `core_kernel`: runtime phase orchestration and module lifecycle policy.
 - `core_scene`: scene schema and scene-level object grouping/state metadata.
+- `core_scene_compile`: shared authoring-to-runtime scene compile and normalization boundary.
 - `core_space`: coordinate-space mapping, transforms, and grid/window/world conversion.
+- `core_units`: unit vocabulary, unit conversions, and world-scale conversion primitives.
+- `core_object`: app-neutral object identity/transform/dimensional-mode validation primitives.
 - `core_pack`: versioned chunked interchange container (`.pack`).
 - `core_layout`: renderer-agnostic layout transaction state (runtime/authoring mode, apply/cancel, revision/rebuild flags).
 - `core_config`: lightweight typed runtime configuration table boundary.

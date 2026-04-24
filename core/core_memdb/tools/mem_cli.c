@@ -62,6 +62,9 @@ int main(int argc, char **argv) {
     if (strcmp(command, "canonical") == 0) {
         return cmd_set_bool_field(argc, argv, "canonical", "canonical");
     }
+    if (strcmp(command, "item-retag") == 0) {
+        return cmd_item_retag(argc, argv);
+    }
     if (strcmp(command, "rollup") == 0) {
         return cmd_rollup(argc, argv);
     }

@@ -108,6 +108,7 @@ Live commands:
 - `event-backfill`
 - `pin`
 - `canonical`
+- `item-retag`
 - `rollup`
 - `link-add`
 - `link-list`
@@ -171,6 +172,11 @@ Operational semantics:
   - boolean lane toggles for active rows
   - event-first write path: append `NodePinnedSet`/`NodeCanonicalSet`, then apply projection update from payload in the same transaction
   - writes append audit entries (action=`pin`/`canonical`)
+- `item-retag`:
+  - metadata retag for an existing row (`workspace_key`, `project_key`, and/or `kind`)
+  - supports `--include-archived` for migration-safe bucket normalization on archived rows
+  - event-first write path: appends `NodeMetadataPatched` with full row snapshot payload, then applies projection update in the same transaction
+  - writes append audit entries (action=`item-retag`)
 - `rollup`:
   - one transaction
   - selects eligible non-pinned, non-canonical, non-archived rows before cutoff
@@ -206,10 +212,14 @@ Mappings:
 - `retrieve-recent` -> `mem_cli query` (default `--limit 24`)
 - `retrieve-search` -> `mem_cli query` with required `--query` (default `--limit 24`)
 - `write` -> `mem_cli add`
-- `write-linked` -> `mem_cli add` then `mem_cli link-add` (uses created id)
+- `write-linked` -> `mem_cli add` then one-or-more `mem_cli link-add` calls (uses created id; supports repeated `--link-from`/`--link-to`)
+- `write-hier-linked` -> `mem_cli add` then bounded hierarchy-first `link-add` selection:
+  - resolves project pillar anchors by stable id (`scope/plans/decisions/issues/misc`)
+  - orders candidates parent-first, then pillar anchors, then explicit related ids
+  - applies front-loaded link counts (`1` default; `3+` reserved for higher-importance bridge nodes)
 - `batch-write` -> `mem_cli batch-add`
 - `health` -> `mem_cli health`
-- passthrough for other commands (including `event-replay-apply`)
+- passthrough for other commands (including `event-replay-apply` and `item-retag`)
 
 ### 3.3 `mem_console` behavior
 
@@ -289,6 +299,10 @@ Current policy:
     - `max_neighbor_links_per_rollup`
     - `neighbor_scan_max_edges`
     - `neighbor_scan_max_nodes`
+- codex run wrapper writes one suggestion memory node per run for iterative system-improvement tracking:
+  - default bucket: `workspace=codework`, `project=memory_console_codex_suggestions`, `kind=decision`
+  - links new suggestion nodes to prior suggestions with `related` edges
+  - writes `codex_rollup_improvement.md` only for major findings by default
 
 ## 4. Anti-bloat behavior in current implementation
 
@@ -344,6 +358,24 @@ Write:
 - prefer update-over-new by dedupe semantics
 - add graph links explicitly (`link-add`) or use wrapper `write-linked` during create
 - cap write count per session in orchestration
+
+Hierarchy-first active-link policy (Phase 1 contract direction):
+- maintain per-project pillar anchors:
+  - `scope-<project>`, `plans-<project>`, `decisions-<project>`, `issues-<project>`, `misc-<project>`
+- classify each new node into a primary lane and link parent-first:
+  - `kind=plan` -> `plans-<project>`
+  - `kind=decision` -> `decisions-<project>`
+  - `kind=issue` -> `issues-<project>`
+  - fallback to `scope-<project>` or `misc-<project>` when uncertain
+- keep link budgets dynamic and low-noise:
+  - front-loaded distribution: `1` default, `2` occasional, `3` uncommon, `4` rare, `5` exceptional
+  - most nodes should stay at `1-2` links; reserve `3-5` for high-importance bridge nodes
+  - enforce non-isolation invariant: minimum `1` link
+- use lateral links only when semantically justified (not by fixed quota)
+- wrapper support:
+  - `write-hier-linked` encodes this policy as a bounded default path for active memory writes
+- allow cross-project links only for explicit shared implementation/dependency bridges
+- for first recategorization passes, prefer additive pillar linking before removing historical links
 
 Maintenance:
 - run `rollup` in explicit maintenance windows, not inside every agent turn

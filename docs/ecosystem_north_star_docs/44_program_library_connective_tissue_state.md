@@ -1,6 +1,6 @@
 # Program Library Connective Tissue State
 
-Last updated: 2026-03-09
+Last updated: 2026-03-11
 
 Purpose:
 - Provide a single current-state reference for shared-library connections across active programs.
@@ -52,11 +52,11 @@ Legend:
 | Program | base | io | data | pack | scene | space | trace | math | theme | font | time | queue | sched | jobs | workers | wake | kernel | memdb | pane | kit_viz | kit_render | kit_ui | kit_graph_ts | kit_graph_struct | sys_shims |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | datalab | A | A | A | A | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | A | - | - | P | - | - |
-| daw | A | A | P | P | - | - | - | - | A | A | A | - | - | - | - | - | - | - | - | A | - | - | - | - | - |
+| daw | A | A | P | P | - | - | P | - | A | A | A | A | A | A | P | A | A | - | - | A | - | - | - | - | - |
 | ide | A | A | A | A | - | - | - | - | A | A | A | A | A | A | A | A | A | - | - | - | - | - | - | - | - |
 | line_drawing | A | P | P | P | P | - | P | P | A | A | A | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
 | line_drawing3d | A | P | P | P | P | - | P | P | A | A | A | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| map_forge | A | A | P | P | - | A | P | - | A | A | A | A | - | - | A | A | - | - | - | - | - | - | - | - | - |
+| map_forge | A | A | P | P | - | A | P | - | A | A | A | A | A | A | A | A | A | - | - | - | - | - | - | - | - |
 | physics_sim | A | A | P | A | A | - | P | - | A | A | - | - | - | - | - | - | - | - | - | A | - | - | - | - | P |
 | ray_tracing | A | A | P | P | A | A | P | - | A | A | A | - | - | - | - | - | - | - | - | A | - | - | - | - | - |
 | fisiCs | P | P | P | P | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | A |
@@ -80,12 +80,15 @@ Next migration slices:
 ### `daw`
 Implemented now:
 - strong runtime/theme/font spine with `core_time` + `core_theme/core_font`
+- mainthread execution-core path now adopted for `core_queue/core_sched/core_jobs/core_wake/core_kernel`
 - `kit_viz` adapters integrated
+- Slice 2 contract guard complete: deterministic `daw_pack_contract_parity_test` validates shared `core_pack` chunk contract and embedded `core_data` dataset schema keys
+- Slice 3 data contract hardening complete: embedded dataset metadata now includes additive `schema_family`/`schema_variant`, and canonical `daw_selection_v1` table is locked by deterministic test coverage
+- Slice 4 trace diagnostics lane complete: deterministic `daw_trace_export_contract_test` validates shared `core_trace` export lanes for transport/scheduler timing plus canonical `trace_start/trace_end` markers
+- Slice 5 workers-lane adoption complete: async diagnostics trace export now runs through shared `core_workers` with deterministic completion/contract coverage (`daw_trace_export_async_contract_test`)
 
 Next:
-1. deepen `core_data` ownership for timeline/session structures
-2. align pack payloads to canonical `core_data` table contracts
-3. evaluate execution-core adoption beyond `core_time` where transport/background work benefits
+1. optional follow-on: evaluate broader runtime-loop worker migration beyond diagnostics lanes
 
 ### `ide`
 Implemented now:
@@ -100,25 +103,35 @@ Next:
 Implemented now:
 - shared base/scene/math/time + theme/font
 - partial data/pack/trace tooling integration
+- low-risk `core_io` cleanup completed for theme preset persistence (shared `core_io` read/write/path helpers)
 
 Next:
-1. lock import contract parity (JSON-only vs JSON+pack)
-2. standardize data/pack/trace output schemas between 2D/3D apps
-3. evaluate execution-core only when asynchronous/background orchestration becomes material
+1. import contract parity locked: JSON-only runtime import (`.pack` diagnostics-tooling only)
+2. standardize data/pack output schemas between 2D/3D apps (data and pack parity now aligned)
+3. defer remaining directory/export helper IO migration until shared `core_io` directory/create APIs are available
+4. evaluate execution-core only when asynchronous/background orchestration becomes material
 
 ### `map_forge`
 Implemented now:
-- shared space + partial execution-core (`time/queue/workers/wake`)
+- shared space + execution-core lane now includes `time/queue/sched/jobs/workers/wake/kernel`
+- execution-core Slice 2 ready-lane migration complete: `app_tile_pipeline` Vulkan asset worker ready-handoff now uses shared `core_queue` (`CoreQueueMutex`) with additive queue semantics
+- execution-core Slice 3 queue migration complete: `app_tile_pipeline` Vulkan polygon prep in/out handoff now uses shared `core_queue` (`CoreQueueMutex`) with additive worker policy
+- diagnostics contract Slice 4 complete: deterministic `test_build_safety.sh` assertions now lock required `meta.dataset.json` schema/table keys, and deterministic `map_trace_contract_test` now locks shared trace pack chunk contract (`TRHD/TRSM/TREV`) plus canonical runtime lane/marker vocabulary (including lifecycle `trace_start/trace_end`)
+- diagnostics contract Slice 5 complete: deterministic `map_trace_contract_test` now locks strict shared trace pack parity (exact chunk count/order and deterministic payload sizes for `TRSM`/`TREV`)
 - theme/font integrated
 
 Next:
-1. complete execution-core (`sched/jobs/kernel`) if runtime loop standardization is desired
+1. stabilize/expand execution-core usage beyond current tile-loader + vk-asset-ready + vk-poly-prep queue lanes where app-local pthread/cond queues still exist
 2. deepen `core_data/core_pack/core_trace` beyond additive diagnostics lanes
 
 ### `physics_sim`
 Implemented now:
 - strong base/io/pack/scene + theme/font + `kit_viz`
 - partial data/trace + `sys_shims`
+- trace tooling Slice 1 hardening complete: `physics_trace_tool` now uses shared `core_io` for manifest/path IO
+- trace tooling Slice 2 guard complete: deterministic `manifest_to_trace` smoke checks lane/marker contract
+- data tooling Slice 3 hardening complete: VF2D dataset sidecars include additive `schema_family`/`schema_variant` metadata keys
+- pack/data Slice 4 guard complete: deterministic parity test validates VF2D `.pack` chunks against dataset sidecar schema
 
 Next:
 1. deepen `core_data` usage for broader simulation datasets
@@ -130,12 +143,18 @@ Next:
 Implemented now:
 - broad shared adoption (`base/io/scene/space/time`, theme/font, `kit_viz`)
 - partial data/pack/trace
+- Slice 1 complete: `fluid_import` low-risk file/manifest helpers now use shared `core_io`
+- Slice 2 complete: render metrics dataset includes additive `schema_family`/`schema_variant` metadata keys
+- Slice 3 complete: shared theme preset persistence adapter now uses shared `core_io` path/read/write helpers
 
 Next:
 1. raise `core_data` usage from export slices to richer runtime datasets
 2. lock pack schemas around that model for cross-app interoperability
-3. promote trace lanes from tooling-first to standardized runtime contracts
-4. evaluate execution-core adoption beyond `core_time` only where useful
+3. trace tooling source lane restored: `ray_trace_tool` + `manifest_to_trace` now build/run on shared fixture input
+4. deterministic trace contract smoke checks now verify emitted lanes/markers (`test-manifest-to-trace-export`)
+5. deterministic `core_pack` import parity guard now verifies `VFHD/DENS/VELX/VELY` contract (`test-fluid-pack-contract-parity`)
+6. promote trace lanes from tooling-first to standardized runtime contracts
+7. evaluate execution-core adoption beyond `core_time` only where useful
 
 ### `fisiCs`
 Implemented now:
@@ -159,7 +178,7 @@ Next:
 
 1. Complete the next two DataLab `kit_graph_timeseries` adoption slices (view math + hover), then first draw-path migration.
 2. Consolidate `core_data` + `core_pack` schema usage in `daw`, `physics_sim`, `ray_tracing`, `map_forge`.
-3. Complete `map_forge` execution-core rollout if runtime policy convergence is still desired.
+3. Evaluate/expand `core_workers` adoption in apps with partial execution-core rollout (`daw`, `map_forge`, `ray_tracing`) where runtime policy convergence is still desired.
 4. Keep `mem_console` as the forward integration host for `core_pane` + visual kit evolution, but avoid leaking host-specific policy into core/kit APIs.
 
 ## Maintenance Rule
