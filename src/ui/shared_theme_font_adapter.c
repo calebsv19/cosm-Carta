@@ -456,12 +456,12 @@ bool mapforge_shared_font_resolve_ui_regular(char *out_path, size_t out_path_siz
 
     preset_name = getenv("MAPFORGE_FONT_PRESET");
     if (!preset_name || !preset_name[0]) {
-        preset_name = "daw_default";
+        preset_name = "ide";
     }
 
     r = core_font_get_preset_by_name(preset_name, &preset);
     if (r.code != CORE_OK) {
-        r = core_font_get_preset(CORE_FONT_PRESET_DAW_DEFAULT, &preset);
+        r = core_font_get_preset(CORE_FONT_PRESET_IDE, &preset);
         if (r.code != CORE_OK) {
             return false;
         }
@@ -477,7 +477,7 @@ bool mapforge_shared_font_resolve_ui_regular(char *out_path, size_t out_path_siz
         return false;
     }
 
-    r = core_font_point_size_for_tier(&role, CORE_FONT_TEXT_SIZE_PARAGRAPH, &tier_size);
+    r = core_font_point_size_for_tier(&role, CORE_FONT_TEXT_SIZE_BASIC, &tier_size);
     if (r.code == CORE_OK && tier_size > 0) {
         *out_point_size = tier_size;
     } else {

@@ -30,6 +30,7 @@ CORE_TRACE_DIR := $(SHARED_ROOT)/core/core_trace
 CORE_THEME_DIR := $(SHARED_ROOT)/core/core_theme
 CORE_FONT_DIR := $(SHARED_ROOT)/core/core_font
 KIT_RUNTIME_DIAG_DIR := $(SHARED_ROOT)/kit/kit_runtime_diag
+KIT_RENDER_DIR := $(SHARED_ROOT)/kit/kit_render
 
 CORE_SPACE_LIB := $(CORE_SPACE_DIR)/build/libcore_space.a
 CORE_BASE_LIB := $(CORE_BASE_DIR)/build/libcore_base.a
@@ -47,6 +48,7 @@ CORE_TRACE_LIB := $(CORE_TRACE_DIR)/build/libcore_trace.a
 CORE_THEME_LIB := $(CORE_THEME_DIR)/build/libcore_theme.a
 CORE_FONT_LIB := $(CORE_FONT_DIR)/build/libcore_font.a
 KIT_RUNTIME_DIAG_LIB := $(KIT_RUNTIME_DIAG_DIR)/build/libkit_runtime_diag.a
+KIT_RENDER_EXTERNAL_TEXT_OBJ := build/kit_render/kit_render_external_text.o
 
 VK_RENDERER_DIR ?= $(SHARED_ROOT)/vk_renderer
 VK_RENDERER_RESOLVED_DIR := $(VK_RENDERER_DIR)
@@ -102,12 +104,15 @@ CFLAGS += -I$(CORE_TRACE_DIR)/include
 CFLAGS += -I$(CORE_THEME_DIR)/include
 CFLAGS += -I$(CORE_FONT_DIR)/include
 CFLAGS += -I$(KIT_RUNTIME_DIAG_DIR)/include
+CFLAGS += -I$(KIT_RENDER_DIR)/include
 
 SRCS := $(shell find src -name '*.c')
 OBJS := $(SRCS:src/%.c=build/%.o)
 DEPS := $(OBJS:.o=.d)
+DEPS += $(KIT_RENDER_EXTERNAL_TEXT_OBJ:.o=.d)
 LINK_OBJS := $(OBJS)
 CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(KIT_RUNTIME_DIAG_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+LINK_OBJS += $(KIT_RENDER_EXTERNAL_TEXT_OBJ)
 LINK_OBJS += $(CORE_SHARED_LIBS)
 TARGET := build/mapforge
 DIST_DIR := dist
@@ -121,6 +126,12 @@ PACKAGE_TOOLS_DIR := $(PACKAGE_RESOURCES_DIR)/tools
 PACKAGE_INFO_PLIST_SRC := tools/packaging/macos/Info.plist
 PACKAGE_LAUNCHER_SRC := tools/packaging/macos/mapforge-launcher
 PACKAGE_DYLIB_BUNDLER := tools/packaging/macos/bundle-dylibs.sh
+PACKAGE_APP_ICON_NAME := AppIcon
+PACKAGE_APP_ICON_FILE := $(PACKAGE_APP_ICON_NAME).icns
+PACKAGE_LOCAL_ICON_DIR := tools/packaging/macos/local_app_icon
+PACKAGE_APP_ICON_SRC ?= $(PACKAGE_LOCAL_ICON_DIR)/$(PACKAGE_APP_ICON_FILE)
+PACKAGE_APP_ICONSET_SRC ?= $(PACKAGE_LOCAL_ICON_DIR)/$(PACKAGE_APP_ICON_NAME).iconset
+PACKAGE_BUNDLED_ICON_PATH := $(PACKAGE_RESOURCES_DIR)/$(PACKAGE_APP_ICON_FILE)
 DESKTOP_APP_DIR ?= $(HOME)/Desktop/$(PACKAGE_APP_NAME)
 PACKAGE_ADHOC_SIGN_IDENTITY ?= -
 
@@ -277,6 +288,10 @@ build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
+$(KIT_RENDER_EXTERNAL_TEXT_OBJ): $(KIT_RENDER_DIR)/src/kit_render_external_text.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
@@ -328,6 +343,9 @@ package-desktop-smoke: package-desktop
 	@test -x "$(PACKAGE_MACOS_DIR)/mapforge-launcher" || (echo "Missing launcher"; exit 1)
 	@test -x "$(PACKAGE_MACOS_DIR)/mapforge-bin" || (echo "Missing mapforge-bin"; exit 1)
 	@test -f "$(PACKAGE_CONTENTS_DIR)/Info.plist" || (echo "Missing Info.plist"; exit 1)
+	@if [ -f "$(PACKAGE_APP_ICON_SRC)" ] || [ -d "$(PACKAGE_APP_ICONSET_SRC)" ]; then \
+		test -f "$(PACKAGE_BUNDLED_ICON_PATH)" || (echo "Missing bundled AppIcon.icns"; exit 1); \
+	fi
 	@test -f "$(PACKAGE_RESOURCES_DIR)/assets/fonts/Montserrat-Regular.ttf" || (echo "Missing bundled Montserrat"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/config/app.config.json" || (echo "Missing bundled app config"; exit 1)
 	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_region" || (echo "Missing bundled mapforge_region tool"; exit 1)

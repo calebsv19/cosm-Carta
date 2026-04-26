@@ -108,6 +108,7 @@ Hardening now in place:
 
 `mapforge-launcher` sets app-relative defaults only when unset:
 - `VK_RENDERER_SHADER_ROOT=<app>/Contents/Resources`
+- `MAPFORGE_FONT_PRESET=ide`
 - `MAPFORGE_IMPORT_TOOLS_DIR` selection order:
   1. explicit env override (`MAPFORGE_IMPORT_TOOLS_DIR`)
   2. bundled tools dir (`<app>/Contents/Resources/tools`) when tools exist

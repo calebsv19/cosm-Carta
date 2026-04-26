@@ -1,6 +1,6 @@
 # MapForge Current Truth
 
-Last updated: 2026-04-15
+Last updated: 2026-04-21
 
 ## Program Identity
 - Repository directory: `map_forge/`
@@ -9,6 +9,13 @@ Last updated: 2026-04-15
   - `src/main.c` -> `map_forge_app_main()` in `src/app/map_forge_app_main.c`
   - wrapper run-loop stage still delegates to `app_run_legacy()` in `src/app/app.c` for behavior parity
   - lifecycle stage transitions are now context-owned and stage-validated in `map_forge_app_main`
+
+## Current Worktree Drift Snapshot (2026-04-21)
+- tile-pipeline modularization is in progress:
+  - helper contract extracted to `include/app/app_tile_pipeline_helpers.h`
+  - helper implementation extracted to `src/app/app_tile_pipeline_helpers.c`
+  - runtime queue/bounds/tile-lifecycle flow extraction is in progress in `src/app/app_tile_pipeline_runtime.c`
+- this is an in-flight structural split to reduce `app_tile_pipeline.c` size and isolate queue/runtime helper behavior without changing public operator docs contracts yet.
 
 ## Current Structure
 - Required scaffold lanes are present:

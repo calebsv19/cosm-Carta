@@ -1,7 +1,13 @@
 # MapForge Docs
 
 Start here for the public, operator-facing documentation that ships with the repository.
-Last audited: 2026-04-15.
+Last audited: 2026-04-21.
+
+## Current Focus
+
+- Tile-pipeline modularization is currently in progress:
+  - `src/app/app_tile_pipeline.c` is being split into helper/runtime lanes.
+  - active worktree files include `src/app/app_tile_pipeline_helpers.c`, `src/app/app_tile_pipeline_runtime.c`, and `include/app/app_tile_pipeline_helpers.h`.
 
 ## Start Here
 

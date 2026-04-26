@@ -1,6 +1,6 @@
 # MapForge Future Intent
 
-Last updated: 2026-04-15
+Last updated: 2026-04-21
 
 ## Scaffold Alignment Intent
 1. Preserve current subsystem decomposition strengths (`app`, `map`, `route`, `render`, etc.).
@@ -14,6 +14,14 @@ Last updated: 2026-04-15
   - stabilize D2 volatility handling with trend-window/quorum policy for throughput drift lanes.
   - continue routing capability work in `src/app/route/*` without coupling route behavior back into tile pipeline/presenter/render files.
   - preserve package contract and runtime-source-policy validation discipline for every region build/import lane.
+
+## Near-Term Modularization Intent (Current)
+- complete the `app_tile_pipeline.c` decomposition so queue/runtime/helper logic is stably distributed across:
+  - `src/app/app_tile_pipeline.c`
+  - `src/app/app_tile_pipeline_helpers.c`
+  - `src/app/app_tile_pipeline_runtime.c`
+  - `include/app/app_tile_pipeline_helpers.h`
+- keep behavioral parity while reducing top-level pipeline file size; prefer seam extraction and contract-preserving moves over mixed behavioral rewrites.
 
 ## Planned Next Structural Intent
 - `MF-S3` (completed):
