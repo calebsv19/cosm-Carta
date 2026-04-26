@@ -7,3 +7,4 @@ data/runtime/
 tmp/
 ide_files/
 vk_frame.ppm
+tools/packaging/macos/local_app_icon/

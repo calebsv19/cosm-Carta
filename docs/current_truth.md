@@ -208,6 +208,12 @@ Last updated: 2026-04-15
   - runtime-compatible shader mirror added at `Contents/Resources/shaders/*` to prevent packaged Vulkan shader-root mismatch.
   - region packs are not bundled by default; launcher resolves `MAPFORGE_REGIONS_DIR` via explicit override, bundle-with-packs, then dev fallbacks.
   - ingest tools (`mapforge_region`, `mapforge_graph`) are bundled into `Contents/Resources/tools` and exported via `MAPFORGE_IMPORT_TOOLS_DIR` by launcher defaults.
+  - packaged icon contract is now explicit:
+    - plist advertises `CFBundleIconFile=AppIcon`
+    - default local icon store is `tools/packaging/macos/local_app_icon/AppIcon.icns` and `tools/packaging/macos/local_app_icon/AppIcon.iconset`
+    - `package-desktop*` accepts either `PACKAGE_APP_ICON_SRC=/absolute/path/AppIcon.icns` or `PACKAGE_APP_ICONSET_SRC=/absolute/path/AppIcon.iconset`
+    - the local packaging icon store is gitignored and treated as a local distribution asset lane
+    - bundle output path is `Contents/Resources/AppIcon.icns`
 
 ## Connection Pass Status (Current)
 - `MF-CP0` complete:

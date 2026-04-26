@@ -2,6 +2,8 @@
 
 MapForge now supports standardized macOS app-bundle packaging via Makefile targets.
 
+Last updated: 2026-04-25
+
 ## Build Package
 
 ```sh
@@ -34,6 +36,29 @@ make package-desktop-sync
 make package-desktop-remove
 make package-desktop-refresh
 ```
+
+Optional icon inputs:
+
+```sh
+make package-desktop-refresh \
+  PACKAGE_APP_ICONSET_SRC="/absolute/path/AppIcon.iconset"
+```
+
+or
+
+```sh
+make package-desktop-refresh \
+  PACKAGE_APP_ICON_SRC="/absolute/path/AppIcon.icns"
+```
+
+If either variable is supplied, packaging will bundle `Contents/Resources/AppIcon.icns` and the app plist will advertise `CFBundleIconFile=AppIcon`.
+
+Default local icon store:
+
+- `map_forge/tools/packaging/macos/local_app_icon/AppIcon.icns`
+- `map_forge/tools/packaging/macos/local_app_icon/AppIcon.iconset`
+
+Plain `make -C map_forge package-desktop-refresh` and `package-desktop-self-test` now look in that local store first. The local icon store is gitignored so refreshed icon copies do not dirty the normal repo worktree.
 
 Default desktop destination:
 
@@ -104,6 +129,9 @@ Recommended final validation before moving to next project:
 2. `/Users/calebsv/Desktop/Carta.app/Contents/MacOS/mapforge-launcher --print-config`
 3. `open /Users/calebsv/Desktop/Carta.app`
 4. `tail -n 120 ~/Library/Logs/Carta/launcher.log`
+
+Note:
+- a fresh clone will still need an `AppIcon.icns` copied into `tools/packaging/macos/local_app_icon/` before plain packaging picks it up, because that lane is intentionally ignored.
 
 The launcher then switches cwd to `<app>/Contents/Resources` before executing `mapforge-bin` so relative runtime paths (`config/`, `assets/`, `data/runtime/`) resolve from the bundle.
 

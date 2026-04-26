@@ -294,6 +294,15 @@ package-desktop: app tools-build graph-build
 	@cp "$(TARGET)" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
 	@cp "$(PACKAGE_LAUNCHER_SRC)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher"
 	@chmod +x "$(PACKAGE_MACOS_DIR)/mapforge-launcher" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
+	@if [ -f "$(PACKAGE_APP_ICON_SRC)" ]; then \
+		cp "$(PACKAGE_APP_ICON_SRC)" "$(PACKAGE_BUNDLED_ICON_PATH)"; \
+		echo "Bundled app icon from $(PACKAGE_APP_ICON_SRC)"; \
+	elif [ -d "$(PACKAGE_APP_ICONSET_SRC)" ]; then \
+		/usr/bin/iconutil -c icns -o "$(PACKAGE_BUNDLED_ICON_PATH)" "$(PACKAGE_APP_ICONSET_SRC)" || exit 1; \
+		echo "Bundled app icon from $(PACKAGE_APP_ICONSET_SRC)"; \
+	else \
+		echo "warning: no app icon source found at $(PACKAGE_APP_ICON_SRC) or $(PACKAGE_APP_ICONSET_SRC)"; \
+	fi
 	@/bin/sh "$(PACKAGE_DYLIB_BUNDLER)" "$(PACKAGE_MACOS_DIR)/mapforge-bin" "$(PACKAGE_FRAMEWORKS_DIR)"
 	@mkdir -p "$(PACKAGE_RESOURCES_DIR)/assets" "$(PACKAGE_RESOURCES_DIR)/shared/assets" "$(PACKAGE_RESOURCES_DIR)/data/runtime" "$(PACKAGE_RESOURCES_DIR)/data/regions"
 	@cp -R assets/fonts "$(PACKAGE_RESOURCES_DIR)/assets/"
@@ -340,7 +349,7 @@ package-desktop-self-test: package-desktop-smoke
 package-desktop-copy-desktop: package-desktop
 	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
 	@rm -rf "$(DESKTOP_APP_DIR)"
-	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
+	@/usr/bin/ditto "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@echo "Copied $(PACKAGE_APP_NAME) to $(DESKTOP_APP_DIR)"
 
 package-desktop-sync: package-desktop-copy-desktop
@@ -356,7 +365,7 @@ package-desktop-remove:
 package-desktop-refresh: package-desktop
 	@mkdir -p "$$(dirname "$(DESKTOP_APP_DIR)")"
 	@rm -rf "$(DESKTOP_APP_DIR)"
-	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
+	@/usr/bin/ditto "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@echo "Refreshed $(PACKAGE_APP_NAME) at $(DESKTOP_APP_DIR)"
 
 release-contract:
