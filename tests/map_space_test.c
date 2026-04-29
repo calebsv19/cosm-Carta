@@ -5,6 +5,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <SDL.h>
 
 static int nearly_equal(float a, float b, float eps) {
     float d = a - b;
@@ -125,6 +126,96 @@ static int test_tile_wrap_and_clamp(void) {
     return 0;
 }
 
+static int test_camera_wheel_anchor_preserved(void) {
+    Camera camera;
+    InputState input = {0};
+    const int screen_w = 1920;
+    const int screen_h = 1080;
+    const float anchor_x = 1510.0f;
+    const float anchor_y = 312.0f;
+    float world_before_x = 0.0f;
+    float world_before_y = 0.0f;
+    float world_after_x = 0.0f;
+    float world_after_y = 0.0f;
+    Camera target_camera;
+
+    camera_init(&camera);
+    camera.x = -13618288.0f;
+    camera.y = 6046761.0f;
+    camera.x_target = camera.x;
+    camera.y_target = camera.y;
+    camera.zoom = 13.0f;
+    camera.zoom_target = camera.zoom;
+
+    camera_screen_to_world(&camera, anchor_x, anchor_y, screen_w, screen_h, &world_before_x, &world_before_y);
+
+    input.mouse_x = (int)anchor_x;
+    input.mouse_y = (int)anchor_y;
+    input.mouse_wheel_y = 1;
+    camera_handle_input(&camera, &input, screen_w, screen_h, 1.0f / 60.0f, false);
+
+    target_camera = camera;
+    target_camera.x = camera.x_target;
+    target_camera.y = camera.y_target;
+    target_camera.zoom = camera.zoom_target;
+    camera_screen_to_world(&target_camera, anchor_x, anchor_y, screen_w, screen_h, &world_after_x, &world_after_y);
+
+    if (!nearly_equal(world_before_x, world_after_x, 1.0f) ||
+        !nearly_equal(world_before_y, world_after_y, 1.0f) ||
+        !nearly_equal(camera.zoom_target, 13.25f, 0.0001f)) {
+        printf("FAIL camera_wheel_anchor_preserved before=(%.4f,%.4f) after=(%.4f,%.4f) zoom_target=%.4f\n",
+               world_before_x, world_before_y, world_after_x, world_after_y, camera.zoom_target);
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_camera_drag_pan_moves_world_with_cursor(void) {
+    Camera camera;
+    InputState input = {0};
+    const int screen_w = 1920;
+    const int screen_h = 1080;
+    const float screen_x = 840.0f;
+    const float screen_y = 460.0f;
+    const float delta_x = 48.0f;
+    const float delta_y = -32.0f;
+    float world_x = 0.0f;
+    float world_y = 0.0f;
+    float moved_screen_x = 0.0f;
+    float moved_screen_y = 0.0f;
+    Camera target_camera;
+
+    camera_init(&camera);
+    camera.x = -13618288.0f;
+    camera.y = 6046761.0f;
+    camera.x_target = camera.x;
+    camera.y_target = camera.y;
+    camera.zoom = 13.0f;
+    camera.zoom_target = camera.zoom;
+
+    camera_screen_to_world(&camera, screen_x, screen_y, screen_w, screen_h, &world_x, &world_y);
+
+    input.mouse_dx = (int)delta_x;
+    input.mouse_dy = (int)delta_y;
+    input.mouse_buttons = SDL_BUTTON_LMASK;
+    camera_handle_input(&camera, &input, screen_w, screen_h, 1.0f / 60.0f, true);
+
+    target_camera = camera;
+    target_camera.x = camera.x_target;
+    target_camera.y = camera.y_target;
+    camera_world_to_screen(&target_camera, world_x, world_y, screen_w, screen_h, &moved_screen_x, &moved_screen_y);
+
+    if (!nearly_equal(moved_screen_x, screen_x + delta_x, 0.1f) ||
+        !nearly_equal(moved_screen_y, screen_y + delta_y, 0.1f)) {
+        printf("FAIL camera_drag_pan_moves_world_with_cursor expected=(%.4f,%.4f) got=(%.4f,%.4f)\n",
+               screen_x + delta_x, screen_y + delta_y, moved_screen_x, moved_screen_y);
+        return 1;
+    }
+
+    return 0;
+}
+
 static int test_affine_constraint_solver(void) {
     float weights[3][3] = {
         {1.0f, 0.25f, 0.125f},
@@ -155,6 +246,8 @@ int main(void) {
     failures += test_tile_affine_matches_screen_projection();
     failures += test_screen_world_roundtrip();
     failures += test_tile_wrap_and_clamp();
+    failures += test_camera_wheel_anchor_preserved();
+    failures += test_camera_drag_pan_moves_world_with_cursor();
     failures += test_affine_constraint_solver();
 
     if (failures != 0) {

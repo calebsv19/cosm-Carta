@@ -49,6 +49,7 @@ Last updated: 2026-04-27
 ## Current Boundary
 - Continue post-A-D maintenance hardening while preserving contract-driven runtime behavior.
 - Complete current tile-pipeline modularization without changing published operator contract semantics.
+- Camera runtime now keeps Mercator zoom semantics, smoothing, and hot screen/world render transforms local while routing generic cursor-anchor zoom and drag-pan target math through vendored shared `core_viewport2d`.
 
 ## History and Deep Lane References
 - Full phase ledgers and archived docs are in:

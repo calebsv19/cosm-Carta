@@ -1,9 +1,9 @@
 #include "camera/camera.h"
+#include "camera_viewport_bridge.h"
 
 #include "map/mercator.h"
 
 #include <math.h>
-#include <SDL.h>
 
 static float clampf(float value, float min_value, float max_value) {
     if (value < min_value) {
@@ -36,53 +36,46 @@ void camera_handle_input(Camera *camera, const InputState *input, int screen_w, 
     }
 
     if (input->mouse_wheel_y != 0) {
-        float world_x = 0.0f;
-        float world_y = 0.0f;
-        camera_screen_to_world(camera, (float)input->mouse_x, (float)input->mouse_y, screen_w, screen_h, &world_x, &world_y);
-
         float zoom = camera->zoom_target + 0.25f * (float)input->mouse_wheel_y;
-        camera->zoom_target = clampf(zoom, 10.0f, 18.0f);
-
-        float temp_zoom = camera->zoom;
-        float temp_x = camera->x;
-        float temp_y = camera->y;
-        camera->zoom = camera->zoom_target;
-        float ppm = camera_pixels_per_meter(camera);
-        if (ppm > 0.0f) {
-            float dx = (float)input->mouse_x - (float)screen_w * 0.5f;
-            float dy = (float)input->mouse_y - (float)screen_h * 0.5f;
-            camera->x_target = world_x - dx / ppm;
-            camera->y_target = world_y + dy / ppm;
+        float next_zoom = clampf(zoom, (float)CAMERA_ZOOM_MIN_LEVEL, (float)CAMERA_ZOOM_MAX_LEVEL);
+        CoreResult zoom_result = camera_viewport_bridge_zoom_target_at_anchor(camera,
+                                                                              (float)input->mouse_x,
+                                                                              (float)input->mouse_y,
+                                                                              screen_w,
+                                                                              screen_h,
+                                                                              next_zoom);
+        if (zoom_result.code != CORE_OK) {
+            camera->zoom_target = next_zoom;
         }
-        camera->zoom = temp_zoom;
-        camera->x = temp_x;
-        camera->y = temp_y;
     }
-
-    float ppm = camera_pixels_per_meter(camera);
-    if (ppm <= 0.0f) {
-        return;
-    }
-
     const float pan_speed_pixels = 500.0f;
-    float pan_step = (pan_speed_pixels / ppm) * dt;
+    float pan_delta_x = 0.0f;
+    float pan_delta_y = 0.0f;
 
     if (input->pan_left) {
-        camera->x_target -= pan_step;
+        pan_delta_x += pan_speed_pixels * dt;
     }
     if (input->pan_right) {
-        camera->x_target += pan_step;
+        pan_delta_x -= pan_speed_pixels * dt;
     }
     if (input->pan_up) {
-        camera->y_target += pan_step;
+        pan_delta_y += pan_speed_pixels * dt;
     }
     if (input->pan_down) {
-        camera->y_target -= pan_step;
+        pan_delta_y -= pan_speed_pixels * dt;
     }
 
     if (allow_mouse_pan && (input->mouse_buttons & SDL_BUTTON_LMASK)) {
-        camera->x_target -= (float)input->mouse_dx / ppm;
-        camera->y_target += (float)input->mouse_dy / ppm;
+        pan_delta_x += (float)input->mouse_dx;
+        pan_delta_y += (float)input->mouse_dy;
+    }
+
+    if (pan_delta_x != 0.0f || pan_delta_y != 0.0f) {
+        (void)camera_viewport_bridge_pan_target_by_screen_delta(camera,
+                                                                pan_delta_x,
+                                                                pan_delta_y,
+                                                                screen_w,
+                                                                screen_h);
     }
 }
 

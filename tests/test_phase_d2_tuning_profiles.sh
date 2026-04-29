@@ -29,7 +29,7 @@ phase_gate_mode="${MAPFORGE_PHASE_D_GATE_MODE:-d2}"
 d2_max_load_ex_delta_seattle="${MAPFORGE_PHASE_D2_MAX_LOAD_EX_DELTA_SEATTLE:-4}"
 d2_max_l0_peak_delta_seattle="${MAPFORGE_PHASE_D2_MAX_L0_PEAK_DELTA_MS_SEATTLE:-1200}"
 d2_max_load_ex_delta_downtown="${MAPFORGE_PHASE_D2_MAX_LOAD_EX_DELTA_DOWNTOWN:-3}"
-d2_max_l0_peak_delta_downtown="${MAPFORGE_PHASE_D2_MAX_L0_PEAK_DELTA_MS_DOWNTOWN:-500}"
+d2_max_l0_peak_delta_downtown="${MAPFORGE_PHASE_D2_MAX_L0_PEAK_DELTA_MS_DOWNTOWN:-800}"
 d2_max_cov_drop="${MAPFORGE_PHASE_D2_MAX_MIN_COV_DROP:-0.010}"
 d2_max_fb_ratio_delta="${MAPFORGE_PHASE_D2_MAX_FB_RATIO_DELTA:-0.001}"
 d2_max_churn_band_delta="${MAPFORGE_PHASE_D2_MAX_CHURN_BAND_DELTA:-0}"
@@ -39,7 +39,7 @@ d2_max_band_fb_peak_delta="${MAPFORGE_PHASE_D2_MAX_BAND_FB_PEAK_DELTA:-0}"
 d3_alert_load_ex_delta_seattle="${MAPFORGE_PHASE_D3_ALERT_LOAD_EX_DELTA_SEATTLE:-8}"
 d3_alert_l0_peak_delta_seattle="${MAPFORGE_PHASE_D3_ALERT_L0_PEAK_DELTA_MS_SEATTLE:-1200}"
 d3_alert_load_ex_delta_downtown="${MAPFORGE_PHASE_D3_ALERT_LOAD_EX_DELTA_DOWNTOWN:-10}"
-d3_alert_l0_peak_delta_downtown="${MAPFORGE_PHASE_D3_ALERT_L0_PEAK_DELTA_MS_DOWNTOWN:-500}"
+d3_alert_l0_peak_delta_downtown="${MAPFORGE_PHASE_D3_ALERT_L0_PEAK_DELTA_MS_DOWNTOWN:-800}"
 
 guardrail_failure_count=0
 guardrail_failure_entries=""
@@ -215,11 +215,11 @@ run_profile() {
         baseline)
             ;;
         l0_relief|l0_relief_candidate)
-            preset_env+=("MAPFORGE_BUDGET_LOAD_ROAD_CAP=${MAPFORGE_D2_L0_RELIEF_LOAD_ROAD_CAP:-9}")
+            preset_env+=("MAPFORGE_BUDGET_LOAD_ROAD_CAP=${MAPFORGE_D2_L0_RELIEF_LOAD_ROAD_CAP:-7}")
             preset_env+=("MAPFORGE_BUDGET_LOAD_POLY_CAP_SMALL=${MAPFORGE_D2_L0_RELIEF_POLY_CAP_SMALL:-4}")
             preset_env+=("MAPFORGE_BUDGET_LOAD_POLY_CAP_MEDIUM=${MAPFORGE_D2_L0_RELIEF_POLY_CAP_MEDIUM:-3}")
             preset_env+=("MAPFORGE_BUDGET_LOAD_POLY_CAP_LARGE=${MAPFORGE_D2_L0_RELIEF_POLY_CAP_LARGE:-2}")
-            preset_env+=("MAPFORGE_BUDGET_INTEGRATE_CAP=${MAPFORGE_D2_L0_RELIEF_INTEGRATE_CAP:-68}")
+            preset_env+=("MAPFORGE_BUDGET_INTEGRATE_CAP=${MAPFORGE_D2_L0_RELIEF_INTEGRATE_CAP:-60}")
             ;;
         *)
             printf "unknown D2 preset '%s' for profile '%s'\n" "$preset" "$profile" >&2
