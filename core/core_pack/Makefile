@@ -7,7 +7,7 @@ INC = -Iinclude -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include
 OBJ_DIR = build
 
 LIB = $(OBJ_DIR)/libcore_pack.a
-LIB_OBJ = $(OBJ_DIR)/core_pack.o $(OBJ_DIR)/core_pack_vf2d.o
+LIB_OBJ = $(OBJ_DIR)/core_pack.o $(OBJ_DIR)/core_pack_vf2d.o $(OBJ_DIR)/core_pack_vf3d.o
 TEST_BIN = $(OBJ_DIR)/core_pack_test
 CLI_BIN = $(OBJ_DIR)/pack_cli
 
@@ -28,6 +28,9 @@ $(OBJ_DIR)/core_pack.o: src/core_pack.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(OBJ_DIR)/core_pack_vf2d.o: src/core_pack_vf2d.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJ_DIR)/core_pack_vf3d.o: src/core_pack_vf3d.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(LIB): $(LIB_OBJ)

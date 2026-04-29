@@ -7,8 +7,13 @@
 
 #include "core_scene.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
+
+static int core_scene_is_finite(double v) {
+    return isfinite(v) ? 1 : 0;
+}
 
 static bool path_has_extension(const char *path, const char *ext) {
     if (!path || !ext) return false;
@@ -16,6 +21,359 @@ static bool path_has_extension(const char *path, const char *ext) {
     size_t ext_len = strlen(ext);
     if (path_len < ext_len) return false;
     return strcmp(path + path_len - ext_len, ext) == 0;
+}
+
+static CoreResult core_scene_validate_vec3(const CoreObjectVec3 *vec, const char *label) {
+    if (!vec) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "vec3 is null" };
+        return r;
+    }
+    if (!core_scene_is_finite(vec->x) ||
+        !core_scene_is_finite(vec->y) ||
+        !core_scene_is_finite(vec->z)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, label ? label : "vec3 contains non-finite values" };
+        return r;
+    }
+    return core_result_ok();
+}
+
+static double core_scene_vec3_length(const CoreObjectVec3 *vec) {
+    return sqrt((vec->x * vec->x) + (vec->y * vec->y) + (vec->z * vec->z));
+}
+
+static double core_scene_vec3_dot(const CoreObjectVec3 *a, const CoreObjectVec3 *b) {
+    return (a->x * b->x) + (a->y * b->y) + (a->z * b->z);
+}
+
+static CoreObjectVec3 core_scene_vec3_cross(const CoreObjectVec3 *a, const CoreObjectVec3 *b) {
+    CoreObjectVec3 out;
+    out.x = (a->y * b->z) - (a->z * b->y);
+    out.y = (a->z * b->x) - (a->x * b->z);
+    out.z = (a->x * b->y) - (a->y * b->x);
+    return out;
+}
+
+static CoreResult core_scene_frame_validate(const CoreSceneFrame3 *frame) {
+    CoreObjectVec3 cross;
+    double axis_u_len;
+    double axis_v_len;
+    double normal_len;
+    double cross_len;
+    if (!frame) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "frame is null" };
+        return r;
+    }
+    {
+        CoreResult r = core_scene_validate_vec3(&frame->origin, "frame origin contains non-finite values");
+        if (r.code != CORE_OK) return r;
+        r = core_scene_validate_vec3(&frame->axis_u, "frame axis_u contains non-finite values");
+        if (r.code != CORE_OK) return r;
+        r = core_scene_validate_vec3(&frame->axis_v, "frame axis_v contains non-finite values");
+        if (r.code != CORE_OK) return r;
+        r = core_scene_validate_vec3(&frame->normal, "frame normal contains non-finite values");
+        if (r.code != CORE_OK) return r;
+    }
+
+    axis_u_len = core_scene_vec3_length(&frame->axis_u);
+    axis_v_len = core_scene_vec3_length(&frame->axis_v);
+    normal_len = core_scene_vec3_length(&frame->normal);
+    if (axis_u_len <= 0.0 || axis_v_len <= 0.0 || normal_len <= 0.0) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "frame axes must be non-zero" };
+        return r;
+    }
+
+    if (fabs(core_scene_vec3_dot(&frame->axis_u, &frame->axis_v)) > 1e-4 ||
+        fabs(core_scene_vec3_dot(&frame->axis_u, &frame->normal)) > 1e-4 ||
+        fabs(core_scene_vec3_dot(&frame->axis_v, &frame->normal)) > 1e-4) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "frame axes must be orthogonal" };
+        return r;
+    }
+
+    cross = core_scene_vec3_cross(&frame->axis_u, &frame->axis_v);
+    cross_len = core_scene_vec3_length(&cross);
+    if (cross_len <= 0.0) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "frame axis_u and axis_v cannot be collinear" };
+        return r;
+    }
+    if (fabs(cross_len - normal_len) > 1e-4) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "frame normal magnitude must match axis_u x axis_v" };
+        return r;
+    }
+    if (fabs(cross.x - frame->normal.x) > 1e-4 ||
+        fabs(cross.y - frame->normal.y) > 1e-4 ||
+        fabs(cross.z - frame->normal.z) > 1e-4) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "frame normal must match axis_u x axis_v" };
+        return r;
+    }
+
+    return core_result_ok();
+}
+
+const char *core_scene_space_mode_name(CoreSceneSpaceMode mode) {
+    switch (mode) {
+        case CORE_SCENE_SPACE_MODE_2D: return "2d";
+        case CORE_SCENE_SPACE_MODE_3D: return "3d";
+        case CORE_SCENE_SPACE_MODE_UNKNOWN:
+        default: return "unknown";
+    }
+}
+
+CoreResult core_scene_space_mode_parse(const char *text, CoreSceneSpaceMode *out_mode) {
+    if (!text || !out_mode) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    if (strcmp(text, "2d") == 0) {
+        *out_mode = CORE_SCENE_SPACE_MODE_2D;
+        return core_result_ok();
+    }
+    if (strcmp(text, "3d") == 0) {
+        *out_mode = CORE_SCENE_SPACE_MODE_3D;
+        return core_result_ok();
+    }
+
+    {
+        CoreResult r = { CORE_ERR_NOT_FOUND, "unknown scene space mode" };
+        return r;
+    }
+}
+
+const char *core_scene_object_kind_name(CoreSceneObjectKind kind) {
+    switch (kind) {
+        case CORE_SCENE_OBJECT_KIND_CURVE_PATH: return "curve_path";
+        case CORE_SCENE_OBJECT_KIND_POINT_SET: return "point_set";
+        case CORE_SCENE_OBJECT_KIND_EDGE_SET: return "edge_set";
+        case CORE_SCENE_OBJECT_KIND_PLANE_PRIMITIVE: return "plane_primitive";
+        case CORE_SCENE_OBJECT_KIND_RECT_PRISM_PRIMITIVE: return "rect_prism_primitive";
+        case CORE_SCENE_OBJECT_KIND_UNKNOWN:
+        default: return "unknown";
+    }
+}
+
+CoreResult core_scene_object_kind_parse(const char *text, CoreSceneObjectKind *out_kind) {
+    if (!text || !out_kind) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+
+    if (strcmp(text, "curve_path") == 0) {
+        *out_kind = CORE_SCENE_OBJECT_KIND_CURVE_PATH;
+        return core_result_ok();
+    }
+    if (strcmp(text, "point_set") == 0) {
+        *out_kind = CORE_SCENE_OBJECT_KIND_POINT_SET;
+        return core_result_ok();
+    }
+    if (strcmp(text, "edge_set") == 0) {
+        *out_kind = CORE_SCENE_OBJECT_KIND_EDGE_SET;
+        return core_result_ok();
+    }
+    if (strcmp(text, "plane_primitive") == 0) {
+        *out_kind = CORE_SCENE_OBJECT_KIND_PLANE_PRIMITIVE;
+        return core_result_ok();
+    }
+    if (strcmp(text, "rect_prism_primitive") == 0) {
+        *out_kind = CORE_SCENE_OBJECT_KIND_RECT_PRISM_PRIMITIVE;
+        return core_result_ok();
+    }
+
+    {
+        CoreResult r = { CORE_ERR_NOT_FOUND, "unknown scene object kind" };
+        return r;
+    }
+}
+
+void core_scene_root_contract_init(CoreSceneRootContract *contract) {
+    if (!contract) return;
+    memset(contract, 0, sizeof(*contract));
+    contract->space_mode_intent = CORE_SCENE_SPACE_MODE_2D;
+    contract->space_mode_default = CORE_SCENE_SPACE_MODE_2D;
+    contract->unit_kind = CORE_UNIT_METER;
+    contract->world_scale = 1.0;
+}
+
+CoreResult core_scene_root_contract_set_scene_id(CoreSceneRootContract *contract, const char *scene_id) {
+    if (!contract || !scene_id) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    if (!scene_id[0]) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "scene_id must be non-empty" };
+        return r;
+    }
+    if (strlen(scene_id) >= sizeof(contract->scene_id)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "scene_id too long" };
+        return r;
+    }
+    strncpy(contract->scene_id, scene_id, sizeof(contract->scene_id) - 1);
+    contract->scene_id[sizeof(contract->scene_id) - 1] = '\0';
+    return core_result_ok();
+}
+
+CoreResult core_scene_root_contract_validate(const CoreSceneRootContract *contract) {
+    if (!contract) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "contract is null" };
+        return r;
+    }
+    if (!contract->scene_id[0]) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "scene_id must be set" };
+        return r;
+    }
+    if ((contract->space_mode_intent != CORE_SCENE_SPACE_MODE_2D &&
+         contract->space_mode_intent != CORE_SCENE_SPACE_MODE_3D) ||
+        (contract->space_mode_default != CORE_SCENE_SPACE_MODE_2D &&
+         contract->space_mode_default != CORE_SCENE_SPACE_MODE_3D)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid scene space mode" };
+        return r;
+    }
+    if (contract->unit_kind == CORE_UNIT_UNKNOWN) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "unit_kind must be set" };
+        return r;
+    }
+    return core_units_validate_world_scale(contract->world_scale);
+}
+
+void core_scene_plane_primitive_init(CoreScenePlanePrimitive *primitive) {
+    if (!primitive) return;
+    memset(primitive, 0, sizeof(*primitive));
+    primitive->width = 1.0;
+    primitive->height = 1.0;
+    primitive->frame.axis_u.x = 1.0;
+    primitive->frame.axis_v.y = 1.0;
+    primitive->frame.normal.z = 1.0;
+}
+
+CoreResult core_scene_plane_primitive_validate(const CoreScenePlanePrimitive *primitive) {
+    if (!primitive) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "primitive is null" };
+        return r;
+    }
+    if (!core_scene_is_finite(primitive->width) ||
+        !core_scene_is_finite(primitive->height) ||
+        primitive->width <= 0.0 ||
+        primitive->height <= 0.0) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "plane primitive dimensions must be > 0" };
+        return r;
+    }
+    return core_scene_frame_validate(&primitive->frame);
+}
+
+void core_scene_rect_prism_primitive_init(CoreSceneRectPrismPrimitive *primitive) {
+    if (!primitive) return;
+    memset(primitive, 0, sizeof(*primitive));
+    primitive->width = 1.0;
+    primitive->height = 1.0;
+    primitive->depth = 1.0;
+    primitive->frame.axis_u.x = 1.0;
+    primitive->frame.axis_v.y = 1.0;
+    primitive->frame.normal.z = 1.0;
+}
+
+CoreResult core_scene_rect_prism_primitive_validate(const CoreSceneRectPrismPrimitive *primitive) {
+    if (!primitive) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "primitive is null" };
+        return r;
+    }
+    if (!core_scene_is_finite(primitive->width) ||
+        !core_scene_is_finite(primitive->height) ||
+        !core_scene_is_finite(primitive->depth) ||
+        primitive->width <= 0.0 ||
+        primitive->height <= 0.0 ||
+        primitive->depth <= 0.0) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "rect prism dimensions must be > 0" };
+        return r;
+    }
+    return core_scene_frame_validate(&primitive->frame);
+}
+
+void core_scene_object_contract_init(CoreSceneObjectContract *contract) {
+    if (!contract) return;
+    memset(contract, 0, sizeof(*contract));
+    core_object_init(&contract->object);
+    core_scene_plane_primitive_init(&contract->plane_primitive);
+    core_scene_rect_prism_primitive_init(&contract->rect_prism_primitive);
+}
+
+CoreResult core_scene_object_contract_prepare(CoreSceneObjectContract *contract,
+                                              const char *object_id,
+                                              CoreSceneObjectKind kind) {
+    const char *object_type;
+    if (!contract || !object_id) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    object_type = core_scene_object_kind_name(kind);
+    if (kind == CORE_SCENE_OBJECT_KIND_UNKNOWN || strcmp(object_type, "unknown") == 0) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "unknown scene object kind" };
+        return r;
+    }
+
+    core_scene_object_contract_init(contract);
+    contract->kind = kind;
+
+    {
+        CoreResult r = core_object_set_identity(&contract->object, object_id, object_type);
+        if (r.code != CORE_OK) return r;
+    }
+
+    if (kind == CORE_SCENE_OBJECT_KIND_RECT_PRISM_PRIMITIVE) {
+        return core_object_promote_to_full_3d(&contract->object);
+    }
+
+    return core_object_set_plane_lock(&contract->object, CORE_OBJECT_PLANE_XY);
+}
+
+CoreResult core_scene_object_contract_validate(const CoreSceneObjectContract *contract) {
+    const char *kind_name;
+    if (!contract) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "contract is null" };
+        return r;
+    }
+    if (contract->kind == CORE_SCENE_OBJECT_KIND_UNKNOWN) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "object kind must be set" };
+        return r;
+    }
+    kind_name = core_scene_object_kind_name(contract->kind);
+    if (strcmp(kind_name, contract->object.object_type) != 0) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "object_type must match scene object kind" };
+        return r;
+    }
+
+    {
+        CoreResult r = core_object_validate(&contract->object);
+        if (r.code != CORE_OK) return r;
+    }
+
+    if (contract->kind == CORE_SCENE_OBJECT_KIND_PLANE_PRIMITIVE) {
+        if (!contract->has_plane_primitive || contract->has_rect_prism_primitive) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "plane primitive payload mismatch" };
+            return r;
+        }
+        if (contract->object.dimensional_mode != CORE_OBJECT_DIMENSIONAL_MODE_PLANE_LOCKED) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "plane primitive must be plane-locked" };
+            return r;
+        }
+        return core_scene_plane_primitive_validate(&contract->plane_primitive);
+    }
+
+    if (contract->kind == CORE_SCENE_OBJECT_KIND_RECT_PRISM_PRIMITIVE) {
+        if (!contract->has_rect_prism_primitive || contract->has_plane_primitive) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "rect prism payload mismatch" };
+            return r;
+        }
+        if (contract->object.dimensional_mode != CORE_OBJECT_DIMENSIONAL_MODE_FULL_3D) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "rect prism must be full_3d" };
+            return r;
+        }
+        return core_scene_rect_prism_primitive_validate(&contract->rect_prism_primitive);
+    }
+
+    if (contract->has_plane_primitive || contract->has_rect_prism_primitive) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "non-primitive object cannot carry primitive payload" };
+        return r;
+    }
+
+    return core_result_ok();
 }
 
 static bool path_is_absolute(const char *path) {

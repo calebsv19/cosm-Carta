@@ -12,14 +12,15 @@ Versioned, chunk-based binary container (`.pack`) for offline interchange.
 - Decoded read API for encoded chunks
 - Explicit little-endian on-disk encoding for header/index metadata
 - Minimal CLI for round-trip and inspection
-- Legacy VF2D to `.pack` conversion helper
+- PhysicsSim raw-frame to `.pack` conversion helpers for legacy `vf2d` and truthful `vf3d`
 
 ## Dependencies
 - `core_base`
 - `core_io`
 
 ## Notes
-- Existing VF2D flow is preserved. No app conversion occurs in Phase 1.
+- Existing `vf2d` flow is preserved unchanged.
+- Additive `vf3d`/`VF3H` conversion is now available for truthful volumetric PhysicsSim export.
 - Core Pack is additive until migration is explicitly approved.
 - `.pack` v1 freeze contract is documented in `PACK_V1_SPEC.md`.
 - Shared SemVer policy is documented in `../VERSIONING.md`.
@@ -33,4 +34,5 @@ Versioned, chunk-based binary container (`.pack`) for offline interchange.
 
 ## Version
 - Module version source: `VERSION`
+- Current module version: `1.1.0`
 - Current target format: `PACK_FORMAT_VERSION_MAJOR=1`, `PACK_FORMAT_VERSION_MINOR=0`

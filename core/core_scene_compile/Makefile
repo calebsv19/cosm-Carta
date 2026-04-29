@@ -11,7 +11,10 @@ endif
 
 CORE_BASE_DIR ?= ../core_base
 CORE_IO_DIR ?= ../core_io
-INC = -Iinclude -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include
+CORE_SCENE_DIR ?= ../core_scene
+CORE_OBJECT_DIR ?= ../core_object
+CORE_UNITS_DIR ?= ../core_units
+INC = -Iinclude -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_SCENE_DIR)/include -I$(CORE_OBJECT_DIR)/include -I$(CORE_UNITS_DIR)/include
 OBJ_DIR = build
 
 LIB = $(OBJ_DIR)/libcore_scene_compile.a
@@ -33,14 +36,23 @@ $(CORE_BASE_DIR)/build/libcore_base.a:
 $(CORE_IO_DIR)/build/libcore_io.a:
 	$(MAKE) -C $(CORE_IO_DIR)
 
+$(CORE_SCENE_DIR)/build/libcore_scene.a:
+	$(MAKE) -C $(CORE_SCENE_DIR)
+
+$(CORE_OBJECT_DIR)/build/libcore_object.a:
+	$(MAKE) -C $(CORE_OBJECT_DIR)
+
+$(CORE_UNITS_DIR)/build/libcore_units.a:
+	$(MAKE) -C $(CORE_UNITS_DIR)
+
 $(LIB_OBJ): src/core_scene_compile.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(LIB): $(LIB_OBJ)
 	ar rcs $@ $^
 
-$(TEST_BIN): tests/core_scene_compile_test.c $(LIB) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a | $(OBJ_DIR)
-	$(CC) $(CFLAGS) $(INC) $< $(LIB) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a -o $@
+$(TEST_BIN): tests/core_scene_compile_test.c $(LIB) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a $(CORE_SCENE_DIR)/build/libcore_scene.a $(CORE_OBJECT_DIR)/build/libcore_object.a $(CORE_UNITS_DIR)/build/libcore_units.a | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) $< $(LIB) $(CORE_SCENE_DIR)/build/libcore_scene.a $(CORE_OBJECT_DIR)/build/libcore_object.a $(CORE_UNITS_DIR)/build/libcore_units.a $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a -o $@
 
 test: $(TEST_BIN)
 	./$(TEST_BIN)
@@ -51,8 +63,8 @@ $(DIFF_BIN): tools/scene_contract_diff.c | $(OBJ_DIR)
 scene-contract-diff: $(DIFF_BIN)
 	@echo "built $(DIFF_BIN)"
 
-$(COMPILE_TOOL_BIN): tools/scene_compile_tool.c $(LIB) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a | $(OBJ_DIR)
-	$(CC) $(CFLAGS) $(INC) $< $(LIB) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a -o $@
+$(COMPILE_TOOL_BIN): tools/scene_compile_tool.c $(LIB) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a $(CORE_SCENE_DIR)/build/libcore_scene.a $(CORE_OBJECT_DIR)/build/libcore_object.a $(CORE_UNITS_DIR)/build/libcore_units.a | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) $< $(LIB) $(CORE_SCENE_DIR)/build/libcore_scene.a $(CORE_OBJECT_DIR)/build/libcore_object.a $(CORE_UNITS_DIR)/build/libcore_units.a $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a -o $@
 
 scene-compile-tool: $(COMPILE_TOOL_BIN)
 	@echo "built $(COMPILE_TOOL_BIN)"

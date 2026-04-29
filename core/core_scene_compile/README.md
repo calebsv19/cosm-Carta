@@ -5,7 +5,7 @@ Shared baseline compiler for CodeWork scene pipeline.
 ## Purpose
 Compile `scene_authoring_v1` JSON into deterministic `scene_runtime_v1` JSON that downstream apps (`ray_tracing`, `physics_sim`) can consume.
 
-## Current Scope (v0.2.0)
+## Current Scope (v0.3.0)
 - validates core authoring contract keys and semantic lanes:
   - `space_mode_default` must be `2d` or `3d`,
   - `unit_system` must be string,
@@ -18,6 +18,11 @@ Compile `scene_authoring_v1` JSON into deterministic `scene_runtime_v1` JSON tha
 - emits deterministic normalized runtime lanes:
   - `objects`, `hierarchy`, `materials`, `lights`, `cameras`,
   - stable ordering by ID (and parent/child pair for hierarchy),
+- validates canonical primitive payloads for known primitive object kinds:
+  - `object_type=plane_primitive` requires valid `objects[].primitive`
+  - `object_type=rect_prism_primitive` requires valid `objects[].primitive`
+  - malformed primitive payloads are rejected before runtime handoff
+  - validated canonical `primitive` payload remains intact in `scene_runtime_v1`
 - preserves unknown extension namespaces,
 - includes `tools/scene_contract_diff.c` semantic diff utility for scene contract drift checks:
   - object-key order-insensitive comparison,
@@ -31,6 +36,10 @@ Compile `scene_authoring_v1` JSON into deterministic `scene_runtime_v1` JSON tha
 - full hierarchy flattening and graph solve,
 - app-specific override merge policy,
 - binary/pack output generation.
+
+## 2026-04-12 Update (v0.3.0)
+- implemented `SC3` primitive-contract hardening for the trio shared-scene lane.
+- runtime normalization now explicitly validates canonical primitive payloads through `core_scene` instead of relying on generic object JSON pass-through.
 
 ## 2026-04-01 Update (v0.2.0)
 - implemented NP-3 normalization/validation hardening for trio next-phase rollout.

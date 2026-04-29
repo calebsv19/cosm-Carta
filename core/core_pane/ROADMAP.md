@@ -6,9 +6,9 @@ Provide a renderer-agnostic pane-tree contract that can be adopted by multiple C
 
 ## Immediate Steps
 
-1. Stabilize pane-tree solve and splitter drag behavior across edge cases.
-2. Add richer hit metadata for cursor-feedback adapters in app/kit layers.
-3. Add collapse-state semantics and constraint-aware restoration behavior.
+1. Add richer hit metadata for cursor-feedback adapters in app/kit layers.
+2. Add collapse-state semantics and constraint-aware restoration behavior.
+3. Add structured diagnostics detail payloads for validation and solve failures.
 
 ## Future Steps
 

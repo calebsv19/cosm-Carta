@@ -11,7 +11,7 @@
 
 ## Current Surface
 - Public API: `include/core_pack.h`
-- Implementation: `src/core_pack.c`, `src/core_pack_vf2d.c`
+- Implementation: `src/core_pack.c`, `src/core_pack_vf2d.c`, `src/core_pack_vf3d.c`
 - CLI: `tools/pack_cli.c`
 - Tests: `tests/core_pack_test.c`
 
@@ -20,6 +20,7 @@
 - Reader support for sequential, indexed, and partial read modes.
 - Explicit endian handling and codec behavior (`none`, `rle8`).
 - Backward-compatible handling for legacy VF2D conversion path.
+- Additive truthful volumetric `VF3H/DENS/VELX/VELY/VELZ/PRES/SOLI` conversion path.
 
 ## Capability Layers
 
@@ -63,7 +64,7 @@
   - migration tooling updates
 
 ## Integration Expectations
-- PhysicsSim export already writes `.pack` in parallel with VF2D.
+- PhysicsSim export now writes `.pack` in parallel with both legacy `vf2d` and truthful `vf3d`.
 - DataLab consumes current VF2D-derived chunk set (`VFHD`, `DENS`, `VELX`, `VELY`, `JSON`).
 - Additional apps should adopt via additive export paths before cutover.
 

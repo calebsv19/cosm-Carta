@@ -73,10 +73,19 @@ static void transition_image_layout(VkRenderer* renderer,
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if (old_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL &&
+               new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        src_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     } else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
                new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
         barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    } else {
+        end_single_time_commands(renderer, cmd);
+        return;
     }
 
     vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &barrier);
@@ -101,6 +110,34 @@ static void copy_buffer_to_image(VkRenderer* renderer,
             .layerCount = 1,
         },
         .imageOffset = {0, 0, 0},
+        .imageExtent = {width, height, 1},
+    };
+
+    vkCmdCopyBufferToImage(cmd, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                           &region);
+    end_single_time_commands(renderer, cmd);
+}
+
+static void copy_buffer_to_image_subrect(VkRenderer* renderer,
+                                         VkBuffer buffer,
+                                         VkImage image,
+                                         uint32_t x,
+                                         uint32_t y,
+                                         uint32_t width,
+                                         uint32_t height) {
+    VkCommandBuffer cmd = begin_single_time_commands(renderer);
+
+    VkBufferImageCopy region = {
+        .bufferOffset = 0,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .imageOffset = {(int32_t)x, (int32_t)y, 0},
         .imageExtent = {width, height, 1},
     };
 
@@ -224,6 +261,68 @@ VkResult vk_renderer_texture_create_from_rgba(VkRenderer* renderer,
     out_texture->width = width;
     out_texture->height = height;
 
+    vk_renderer_memory_destroy_buffer(&renderer->context, &staging);
+    return VK_SUCCESS;
+}
+
+VkResult vk_renderer_texture_update_rgba_subrect(VkRenderer* renderer,
+                                                 VkRendererTexture* texture,
+                                                 const void* pixels,
+                                                 size_t row_stride_bytes,
+                                                 uint32_t x,
+                                                 uint32_t y,
+                                                 uint32_t width,
+                                                 uint32_t height) {
+    if (!renderer || !renderer->context.device || !texture || !pixels) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    if (width == 0 || height == 0) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    if (!texture->image.image || !texture->image.view) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    if (x >= texture->width || y >= texture->height) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    if (width > (texture->width - x) || height > (texture->height - y)) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    size_t min_row_stride = (size_t)width * 4u;
+    if (row_stride_bytes < min_row_stride) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    VkDeviceSize image_size = (VkDeviceSize)min_row_stride * (VkDeviceSize)height;
+    VkAllocatedBuffer staging = {0};
+    VkResult result = vk_renderer_memory_create_buffer(
+        &renderer->context, image_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging);
+    if (result != VK_SUCCESS) return result;
+
+    const uint8_t* src = (const uint8_t*)pixels;
+    uint8_t* dst = (uint8_t*)staging.mapped;
+    for (uint32_t row = 0; row < height; ++row) {
+        memcpy(dst + ((size_t)row * min_row_stride),
+               src + ((size_t)row * row_stride_bytes),
+               min_row_stride);
+    }
+
+    transition_image_layout(renderer,
+                            texture->image.image,
+                            texture->image.format,
+                            texture->current_layout,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    copy_buffer_to_image_subrect(renderer, staging.buffer, texture->image.image, x, y, width,
+                                 height);
+    transition_image_layout(renderer,
+                            texture->image.image,
+                            texture->image.format,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    texture->current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     vk_renderer_memory_destroy_buffer(&renderer->context, &staging);
     return VK_SUCCESS;
 }

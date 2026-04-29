@@ -52,6 +52,44 @@ typedef struct Vf2dHeaderCanonical {
     uint32_t obstacle_mask_crc32;
 } Vf2dHeaderCanonical;
 
+typedef struct VolumeFrameHeaderVf3dV1 {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t grid_w;
+    uint32_t grid_h;
+    uint32_t grid_d;
+    double   time_seconds;
+    uint64_t frame_index;
+    double   dt_seconds;
+    float    origin_x;
+    float    origin_y;
+    float    origin_z;
+    float    voxel_size;
+    float    scene_up_x;
+    float    scene_up_y;
+    float    scene_up_z;
+    uint32_t solid_mask_crc32;
+    uint32_t reserved[3];
+} VolumeFrameHeaderVf3dV1;
+
+typedef struct Vf3dHeaderCanonical {
+    uint32_t version;
+    uint32_t grid_w;
+    uint32_t grid_h;
+    uint32_t grid_d;
+    double   time_seconds;
+    uint64_t frame_index;
+    double   dt_seconds;
+    float    origin_x;
+    float    origin_y;
+    float    origin_z;
+    float    voxel_size;
+    float    scene_up_x;
+    float    scene_up_y;
+    float    scene_up_z;
+    uint32_t solid_mask_crc32;
+} Vf3dHeaderCanonical;
+
 static void write_test_vf2d(const char *path) {
     FILE *f = fopen(path, "wb");
     assert(f != NULL);
@@ -79,6 +117,47 @@ static void write_test_vf2d(const char *path) {
     assert(fwrite(density, sizeof(float), 4, f) == 4);
     assert(fwrite(velx, sizeof(float), 4, f) == 4);
     assert(fwrite(vely, sizeof(float), 4, f) == 4);
+    fclose(f);
+}
+
+static void write_test_vf3d(const char *path) {
+    FILE *f = fopen(path, "wb");
+    assert(f != NULL);
+
+    const uint32_t magic = ('V' << 24) | ('F' << 16) | ('3' << 8) | ('D');
+    VolumeFrameHeaderVf3dV1 h;
+    h.magic = magic;
+    h.version = 1;
+    h.grid_w = 2;
+    h.grid_h = 2;
+    h.grid_d = 2;
+    h.time_seconds = 4.25;
+    h.frame_index = 9;
+    h.dt_seconds = 0.02;
+    h.origin_x = -1.0f;
+    h.origin_y = 2.0f;
+    h.origin_z = 3.0f;
+    h.voxel_size = 0.5f;
+    h.scene_up_x = 0.0f;
+    h.scene_up_y = 0.0f;
+    h.scene_up_z = 1.0f;
+    h.solid_mask_crc32 = 456u;
+    h.reserved[0] = h.reserved[1] = h.reserved[2] = 0;
+
+    float density[8] = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f};
+    float velx[8] = {1.0f, 0.0f, -1.0f, 0.5f, 1.5f, -0.5f, 0.25f, 0.75f};
+    float vely[8] = {0.5f, -0.5f, 0.25f, -0.25f, 0.75f, -0.75f, 0.1f, -0.1f};
+    float velz[8] = {0.0f, 1.0f, 2.0f, 3.0f, -1.0f, -2.0f, -3.0f, -4.0f};
+    float pressure[8] = {5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
+    uint8_t solid[8] = {0u, 1u, 0u, 1u, 1u, 0u, 1u, 0u};
+
+    assert(fwrite(&h, sizeof(h), 1, f) == 1);
+    assert(fwrite(density, sizeof(float), 8, f) == 8);
+    assert(fwrite(velx, sizeof(float), 8, f) == 8);
+    assert(fwrite(vely, sizeof(float), 8, f) == 8);
+    assert(fwrite(velz, sizeof(float), 8, f) == 8);
+    assert(fwrite(pressure, sizeof(float), 8, f) == 8);
+    assert(fwrite(solid, sizeof(uint8_t), 8, f) == 8);
     fclose(f);
 }
 
@@ -191,8 +270,11 @@ int main(void) {
     const char *vf2d = "/tmp/core_pack_test.vf2d";
     const char *manifest = "/tmp/core_pack_test_manifest.json";
     const char *converted = "/tmp/core_pack_from_vf2d.pack";
+    const char *vf3d = "/tmp/core_pack_test.vf3d";
+    const char *converted3d = "/tmp/core_pack_from_vf3d.pack";
 
     write_test_vf2d(vf2d);
+    write_test_vf3d(vf3d);
     write_test_manifest(manifest);
 
     r = core_pack_convert_vf2d(vf2d, converted, manifest);
@@ -212,6 +294,43 @@ int main(void) {
     assert(core_pack_reader_find_chunk(&rd2, "JSON", 0, &info).code == CORE_OK);
 
     r = core_pack_reader_close(&rd2);
+    assert(r.code == CORE_OK);
+
+    r = core_pack_convert_vf3d(vf3d, converted3d, manifest);
+    assert(r.code == CORE_OK);
+
+    CorePackReader rd3 = {0};
+    r = core_pack_reader_open(converted3d, &rd3);
+    assert(r.code == CORE_OK);
+
+    assert(core_pack_reader_chunk_count(&rd3) == 8);
+    assert(core_pack_reader_find_chunk(&rd3, "VF3H", 0, &info).code == CORE_OK);
+    assert(core_pack_reader_find_chunk(&rd3, "DENS", 0, &info).code == CORE_OK);
+    assert(core_pack_reader_find_chunk(&rd3, "VELX", 0, &info).code == CORE_OK);
+    assert(core_pack_reader_find_chunk(&rd3, "VELY", 0, &info).code == CORE_OK);
+    assert(core_pack_reader_find_chunk(&rd3, "VELZ", 0, &info).code == CORE_OK);
+    assert(core_pack_reader_find_chunk(&rd3, "PRES", 0, &info).code == CORE_OK);
+    assert(core_pack_reader_find_chunk(&rd3, "SOLI", 0, &info).code == CORE_OK);
+    assert(core_pack_reader_find_chunk(&rd3, "JSON", 0, &info).code == CORE_OK);
+
+    CorePackChunkInfo vf3h = {0};
+    CorePackChunkInfo soli = {0};
+    assert(core_pack_reader_find_chunk(&rd3, "VF3H", 0, &vf3h).code == CORE_OK);
+    assert(core_pack_reader_find_chunk(&rd3, "SOLI", 0, &soli).code == CORE_OK);
+    assert(vf3h.size == sizeof(Vf3dHeaderCanonical));
+    assert(soli.size == 8u * sizeof(uint8_t));
+
+    Vf3dHeaderCanonical vh3 = {0};
+    r = core_pack_reader_read_chunk_data(&rd3, &vf3h, &vh3, sizeof(vh3));
+    assert(r.code == CORE_OK);
+    assert(vh3.grid_w == 2u);
+    assert(vh3.grid_h == 2u);
+    assert(vh3.grid_d == 2u);
+    assert(vh3.frame_index == 9u);
+    assert(vh3.voxel_size == 0.5f);
+    assert(vh3.scene_up_z == 1.0f);
+
+    r = core_pack_reader_close(&rd3);
     assert(r.code == CORE_OK);
 
     assert(core_pack_format_version_token() == 1u);

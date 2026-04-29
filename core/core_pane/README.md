@@ -17,9 +17,15 @@ Shared pane-layout primitives for split-pane geometry and drag updates.
 
 ## Status
 
-Bootstrap foundation for Phase 15C pane standardization (`v0.1.2`).
+Bootstrap foundation for Phase 15C pane standardization (`v0.2.0`).
 
-## Recent Changes (`v0.1.2`)
+## Recent Changes (`v0.2.0`)
+
+1. Added explicit graph validation diagnostics via `core_pane_validate_graph(...)` and `CorePaneValidationReport`.
+2. Added validation error-string surface (`core_pane_validation_code_string(...)`) for deterministic host diagnostics.
+3. Routed solve/hit-test preconditions through shared validation to reduce duplicated failure-path logic.
+
+## Previous Changes (`v0.1.2`)
 
 1. Fixed splitter drag accumulation so repeated drag deltas apply from current node ratio (no stale-hit tug-of-war behavior).
 2. Updated drag tests to validate deterministic multi-step drag without mutating hit snapshots between steps.

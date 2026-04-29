@@ -161,6 +161,179 @@ typedef enum PaneVisitState {
     PANE_VISIT_VISITED = 2
 } PaneVisitState;
 
+static void pane_set_report(CorePaneValidationReport *out_report,
+                            CorePaneValidationCode code,
+                            uint32_t node_index,
+                            uint32_t related_index) {
+    if (!out_report) {
+        return;
+    }
+    out_report->code = code;
+    out_report->node_index = node_index;
+    out_report->related_index = related_index;
+}
+
+static bool pane_bounds_valid(CorePaneRect bounds) {
+    return pane_isfinite(bounds.x) &&
+           pane_isfinite(bounds.y) &&
+           pane_isfinite(bounds.width) &&
+           pane_isfinite(bounds.height) &&
+           bounds.width >= 0.0f &&
+           bounds.height >= 0.0f;
+}
+
+static bool pane_validate_recursive(const CorePaneNode *nodes,
+                                    uint32_t node_count,
+                                    uint32_t node_index,
+                                    CorePaneRect bounds,
+                                    uint8_t *visit_state,
+                                    CorePaneValidationReport *out_report) {
+    const CorePaneNode *node;
+    float ratio = 0.0f;
+    float min_ratio = 0.0f;
+    float max_ratio = 0.0f;
+    CorePaneRect child_a = {0};
+    CorePaneRect child_b = {0};
+    CorePaneRect split_rect = {0};
+
+    if (!nodes || !visit_state || node_index >= node_count) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_NODE_INDEX_OUT_OF_RANGE, node_index, UINT32_MAX);
+        return false;
+    }
+    if (visit_state[node_index] == PANE_VISIT_VISITING) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_CYCLE_DETECTED, node_index, UINT32_MAX);
+        return false;
+    }
+    if (visit_state[node_index] == PANE_VISIT_VISITED) {
+        return true;
+    }
+
+    visit_state[node_index] = PANE_VISIT_VISITING;
+    node = &nodes[node_index];
+
+    if (node->type == CORE_PANE_NODE_LEAF) {
+        visit_state[node_index] = PANE_VISIT_VISITED;
+        return true;
+    }
+
+    if (node->child_a == node->child_b) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_DUPLICATE_CHILD, node_index, node->child_a);
+        return false;
+    }
+    if (node->child_a == node_index || node->child_b == node_index) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_SELF_CHILD, node_index, node_index);
+        return false;
+    }
+    if (node->child_a >= node_count || node->child_b >= node_count) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_NODE_INDEX_OUT_OF_RANGE, node_index, UINT32_MAX);
+        return false;
+    }
+    if (!split_bounds_from_node(node,
+                                bounds,
+                                1.0f,
+                                &ratio,
+                                &min_ratio,
+                                &max_ratio,
+                                &child_a,
+                                &child_b,
+                                &split_rect)) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_SPLIT_BOUNDS_INVALID, node_index, UINT32_MAX);
+        return false;
+    }
+
+    (void)ratio;
+    (void)min_ratio;
+    (void)max_ratio;
+    (void)split_rect;
+
+    if (!pane_validate_recursive(nodes, node_count, node->child_a, child_a, visit_state, out_report)) {
+        return false;
+    }
+    if (!pane_validate_recursive(nodes, node_count, node->child_b, child_b, visit_state, out_report)) {
+        return false;
+    }
+
+    visit_state[node_index] = PANE_VISIT_VISITED;
+    return true;
+}
+
+bool core_pane_validate_graph(const CorePaneNode *nodes,
+                              uint32_t node_count,
+                              uint32_t root_index,
+                              CorePaneRect bounds,
+                              CorePaneValidationReport *out_report) {
+    uint8_t *visit_state = NULL;
+    uint32_t i;
+    bool ok;
+
+    pane_set_report(out_report, CORE_PANE_VALIDATION_OK, UINT32_MAX, UINT32_MAX);
+
+    if (!nodes) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_INVALID_ARG, UINT32_MAX, UINT32_MAX);
+        return false;
+    }
+    if (node_count == 0u) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_EMPTY_GRAPH, UINT32_MAX, UINT32_MAX);
+        return false;
+    }
+    if (root_index >= node_count) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_INVALID_ROOT, root_index, UINT32_MAX);
+        return false;
+    }
+    if (!pane_bounds_valid(bounds)) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_INVALID_BOUNDS, UINT32_MAX, UINT32_MAX);
+        return false;
+    }
+
+    visit_state = (uint8_t *)calloc((size_t)node_count, sizeof(uint8_t));
+    if (!visit_state) {
+        pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_INVALID_ARG, UINT32_MAX, UINT32_MAX);
+        return false;
+    }
+
+    ok = pane_validate_recursive(nodes, node_count, root_index, bounds, visit_state, out_report);
+    if (ok) {
+        for (i = 0u; i < node_count; ++i) {
+            if (visit_state[i] != PANE_VISIT_VISITED) {
+                pane_set_report(out_report, CORE_PANE_VALIDATION_ERR_CYCLE_DETECTED, i, UINT32_MAX);
+                ok = false;
+                break;
+            }
+        }
+    }
+    free(visit_state);
+    return ok;
+}
+
+const char *core_pane_validation_code_string(CorePaneValidationCode code) {
+    switch (code) {
+        case CORE_PANE_VALIDATION_OK:
+            return "ok";
+        case CORE_PANE_VALIDATION_ERR_INVALID_ARG:
+            return "invalid_arg";
+        case CORE_PANE_VALIDATION_ERR_EMPTY_GRAPH:
+            return "empty_graph";
+        case CORE_PANE_VALIDATION_ERR_INVALID_ROOT:
+            return "invalid_root";
+        case CORE_PANE_VALIDATION_ERR_INVALID_BOUNDS:
+            return "invalid_bounds";
+        case CORE_PANE_VALIDATION_ERR_NODE_INDEX_OUT_OF_RANGE:
+            return "node_index_out_of_range";
+        case CORE_PANE_VALIDATION_ERR_CYCLE_DETECTED:
+            return "cycle_detected";
+        case CORE_PANE_VALIDATION_ERR_DUPLICATE_CHILD:
+            return "duplicate_child";
+        case CORE_PANE_VALIDATION_ERR_SELF_CHILD:
+            return "self_child";
+        case CORE_PANE_VALIDATION_ERR_SPLIT_BOUNDS_INVALID:
+            return "split_bounds_invalid";
+        case CORE_PANE_VALIDATION_ERR_OUTPUT_CAPACITY:
+            return "output_capacity";
+        default:
+            return "unknown";
+    }
+}
+
 static bool solve_node_recursive(const CorePaneNode *nodes,
                                  uint32_t node_count,
                                  uint32_t node_index,
@@ -257,12 +430,10 @@ bool core_pane_solve(const CorePaneNode *nodes,
     uint8_t *visit_state = 0;
     bool ok = false;
 
-    if (!nodes || node_count == 0u || root_index >= node_count || !out_leaf_rects || out_leaf_cap == 0u || !out_leaf_count) {
+    if (!out_leaf_rects || out_leaf_cap == 0u || !out_leaf_count) {
         return false;
     }
-    if (!pane_isfinite(bounds.x) || !pane_isfinite(bounds.y) ||
-        !pane_isfinite(bounds.width) || !pane_isfinite(bounds.height) ||
-        bounds.width < 0.0f || bounds.height < 0.0f) {
+    if (!core_pane_validate_graph(nodes, node_count, root_index, bounds, 0)) {
         return false;
     }
 
@@ -388,13 +559,10 @@ bool core_pane_hit_test_splitter(const CorePaneNode *nodes,
     }
     *out_hit = (CorePaneSplitterHit){ 0 };
 
-    if (!nodes || node_count == 0u || root_index >= node_count) {
+    if (!core_pane_validate_graph(nodes, node_count, root_index, bounds, 0)) {
         return false;
     }
-    if (!pane_isfinite(bounds.x) || !pane_isfinite(bounds.y) ||
-        !pane_isfinite(bounds.width) || !pane_isfinite(bounds.height) ||
-        bounds.width < 0.0f || bounds.height < 0.0f ||
-        !pane_isfinite(point_x) || !pane_isfinite(point_y)) {
+    if (!pane_isfinite(point_x) || !pane_isfinite(point_y)) {
         return false;
     }
     if (handle_thickness <= 0.0f) {
