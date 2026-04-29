@@ -7,14 +7,15 @@ trace_root="$repo_root/build/traces"
 d2_trace_dir="$trace_root/d2"
 d2_max_lane_l2_hits="${MAPFORGE_PHASE_D2_MATRIX_MAX_L2_HITS_TOTAL:-24}"
 d2_max_lane_l3_hits="${MAPFORGE_PHASE_D2_MATRIX_MAX_L3_HITS_TOTAL:-12}"
+binary="${MAPFORGE_BINARY:-$repo_root/build/toolchains/clang/bin/mapforge}"
 
 if [[ ! -x "$stress_script" ]]; then
     echo "missing executable stress script: $stress_script" >&2
     exit 1
 fi
 
-if [[ ! -x "$repo_root/build/mapforge" ]]; then
-    make -C "$repo_root" app >/dev/null
+if [[ ! -x "$binary" ]]; then
+    make -C "$repo_root" BUILD_TOOLCHAIN="${MAPFORGE_SCRIPT_BUILD_TOOLCHAIN:-clang}" app >/dev/null
 fi
 
 mkdir -p "$d2_trace_dir"

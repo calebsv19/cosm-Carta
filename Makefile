@@ -1,4 +1,35 @@
-CC := cc
+HOST_CC ?= cc
+FISICS_CC ?= /Users/calebsv/Desktop/CodeWork/fisiCs/fisics
+BUILD_TOOLCHAIN ?= clang
+PACKAGE_TOOLCHAIN ?= $(BUILD_TOOLCHAIN)
+TEST_TOOLCHAIN ?= clang
+RELEASE_TOOLCHAIN ?= clang
+SUPPORTED_TOOLCHAINS := clang fisics
+
+ifeq ($(filter $(BUILD_TOOLCHAIN),$(SUPPORTED_TOOLCHAINS)),)
+$(error Unsupported BUILD_TOOLCHAIN '$(BUILD_TOOLCHAIN)' (expected one of: $(SUPPORTED_TOOLCHAINS)))
+endif
+ifeq ($(filter $(PACKAGE_TOOLCHAIN),$(SUPPORTED_TOOLCHAINS)),)
+$(error Unsupported PACKAGE_TOOLCHAIN '$(PACKAGE_TOOLCHAIN)' (expected one of: $(SUPPORTED_TOOLCHAINS)))
+endif
+ifeq ($(filter $(TEST_TOOLCHAIN),$(SUPPORTED_TOOLCHAINS)),)
+$(error Unsupported TEST_TOOLCHAIN '$(TEST_TOOLCHAIN)' (expected one of: $(SUPPORTED_TOOLCHAINS)))
+endif
+ifeq ($(filter $(RELEASE_TOOLCHAIN),$(SUPPORTED_TOOLCHAINS)),)
+$(error Unsupported RELEASE_TOOLCHAIN '$(RELEASE_TOOLCHAIN)' (expected one of: $(SUPPORTED_TOOLCHAINS)))
+endif
+
+APP_CC := $(if $(filter fisics,$(BUILD_TOOLCHAIN)),$(FISICS_CC),$(HOST_CC))
+APP_COMPILER_DEP := $(if $(filter fisics,$(BUILD_TOOLCHAIN)),$(FISICS_CC),)
+BUILD_ROOT := build
+HOST_BUILD_ROOT := $(BUILD_ROOT)/host
+APP_TOOLCHAIN_ROOT := $(BUILD_ROOT)/toolchains/$(BUILD_TOOLCHAIN)
+APP_OBJ_DIR := $(APP_TOOLCHAIN_ROOT)/obj
+APP_BIN_DIR := $(APP_TOOLCHAIN_ROOT)/bin
+APP_BIN := $(APP_BIN_DIR)/mapforge
+APP_COMPILER_STAMP := $(APP_TOOLCHAIN_ROOT)/.compiler_stamp
+PACKAGE_BIN := $(BUILD_ROOT)/toolchains/$(PACKAGE_TOOLCHAIN)/bin/mapforge
+TEST_APP_BIN := $(BUILD_ROOT)/toolchains/$(TEST_TOOLCHAIN)/bin/mapforge
 
 # Build the application when running plain `make`.
 .DEFAULT_GOAL := app
@@ -48,14 +79,14 @@ CORE_TRACE_LIB := $(CORE_TRACE_DIR)/build/libcore_trace.a
 CORE_THEME_LIB := $(CORE_THEME_DIR)/build/libcore_theme.a
 CORE_FONT_LIB := $(CORE_FONT_DIR)/build/libcore_font.a
 KIT_RUNTIME_DIAG_LIB := $(KIT_RUNTIME_DIAG_DIR)/build/libkit_runtime_diag.a
-KIT_RENDER_EXTERNAL_TEXT_OBJ := build/kit_render/kit_render_external_text.o
+KIT_RENDER_EXTERNAL_TEXT_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_external_text.o
 
 VK_RENDERER_DIR ?= $(SHARED_ROOT)/vk_renderer
 VK_RENDERER_RESOLVED_DIR := $(VK_RENDERER_DIR)
 VK_RENDERER_INCLUDE := $(VK_RENDERER_RESOLVED_DIR)/include
 VK_RENDERER_STATIC_LIB := $(VK_RENDERER_RESOLVED_DIR)/build/lib/libvkrenderer.a
 VK_RENDERER_SRCS := $(wildcard $(VK_RENDERER_RESOLVED_DIR)/src/*.c)
-VK_RENDERER_OBJS := $(patsubst $(VK_RENDERER_RESOLVED_DIR)/src/%.c,build/vk_renderer/%.o,$(VK_RENDERER_SRCS))
+VK_RENDERER_OBJS := $(patsubst $(VK_RENDERER_RESOLVED_DIR)/src/%.c,$(HOST_BUILD_ROOT)/vk_renderer/%.o,$(VK_RENDERER_SRCS))
 VK_BUILD_LIB := build/vk/lib/libvkrenderer.a
 VK_BUILD_SHADER_DIR := build/vk/shaders
 VK_REQUIRED_SHADERS := fill.vert.spv fill.frag.spv line.vert.spv line.frag.spv textured.vert.spv textured.frag.spv
@@ -75,46 +106,68 @@ VULKAN_CFLAGS :=
 VULKAN_LIBS := -lvulkan
 endif
 
-CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g -pthread $(SDL_CFLAGS) $(SDL_TTF_CFLAGS)
+COMMON_CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g -pthread $(SDL_CFLAGS) $(SDL_TTF_CFLAGS)
+APP_CFLAGS := $(COMMON_CFLAGS)
+HOST_CFLAGS := $(COMMON_CFLAGS)
 LDLIBS := $(SDL_LIBS) $(SDL_TTF_LIBS) $(JSON_LIBS) -pthread
 TOOL_LDLIBS := -lm $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 
 ifeq ($(JSON_LIBS),)
 LDLIBS += -ljson-c
 endif
-CFLAGS += $(JSON_CFLAGS)
+APP_CFLAGS += $(JSON_CFLAGS)
+HOST_CFLAGS += $(JSON_CFLAGS)
 ifneq ($(strip $(SQLITE_LIBS)),)
-CFLAGS += $(SQLITE_CFLAGS) -DMAPFORGE_HAVE_SQLITE=1
+APP_CFLAGS += $(SQLITE_CFLAGS) -DMAPFORGE_HAVE_SQLITE=1
+HOST_CFLAGS += $(SQLITE_CFLAGS) -DMAPFORGE_HAVE_SQLITE=1
 LDLIBS += $(SQLITE_LIBS)
 TOOL_LDLIBS += $(SQLITE_LIBS)
 endif
-CFLAGS += -I$(CORE_SPACE_DIR)/include
-CFLAGS += -I$(CORE_BASE_DIR)/include
-CFLAGS += -I$(CORE_IO_DIR)/include
-CFLAGS += -I$(CORE_DATA_DIR)/include
-CFLAGS += -I$(CORE_PACK_DIR)/include
-CFLAGS += -I$(CORE_TIME_DIR)/include
-CFLAGS += -I$(CORE_QUEUE_DIR)/include
-CFLAGS += -I$(CORE_SCHED_DIR)/include
-CFLAGS += -I$(CORE_JOBS_DIR)/include
-CFLAGS += -I$(CORE_WORKERS_DIR)/include
-CFLAGS += -I$(CORE_WAKE_DIR)/include
-CFLAGS += -I$(CORE_KERNEL_DIR)/include
-CFLAGS += -I$(CORE_TRACE_DIR)/include
-CFLAGS += -I$(CORE_THEME_DIR)/include
-CFLAGS += -I$(CORE_FONT_DIR)/include
-CFLAGS += -I$(KIT_RUNTIME_DIAG_DIR)/include
-CFLAGS += -I$(KIT_RENDER_DIR)/include
+APP_CFLAGS += -I$(CORE_SPACE_DIR)/include
+APP_CFLAGS += -I$(CORE_BASE_DIR)/include
+APP_CFLAGS += -I$(CORE_IO_DIR)/include
+APP_CFLAGS += -I$(CORE_DATA_DIR)/include
+APP_CFLAGS += -I$(CORE_PACK_DIR)/include
+APP_CFLAGS += -I$(CORE_TIME_DIR)/include
+APP_CFLAGS += -I$(CORE_QUEUE_DIR)/include
+APP_CFLAGS += -I$(CORE_SCHED_DIR)/include
+APP_CFLAGS += -I$(CORE_JOBS_DIR)/include
+APP_CFLAGS += -I$(CORE_WORKERS_DIR)/include
+APP_CFLAGS += -I$(CORE_WAKE_DIR)/include
+APP_CFLAGS += -I$(CORE_KERNEL_DIR)/include
+APP_CFLAGS += -I$(CORE_TRACE_DIR)/include
+APP_CFLAGS += -I$(CORE_THEME_DIR)/include
+APP_CFLAGS += -I$(CORE_FONT_DIR)/include
+APP_CFLAGS += -I$(KIT_RUNTIME_DIAG_DIR)/include
+APP_CFLAGS += -I$(KIT_RENDER_DIR)/include
+HOST_CFLAGS += -I$(CORE_SPACE_DIR)/include
+HOST_CFLAGS += -I$(CORE_BASE_DIR)/include
+HOST_CFLAGS += -I$(CORE_IO_DIR)/include
+HOST_CFLAGS += -I$(CORE_DATA_DIR)/include
+HOST_CFLAGS += -I$(CORE_PACK_DIR)/include
+HOST_CFLAGS += -I$(CORE_TIME_DIR)/include
+HOST_CFLAGS += -I$(CORE_QUEUE_DIR)/include
+HOST_CFLAGS += -I$(CORE_SCHED_DIR)/include
+HOST_CFLAGS += -I$(CORE_JOBS_DIR)/include
+HOST_CFLAGS += -I$(CORE_WORKERS_DIR)/include
+HOST_CFLAGS += -I$(CORE_WAKE_DIR)/include
+HOST_CFLAGS += -I$(CORE_KERNEL_DIR)/include
+HOST_CFLAGS += -I$(CORE_TRACE_DIR)/include
+HOST_CFLAGS += -I$(CORE_THEME_DIR)/include
+HOST_CFLAGS += -I$(CORE_FONT_DIR)/include
+HOST_CFLAGS += -I$(KIT_RUNTIME_DIAG_DIR)/include
+HOST_CFLAGS += -I$(KIT_RENDER_DIR)/include
 
 SRCS := $(shell find src -name '*.c')
-OBJS := $(SRCS:src/%.c=build/%.o)
+OBJS := $(patsubst src/%.c,$(APP_OBJ_DIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 DEPS += $(KIT_RENDER_EXTERNAL_TEXT_OBJ:.o=.d)
+DEPS += $(VK_RENDERER_OBJS:.o=.d)
 LINK_OBJS := $(OBJS)
 CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(KIT_RUNTIME_DIAG_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 LINK_OBJS += $(KIT_RENDER_EXTERNAL_TEXT_OBJ)
 LINK_OBJS += $(CORE_SHARED_LIBS)
-TARGET := build/mapforge
+TARGET := $(APP_BIN)
 DIST_DIR := dist
 PACKAGE_APP_NAME := Carta.app
 PACKAGE_APP_DIR := $(DIST_DIR)/$(PACKAGE_APP_NAME)
@@ -186,7 +239,8 @@ TILE_MANAGER_RESIDENCY_TEST_TARGET := build/tests/tile_manager_residency_test
 TILE_MANAGER_RESIDENCY_TEST_SRCS := tests/tile_manager_residency_test.c src/map/tile_manager.c src/map/tile_source.c src/map/mft_loader.c src/core/log.c
 
 ifeq ($(VK_APP_ENABLED),1)
-CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
+APP_CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
+HOST_CFLAGS += -I$(VK_RENDERER_INCLUDE) -DMAPFORGE_HAVE_VK=1 -DVK_RENDERER_SHADER_ROOT=\"$(VK_RENDERER_RESOLVED_DIR)\"
 LINK_OBJS += $(VK_RENDERER_OBJS)
 LDLIBS += $(VULKAN_LIBS) -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo
 endif
@@ -227,70 +281,79 @@ GRAPH_TOOL_FLAGS := $(if $(filter 1,$(REPLACE)),--replace,) \
 	--prune-days $(PRUNE_DAYS) \
 	$(if $(filter 1,$(PRUNE_DRY_RUN)),--prune-dry-run,)
 
+test run-headless-smoke: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
+test-%: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
+RELEASE_MAKE := $(MAKE) --no-print-directory BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)"
+
 app: $(TARGET)
 
 $(CORE_BASE_LIB):
-	$(MAKE) -C $(CORE_BASE_DIR)
+	$(MAKE) -C $(CORE_BASE_DIR) CC="$(HOST_CC)"
 
 $(CORE_IO_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_IO_DIR)
+	$(MAKE) -C $(CORE_IO_DIR) CC="$(HOST_CC)"
 
 $(CORE_DATA_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_DATA_DIR)
+	$(MAKE) -C $(CORE_DATA_DIR) CC="$(HOST_CC)"
 
 $(CORE_SPACE_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_SPACE_DIR)
+	$(MAKE) -C $(CORE_SPACE_DIR) CC="$(HOST_CC)"
 
 $(CORE_PACK_LIB): $(CORE_IO_LIB)
-	$(MAKE) -C $(CORE_PACK_DIR)
+	$(MAKE) -C $(CORE_PACK_DIR) CC="$(HOST_CC)"
 
 $(CORE_TIME_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_TIME_DIR)
+	$(MAKE) -C $(CORE_TIME_DIR) CC="$(HOST_CC)"
 
 $(CORE_QUEUE_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_QUEUE_DIR)
+	$(MAKE) -C $(CORE_QUEUE_DIR) CC="$(HOST_CC)"
 
 $(CORE_SCHED_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_SCHED_DIR)
+	$(MAKE) -C $(CORE_SCHED_DIR) CC="$(HOST_CC)"
 
 $(CORE_JOBS_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_JOBS_DIR)
+	$(MAKE) -C $(CORE_JOBS_DIR) CC="$(HOST_CC)"
 
 $(CORE_WORKERS_LIB): $(CORE_QUEUE_LIB)
-	$(MAKE) -C $(CORE_WORKERS_DIR)
+	$(MAKE) -C $(CORE_WORKERS_DIR) CC="$(HOST_CC)"
 
 $(CORE_WAKE_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_WAKE_DIR)
+	$(MAKE) -C $(CORE_WAKE_DIR) CC="$(HOST_CC)"
 
 $(CORE_KERNEL_LIB): $(CORE_SCHED_LIB) $(CORE_JOBS_LIB) $(CORE_WAKE_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB)
-	$(MAKE) -C $(CORE_KERNEL_DIR)
+	$(MAKE) -C $(CORE_KERNEL_DIR) CC="$(HOST_CC)"
 
 $(CORE_TRACE_LIB): $(CORE_PACK_LIB)
-	$(MAKE) -C $(CORE_TRACE_DIR)
+	$(MAKE) -C $(CORE_TRACE_DIR) CC="$(HOST_CC)"
 
 $(CORE_THEME_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_THEME_DIR)
+	$(MAKE) -C $(CORE_THEME_DIR) CC="$(HOST_CC)"
 
 $(CORE_FONT_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_FONT_DIR)
+	$(MAKE) -C $(CORE_FONT_DIR) CC="$(HOST_CC)"
 
 $(KIT_RUNTIME_DIAG_LIB):
-	$(MAKE) -C $(KIT_RUNTIME_DIAG_DIR)
+	$(MAKE) -C $(KIT_RUNTIME_DIAG_DIR) CC="$(HOST_CC)"
+
+$(APP_COMPILER_STAMP): $(APP_COMPILER_DEP)
+	@mkdir -p $(dir $@)
+	@touch $@
 
 $(TARGET): $(LINK_OBJS)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
-
-build/%.o: src/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+	$(HOST_CC) $(HOST_CFLAGS) $^ -o $@ $(LDLIBS)
 
-build/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
+$(APP_OBJ_DIR)/%.o: src/%.c $(APP_COMPILER_STAMP)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+	$(APP_CC) $(APP_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
+$(HOST_BUILD_ROOT)/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
 $(KIT_RENDER_EXTERNAL_TEXT_OBJ): $(KIT_RENDER_DIR)/src/kit_render_external_text.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
@@ -301,12 +364,13 @@ run-headless-smoke: app test-worker-contract test-route-service test-presentatio
 visual-harness: app
 	@echo "visual harness binary ready: $(TARGET)"
 
-package-desktop: app tools-build graph-build
+package-desktop: tools-build graph-build
+	@$(MAKE) --no-print-directory BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" app
 	@echo "Preparing desktop package..."
 	@rm -rf "$(PACKAGE_APP_DIR)"
 	@mkdir -p "$(PACKAGE_MACOS_DIR)" "$(PACKAGE_RESOURCES_DIR)" "$(PACKAGE_FRAMEWORKS_DIR)" "$(PACKAGE_TOOLS_DIR)"
 	@cp "$(PACKAGE_INFO_PLIST_SRC)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
-	@cp "$(TARGET)" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
+	@cp "$(PACKAGE_BIN)" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
 	@cp "$(PACKAGE_LAUNCHER_SRC)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher"
 	@chmod +x "$(PACKAGE_MACOS_DIR)/mapforge-launcher" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
 	@if [ -f "$(PACKAGE_APP_ICON_SRC)" ]; then \
@@ -404,10 +468,43 @@ release-clean:
 	@rm -rf "$(RELEASE_DIR)"
 	@echo "Release output cleaned: $(RELEASE_DIR)"
 
-release-build: clean app
+release-build:
+	@$(RELEASE_MAKE) release-build-internal
+
+release-bundle-audit:
+	@$(RELEASE_MAKE) release-bundle-audit-internal
+
+release-sign:
+	@$(RELEASE_MAKE) release-sign-internal
+
+release-verify:
+	@$(RELEASE_MAKE) release-verify-internal
+
+release-verify-signed:
+	@$(RELEASE_MAKE) release-verify-signed-internal
+
+release-notarize:
+	@$(RELEASE_MAKE) release-notarize-internal
+
+release-staple:
+	@$(RELEASE_MAKE) release-staple-internal
+
+release-verify-notarized:
+	@$(RELEASE_MAKE) release-verify-notarized-internal
+
+release-artifact:
+	@$(RELEASE_MAKE) release-artifact-internal
+
+release-distribute:
+	@$(RELEASE_MAKE) release-distribute-internal
+
+release-desktop-refresh:
+	@$(RELEASE_MAKE) release-desktop-refresh-internal
+
+release-build-internal: clean app
 	@echo "Release build complete: $(TARGET)"
 
-release-bundle-audit: package-desktop-self-test
+release-bundle-audit-internal: package-desktop-self-test
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$(PACKAGE_CONTENTS_DIR)/Info.plist" > "$(RELEASE_DIR)/bundle_id.txt"
 	@test "$$(cat "$(RELEASE_DIR)/bundle_id.txt")" = "$(RELEASE_BUNDLE_ID)" || (echo "bundle id mismatch: expected $(RELEASE_BUNDLE_ID), got $$(cat "$(RELEASE_DIR)/bundle_id.txt")"; exit 1)
@@ -438,7 +535,7 @@ release-bundle-audit: package-desktop-self-test
 	done
 	@echo "release-bundle-audit passed."
 
-release-sign: release-bundle-audit
+release-sign-internal: release-bundle-audit-internal
 	@echo "Signing with identity: $(RELEASE_CODESIGN_IDENTITY)"
 	@if [ "$(RELEASE_CODESIGN_IDENTITY)" = "-" ]; then \
 		for dylib in $$(/usr/bin/find "$(PACKAGE_FRAMEWORKS_DIR)" -type f -name '*.dylib' 2>/dev/null); do \
@@ -457,7 +554,7 @@ release-sign: release-bundle-audit
 	fi
 	@echo "release-sign complete."
 
-release-verify:
+release-verify-internal:
 	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)"
 	@if [ "$(RELEASE_CODESIGN_IDENTITY)" = "-" ]; then \
 		echo "release-verify note: ad-hoc identity in use; skipping spctl Gatekeeper assessment"; \
@@ -477,10 +574,10 @@ release-verify:
 	fi
 	@echo "release-verify passed."
 
-release-verify-signed: release-sign release-verify
+release-verify-signed-internal: release-sign-internal release-verify-internal
 	@echo "release-verify-signed passed."
 
-release-notarize: release-sign
+release-notarize-internal: release-sign-internal
 	@if [ -z "$(APPLE_NOTARY_PROFILE)" ]; then \
 		echo "APPLE_NOTARY_PROFILE is required for release-notarize"; \
 		exit 1; \
@@ -505,7 +602,7 @@ release-notarize: release-sign
 	fi
 	@echo "release-notarize passed."
 
-release-staple:
+release-staple-internal:
 	@attempt=1; \
 	while [ $$attempt -le "$(STAPLE_MAX_ATTEMPTS)" ]; do \
 		if xcrun stapler staple "$(PACKAGE_APP_DIR)"; then \
@@ -522,11 +619,11 @@ release-staple:
 	@xcrun stapler validate "$(PACKAGE_APP_DIR)"
 	@echo "release-staple passed."
 
-release-verify-notarized: release-verify
+release-verify-notarized-internal: release-verify-internal
 	@xcrun stapler validate "$(PACKAGE_APP_DIR)"
 	@echo "release-verify-notarized passed."
 
-release-artifact:
+release-artifact-internal:
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
 	@shasum -a 256 "$(RELEASE_APP_ZIP)" > "$(RELEASE_APP_ZIP).sha256"
@@ -541,10 +638,10 @@ release-artifact:
 	} > "$(RELEASE_MANIFEST)"
 	@echo "release-artifact complete: $(RELEASE_APP_ZIP)"
 
-release-distribute: release-notarize release-staple release-verify-notarized release-artifact
+release-distribute-internal: release-notarize-internal release-staple-internal release-verify-notarized-internal release-artifact-internal
 	@echo "release-distribute passed."
 
-release-desktop-refresh:
+release-desktop-refresh-internal: package-desktop
 	@if [ ! -d "$(PACKAGE_APP_DIR)" ]; then \
 		echo "release-desktop-refresh requires an existing built app at $(PACKAGE_APP_DIR)"; \
 		echo "run release-distribute first"; \
@@ -574,11 +671,11 @@ tools-build: $(TOOL_TARGET) $(REGION_VALIDATE_TARGET)
 
 $(TOOL_TARGET): $(TOOL_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(TOOL_SRCS) -o $@ $(TOOL_LDLIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(TOOL_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(REGION_VALIDATE_TARGET): $(REGION_VALIDATE_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(REGION_VALIDATE_SRCS) -o $@ $(TOOL_LDLIBS) $(if $(JSON_LIBS),$(JSON_LIBS),-ljson-c)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(REGION_VALIDATE_SRCS) -o $@ $(TOOL_LDLIBS) $(if $(JSON_LIBS),$(JSON_LIBS),-ljson-c)
 
 graph:
 	tools/run_with_progress.sh --label "make graph" $(MAKE) --no-print-directory graph-build
@@ -587,7 +684,7 @@ graph-build: $(GRAPH_TARGET)
 
 $(GRAPH_TARGET): $(GRAPH_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(GRAPH_SRCS) -o $@ $(TOOL_LDLIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(GRAPH_SRCS) -o $@ $(TOOL_LDLIBS)
 
 test-space: $(MAP_SPACE_TEST_TARGET)
 	./$(MAP_SPACE_TEST_TARGET)
@@ -664,14 +761,14 @@ test-tile-manager-residency: $(TILE_MANAGER_RESIDENCY_TEST_TARGET)
 	./$(TILE_MANAGER_RESIDENCY_TEST_TARGET)
 
 test-phase-a-viewport-scenario: app
-	MAPFORGE_PHASE_A_MAX_L0_LATENCY_MS=1500 \
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" MAPFORGE_PHASE_A_MAX_L0_LATENCY_MS=1500 \
 	./tests/test_phase_a_viewport_scenario.sh
 
 test-phase-b-continuity-stress: app
-	./tests/test_phase_b_continuity_stress.sh
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" ./tests/test_phase_b_continuity_stress.sh
 
 test-phase-d1-budget-control: app
-	MAPFORGE_PHASE_B_MAX_L0_LATENCY_MS=2500 \
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" MAPFORGE_PHASE_B_MAX_L0_LATENCY_MS=2500 \
 	MAPFORGE_PHASE_D1_MAX_LOAD_CLAMP_TOTAL=48 \
 	MAPFORGE_PHASE_D1_MAX_LOAD_EX_TOTAL=72 \
 	MAPFORGE_PHASE_D1_MAX_L2_HITS_TOTAL=12 \
@@ -683,21 +780,21 @@ test-phase-d1-budget-control: app
 	./tests/test_phase_b_continuity_stress.sh
 
 test-phase-d1-budget-matrix: app
-	./tests/test_phase_d1_budget_matrix.sh
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" ./tests/test_phase_d1_budget_matrix.sh
 
 test-phase-d2-trace-matrix: app
-	./tests/test_phase_d2_trace_matrix.sh
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" ./tests/test_phase_d2_trace_matrix.sh
 
 test-phase-d2-tuning-profiles: app
-	./tests/test_phase_d2_tuning_profiles.sh
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" ./tests/test_phase_d2_tuning_profiles.sh
 
 test-phase-d2-trend-summary: app
-	MAPFORGE_PHASE_D2_SKIP_GUARDRAILS=1 \
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" MAPFORGE_PHASE_D2_SKIP_GUARDRAILS=1 \
 	MAPFORGE_PHASE_D2_TREND_WINDOW=8 \
 	./tests/test_phase_d2_tuning_profiles.sh
 
 test-phase-d2-guardrails: app
-	MAPFORGE_PHASE_D2_MAX_LOAD_EX_DELTA_SEATTLE=8 \
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" MAPFORGE_PHASE_D2_MAX_LOAD_EX_DELTA_SEATTLE=8 \
 	MAPFORGE_PHASE_D2_MAX_L0_PEAK_DELTA_MS_SEATTLE=1200 \
 	MAPFORGE_PHASE_D2_MAX_LOAD_EX_DELTA_DOWNTOWN=10 \
 	MAPFORGE_PHASE_D2_MAX_L0_PEAK_DELTA_MS_DOWNTOWN=500 \
@@ -709,7 +806,7 @@ test-phase-d2-guardrails: app
 	./tests/test_phase_d2_tuning_profiles.sh
 
 test-phase-d3-regression-gate: app
-	MAPFORGE_PHASE_D_GATE_MODE=d3 \
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" MAPFORGE_PHASE_D_GATE_MODE=d3 \
 	MAPFORGE_D2_BASELINE_PROFILE_NAME=baseline \
 	MAPFORGE_D2_BASELINE_PRESET=baseline \
 	MAPFORGE_D2_CANDIDATE_PROFILE_NAME=l0_relief_candidate \
@@ -738,47 +835,47 @@ test-phase-d-throughput: app
 
 $(MAP_SPACE_TEST_TARGET): $(MAP_SPACE_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(MAP_SPACE_TEST_SRCS) $(CORE_SPACE_LIB) $(CORE_BASE_LIB) -o $@ $(TOOL_LDLIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(MAP_SPACE_TEST_SRCS) $(CORE_SPACE_LIB) $(CORE_BASE_LIB) -o $@ $(TOOL_LDLIBS)
 
 $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET): $(SHARED_THEME_FONT_ADAPTER_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(SHARED_THEME_FONT_ADAPTER_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(SHARED_THEME_FONT_ADAPTER_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(MAP_TRACE_CONTRACT_TEST_TARGET): $(MAP_TRACE_CONTRACT_TEST_SRCS) $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(MAP_TRACE_CONTRACT_TEST_SRCS) -o $@ $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB) -lm
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(MAP_TRACE_CONTRACT_TEST_SRCS) -o $@ $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB) -lm
 
 $(APP_WORKER_CONTRACT_TEST_TARGET): $(APP_WORKER_CONTRACT_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(APP_WORKER_CONTRACT_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_WORKER_CONTRACT_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(TILE_LOADER_SHUTDOWN_TEST_TARGET): $(TILE_LOADER_SHUTDOWN_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(TILE_LOADER_SHUTDOWN_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(TILE_LOADER_SHUTDOWN_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
 
 $(TILE_SOURCE_ARCHIVE_TEST_TARGET): $(TILE_SOURCE_ARCHIVE_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(TILE_SOURCE_ARCHIVE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(TILE_SOURCE_ARCHIVE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(APP_ROUTE_SERVICE_TEST_TARGET): $(APP_ROUTE_SERVICE_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(APP_ROUTE_SERVICE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_ROUTE_SERVICE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(APP_TILE_PRESENTER_POLICY_TEST_TARGET): $(APP_TILE_PRESENTER_POLICY_TEST_SRCS) $(CORE_TIME_LIB)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(APP_TILE_PRESENTER_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_TIME_LIB)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_TILE_PRESENTER_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_TIME_LIB)
 
 $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET): $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET): $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(TILE_MANAGER_RESIDENCY_TEST_TARGET): $(TILE_MANAGER_RESIDENCY_TEST_SRCS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Iinclude $(TILE_MANAGER_RESIDENCY_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(TILE_MANAGER_RESIDENCY_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
 
 route: graph
 	./$(GRAPH_TARGET) --region $(REGION) --osm $(OSM) --out "$(REGIONS_DIR)/$(REGION)" $(GRAPH_TOOL_FLAGS)
