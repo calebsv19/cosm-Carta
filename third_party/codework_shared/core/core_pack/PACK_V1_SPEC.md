@@ -63,14 +63,24 @@ Legacy v1 token compatibility:
 ## 4. Chunk Ordering Policy (Recommended)
 Order is recommendation, not strict parser requirement.
 
-### 4.1 Physics profile order
+### 4.1 Physics planar v1 profile order
 1. `VFHD`
 2. `DENS`
 3. `VELX`
 4. `VELY`
 5. `JSON` (optional)
 
-### 4.2 DAW profile order
+### 4.2 Physics volumetric v1 profile order
+1. `VF3H`
+2. `DENS`
+3. `VELX`
+4. `VELY`
+5. `VELZ`
+6. `PRES`
+7. `SOLI`
+8. `JSON` (optional)
+
+### 4.3 DAW profile order
 1. `DAWH`
 2. `WMIN`
 3. `WMAX`
@@ -79,7 +89,7 @@ Order is recommendation, not strict parser requirement.
 
 ## 5. Profile Required/Optional Chunks
 
-### 5.1 Physics v1 profile
+### 5.1 Physics planar v1 profile
 Required chunks:
 - `VFHD`: canonical frame metadata
 - `DENS`: `f32[w*h]`
@@ -90,7 +100,21 @@ Optional chunks:
 - `JSON`: manifest and debug metadata
 - unknown optional chunks: readers should ignore unless specifically required by caller
 
-### 5.2 DAW v1 profile
+### 5.2 Physics volumetric v1 profile
+Required chunks:
+- `VF3H`: canonical truthful volumetric frame metadata
+- `DENS`: `f32[w*h*d]`
+- `VELX`: `f32[w*h*d]`
+- `VELY`: `f32[w*h*d]`
+- `VELZ`: `f32[w*h*d]`
+- `PRES`: `f32[w*h*d]`
+- `SOLI`: `u8[w*h*d]`
+
+Optional chunks:
+- `JSON`: manifest/debug metadata
+- unknown optional chunks: readers should ignore unless specifically required by caller
+
+### 5.3 DAW v1 profile
 Required chunks:
 - `DAWH`: DAW waveform header metadata
 - `WMIN`: waveform min envelope (`f32[point_count]`)
@@ -106,6 +130,7 @@ Optional chunks:
 Allowed without v2:
 - Add new optional chunks that old readers can ignore.
 - Add optional JSON metadata fields.
+- Add new required chunk families for new profiles when existing required chunk families and semantics remain unchanged.
 - Add new tooling validation around existing unchanged semantics.
 
 Disallowed in v1:

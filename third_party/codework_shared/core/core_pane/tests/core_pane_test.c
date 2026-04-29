@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <string.h>
 
 static int nearf(float a, float b, float eps) {
     float d = a - b;
@@ -162,6 +163,37 @@ static void test_drag_sequence_is_deterministic(void) {
     assert(nearf(nodes[0].ratio_01, 0.50f, 0.0001f));
 }
 
+static void test_validation_reports_duplicate_child(void) {
+    CorePaneNode nodes[2] = {
+        { CORE_PANE_NODE_SPLIT, 12u, CORE_PANE_AXIS_HORIZONTAL, 0.5f, 1u, 1u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 3u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneValidationReport report = {0};
+
+    assert(!core_pane_validate_graph(nodes,
+                                     2u,
+                                     0u,
+                                     (CorePaneRect){ 0.0f, 0.0f, 120.0f, 80.0f },
+                                     &report));
+    assert(report.code == CORE_PANE_VALIDATION_ERR_DUPLICATE_CHILD);
+    assert(report.node_index == 0u);
+}
+
+static void test_validation_reports_invalid_bounds(void) {
+    CorePaneNode nodes[1] = {
+        { CORE_PANE_NODE_LEAF, 1u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneValidationReport report = {0};
+
+    assert(!core_pane_validate_graph(nodes,
+                                     1u,
+                                     0u,
+                                     (CorePaneRect){ 0.0f, 0.0f, -1.0f, 80.0f },
+                                     &report));
+    assert(report.code == CORE_PANE_VALIDATION_ERR_INVALID_BOUNDS);
+    assert(strcmp(core_pane_validation_code_string(report.code), "invalid_bounds") == 0);
+}
+
 int main(void) {
     test_solve_basic_horizontal_split();
     test_solve_respects_min_constraints();
@@ -170,5 +202,7 @@ int main(void) {
     test_solve_rejects_duplicate_child_reference();
     test_solve_handles_non_finite_ratio_with_stable_fallback();
     test_drag_sequence_is_deterministic();
+    test_validation_reports_duplicate_child();
+    test_validation_reports_invalid_bounds();
     return 0;
 }

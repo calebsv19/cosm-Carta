@@ -442,9 +442,17 @@ static VkResult create_logical_device(VkRendererDevice* device,
         };
     }
 
-    VkPhysicalDeviceFeatures device_features = {
-        .samplerAnisotropy = VK_TRUE,
-    };
+    VkPhysicalDeviceFeatures supported_features;
+    memset(&supported_features, 0, sizeof(supported_features));
+    vkGetPhysicalDeviceFeatures(device->physical_device, &supported_features);
+
+    VkPhysicalDeviceFeatures device_features;
+    memset(&device_features, 0, sizeof(device_features));
+    /* Enable only features that are both needed and supported.
+       We can run with anisotropy disabled, so avoid hard-requiring it. */
+    if (supported_features.samplerAnisotropy == VK_TRUE) {
+        device_features.samplerAnisotropy = VK_TRUE;
+    }
 
     const char* device_extensions[9];
     uint32_t device_extension_count = 0;
@@ -473,7 +481,11 @@ static VkResult create_logical_device(VkRendererDevice* device,
 
     VkResult result = vkCreateDevice(device->physical_device, &create_info, NULL, &device->device);
     if (result != VK_SUCCESS) {
-        fprintf(stderr, "vkCreateDevice failed: %d\n", (int)result);
+        fprintf(stderr,
+                "vkCreateDevice failed: %d (requested: samplerAnisotropy=%u, supported: "
+                "samplerAnisotropy=%u)\n",
+                (int)result, (unsigned)device_features.samplerAnisotropy,
+                (unsigned)supported_features.samplerAnisotropy);
         return result;
     }
 

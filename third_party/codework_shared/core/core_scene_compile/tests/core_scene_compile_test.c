@@ -34,7 +34,7 @@ static int test_compile_success_and_preserve_extensions(void) {
     if (!strstr(runtime_json, "\"schema_variant\":\"scene_runtime_v1\"")) return 1;
     if (!strstr(runtime_json, "\"source_scene_id\":\"scene_test\"")) return 1;
     if (!strstr(runtime_json, "\"compile_meta\":")) return 1;
-    if (!strstr(runtime_json, "\"normalization\":\"v0.2_sorted_lanes\"")) return 1;
+    if (!strstr(runtime_json, "\"normalization\":\"v0.3_sorted_lanes_primitive_contract\"")) return 1;
     if (!strstr(runtime_json, "\"hierarchy\":[]")) return 1;
     if (!strstr(runtime_json, "\"extensions\":{\"ray_tracing\":{\"samples\":32},\"custom\":{\"x\":1}}")) return 1;
     core_free(runtime_json);
@@ -277,6 +277,137 @@ static int test_deterministic_sorted_lanes(void) {
     return 0;
 }
 
+static int test_preserve_canonical_primitive_payloads(void) {
+    const char *json =
+        "{"
+        "\"schema_family\":\"codework_scene\","
+        "\"schema_variant\":\"scene_authoring_v1\","
+        "\"schema_version\":1,"
+        "\"scene_id\":\"scene_primitives\","
+        "\"space_mode_default\":\"3d\","
+        "\"objects\":["
+          "{"
+            "\"object_id\":\"obj_prism\","
+            "\"object_type\":\"rect_prism_primitive\","
+            "\"dimensional_mode\":\"full_3d\","
+            "\"primitive\":{"
+              "\"kind\":\"rect_prism_primitive\","
+              "\"width\":3.0,"
+              "\"height\":2.0,"
+              "\"depth\":4.0,"
+              "\"lock_to_construction_plane\":false,"
+              "\"lock_to_bounds\":true,"
+              "\"frame\":{"
+                "\"origin\":{\"x\":1.0,\"y\":2.0,\"z\":3.0},"
+                "\"axis_u\":{\"x\":1.0,\"y\":0.0,\"z\":0.0},"
+                "\"axis_v\":{\"x\":0.0,\"y\":1.0,\"z\":0.0},"
+                "\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":1.0}"
+              "}"
+            "}"
+          "},"
+          "{"
+            "\"object_id\":\"obj_plane\","
+            "\"object_type\":\"plane_primitive\","
+            "\"dimensional_mode\":\"plane_locked\","
+            "\"locked_plane\":\"xy\","
+            "\"primitive\":{"
+              "\"kind\":\"plane_primitive\","
+              "\"width\":6.0,"
+              "\"height\":5.0,"
+              "\"lock_to_construction_plane\":true,"
+              "\"lock_to_bounds\":false,"
+              "\"frame\":{"
+                "\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},"
+                "\"axis_u\":{\"x\":1.0,\"y\":0.0,\"z\":0.0},"
+                "\"axis_v\":{\"x\":0.0,\"y\":1.0,\"z\":0.0},"
+                "\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":1.0}"
+              "}"
+            "}"
+          "}"
+        "],"
+        "\"materials\":[],"
+        "\"lights\":[],"
+        "\"cameras\":[]"
+        "}";
+    char diagnostics[256];
+    char *runtime_json = NULL;
+    const char *plane = NULL;
+    const char *prism = NULL;
+    CoreResult r = core_scene_compile_authoring_to_runtime(json,
+                                                           &runtime_json,
+                                                           diagnostics,
+                                                           sizeof(diagnostics));
+    if (r.code != CORE_OK) return 1;
+    if (!runtime_json) return 1;
+
+    plane = strstr(runtime_json, "\"object_id\":\"obj_plane\"");
+    prism = strstr(runtime_json, "\"object_id\":\"obj_prism\"");
+    if (!plane || !prism || plane > prism) return 1;
+    if (!strstr(runtime_json, "\"primitive\":{\"kind\":\"plane_primitive\",\"width\":6.0,\"height\":5.0")) return 1;
+    if (!strstr(runtime_json, "\"primitive\":{\"kind\":\"rect_prism_primitive\",\"width\":3.0,\"height\":2.0,\"depth\":4.0")) return 1;
+
+    core_free(runtime_json);
+    return 0;
+}
+
+static int test_reject_missing_primitive_payload_for_primitive_object(void) {
+    const char *bad_json =
+        "{"
+        "\"schema_family\":\"codework_scene\","
+        "\"schema_variant\":\"scene_authoring_v1\","
+        "\"schema_version\":1,"
+        "\"scene_id\":\"scene_missing_primitive\","
+        "\"objects\":[{\"object_id\":\"obj_plane\",\"object_type\":\"plane_primitive\",\"dimensional_mode\":\"plane_locked\"}]"
+        "}";
+    char diagnostics[256];
+    char *runtime_json = NULL;
+    CoreResult r = core_scene_compile_authoring_to_runtime(bad_json,
+                                                           &runtime_json,
+                                                           diagnostics,
+                                                           sizeof(diagnostics));
+    if (r.code == CORE_OK) return 1;
+    if (runtime_json != NULL) return 1;
+    if (!strstr(diagnostics, "requires primitive payload")) return 1;
+    return 0;
+}
+
+static int test_reject_invalid_primitive_payload_shape(void) {
+    const char *bad_json =
+        "{"
+        "\"schema_family\":\"codework_scene\","
+        "\"schema_variant\":\"scene_authoring_v1\","
+        "\"schema_version\":1,"
+        "\"scene_id\":\"scene_bad_primitive\","
+        "\"objects\":[{"
+          "\"object_id\":\"obj_plane\","
+          "\"object_type\":\"plane_primitive\","
+          "\"dimensional_mode\":\"plane_locked\","
+          "\"locked_plane\":\"xy\","
+          "\"primitive\":{"
+            "\"kind\":\"rect_prism_primitive\","
+            "\"width\":0.0,"
+            "\"height\":2.0,"
+            "\"frame\":{"
+              "\"origin\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},"
+              "\"axis_u\":{\"x\":1.0,\"y\":0.0,\"z\":0.0},"
+              "\"axis_v\":{\"x\":0.0,\"y\":1.0,\"z\":0.0},"
+              "\"normal\":{\"x\":0.0,\"y\":0.0,\"z\":1.0}"
+            "}"
+          "}"
+        "}]"
+        "}";
+    char diagnostics[256];
+    char *runtime_json = NULL;
+    CoreResult r = core_scene_compile_authoring_to_runtime(bad_json,
+                                                           &runtime_json,
+                                                           diagnostics,
+                                                           sizeof(diagnostics));
+    if (r.code == CORE_OK) return 1;
+    if (runtime_json != NULL) return 1;
+    if (!strstr(diagnostics, "invalid primitive payload")) return 1;
+    return 0;
+}
+
 int main(void) {
     if (test_compile_success_and_preserve_extensions() != 0) return 1;
     if (test_reject_wrong_variant() != 0) return 1;
@@ -288,6 +419,9 @@ int main(void) {
     if (test_reject_non_positive_world_scale() != 0) return 1;
     if (test_reject_unresolved_hierarchy_reference() != 0) return 1;
     if (test_deterministic_sorted_lanes() != 0) return 1;
+    if (test_preserve_canonical_primitive_payloads() != 0) return 1;
+    if (test_reject_missing_primitive_payload_for_primitive_object() != 0) return 1;
+    if (test_reject_invalid_primitive_payload_shape() != 0) return 1;
     printf("core_scene_compile tests passed\n");
     return 0;
 }

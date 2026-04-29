@@ -77,4 +77,7 @@ CoreResult core_pack_reader_close(CorePackReader *reader);
 // Convert legacy PhysicsSim VF2D frame (+ optional manifest JSON) to .pack.
 CoreResult core_pack_convert_vf2d(const char *vf2d_path, const char *pack_path, const char *manifest_path_optional);
 
+// Convert truthful PhysicsSim VF3D frame (+ optional manifest JSON) to .pack.
+CoreResult core_pack_convert_vf3d(const char *vf3d_path, const char *pack_path, const char *manifest_path_optional);
+
 #endif

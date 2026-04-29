@@ -7,6 +7,7 @@
 
 #include "core_base.h"
 #include "core_io.h"
+#include "core_scene.h"
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -47,9 +48,10 @@ typedef struct NormalizedArray {
 
 static const char *k_schema_family = "codework_scene";
 static const char *k_authoring_variant = "scene_authoring_v1";
-static const char *k_compiler_version = "0.2.0";
+static const char *k_compiler_version = "0.3.0";
 
 static bool json_slice_is_string(const JsonSlice *slice);
+static bool json_slice_eq_string(const JsonSlice *slice, const char *text);
 static const char *skip_ws(const char *p);
 
 static void diag_write(char *diag, size_t diag_size, const char *fmt, ...) {
@@ -299,6 +301,19 @@ static bool json_slice_parse_number(const JsonSlice *slice, double *out_value) {
     return true;
 }
 
+static bool json_slice_parse_bool(const JsonSlice *slice, bool *out_value) {
+    if (!slice || !slice->begin || !out_value) return false;
+    if (slice->len == 4u && strncmp(slice->begin, "true", 4u) == 0) {
+        *out_value = true;
+        return true;
+    }
+    if (slice->len == 5u && strncmp(slice->begin, "false", 5u) == 0) {
+        *out_value = false;
+        return true;
+    }
+    return false;
+}
+
 static const char *skip_ws(const char *p) {
     while (p && *p && isspace((unsigned char)*p)) ++p;
     return p;
@@ -430,6 +445,300 @@ static bool json_slice_is_array(const JsonSlice *slice) {
 static bool json_slice_is_object(const JsonSlice *slice) {
     if (!slice || !slice->begin || slice->len < 2) return false;
     return slice->begin[0] == '{';
+}
+
+static CoreResult json_slice_parse_core_object_vec3(const JsonSlice *slice, CoreObjectVec3 *out_vec) {
+    JsonSlice x = {0};
+    JsonSlice y = {0};
+    JsonSlice z = {0};
+    if (!slice || !out_vec || !json_slice_is_object(slice)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid vec3 object" };
+    }
+    if (!json_find_top_level_value(slice->begin, "x", &x) ||
+        !json_find_top_level_value(slice->begin, "y", &y) ||
+        !json_find_top_level_value(slice->begin, "z", &z) ||
+        !json_slice_parse_number(&x, &out_vec->x) ||
+        !json_slice_parse_number(&y, &out_vec->y) ||
+        !json_slice_parse_number(&z, &out_vec->z)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid vec3 fields" };
+    }
+    return core_result_ok();
+}
+
+static CoreResult json_slice_parse_core_scene_frame3(const JsonSlice *slice, CoreSceneFrame3 *out_frame) {
+    JsonSlice origin = {0};
+    JsonSlice axis_u = {0};
+    JsonSlice axis_v = {0};
+    JsonSlice normal = {0};
+    if (!slice || !out_frame || !json_slice_is_object(slice)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid frame object" };
+    }
+    if (!json_find_top_level_value(slice->begin, "origin", &origin) ||
+        !json_find_top_level_value(slice->begin, "axis_u", &axis_u) ||
+        !json_find_top_level_value(slice->begin, "axis_v", &axis_v) ||
+        !json_find_top_level_value(slice->begin, "normal", &normal)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "frame missing required fields" };
+    }
+    {
+        CoreResult result = json_slice_parse_core_object_vec3(&origin, &out_frame->origin);
+        if (result.code != CORE_OK) return result;
+        result = json_slice_parse_core_object_vec3(&axis_u, &out_frame->axis_u);
+        if (result.code != CORE_OK) return result;
+        result = json_slice_parse_core_object_vec3(&axis_v, &out_frame->axis_v);
+        if (result.code != CORE_OK) return result;
+        return json_slice_parse_core_object_vec3(&normal, &out_frame->normal);
+    }
+}
+
+static CoreResult parse_primitive_locked_plane(const JsonSlice *locked_plane,
+                                               CoreObjectPlane *out_plane) {
+    if (!locked_plane || !out_plane || !json_slice_is_string(locked_plane)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "locked_plane must be string" };
+    }
+    if (json_slice_eq_string(locked_plane, "xy")) {
+        *out_plane = CORE_OBJECT_PLANE_XY;
+        return core_result_ok();
+    }
+    if (json_slice_eq_string(locked_plane, "yz")) {
+        *out_plane = CORE_OBJECT_PLANE_YZ;
+        return core_result_ok();
+    }
+    if (json_slice_eq_string(locked_plane, "xz")) {
+        *out_plane = CORE_OBJECT_PLANE_XZ;
+        return core_result_ok();
+    }
+    return (CoreResult){ CORE_ERR_FORMAT, "locked_plane must be xy/yz/xz" };
+}
+
+static CoreResult parse_plane_primitive_payload(const JsonSlice *primitive,
+                                                const char *expected_kind,
+                                                CoreSceneObjectContract *contract) {
+    JsonSlice kind = {0};
+    JsonSlice width = {0};
+    JsonSlice height = {0};
+    JsonSlice frame = {0};
+    JsonSlice lock_to_construction_plane = {0};
+    JsonSlice lock_to_bounds = {0};
+    char *kind_text = NULL;
+    CoreResult result = core_result_ok();
+
+    if (!primitive || !contract || !json_slice_is_object(primitive)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive must be object" };
+    }
+    if (!json_find_top_level_value(primitive->begin, "kind", &kind) ||
+        !json_slice_extract_string_copy(&kind, &kind_text)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive.kind missing" };
+    }
+    if (strcmp(kind_text, expected_kind) != 0) {
+        core_free(kind_text);
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive.kind mismatch" };
+    }
+    core_free(kind_text);
+
+    if (!json_find_top_level_value(primitive->begin, "width", &width) ||
+        !json_find_top_level_value(primitive->begin, "height", &height) ||
+        !json_find_top_level_value(primitive->begin, "frame", &frame) ||
+        !json_slice_parse_number(&width, &contract->plane_primitive.width) ||
+        !json_slice_parse_number(&height, &contract->plane_primitive.height)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive width/height missing or invalid" };
+    }
+    result = json_slice_parse_core_scene_frame3(&frame, &contract->plane_primitive.frame);
+    if (result.code != CORE_OK) return result;
+
+    if (json_find_top_level_value(primitive->begin, "lock_to_construction_plane", &lock_to_construction_plane) &&
+        !json_slice_parse_bool(&lock_to_construction_plane,
+                               &contract->plane_primitive.lock_to_construction_plane)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive lock_to_construction_plane invalid" };
+    }
+    if (json_find_top_level_value(primitive->begin, "lock_to_bounds", &lock_to_bounds) &&
+        !json_slice_parse_bool(&lock_to_bounds, &contract->plane_primitive.lock_to_bounds)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive lock_to_bounds invalid" };
+    }
+
+    contract->has_plane_primitive = true;
+    return core_result_ok();
+}
+
+static CoreResult parse_rect_prism_primitive_payload(const JsonSlice *primitive,
+                                                     const char *expected_kind,
+                                                     CoreSceneObjectContract *contract) {
+    JsonSlice kind = {0};
+    JsonSlice width = {0};
+    JsonSlice height = {0};
+    JsonSlice depth = {0};
+    JsonSlice frame = {0};
+    JsonSlice lock_to_construction_plane = {0};
+    JsonSlice lock_to_bounds = {0};
+    char *kind_text = NULL;
+    CoreResult result = core_result_ok();
+
+    if (!primitive || !contract || !json_slice_is_object(primitive)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive must be object" };
+    }
+    if (!json_find_top_level_value(primitive->begin, "kind", &kind) ||
+        !json_slice_extract_string_copy(&kind, &kind_text)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive.kind missing" };
+    }
+    if (strcmp(kind_text, expected_kind) != 0) {
+        core_free(kind_text);
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive.kind mismatch" };
+    }
+    core_free(kind_text);
+
+    if (!json_find_top_level_value(primitive->begin, "width", &width) ||
+        !json_find_top_level_value(primitive->begin, "height", &height) ||
+        !json_find_top_level_value(primitive->begin, "depth", &depth) ||
+        !json_find_top_level_value(primitive->begin, "frame", &frame) ||
+        !json_slice_parse_number(&width, &contract->rect_prism_primitive.width) ||
+        !json_slice_parse_number(&height, &contract->rect_prism_primitive.height) ||
+        !json_slice_parse_number(&depth, &contract->rect_prism_primitive.depth)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive width/height/depth missing or invalid" };
+    }
+    result = json_slice_parse_core_scene_frame3(&frame, &contract->rect_prism_primitive.frame);
+    if (result.code != CORE_OK) return result;
+
+    if (json_find_top_level_value(primitive->begin, "lock_to_construction_plane", &lock_to_construction_plane) &&
+        !json_slice_parse_bool(&lock_to_construction_plane,
+                               &contract->rect_prism_primitive.lock_to_construction_plane)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive lock_to_construction_plane invalid" };
+    }
+    if (json_find_top_level_value(primitive->begin, "lock_to_bounds", &lock_to_bounds) &&
+        !json_slice_parse_bool(&lock_to_bounds, &contract->rect_prism_primitive.lock_to_bounds)) {
+        return (CoreResult){ CORE_ERR_FORMAT, "primitive lock_to_bounds invalid" };
+    }
+
+    contract->has_rect_prism_primitive = true;
+    return core_result_ok();
+}
+
+static CoreResult validate_object_primitive_contract(const JsonSlice *obj,
+                                                     size_t index,
+                                                     const char *object_id_text,
+                                                     char *diagnostics,
+                                                     size_t diagnostics_size) {
+    JsonSlice object_type = {0};
+    JsonSlice primitive = {0};
+    JsonSlice dimensional_mode = {0};
+    JsonSlice locked_plane = {0};
+    char *object_type_text = NULL;
+    CoreSceneObjectKind kind = CORE_SCENE_OBJECT_KIND_UNKNOWN;
+    CoreSceneObjectContract contract;
+    CoreResult result = core_result_ok();
+    bool has_primitive = false;
+
+    if (!obj || !object_id_text) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid primitive validation arguments" };
+    }
+
+    has_primitive = json_find_top_level_value(obj->begin, "primitive", &primitive);
+    if (!json_find_top_level_value(obj->begin, "object_type", &object_type)) {
+        if (has_primitive) {
+            diag_write(diagnostics, diagnostics_size, "objects[%zu] primitive payload requires object_type", index);
+            return (CoreResult){ CORE_ERR_FORMAT, "missing object_type" };
+        }
+        return core_result_ok();
+    }
+    if (!json_slice_extract_string_copy(&object_type, &object_type_text)) {
+        diag_write(diagnostics, diagnostics_size, "objects[%zu] object_type must be string", index);
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid object_type" };
+    }
+
+    result = core_scene_object_kind_parse(object_type_text, &kind);
+    if (result.code != CORE_OK) {
+        if (has_primitive) {
+            diag_write(diagnostics, diagnostics_size,
+                       "objects[%zu] primitive payload requires known primitive object_type", index);
+            core_free(object_type_text);
+            return (CoreResult){ CORE_ERR_FORMAT, "primitive object_type unknown" };
+        }
+        core_free(object_type_text);
+        return core_result_ok();
+    }
+
+    if (kind != CORE_SCENE_OBJECT_KIND_PLANE_PRIMITIVE &&
+        kind != CORE_SCENE_OBJECT_KIND_RECT_PRISM_PRIMITIVE) {
+        if (has_primitive) {
+            diag_write(diagnostics, diagnostics_size,
+                       "objects[%zu] non-primitive object_type cannot carry primitive payload", index);
+            core_free(object_type_text);
+            return (CoreResult){ CORE_ERR_FORMAT, "primitive payload on non-primitive object" };
+        }
+        core_free(object_type_text);
+        return core_result_ok();
+    }
+
+    if (!has_primitive) {
+        diag_write(diagnostics, diagnostics_size,
+                   "objects[%zu] primitive object_type requires primitive payload", index);
+        core_free(object_type_text);
+        return (CoreResult){ CORE_ERR_FORMAT, "missing primitive payload" };
+    }
+
+    core_scene_object_contract_init(&contract);
+    result = core_scene_object_contract_prepare(&contract, object_id_text, kind);
+    if (result.code != CORE_OK) {
+        diag_write(diagnostics, diagnostics_size, "objects[%zu] primitive contract prepare failed", index);
+        core_free(object_type_text);
+        return result;
+    }
+
+    if (json_find_top_level_value(obj->begin, "dimensional_mode", &dimensional_mode)) {
+        if (kind == CORE_SCENE_OBJECT_KIND_PLANE_PRIMITIVE &&
+            !json_slice_eq_string(&dimensional_mode, "plane_locked")) {
+            diag_write(diagnostics, diagnostics_size,
+                       "objects[%zu] plane_primitive dimensional_mode must be plane_locked", index);
+            core_free(object_type_text);
+            return (CoreResult){ CORE_ERR_FORMAT, "plane dimensional_mode mismatch" };
+        }
+        if (kind == CORE_SCENE_OBJECT_KIND_RECT_PRISM_PRIMITIVE &&
+            !json_slice_eq_string(&dimensional_mode, "full_3d")) {
+            diag_write(diagnostics, diagnostics_size,
+                       "objects[%zu] rect_prism_primitive dimensional_mode must be full_3d", index);
+            core_free(object_type_text);
+            return (CoreResult){ CORE_ERR_FORMAT, "rect prism dimensional_mode mismatch" };
+        }
+    }
+    if (kind == CORE_SCENE_OBJECT_KIND_PLANE_PRIMITIVE &&
+        json_find_top_level_value(obj->begin, "locked_plane", &locked_plane)) {
+        CoreObjectPlane plane = CORE_OBJECT_PLANE_XY;
+        result = parse_primitive_locked_plane(&locked_plane, &plane);
+        if (result.code != CORE_OK) {
+            diag_write(diagnostics, diagnostics_size,
+                       "objects[%zu] plane_primitive locked_plane invalid", index);
+            core_free(object_type_text);
+            return result;
+        }
+        result = core_object_set_plane_lock(&contract.object, plane);
+        if (result.code != CORE_OK) {
+            diag_write(diagnostics, diagnostics_size,
+                       "objects[%zu] plane_primitive locked_plane failed to apply", index);
+            core_free(object_type_text);
+            return result;
+        }
+    }
+
+    if (kind == CORE_SCENE_OBJECT_KIND_PLANE_PRIMITIVE) {
+        result = parse_plane_primitive_payload(&primitive, object_type_text, &contract);
+    } else {
+        result = parse_rect_prism_primitive_payload(&primitive, object_type_text, &contract);
+    }
+    if (result.code != CORE_OK) {
+        diag_write(diagnostics, diagnostics_size,
+                   "objects[%zu] invalid primitive payload: %s", index, result.message);
+        core_free(object_type_text);
+        return result;
+    }
+
+    result = core_scene_object_contract_validate(&contract);
+    if (result.code != CORE_OK) {
+        diag_write(diagnostics, diagnostics_size,
+                   "objects[%zu] invalid primitive contract: %s", index, result.message);
+        core_free(object_type_text);
+        return result;
+    }
+
+    core_free(object_type_text);
+    return core_result_ok();
 }
 
 static bool json_slice_eq_string(const JsonSlice *slice, const char *text) {
@@ -711,6 +1020,11 @@ static CoreResult normalize_objects_array(const JsonSlice *objects,
                 out = (CoreResult){ CORE_ERR_FORMAT, "invalid geometry_ref" };
                 goto done;
             }
+        }
+
+        out = validate_object_primitive_contract(&obj, index, entry.id_a, diagnostics, diagnostics_size);
+        if (out.code != CORE_OK) {
+            goto done;
         }
 
         if (!json_slice_extract_owned_copy(&obj, &entry.json)) {
@@ -1061,7 +1375,7 @@ static CoreResult compile_inner(const char *authoring_json,
     }
 
     snprintf(compile_meta, sizeof(compile_meta),
-             "{\"compiler_version\":\"%s\",\"compiled_at_ns\":%lld,\"normalization\":\"v0.2_sorted_lanes\"}",
+             "{\"compiler_version\":\"%s\",\"compiled_at_ns\":%lld,\"normalization\":\"v0.3_sorted_lanes_primitive_contract\"}",
              k_compiler_version,
              unix_ns_now());
 
