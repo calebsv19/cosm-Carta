@@ -4,6 +4,21 @@ BUILD_TOOLCHAIN ?= clang
 PACKAGE_TOOLCHAIN ?= $(BUILD_TOOLCHAIN)
 TEST_TOOLCHAIN ?= clang
 RELEASE_TOOLCHAIN ?= clang
+PKG_CONFIG ?= pkg-config
+UNAME_S := $(shell uname -s)
+TARGET_CONTRACT_HELPER ?= ../bin/desktop_release_target_contract.sh
+HOST_ARCH := $(shell uname -m)
+TARGET_OS ?= $(UNAME_S)
+TARGET_ARCH ?= $(HOST_ARCH)
+TARGET_VARIANT ?= desktop-app
+TARGET_TRIPLE ?= $(TARGET_OS)-$(TARGET_ARCH)
+RELEASE_PLATFORM ?= $(TARGET_OS)
+RELEASE_ARCH ?= $(TARGET_ARCH)
+TARGET_HOMEBREW_PREFIX :=
+TARGET_ALT_HOMEBREW_PREFIX :=
+TARGET_PKG_CONFIG_LIBDIR :=
+TARGET_DEP_SEARCH_ROOTS :=
+ARCH_FLAGS :=
 SUPPORTED_TOOLCHAINS := clang fisics
 
 ifeq ($(filter $(BUILD_TOOLCHAIN),$(SUPPORTED_TOOLCHAINS)),)
@@ -19,31 +34,53 @@ ifeq ($(filter $(RELEASE_TOOLCHAIN),$(SUPPORTED_TOOLCHAINS)),)
 $(error Unsupported RELEASE_TOOLCHAIN '$(RELEASE_TOOLCHAIN)' (expected one of: $(SUPPORTED_TOOLCHAINS)))
 endif
 
+ifeq ($(UNAME_S),Darwin)
+TARGET_OS_INPUT := $(TARGET_OS)
+TARGET_ARCH_INPUT := $(TARGET_ARCH)
+TARGET_VARIANT_INPUT := $(TARGET_VARIANT)
+HOST_ARCH := $(strip $(shell "$(TARGET_CONTRACT_HELPER)" get host_arch))
+TARGET_OS := $(strip $(shell TARGET_OS="$(TARGET_OS_INPUT)" TARGET_ARCH="$(TARGET_ARCH_INPUT)" TARGET_VARIANT="$(TARGET_VARIANT_INPUT)" "$(TARGET_CONTRACT_HELPER)" get target_os))
+TARGET_ARCH := $(strip $(shell TARGET_OS="$(TARGET_OS_INPUT)" TARGET_ARCH="$(TARGET_ARCH_INPUT)" TARGET_VARIANT="$(TARGET_VARIANT_INPUT)" "$(TARGET_CONTRACT_HELPER)" get target_arch))
+TARGET_VARIANT := $(strip $(shell TARGET_OS="$(TARGET_OS_INPUT)" TARGET_ARCH="$(TARGET_ARCH_INPUT)" TARGET_VARIANT="$(TARGET_VARIANT_INPUT)" "$(TARGET_CONTRACT_HELPER)" get target_variant))
+TARGET_TRIPLE := $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get target_triple))
+RELEASE_PLATFORM := $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get release_platform))
+RELEASE_ARCH := $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get release_arch))
+TARGET_HOMEBREW_PREFIX := $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get homebrew_prefix))
+TARGET_ALT_HOMEBREW_PREFIX := $(strip $(shell TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" "$(TARGET_CONTRACT_HELPER)" get alt_homebrew_prefix))
+TARGET_PKG_CONFIG_LIBDIR := $(TARGET_HOMEBREW_PREFIX)/lib/pkgconfig:$(TARGET_HOMEBREW_PREFIX)/share/pkgconfig
+TARGET_DEP_SEARCH_ROOTS := $(TARGET_HOMEBREW_PREFIX):$(TARGET_ALT_HOMEBREW_PREFIX)
+ARCH_FLAGS := -arch $(TARGET_ARCH)
+endif
+
 APP_CC := $(if $(filter fisics,$(BUILD_TOOLCHAIN)),$(FISICS_CC),$(HOST_CC))
 APP_COMPILER_DEP := $(if $(filter fisics,$(BUILD_TOOLCHAIN)),$(FISICS_CC),)
 BUILD_ROOT := build
-HOST_BUILD_ROOT := $(BUILD_ROOT)/host
-APP_TOOLCHAIN_ROOT := $(BUILD_ROOT)/toolchains/$(BUILD_TOOLCHAIN)
+TARGET_BUILD_ROOT := $(BUILD_ROOT)/targets/$(TARGET_TRIPLE)
+HOST_BUILD_ROOT := $(TARGET_BUILD_ROOT)/host
+APP_TOOLCHAIN_ROOT := $(TARGET_BUILD_ROOT)/toolchains/$(BUILD_TOOLCHAIN)
 APP_OBJ_DIR := $(APP_TOOLCHAIN_ROOT)/obj
 APP_BIN_DIR := $(APP_TOOLCHAIN_ROOT)/bin
 APP_BIN := $(APP_BIN_DIR)/mapforge
 APP_COMPILER_STAMP := $(APP_TOOLCHAIN_ROOT)/.compiler_stamp
-PACKAGE_BIN := $(BUILD_ROOT)/toolchains/$(PACKAGE_TOOLCHAIN)/bin/mapforge
-TEST_APP_BIN := $(BUILD_ROOT)/toolchains/$(TEST_TOOLCHAIN)/bin/mapforge
+PACKAGE_BIN := $(TARGET_BUILD_ROOT)/toolchains/$(PACKAGE_TOOLCHAIN)/bin/mapforge
+TEST_APP_BIN := $(TARGET_BUILD_ROOT)/toolchains/$(TEST_TOOLCHAIN)/bin/mapforge
+SHARED_BUILD_DIR := $(TARGET_BUILD_ROOT)/shared
+TOOL_BIN_DIR := $(TARGET_BUILD_ROOT)/tools
+TEST_BIN_DIR := $(TARGET_BUILD_ROOT)/tests
 
 # Build the application when running plain `make`.
 .DEFAULT_GOAL := app
 
-SDL_CFLAGS := $(shell sdl2-config --cflags 2>/dev/null)
-SDL_LIBS := $(shell sdl2-config --libs 2>/dev/null)
-SDL_TTF_CFLAGS := $(shell pkg-config --cflags SDL2_ttf 2>/dev/null)
-SDL_TTF_LIBS := $(shell pkg-config --libs SDL2_ttf 2>/dev/null)
-VULKAN_CFLAGS := $(shell pkg-config --cflags vulkan 2>/dev/null)
-VULKAN_LIBS := $(shell pkg-config --libs vulkan 2>/dev/null)
-JSON_CFLAGS := $(shell pkg-config --cflags json-c 2>/dev/null)
-JSON_LIBS := $(shell pkg-config --libs json-c 2>/dev/null)
-SQLITE_CFLAGS := $(shell pkg-config --cflags sqlite3 2>/dev/null)
-SQLITE_LIBS := $(shell pkg-config --libs sqlite3 2>/dev/null)
+SDL_CFLAGS :=
+SDL_LIBS :=
+SDL_TTF_CFLAGS :=
+SDL_TTF_LIBS :=
+VULKAN_CFLAGS :=
+VULKAN_LIBS :=
+JSON_CFLAGS :=
+JSON_LIBS :=
+SQLITE_CFLAGS :=
+SQLITE_LIBS :=
 SHARED_ROOT ?= third_party/codework_shared
 CORE_SPACE_DIR := $(SHARED_ROOT)/core/core_space
 CORE_BASE_DIR := $(SHARED_ROOT)/core/core_base
@@ -63,24 +100,25 @@ CORE_FONT_DIR := $(SHARED_ROOT)/core/core_font
 CORE_VIEWPORT2D_DIR := $(SHARED_ROOT)/core/core_viewport2d
 KIT_RUNTIME_DIAG_DIR := $(SHARED_ROOT)/kit/kit_runtime_diag
 KIT_RENDER_DIR := $(SHARED_ROOT)/kit/kit_render
+SHARED_CC := $(HOST_CC) $(ARCH_FLAGS)
 
-CORE_SPACE_LIB := $(CORE_SPACE_DIR)/build/libcore_space.a
-CORE_BASE_LIB := $(CORE_BASE_DIR)/build/libcore_base.a
-CORE_IO_LIB := $(CORE_IO_DIR)/build/libcore_io.a
-CORE_DATA_LIB := $(CORE_DATA_DIR)/build/libcore_data.a
-CORE_PACK_LIB := $(CORE_PACK_DIR)/build/libcore_pack.a
-CORE_TIME_LIB := $(CORE_TIME_DIR)/build/libcore_time.a
-CORE_QUEUE_LIB := $(CORE_QUEUE_DIR)/build/libcore_queue.a
-CORE_SCHED_LIB := $(CORE_SCHED_DIR)/build/libcore_sched.a
-CORE_JOBS_LIB := $(CORE_JOBS_DIR)/build/libcore_jobs.a
-CORE_WORKERS_LIB := $(CORE_WORKERS_DIR)/build/libcore_workers.a
-CORE_WAKE_LIB := $(CORE_WAKE_DIR)/build/libcore_wake.a
-CORE_KERNEL_LIB := $(CORE_KERNEL_DIR)/build/libcore_kernel.a
-CORE_TRACE_LIB := $(CORE_TRACE_DIR)/build/libcore_trace.a
-CORE_THEME_LIB := $(CORE_THEME_DIR)/build/libcore_theme.a
-CORE_FONT_LIB := $(CORE_FONT_DIR)/build/libcore_font.a
-CORE_VIEWPORT2D_LIB := $(CORE_VIEWPORT2D_DIR)/build/libcore_viewport2d.a
-KIT_RUNTIME_DIAG_LIB := $(KIT_RUNTIME_DIAG_DIR)/build/libkit_runtime_diag.a
+CORE_SPACE_LIB := $(SHARED_BUILD_DIR)/libcore_space.a
+CORE_BASE_LIB := $(SHARED_BUILD_DIR)/libcore_base.a
+CORE_IO_LIB := $(SHARED_BUILD_DIR)/libcore_io.a
+CORE_DATA_LIB := $(SHARED_BUILD_DIR)/libcore_data.a
+CORE_PACK_LIB := $(SHARED_BUILD_DIR)/libcore_pack.a
+CORE_TIME_LIB := $(SHARED_BUILD_DIR)/libcore_time.a
+CORE_QUEUE_LIB := $(SHARED_BUILD_DIR)/libcore_queue.a
+CORE_SCHED_LIB := $(SHARED_BUILD_DIR)/libcore_sched.a
+CORE_JOBS_LIB := $(SHARED_BUILD_DIR)/libcore_jobs.a
+CORE_WORKERS_LIB := $(SHARED_BUILD_DIR)/libcore_workers.a
+CORE_WAKE_LIB := $(SHARED_BUILD_DIR)/libcore_wake.a
+CORE_KERNEL_LIB := $(SHARED_BUILD_DIR)/libcore_kernel.a
+CORE_TRACE_LIB := $(SHARED_BUILD_DIR)/libcore_trace.a
+CORE_THEME_LIB := $(SHARED_BUILD_DIR)/libcore_theme.a
+CORE_FONT_LIB := $(SHARED_BUILD_DIR)/libcore_font.a
+CORE_VIEWPORT2D_LIB := $(SHARED_BUILD_DIR)/libcore_viewport2d.a
+KIT_RUNTIME_DIAG_LIB := $(SHARED_BUILD_DIR)/libkit_runtime_diag.a
 KIT_RENDER_EXTERNAL_TEXT_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_external_text.o
 
 VK_RENDERER_DIR ?= $(SHARED_ROOT)/vk_renderer
@@ -89,26 +127,130 @@ VK_RENDERER_INCLUDE := $(VK_RENDERER_RESOLVED_DIR)/include
 VK_RENDERER_STATIC_LIB := $(VK_RENDERER_RESOLVED_DIR)/build/lib/libvkrenderer.a
 VK_RENDERER_SRCS := $(wildcard $(VK_RENDERER_RESOLVED_DIR)/src/*.c)
 VK_RENDERER_OBJS := $(patsubst $(VK_RENDERER_RESOLVED_DIR)/src/%.c,$(HOST_BUILD_ROOT)/vk_renderer/%.o,$(VK_RENDERER_SRCS))
-VK_BUILD_LIB := build/vk/lib/libvkrenderer.a
-VK_BUILD_SHADER_DIR := build/vk/shaders
+VK_BUILD_LIB := $(TARGET_BUILD_ROOT)/vk/lib/libvkrenderer.a
+VK_BUILD_SHADER_DIR := $(TARGET_BUILD_ROOT)/vk/shaders
 VK_REQUIRED_SHADERS := fill.vert.spv fill.frag.spv line.vert.spv line.frag.spv textured.vert.spv textured.frag.spv
 VK_APP_ENABLED := $(if $(wildcard $(VK_RENDERER_INCLUDE)/vk_renderer.h),1,)
 
-ifeq ($(SDL_LIBS),)
-SDL_CFLAGS :=
+ifneq ($(UNAME_S),Darwin)
+SDL_CFLAGS := $(shell sdl2-config --cflags 2>/dev/null)
+SDL_LIBS := $(shell sdl2-config --libs 2>/dev/null)
+SDL_TTF_CFLAGS := $(shell $(PKG_CONFIG) --cflags SDL2_ttf 2>/dev/null)
+SDL_TTF_LIBS := $(shell $(PKG_CONFIG) --libs SDL2_ttf 2>/dev/null)
+VULKAN_CFLAGS := $(shell $(PKG_CONFIG) --cflags vulkan 2>/dev/null)
+VULKAN_LIBS := $(shell $(PKG_CONFIG) --libs vulkan 2>/dev/null)
+JSON_CFLAGS := $(shell $(PKG_CONFIG) --cflags json-c 2>/dev/null)
+JSON_LIBS := $(shell $(PKG_CONFIG) --libs json-c 2>/dev/null)
+SQLITE_CFLAGS := $(shell $(PKG_CONFIG) --cflags sqlite3 2>/dev/null)
+SQLITE_LIBS := $(shell $(PKG_CONFIG) --libs sqlite3 2>/dev/null)
+else
+SDL_CFLAGS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --cflags sdl2 2>/dev/null)
+SDL_LIBS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --libs sdl2 2>/dev/null)
+SDL_TTF_CFLAGS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --cflags SDL2_ttf 2>/dev/null)
+SDL_TTF_LIBS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --libs SDL2_ttf 2>/dev/null)
+VULKAN_CFLAGS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --cflags vulkan 2>/dev/null)
+VULKAN_LIBS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --libs vulkan 2>/dev/null)
+JSON_CFLAGS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --cflags json-c 2>/dev/null)
+JSON_LIBS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --libs json-c 2>/dev/null)
+SQLITE_CFLAGS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --cflags sqlite3 2>/dev/null)
+SQLITE_LIBS := $(shell env PKG_CONFIG_LIBDIR="$(TARGET_PKG_CONFIG_LIBDIR)" $(PKG_CONFIG) --libs sqlite3 2>/dev/null)
+endif
+
+ifeq ($(strip $(SDL_CFLAGS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/include/SDL2/SDL.h),)
+SDL_CFLAGS := -I$(TARGET_HOMEBREW_PREFIX)/include -D_THREAD_SAFE
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/include/SDL2/SDL.h),)
+SDL_CFLAGS := -I$(TARGET_ALT_HOMEBREW_PREFIX)/include -D_THREAD_SAFE
+endif
+endif
+
+ifeq ($(strip $(SDL_LIBS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/lib/libSDL2.dylib),)
+SDL_LIBS := -L$(TARGET_HOMEBREW_PREFIX)/lib -lSDL2
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/lib/libSDL2.dylib),)
+SDL_LIBS := -L$(TARGET_ALT_HOMEBREW_PREFIX)/lib -lSDL2
+else
 SDL_LIBS := -lSDL2
 endif
+endif
 
-ifeq ($(SDL_TTF_LIBS),)
+ifeq ($(strip $(SDL_TTF_CFLAGS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/include/SDL2/SDL_ttf.h),)
+SDL_TTF_CFLAGS := -I$(TARGET_HOMEBREW_PREFIX)/include -D_THREAD_SAFE
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/include/SDL2/SDL_ttf.h),)
+SDL_TTF_CFLAGS := -I$(TARGET_ALT_HOMEBREW_PREFIX)/include -D_THREAD_SAFE
+endif
+endif
+
+ifeq ($(strip $(SDL_TTF_LIBS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/lib/libSDL2_ttf.dylib),)
+SDL_TTF_LIBS := -L$(TARGET_HOMEBREW_PREFIX)/lib -lSDL2_ttf
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/lib/libSDL2_ttf.dylib),)
+SDL_TTF_LIBS := -L$(TARGET_ALT_HOMEBREW_PREFIX)/lib -lSDL2_ttf
+else
 SDL_TTF_LIBS := -lSDL2_ttf
 endif
-
-ifeq ($(VULKAN_LIBS),)
-VULKAN_CFLAGS :=
-VULKAN_LIBS := -lvulkan
 endif
 
-COMMON_CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g -pthread $(SDL_CFLAGS) $(SDL_TTF_CFLAGS)
+ifeq ($(strip $(VULKAN_CFLAGS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/include/vulkan/vulkan.h),)
+VULKAN_CFLAGS := -I$(TARGET_HOMEBREW_PREFIX)/include
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/include/vulkan/vulkan.h),)
+VULKAN_CFLAGS := -I$(TARGET_ALT_HOMEBREW_PREFIX)/include
+endif
+endif
+
+ifeq ($(strip $(VULKAN_LIBS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/lib/libvulkan.1.dylib),)
+VULKAN_LIBS := -L$(TARGET_HOMEBREW_PREFIX)/lib -lvulkan
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/lib/libvulkan.1.dylib),)
+VULKAN_LIBS := -L$(TARGET_ALT_HOMEBREW_PREFIX)/lib -lvulkan
+else
+VULKAN_LIBS := -lvulkan
+endif
+endif
+
+ifeq ($(strip $(JSON_CFLAGS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/include/json-c/json.h),)
+JSON_CFLAGS := -I$(TARGET_HOMEBREW_PREFIX)/include
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/include/json-c/json.h),)
+JSON_CFLAGS := -I$(TARGET_ALT_HOMEBREW_PREFIX)/include
+endif
+endif
+
+ifeq ($(strip $(JSON_LIBS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/lib/libjson-c.dylib),)
+JSON_LIBS := -L$(TARGET_HOMEBREW_PREFIX)/lib -ljson-c
+else ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/lib/libjson-c.5.dylib),)
+JSON_LIBS := -L$(TARGET_HOMEBREW_PREFIX)/lib -ljson-c
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/lib/libjson-c.dylib),)
+JSON_LIBS := -L$(TARGET_ALT_HOMEBREW_PREFIX)/lib -ljson-c
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/lib/libjson-c.5.dylib),)
+JSON_LIBS := -L$(TARGET_ALT_HOMEBREW_PREFIX)/lib -ljson-c
+endif
+endif
+
+ifeq ($(strip $(SQLITE_CFLAGS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/include/sqlite3.h),)
+SQLITE_CFLAGS := -I$(TARGET_HOMEBREW_PREFIX)/include
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/include/sqlite3.h),)
+SQLITE_CFLAGS := -I$(TARGET_ALT_HOMEBREW_PREFIX)/include
+endif
+endif
+
+ifeq ($(strip $(SQLITE_LIBS)),)
+ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/opt/sqlite/lib/libsqlite3.dylib),)
+SQLITE_LIBS := -L$(TARGET_HOMEBREW_PREFIX)/opt/sqlite/lib -lsqlite3
+else ifneq ($(wildcard $(TARGET_HOMEBREW_PREFIX)/lib/libsqlite3.dylib),)
+SQLITE_LIBS := -L$(TARGET_HOMEBREW_PREFIX)/lib -lsqlite3
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/opt/sqlite/lib/libsqlite3.dylib),)
+SQLITE_LIBS := -L$(TARGET_ALT_HOMEBREW_PREFIX)/opt/sqlite/lib -lsqlite3
+else ifneq ($(wildcard $(TARGET_ALT_HOMEBREW_PREFIX)/lib/libsqlite3.dylib),)
+SQLITE_LIBS := -L$(TARGET_ALT_HOMEBREW_PREFIX)/lib -lsqlite3
+endif
+endif
+
+COMMON_CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -O2 -g -pthread $(ARCH_FLAGS) $(SDL_CFLAGS) $(SDL_TTF_CFLAGS) $(VULKAN_CFLAGS)
 APP_CFLAGS := $(COMMON_CFLAGS)
 HOST_CFLAGS := $(COMMON_CFLAGS)
 LDLIBS := $(SDL_LIBS) $(SDL_TTF_LIBS) $(JSON_LIBS) -pthread
@@ -172,7 +314,7 @@ CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_KERNEL_LIB) $(CORE
 LINK_OBJS += $(KIT_RENDER_EXTERNAL_TEXT_OBJ)
 LINK_OBJS += $(CORE_SHARED_LIBS)
 TARGET := $(APP_BIN)
-DIST_DIR := dist
+DIST_DIR := $(TARGET_BUILD_ROOT)/dist
 PACKAGE_APP_NAME := Carta.app
 PACKAGE_APP_DIR := $(DIST_DIR)/$(PACKAGE_APP_NAME)
 PACKAGE_CONTENTS_DIR := $(PACKAGE_APP_DIR)/Contents
@@ -191,6 +333,8 @@ PACKAGE_APP_ICONSET_SRC ?= $(PACKAGE_LOCAL_ICON_DIR)/$(PACKAGE_APP_ICON_NAME).ic
 PACKAGE_BUNDLED_ICON_PATH := $(PACKAGE_RESOURCES_DIR)/$(PACKAGE_APP_ICON_FILE)
 DESKTOP_APP_DIR ?= $(HOME)/Desktop/$(PACKAGE_APP_NAME)
 PACKAGE_ADHOC_SIGN_IDENTITY ?= -
+PACKAGED_HELPER_TOOL_NAMES := mapforge_region mapforge_region_validate mapforge_graph
+PACKAGED_HELPER_TOOLS := $(foreach tool,$(PACKAGED_HELPER_TOOL_NAMES),$(PACKAGE_TOOLS_DIR)/$(tool))
 
 # RL0 release contract (pilot lock).
 RELEASE_VERSION_FILE ?= VERSION
@@ -202,7 +346,7 @@ RELEASE_CHANNEL ?= stable
 RELEASE_PRODUCT_NAME := Carta
 RELEASE_PROGRAM_KEY := map_forge
 RELEASE_BUNDLE_ID := com.cosm.carta
-RELEASE_ARTIFACT_BASENAME := $(RELEASE_PRODUCT_NAME)-$(RELEASE_VERSION)-macOS-$(RELEASE_CHANNEL)
+RELEASE_ARTIFACT_BASENAME := $(RELEASE_PRODUCT_NAME)-$(RELEASE_VERSION)-$(RELEASE_PLATFORM)-$(RELEASE_ARCH)-$(RELEASE_CHANNEL)
 RELEASE_DIR := build/release
 RELEASE_APP_ZIP := $(RELEASE_DIR)/$(RELEASE_ARTIFACT_BASENAME).zip
 RELEASE_MANIFEST := $(RELEASE_DIR)/$(RELEASE_ARTIFACT_BASENAME).manifest.txt
@@ -213,33 +357,37 @@ APPLE_NOTARY_PROFILE ?=
 APPLE_TEAM_ID ?=
 STAPLE_MAX_ATTEMPTS ?= 6
 STAPLE_RETRY_DELAY_SEC ?= 15
-TOOL_TARGET := build/tools/mapforge_region
+TOOL_TARGET := $(TOOL_BIN_DIR)/mapforge_region
 TOOL_SRCS := tools/mapforge_region.c src/map/mercator.c src/map/tile_math.c src/core/log.c
-REGION_VALIDATE_TARGET := build/tools/mapforge_region_validate
+REGION_VALIDATE_TARGET := $(TOOL_BIN_DIR)/mapforge_region_validate
 REGION_VALIDATE_SRCS := tools/mapforge_region_validate.c src/app/region.c src/app/region_loader.c src/map/tile_source.c src/core/log.c
-GRAPH_TARGET := build/tools/mapforge_graph
+GRAPH_TARGET := $(TOOL_BIN_DIR)/mapforge_graph
 GRAPH_SRCS := tools/mapforge_graph.c src/map/mercator.c src/core/log.c
-MAP_SPACE_TEST_TARGET := build/tests/map_space_test
+MAP_SPACE_TEST_TARGET := $(TEST_BIN_DIR)/map_space_test
 MAP_SPACE_TEST_SRCS := tests/map_space_test.c src/map/map_space.c src/map/tile_math.c src/map/mercator.c src/camera/camera.c src/camera/camera_viewport_bridge.c
-SHARED_THEME_FONT_ADAPTER_TEST_TARGET := build/tests/shared_theme_font_adapter_test
+SHARED_THEME_FONT_ADAPTER_TEST_TARGET := $(TEST_BIN_DIR)/shared_theme_font_adapter_test
 SHARED_THEME_FONT_ADAPTER_TEST_SRCS := tests/shared_theme_font_adapter_test.c src/ui/shared_theme_font_adapter.c $(CORE_THEME_DIR)/src/core_theme.c $(CORE_FONT_DIR)/src/core_font.c $(CORE_BASE_DIR)/src/core_base.c
-MAP_TRACE_CONTRACT_TEST_TARGET := build/tests/map_trace_contract_test
+MAP_TRACE_CONTRACT_TEST_TARGET := $(TEST_BIN_DIR)/map_trace_contract_test
 MAP_TRACE_CONTRACT_TEST_SRCS := tests/map_trace_contract_test.c
-APP_WORKER_CONTRACT_TEST_TARGET := build/tests/app_worker_contract_test
+APP_WORKER_CONTRACT_TEST_TARGET := $(TEST_BIN_DIR)/app_worker_contract_test
 APP_WORKER_CONTRACT_TEST_SRCS := tests/app_worker_contract_test.c src/app/app_worker_contract.c
-TILE_LOADER_SHUTDOWN_TEST_TARGET := build/tests/tile_loader_shutdown_test
+TILE_LOADER_SHUTDOWN_TEST_TARGET := $(TEST_BIN_DIR)/tile_loader_shutdown_test
 TILE_LOADER_SHUTDOWN_TEST_SRCS := tests/tile_loader_shutdown_test.c src/map/tile_loader.c src/map/tile_source.c src/map/mft_loader.c src/map/polygon_cache.c src/map/polygon_triangulator.c src/core/log.c
-TILE_SOURCE_ARCHIVE_TEST_TARGET := build/tests/tile_source_archive_test
+TILE_SOURCE_ARCHIVE_TEST_TARGET := $(TEST_BIN_DIR)/tile_source_archive_test
 TILE_SOURCE_ARCHIVE_TEST_SRCS := tests/tile_source_archive_test.c src/map/tile_source.c
-APP_ROUTE_SERVICE_TEST_TARGET := build/tests/app_route_service_test
+APP_ROUTE_SERVICE_TEST_TARGET := $(TEST_BIN_DIR)/app_route_service_test
 APP_ROUTE_SERVICE_TEST_SRCS := tests/app_route_service_test.c src/app/route/app_route_service.c
-APP_TILE_PRESENTER_POLICY_TEST_TARGET := build/tests/app_tile_presenter_policy_test
+APP_TILE_PRESENTER_POLICY_TEST_TARGET := $(TEST_BIN_DIR)/app_tile_presenter_policy_test
 APP_TILE_PRESENTER_POLICY_TEST_SRCS := tests/app_tile_presenter_policy_test.c src/app/app_tile_presenter.c src/app/app_tile_lifecycle.c src/core/time.c
-POLYGON_CACHE_GUARDRAILS_TEST_TARGET := build/tests/polygon_cache_guardrails_test
+POLYGON_CACHE_GUARDRAILS_TEST_TARGET := $(TEST_BIN_DIR)/polygon_cache_guardrails_test
 POLYGON_CACHE_GUARDRAILS_TEST_SRCS := tests/polygon_cache_guardrails_test.c src/map/polygon_cache.c src/map/polygon_triangulator.c
-APP_RUNTIME_INPUT_POLICY_TEST_TARGET := build/tests/app_runtime_input_policy_test
+APP_RUNTIME_INPUT_POLICY_TEST_TARGET := $(TEST_BIN_DIR)/app_runtime_input_policy_test
 APP_RUNTIME_INPUT_POLICY_TEST_SRCS := tests/app_runtime_input_policy_test.c src/app/app_runtime_input_policy.c
-TILE_MANAGER_RESIDENCY_TEST_TARGET := build/tests/tile_manager_residency_test
+APP_HEADER_LAYER_LAYOUT_TEST_TARGET := $(TEST_BIN_DIR)/app_header_layer_layout_test
+APP_HEADER_LAYER_LAYOUT_TEST_SRCS := tests/app_header_layer_layout_test.c src/app/app_header_layer_layout.c
+APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET := $(TEST_BIN_DIR)/app_runtime_window_resize_test
+APP_RUNTIME_WINDOW_RESIZE_TEST_SRCS := tests/app_runtime_window_resize_test.c src/app/app_runtime_window.c
+TILE_MANAGER_RESIDENCY_TEST_TARGET := $(TEST_BIN_DIR)/tile_manager_residency_test
 TILE_MANAGER_RESIDENCY_TEST_SRCS := tests/tile_manager_residency_test.c src/map/tile_manager.c src/map/tile_source.c src/map/mft_loader.c src/core/log.c
 
 ifeq ($(VK_APP_ENABLED),1)
@@ -287,60 +435,97 @@ GRAPH_TOOL_FLAGS := $(if $(filter 1,$(REPLACE)),--replace,) \
 
 test run-headless-smoke: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
 test-%: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
-RELEASE_MAKE := $(MAKE) --no-print-directory BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)"
+RELEASE_MAKE := $(MAKE) --no-print-directory TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)"
 
 app: $(TARGET)
 
-$(CORE_BASE_LIB):
-	$(MAKE) -C $(CORE_BASE_DIR) CC="$(HOST_CC)"
+$(SHARED_BUILD_DIR):
+	@mkdir -p "$@"
 
-$(CORE_IO_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_IO_DIR) CC="$(HOST_CC)"
+$(CORE_BASE_LIB): | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_BASE_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_BASE_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_BASE_DIR)/build/libcore_base.a" "$@"
 
-$(CORE_DATA_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_DATA_DIR) CC="$(HOST_CC)"
+$(CORE_IO_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_IO_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_IO_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_IO_DIR)/build/libcore_io.a" "$@"
 
-$(CORE_SPACE_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_SPACE_DIR) CC="$(HOST_CC)"
+$(CORE_DATA_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_DATA_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_DATA_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_DATA_DIR)/build/libcore_data.a" "$@"
 
-$(CORE_PACK_LIB): $(CORE_IO_LIB)
-	$(MAKE) -C $(CORE_PACK_DIR) CC="$(HOST_CC)"
+$(CORE_SPACE_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_SPACE_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_SPACE_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_SPACE_DIR)/build/libcore_space.a" "$@"
 
-$(CORE_TIME_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_TIME_DIR) CC="$(HOST_CC)"
+$(CORE_PACK_LIB): $(CORE_IO_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_PACK_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_PACK_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_PACK_DIR)/build/libcore_pack.a" "$@"
 
-$(CORE_QUEUE_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_QUEUE_DIR) CC="$(HOST_CC)"
+$(CORE_TIME_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_TIME_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_TIME_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_TIME_DIR)/build/libcore_time.a" "$@"
 
-$(CORE_SCHED_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_SCHED_DIR) CC="$(HOST_CC)"
+$(CORE_QUEUE_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_QUEUE_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_QUEUE_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_QUEUE_DIR)/build/libcore_queue.a" "$@"
 
-$(CORE_JOBS_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_JOBS_DIR) CC="$(HOST_CC)"
+$(CORE_SCHED_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_SCHED_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_SCHED_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_SCHED_DIR)/build/libcore_sched.a" "$@"
 
-$(CORE_WORKERS_LIB): $(CORE_QUEUE_LIB)
-	$(MAKE) -C $(CORE_WORKERS_DIR) CC="$(HOST_CC)"
+$(CORE_JOBS_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_JOBS_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_JOBS_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_JOBS_DIR)/build/libcore_jobs.a" "$@"
 
-$(CORE_WAKE_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_WAKE_DIR) CC="$(HOST_CC)"
+$(CORE_WORKERS_LIB): $(CORE_QUEUE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_WORKERS_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_WORKERS_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_WORKERS_DIR)/build/libcore_workers.a" "$@"
 
-$(CORE_KERNEL_LIB): $(CORE_SCHED_LIB) $(CORE_JOBS_LIB) $(CORE_WAKE_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB)
-	$(MAKE) -C $(CORE_KERNEL_DIR) CC="$(HOST_CC)"
+$(CORE_WAKE_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_WAKE_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_WAKE_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_WAKE_DIR)/build/libcore_wake.a" "$@"
 
-$(CORE_TRACE_LIB): $(CORE_PACK_LIB)
-	$(MAKE) -C $(CORE_TRACE_DIR) CC="$(HOST_CC)"
+$(CORE_KERNEL_LIB): $(CORE_SCHED_LIB) $(CORE_JOBS_LIB) $(CORE_WAKE_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_KERNEL_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_KERNEL_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_KERNEL_DIR)/build/libcore_kernel.a" "$@"
 
-$(CORE_THEME_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_THEME_DIR) CC="$(HOST_CC)"
+$(CORE_TRACE_LIB): $(CORE_PACK_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_TRACE_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_TRACE_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_TRACE_DIR)/build/libcore_trace.a" "$@"
 
-$(CORE_FONT_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_FONT_DIR) CC="$(HOST_CC)"
+$(CORE_THEME_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_THEME_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_THEME_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_THEME_DIR)/build/libcore_theme.a" "$@"
 
-$(CORE_VIEWPORT2D_LIB): $(CORE_BASE_LIB)
-	$(MAKE) -C $(CORE_VIEWPORT2D_DIR) CC="$(HOST_CC)"
+$(CORE_FONT_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_FONT_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_FONT_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_FONT_DIR)/build/libcore_font.a" "$@"
 
-$(KIT_RUNTIME_DIAG_LIB):
-	$(MAKE) -C $(KIT_RUNTIME_DIAG_DIR) CC="$(HOST_CC)"
+$(CORE_VIEWPORT2D_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_VIEWPORT2D_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_VIEWPORT2D_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_VIEWPORT2D_DIR)/build/libcore_viewport2d.a" "$@"
+
+$(KIT_RUNTIME_DIAG_LIB): | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(KIT_RUNTIME_DIAG_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(KIT_RUNTIME_DIAG_DIR)" CC="$(SHARED_CC)"
+	@cp "$(KIT_RUNTIME_DIAG_DIR)/build/libkit_runtime_diag.a" "$@"
 
 $(APP_COMPILER_STAMP): $(APP_COMPILER_DEP)
 	@mkdir -p $(dir $@)
@@ -372,7 +557,7 @@ visual-harness: app
 	@echo "visual harness binary ready: $(TARGET)"
 
 package-desktop: tools-build graph-build
-	@$(MAKE) --no-print-directory BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" app
+	@$(MAKE) --no-print-directory TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" app
 	@echo "Preparing desktop package..."
 	@rm -rf "$(PACKAGE_APP_DIR)"
 	@mkdir -p "$(PACKAGE_MACOS_DIR)" "$(PACKAGE_RESOURCES_DIR)" "$(PACKAGE_FRAMEWORKS_DIR)" "$(PACKAGE_TOOLS_DIR)"
@@ -389,7 +574,7 @@ package-desktop: tools-build graph-build
 	else \
 		echo "warning: no app icon source found at $(PACKAGE_APP_ICON_SRC) or $(PACKAGE_APP_ICONSET_SRC)"; \
 	fi
-	@/bin/sh "$(PACKAGE_DYLIB_BUNDLER)" "$(PACKAGE_MACOS_DIR)/mapforge-bin" "$(PACKAGE_FRAMEWORKS_DIR)"
+	@PACKAGE_DEP_SEARCH_ROOTS="$(TARGET_DEP_SEARCH_ROOTS)" /bin/sh "$(PACKAGE_DYLIB_BUNDLER)" "$(PACKAGE_MACOS_DIR)/mapforge-bin" "$(PACKAGE_FRAMEWORKS_DIR)"
 	@mkdir -p "$(PACKAGE_RESOURCES_DIR)/assets" "$(PACKAGE_RESOURCES_DIR)/shared/assets" "$(PACKAGE_RESOURCES_DIR)/data/runtime" "$(PACKAGE_RESOURCES_DIR)/data/regions"
 	@cp -R assets/fonts "$(PACKAGE_RESOURCES_DIR)/assets/"
 	@cp -R config "$(PACKAGE_RESOURCES_DIR)/"
@@ -398,6 +583,9 @@ package-desktop: tools-build graph-build
 	@cp "$(REGION_VALIDATE_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate"
 	@cp "$(GRAPH_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"
 	@chmod +x "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"
+	@for helper_tool in $(PACKAGED_HELPER_TOOLS); do \
+		PACKAGE_DEP_SEARCH_ROOTS="$(TARGET_DEP_SEARCH_ROOTS)" /bin/sh "$(PACKAGE_DYLIB_BUNDLER)" "$$helper_tool" "$(PACKAGE_FRAMEWORKS_DIR)"; \
+	done
 	@mkdir -p "$(PACKAGE_RESOURCES_DIR)/vk_renderer" "$(PACKAGE_RESOURCES_DIR)/shaders"
 	@cp -R "$(VK_RENDERER_RESOLVED_DIR)/shaders" "$(PACKAGE_RESOURCES_DIR)/vk_renderer/"
 	@cp -R "$(VK_RENDERER_RESOLVED_DIR)/shaders/." "$(PACKAGE_RESOURCES_DIR)/shaders/"
@@ -407,6 +595,9 @@ package-desktop: tools-build graph-build
 	done
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/mapforge-bin"
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/mapforge-launcher"
+	@for helper_tool in $(PACKAGED_HELPER_TOOLS); do \
+		codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$$helper_tool"; \
+	done
 	@codesign --force --sign "$(PACKAGE_ADHOC_SIGN_IDENTITY)" --timestamp=none "$(PACKAGE_APP_DIR)"
 	@echo "Desktop package ready: $(PACKAGE_APP_DIR)"
 
@@ -428,6 +619,15 @@ package-desktop-smoke: package-desktop
 	@test -d "$(PACKAGE_RESOURCES_DIR)/data/regions" || (echo "Missing regions dir"; exit 1)
 	@test -f "$(PACKAGE_FRAMEWORKS_DIR)/libSDL2-2.0.0.dylib" || (echo "Missing bundled SDL2 dylib"; exit 1)
 	@test -f "$(PACKAGE_FRAMEWORKS_DIR)/libMoltenVK.dylib" || (echo "Missing bundled MoltenVK dylib"; exit 1)
+	@if [ "$(UNAME_S)" = "Darwin" ]; then \
+		for packaged_bin in "$(PACKAGE_MACOS_DIR)/mapforge-bin" "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"; do \
+			actual_archs="$$(/usr/bin/lipo -archs "$$packaged_bin" 2>/dev/null || true)"; \
+			case "$$actual_archs" in \
+				*"$(TARGET_ARCH)"*) ;; \
+				*) echo "arch mismatch for $$packaged_bin: expected $(TARGET_ARCH), got '$$actual_archs'"; exit 1 ;; \
+			esac; \
+		done; \
+	fi
 	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)" || (echo "codesign verification failed"; exit 1)
 	@echo "package-desktop-smoke passed."
 
@@ -540,6 +740,15 @@ release-bundle-audit-internal: package-desktop-self-test
 			exit 1; \
 		fi; \
 	done
+	@for helper_tool in $(PACKAGED_HELPER_TOOLS); do \
+		base="$$(/usr/bin/basename "$$helper_tool")"; \
+		otool -L "$$helper_tool" > "$(RELEASE_DIR)/otool_$$base.txt" || exit 1; \
+		if /usr/bin/grep -Eq '/opt/homebrew|/usr/local|/Users/.*/CodeWork' "$(RELEASE_DIR)/otool_$$base.txt"; then \
+			echo "non-portable helper-tool dependency detected in $$helper_tool"; \
+			cat "$(RELEASE_DIR)/otool_$$base.txt"; \
+			exit 1; \
+		fi; \
+	done
 	@echo "release-bundle-audit passed."
 
 release-sign-internal: release-bundle-audit-internal
@@ -550,6 +759,9 @@ release-sign-internal: release-bundle-audit-internal
 		done; \
 		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/mapforge-bin"; \
 		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_MACOS_DIR)/mapforge-launcher"; \
+		for helper_tool in $(PACKAGED_HELPER_TOOLS); do \
+			codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$$helper_tool"; \
+		done; \
 		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp=none "$(PACKAGE_APP_DIR)"; \
 	else \
 		for dylib in $$(/usr/bin/find "$(PACKAGE_FRAMEWORKS_DIR)" -type f -name '*.dylib' 2>/dev/null); do \
@@ -557,6 +769,9 @@ release-sign-internal: release-bundle-audit-internal
 		done; \
 		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp --options runtime "$(PACKAGE_MACOS_DIR)/mapforge-bin"; \
 		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp --options runtime "$(PACKAGE_MACOS_DIR)/mapforge-launcher"; \
+		for helper_tool in $(PACKAGED_HELPER_TOOLS); do \
+			codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp --options runtime "$$helper_tool"; \
+		done; \
 		codesign --force --sign "$(RELEASE_CODESIGN_IDENTITY)" --timestamp --options runtime "$(PACKAGE_APP_DIR)"; \
 	fi
 	@echo "release-sign complete."
@@ -639,6 +854,8 @@ release-artifact-internal:
 		echo "program=$(RELEASE_PROGRAM_KEY)"; \
 		echo "bundle_id=$(RELEASE_BUNDLE_ID)"; \
 		echo "version=$(RELEASE_VERSION)"; \
+		echo "platform=$(RELEASE_PLATFORM)"; \
+		echo "arch=$(RELEASE_ARCH)"; \
 		echo "channel=$(RELEASE_CHANNEL)"; \
 		echo "artifact=$(RELEASE_APP_ZIP)"; \
 		echo "sha256_file=$(RELEASE_APP_ZIP).sha256"; \
@@ -764,6 +981,12 @@ test-polygon-cache-guardrails: $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
 test-input-policy: $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 	./$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 
+test-header-layer-layout: $(APP_HEADER_LAYER_LAYOUT_TEST_TARGET)
+	./$(APP_HEADER_LAYER_LAYOUT_TEST_TARGET)
+
+test-window-resize: $(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET)
+	./$(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET)
+
 test-tile-manager-residency: $(TILE_MANAGER_RESIDENCY_TEST_TARGET)
 	./$(TILE_MANAGER_RESIDENCY_TEST_TARGET)
 
@@ -879,6 +1102,14 @@ $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET): $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS)
 $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET): $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(APP_HEADER_LAYER_LAYOUT_TEST_TARGET): $(APP_HEADER_LAYER_LAYOUT_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_HEADER_LAYER_LAYOUT_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET): $(APP_RUNTIME_WINDOW_RESIZE_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_RUNTIME_WINDOW_RESIZE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(TILE_MANAGER_RESIDENCY_TEST_TARGET): $(TILE_MANAGER_RESIDENCY_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -1006,6 +1237,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-a-viewport-scenario test-phase-b-continuity-stress test-phase-d1-budget-control test-phase-d1-budget-matrix test-phase-d2-trace-matrix test-phase-d2-tuning-profiles test-phase-d2-trend-summary test-phase-d2-guardrails test-phase-d3-regression-gate test-phase-d3-contract-preview test-phase-d-throughput route route-rebuild region region-archive region-validate region-rebuild region-rebuild-archive tools-progress graph-progress region-progress region-progress-archive route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-header-layer-layout test-window-resize test-tile-manager-residency test-phase-a-viewport-scenario test-phase-b-continuity-stress test-phase-d1-budget-control test-phase-d1-budget-matrix test-phase-d2-trace-matrix test-phase-d2-tuning-profiles test-phase-d2-trend-summary test-phase-d2-guardrails test-phase-d3-regression-gate test-phase-d3-contract-preview test-phase-d-throughput route route-rebuild region region-archive region-validate region-rebuild region-rebuild-archive tools-progress graph-progress region-progress region-progress-archive route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

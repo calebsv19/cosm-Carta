@@ -4,7 +4,10 @@ set -euo pipefail
 workspace="$(mktemp -d /tmp/mapforge_runtime_policy.XXXXXX)"
 trap 'rm -rf "$workspace"' EXIT
 
-validate_tool="build/tools/mapforge_region_validate"
+target_contract_helper="${TARGET_CONTRACT_HELPER:-../bin/desktop_release_target_contract.sh}"
+target_triple="$(TARGET_ARCH="${TARGET_ARCH:-}" TARGET_OS="${TARGET_OS:-}" TARGET_VARIANT="${TARGET_VARIANT:-desktop-app}" "$target_contract_helper" get target_triple)"
+tool_root="build/targets/${target_triple}/tools"
+validate_tool="${tool_root}/mapforge_region_validate"
 regions_root="$workspace/regions"
 
 if [[ ! -x "$validate_tool" ]]; then

@@ -92,8 +92,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-region_tool="build/tools/mapforge_region"
-graph_tool="build/tools/mapforge_graph"
+target_contract_helper="${TARGET_CONTRACT_HELPER:-../bin/desktop_release_target_contract.sh}"
+target_triple="$(TARGET_ARCH="${TARGET_ARCH:-}" TARGET_OS="${TARGET_OS:-}" TARGET_VARIANT="${TARGET_VARIANT:-desktop-app}" "$target_contract_helper" get target_triple)"
+tool_root="build/targets/${target_triple}/tools"
+region_tool="${tool_root}/mapforge_region"
+graph_tool="${tool_root}/mapforge_graph"
 
 if [[ ! -x "$region_tool" || ! -x "$graph_tool" ]]; then
     make tools graph

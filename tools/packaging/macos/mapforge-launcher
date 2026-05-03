@@ -11,6 +11,7 @@ DEV_REGIONS_DIR="${MAPFORGE_DEV_REGIONS_DIR:-$DEV_REGIONS_DIR_DEFAULT}"
 DEV_TOOLS_DIR_DEFAULT="$HOME/Desktop/CodeWork/map_forge/build/tools"
 APP_SUPPORT_DIR_DEFAULT="${HOME}/Library/Application Support/Carta"
 APP_SUPPORT_DIR="${MAPFORGE_APP_SUPPORT_DIR:-$APP_SUPPORT_DIR_DEFAULT}"
+APP_SUPPORT_REGIONS_DIR_DEFAULT="$APP_SUPPORT_DIR/regions"
 RUNTIME_DIR_DEFAULT="$APP_SUPPORT_DIR/runtime"
 THEME_PERSIST_PATH_DEFAULT="$APP_SUPPORT_DIR/config/theme_preset.txt"
 LOG_DIR="${HOME}/Library/Logs/Carta"
@@ -82,8 +83,8 @@ select_regions_dir() {
         return 0
     fi
 
-    selected_regions_reason="bundle-final-fallback"
-    printf '%s|%s\n' "$APP_BUNDLE_REGIONS_DIR" "$selected_regions_reason"
+    selected_regions_reason="app-support-empty-root"
+    printf '%s|%s\n' "$APP_SUPPORT_REGIONS_DIR_DEFAULT" "$selected_regions_reason"
 }
 
 timestamp() {
@@ -124,12 +125,24 @@ export MAPFORGE_IMPORT_TOOLS_DIR
 mkdir -p "$MAPFORGE_RUNTIME_DIR" "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" 2>/dev/null || true
 if [ ! -d "$MAPFORGE_RUNTIME_DIR" ] || [ ! -d "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" ]; then
     fallback_support_dir="${TMPDIR:-/tmp}/Carta"
+    APP_SUPPORT_DIR="$fallback_support_dir"
     MAPFORGE_RUNTIME_DIR="$fallback_support_dir/runtime"
     MAPFORGE_THEME_PERSIST_PATH="$fallback_support_dir/config/theme_preset.txt"
+    if [ "$selected_regions_reason" = "app-support-empty-root" ]; then
+        MAPFORGE_REGIONS_DIR="$fallback_support_dir/regions"
+    fi
     mkdir -p "$MAPFORGE_RUNTIME_DIR" "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" 2>/dev/null || true
 fi
 export MAPFORGE_RUNTIME_DIR
 export MAPFORGE_THEME_PERSIST_PATH
+mkdir -p "$MAPFORGE_REGIONS_DIR" 2>/dev/null || true
+if [ ! -d "$MAPFORGE_REGIONS_DIR" ] && [ "$selected_regions_reason" = "app-support-empty-root" ]; then
+    fallback_support_dir="${TMPDIR:-/tmp}/Carta"
+    APP_SUPPORT_DIR="$fallback_support_dir"
+    MAPFORGE_REGIONS_DIR="$fallback_support_dir/regions"
+    mkdir -p "$MAPFORGE_REGIONS_DIR" 2>/dev/null || true
+fi
+export MAPFORGE_REGIONS_DIR
 
 if [ "${MAPFORGE_RENDER_BACKEND}" = "vulkan" ] && [ -f "$MOLTENVK_DYLIB" ]; then
     VK_RUNTIME_DIR="$MAPFORGE_RUNTIME_DIR/vk"

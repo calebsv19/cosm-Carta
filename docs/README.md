@@ -1,13 +1,19 @@
 # MapForge Docs
 
 Start here for the public, operator-facing documentation that ships with the repository.
-Last audited: 2026-04-21.
+Last audited: 2026-04-29.
 
 ## Current Focus
 
 - Tile-pipeline modularization is currently in progress:
   - `src/app/app_tile_pipeline.c` is being split into helper/runtime lanes.
   - active worktree files include `src/app/app_tile_pipeline_helpers.c`, `src/app/app_tile_pipeline_runtime.c`, and `include/app/app_tile_pipeline_helpers.h`.
+- Camera input math now partially adopts vendored shared `core_viewport2d`:
+  - cursor-anchor zoom and drag-pan target math route through a camera-local bridge
+  - Mercator semantics, smoothing, and hot render transforms remain app-local for parity/performance
+- Phase D throughput harness remains active and currently calibrated to:
+  - tolerate higher absolute `seattle` `l0_peak` variance in D2 matrix preconditions
+  - use a lower-pressure `l0_relief_candidate` preset (`road_cap=7`, `integrate_cap=60`)
 
 ## Start Here
 
@@ -55,6 +61,7 @@ If you are new to the runtime code, read in this order:
 - `make test-phase-b-continuity-stress`
 - `make test-tile-manager-residency`
 - `make test-phase-d-throughput`
+- `make test-phase-d2-guardrails`
 
 ## Scaffold Migration References
 

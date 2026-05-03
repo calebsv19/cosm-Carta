@@ -182,6 +182,41 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
     return true;
 }
 
+bool renderer_resize(Renderer *renderer, int width, int height) {
+    if (!renderer || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    renderer->width = width;
+    renderer->height = height;
+
+#if defined(MAPFORGE_HAVE_VK)
+    if (renderer->backend == RENDERER_BACKEND_VULKAN &&
+        renderer->vulkan_available &&
+        renderer->vk &&
+        renderer->window) {
+        VkRenderer *vk = (VkRenderer *)renderer->vk;
+        vk_renderer_set_logical_size(vk, (float)width, (float)height);
+        VkResult result = vk_renderer_recreate_swapchain(vk, renderer->window);
+        renderer->vk_last_begin_result = (int)result;
+        if (result == VK_SUCCESS) {
+            renderer->vk_swapchain_recreates += 1u;
+            renderer->vk_begin_fail_streak = 0u;
+            return true;
+        }
+        renderer->vk_begin_failures_total += 1u;
+        renderer->vk_begin_fail_streak += 1u;
+        renderer_log_vk_failure(renderer, "resize", result);
+        if (result == VK_ERROR_DEVICE_LOST) {
+            renderer_disable_vulkan(renderer, "device-lost at resize");
+        }
+        return false;
+    }
+#endif
+
+    return true;
+}
+
 void renderer_shutdown(Renderer *renderer) {
     if (!renderer) {
         return;

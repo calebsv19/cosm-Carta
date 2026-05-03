@@ -22,6 +22,10 @@ static void app_runtime_input_record_event(AppState *app,
             break;
         case SDL_WINDOWEVENT:
             out_raw->window_event_count += 1u;
+            if (event->window.event == SDL_WINDOWEVENT_RESIZED ||
+                event->window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                (void)app_runtime_apply_window_size(app, event->window.data1, event->window.data2);
+            }
             break;
         case SDL_MOUSEMOTION:
         case SDL_MOUSEBUTTONDOWN:

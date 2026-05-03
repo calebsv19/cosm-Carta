@@ -6,7 +6,9 @@ binary="${MAPFORGE_BINARY:-$repo_root/build/toolchains/clang/bin/mapforge}"
 if [[ ! -x "$binary" ]]; then
     make -C "$repo_root" BUILD_TOOLCHAIN="${MAPFORGE_SCRIPT_BUILD_TOOLCHAIN:-clang}" app >/dev/null
 fi
-validator="$repo_root/build/tools/mapforge_region_validate"
+target_contract_helper="${TARGET_CONTRACT_HELPER:-$repo_root/../bin/desktop_release_target_contract.sh}"
+target_triple="$(TARGET_ARCH="${TARGET_ARCH:-}" TARGET_OS="${TARGET_OS:-}" TARGET_VARIANT="${TARGET_VARIANT:-desktop-app}" "$target_contract_helper" get target_triple)"
+validator="$repo_root/build/targets/${target_triple}/tools/mapforge_region_validate"
 if [[ ! -x "$validator" ]]; then
     make -C "$repo_root" tools-build >/dev/null
 fi

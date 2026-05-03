@@ -1,6 +1,6 @@
 # MapForge Current Truth
 
-Last updated: 2026-04-27
+Last updated: 2026-04-29
 
 ## Program Identity
 - Repository directory: `map_forge/`
@@ -50,6 +50,10 @@ Last updated: 2026-04-27
 - Continue post-A-D maintenance hardening while preserving contract-driven runtime behavior.
 - Complete current tile-pipeline modularization without changing published operator contract semantics.
 - Camera runtime now keeps Mercator zoom semantics, smoothing, and hot screen/world render transforms local while routing generic cursor-anchor zoom and drag-pan target math through vendored shared `core_viewport2d`.
+- Throughput guardrail calibration now reflects current local variance:
+  - D2 `seattle` matrix precondition uses a higher absolute `l0_peak` ceiling
+  - D2 `l0_relief_candidate` defaults now actually reduce pressure (`road_cap=7`, `integrate_cap=60`)
+  - D2 downtown `l0_peak` delta ceiling is widened to `800ms` while continuity/fallback/churn checks remain unchanged
 
 ## History and Deep Lane References
 - Full phase ledgers and archived docs are in:

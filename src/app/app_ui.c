@@ -256,7 +256,10 @@ static void app_draw_header_layer_chips(AppState *app,
         app->ui_state_bridge.header_layer_strip_scroll_px = max_scroll;
     }
     app->ui_state_bridge.header_layer_strip_content_w = content_w;
-    float start_x = strip.x - app->ui_state_bridge.header_layer_strip_scroll_px;
+    float start_x = app_header_layer_strip_start_x(strip.x,
+                                                   strip.w,
+                                                   content_w,
+                                                   app->ui_state_bridge.header_layer_strip_scroll_px);
     clip_state = app_header_push_clip(&app->renderer, &strip);
 
     for (int i = 0; i < total_chips; ++i) {

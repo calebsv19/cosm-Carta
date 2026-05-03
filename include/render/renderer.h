@@ -48,6 +48,9 @@ const char *renderer_backend_name(RendererBackend backend);
 // Initializes the renderer backend for the given window.
 bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height);
 
+// Updates render target sizing after the host window changes size.
+bool renderer_resize(Renderer *renderer, int width, int height);
+
 // Shuts down the renderer backend.
 void renderer_shutdown(Renderer *renderer);
 

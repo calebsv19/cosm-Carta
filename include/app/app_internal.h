@@ -679,6 +679,7 @@ typedef struct AppState {
 
 void app_bridge_sync_from_legacy(AppState *app);
 void app_bridge_sync_to_legacy(AppState *app);
+bool app_runtime_apply_window_size(AppState *app, int width, int height);
 void app_worker_contract_init(AppState *app);
 uint32_t app_worker_contract_bump_world_generation(AppState *app);
 uint32_t app_worker_contract_bump_tile_generation(AppState *app);
