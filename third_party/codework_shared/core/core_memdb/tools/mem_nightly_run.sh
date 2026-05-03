@@ -15,7 +15,7 @@ required:
 
 options:
   --workspace <key>            Default: codework
-  --project <key>              Default: memory_console
+  --project <key>              Default: mem_console
   --runs-root <dir>            Default: docs/private_program_docs/memory_console/nightly_runs
   --run-date <YYYY-MM-DD>      Default: local current date
   --stale-days <n>             Default: 30
@@ -39,7 +39,7 @@ EOF
 
 db_path=""
 workspace_key="codework"
-project_key="memory_console"
+project_key="mem_console"
 runs_root="${ROOT_DIR}/docs/private_program_docs/memory_console/nightly_runs"
 run_date="$(date +"%Y-%m-%d")"
 stale_days=30
@@ -55,6 +55,18 @@ rollup_max_groups=8
 session_id=""
 apply_mode=false
 allow_empty_apply=false
+
+normalize_project_key() {
+    local value="${1:-}"
+    case "${value}" in
+        memory_console)
+            echo "mem_console"
+            ;;
+        *)
+            echo "${value}"
+            ;;
+    esac
+}
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -146,6 +158,8 @@ if [[ -z "${db_path}" ]]; then
     usage >&2
     exit 1
 fi
+
+project_key="$(normalize_project_key "${project_key}")"
 
 if [[ ! -x "${MEM_CLI}" || ! -x "${READER}" || ! -x "${PRUNER}" ]]; then
     echo "missing executable tool(s). expected:" >&2

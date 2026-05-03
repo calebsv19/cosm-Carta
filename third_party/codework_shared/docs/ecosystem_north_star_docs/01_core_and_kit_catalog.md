@@ -74,15 +74,19 @@ This is not an implementation guide.
 ---
 
 ### core_scene (ACTIVE)
-**Role:** Scene handoff contract resolver for cross-program imports.
+**Role:** Shared typed scene contract owner plus scene-handoff resolver for cross-program imports.
 **Responsibilities:**
+- Shared scene-root metadata contract helpers
+- Shared object-kind vocabulary and first primitive payload semantics
+- Validation helpers for canonical authoring object contracts
 - `scene_bundle.json` path/type resolution
 - Source detection (`manifest`, `.pack`, `.vf2d`)
 - Optional bundle metadata path resolution
 
 **Boundary:**
+- Owns app-agnostic scene structure/schema and first-class object semantics
 - Resolves *what to load*
-- Does not decide placement math or rendering behavior
+- Does not decide placement math, rendering behavior, or app-specific overlay policy
 
 ---
 
@@ -91,6 +95,7 @@ This is not an implementation guide.
 **Responsibilities:**
 - Compile `scene_authoring_v1` payloads into `scene_runtime_v1`
 - Emit deterministic runtime envelope order and compile metadata
+- Validate canonical primitive payloads for known primitive object kinds
 - Preserve unknown extension namespaces while stripping authoring-only lanes from runtime contract
 
 **Boundary:**
@@ -110,6 +115,20 @@ This is not an implementation guide.
 **Boundary:**
 - Defines *where/how to place*
 - Does not parse scene bundles or own asset formats
+
+---
+
+### core_viewport2d (BOOTSTRAP)
+**Role:** Shared 2D viewport/camera interaction math contract.
+**Responsibilities:**
+- Screen-to-content/content-to-screen transforms
+- Fit-to-window reset for oversized or undersized 2D content
+- Screen-space pan deltas and cursor-anchor zoom state updates
+
+**Boundary:**
+- Owns pure 2D viewport state and transform math only
+- No SDL/input event ownership
+- No map projection semantics, scene import placement, or renderer backend coupling
 
 ---
 
@@ -171,6 +190,34 @@ This is not an implementation guide.
 
 ---
 
+### core_pane_module (BOOTSTRAP)
+**Role:** Shared pane-module descriptor registry and binding validation semantics.
+**Responsibilities (initial):**
+- Register internal module descriptors with stable identities
+- Validate descriptor capability-to-hook compatibility
+- Validate pane-to-module bindings against known leaf pane IDs and registry entries
+
+**Boundary:**
+- No plugin binary loading or sandboxing
+- No host runtime loop ownership
+- No arbitrary key/value module config persistence in v1
+
+---
+
+### core_pane_snapshot (BOOTSTRAP)
+**Role:** Shared pane snapshot schema struct and validation semantics.
+**Responsibilities (initial):**
+- Define v1 snapshot metadata/node/binding record structs
+- Validate snapshot schema/meta fields before host import
+- Validate pane graph and module-binding invariants deterministically
+
+**Boundary:**
+- No `core_pack` read/write ownership
+- No JSON serializer ownership
+- No host runtime/layout mutation policy ownership
+
+---
+
 ### core_config (BOOTSTRAP)
 **Role:** Lightweight typed runtime configuration table.
 **Responsibilities (initial):**
@@ -209,6 +256,23 @@ This is not an implementation guide.
 **Boundary:**
 - Diagnostics/timeline semantics only
 - No UI or renderer coupling
+
+---
+
+### core_sim (BOOTSTRAP)
+**Role:** Shared simulation control-plane foundation.
+**Responsibilities (initial):**
+- Fixed-step accumulator policy
+- Pause/play/single-step control state
+- Max ticks per frame clamp
+- Ordered simulation pass execution
+- Deterministic per-frame outcome reporting
+- Host adapter diagnostics: status names, pass-order validation, pass-outcome initialization, and frame reason bits
+
+**Boundary:**
+- Owns simulation orchestration semantics only
+- Does not own physics equations, entity/world storage, scenario formats, rendering, UI, platform input, or worker/job/scheduler ownership
+- May layer with `core_time`, `core_kernel`, `core_sched`, `core_jobs`, `core_workers`, `core_queue`, `core_wake`, and `core_trace` through later adapters
 
 ---
 
@@ -408,7 +472,15 @@ This is not an implementation guide.
 **Notes:**
 - Owns pane chrome visuals (border/header/title/splitter states).
 - Owns authoring-mode structural overlay affordances.
-- Does not own pane topology solve, module lifecycle, or workspace persistence policy.
+- Does not own pane topology solve, module lifecycle, workspace persistence policy, or app build/dependency hygiene needed to keep pane/session struct changes coherently rebuilt.
+
+### kit_workspace_authoring (BOOTSTRAP)
+**Role:** Shared host-agnostic authoring interaction glue kit.
+**Notes:**
+- Owns entry-chord and trigger mapping helpers for authoring/runtime mode routes.
+- Owns callback-driven action execution + text-size step adapter helpers.
+- Publishes host-attach guidance for theme preset + text zoom handoff, including top-level picker/shell parity requirements so theme changes are visible outside authoring overlay.
+- Does not own renderer/window policy, module-picker model ownership, or pane topology semantics.
 
 ### kit_runtime_diag (BOOTSTRAP)
 **Role:** Shared runtime diagnostics contract helpers.

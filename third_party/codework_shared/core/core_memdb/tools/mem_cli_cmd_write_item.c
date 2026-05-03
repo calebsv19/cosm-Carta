@@ -1307,6 +1307,191 @@ cleanup:
     return exit_code;
 }
 
+int cmd_item_archive(int argc, char **argv) {
+    const char *db_path = find_flag_value(argc, argv, "--db");
+    const char *id_text = find_flag_value(argc, argv, "--id");
+    const char *session_id = find_flag_value(argc, argv, "--session-id");
+    int64_t item_id = 0;
+    int64_t now_ns = 0;
+    int64_t changed_rows = 0;
+    int exists_any = 0;
+    int item_active = 0;
+    int has_row = 0;
+    int tx_started = 0;
+    int exit_code = 1;
+    char stable_id[128];
+    char workspace_key[128];
+    char project_key[128];
+    char item_kind[128];
+    char detail[128];
+    char *event_payload = 0;
+    CoreMemDb db = {0};
+    CoreMemStmt apply_stmt = {0};
+    CoreResult result;
+
+    if (!db_path || !id_text || !parse_i64_arg(id_text, &item_id)) {
+        print_usage(argv[0]);
+        return 1;
+    }
+    if (!open_db_or_fail(db_path, &db)) {
+        return 1;
+    }
+
+    result = item_exists_any(&db, item_id, &exists_any);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    if (!exists_any) {
+        fprintf(stderr, "item-archive: id %lld not found\n", (long long)item_id);
+        goto cleanup;
+    }
+
+    result = item_exists_active(&db, item_id, &item_active);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    if (!item_active) {
+        printf("item-archive id=%lld already archived\n", (long long)item_id);
+        exit_code = 0;
+        goto cleanup;
+    }
+
+    now_ns = current_time_ns();
+    result = core_memdb_tx_begin(&db);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    tx_started = 1;
+
+    result = fetch_item_audit_metadata(&db,
+                                       item_id,
+                                       stable_id,
+                                       sizeof(stable_id),
+                                       workspace_key,
+                                       sizeof(workspace_key),
+                                       project_key,
+                                       sizeof(project_key),
+                                       item_kind,
+                                       sizeof(item_kind));
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+
+    result = build_item_archive_event_payload_alloc(&db, item_id, now_ns, &event_payload);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+
+    result = append_event_entry(&db,
+                                session_id,
+                                "NodeMetadataPatched",
+                                item_id,
+                                0,
+                                stable_id[0] != '\0' ? stable_id : 0,
+                                workspace_key,
+                                project_key,
+                                item_kind,
+                                event_payload);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+
+    result = core_memdb_prepare(&db, kApplyItemEventSql, &apply_stmt);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_bind_i64(&apply_stmt, 1, item_id);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_bind_text(&apply_stmt, 2, event_payload);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_bind_i64(&apply_stmt, 3, 0);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_bind_i64(&apply_stmt, 4, 0);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    result = core_memdb_stmt_step(&apply_stmt, &has_row);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    if (has_row) {
+        print_core_error("item-archive", (CoreResult){ CORE_ERR_FORMAT, "item-archive apply returned unexpected row" });
+        goto cleanup;
+    }
+    result = core_memdb_stmt_finalize(&apply_stmt);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    result = fetch_changes(&db, &changed_rows);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    if (changed_rows != 1) {
+        print_core_error("item-archive", (CoreResult){ CORE_ERR_FORMAT, "item-archive changed unexpected row count" });
+        goto cleanup;
+    }
+
+    (void)snprintf(detail,
+                   sizeof(detail),
+                   "archived_ns=%lld",
+                   (long long)now_ns);
+    result = append_audit_entry(&db,
+                                session_id,
+                                "item-archive",
+                                "ok",
+                                item_id,
+                                stable_id[0] != '\0' ? stable_id : 0,
+                                workspace_key,
+                                project_key,
+                                item_kind,
+                                detail);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+
+    result = core_memdb_tx_commit(&db);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    tx_started = 0;
+
+    printf("item-archive id=%lld archived_ns=%lld\n",
+           (long long)item_id,
+           (long long)now_ns);
+    exit_code = 0;
+
+cleanup:
+    (void)core_memdb_stmt_finalize(&apply_stmt);
+    if (tx_started) {
+        (void)core_memdb_tx_rollback(&db);
+    }
+    core_free(event_payload);
+    (void)core_memdb_close(&db);
+    return exit_code;
+}
+
 int cmd_item_retag(int argc, char **argv) {
     const char *db_path = find_flag_value(argc, argv, "--db");
     const char *id_text = find_flag_value(argc, argv, "--id");

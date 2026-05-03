@@ -14,7 +14,7 @@ required:
 
 options:
   --workspace <key>            Default: codework
-  --project <key>              Default: memory_console
+  --project <key>              Default: mem_console
   --stale-days <n>             Default: 30
   --min-active-nodes-before-rollup <n>
                                Default: 40 (rollup recommended only when active nodes exceed this)
@@ -39,7 +39,7 @@ EOF
 db_path=""
 run_dir=""
 workspace_key="codework"
-project_key="memory_console"
+project_key="mem_console"
 stale_days=30
 min_active_nodes_before_rollup=40
 min_stale_candidates_before_rollup=4
@@ -55,6 +55,44 @@ events_limit=200
 audits_limit=200
 before_ns=""
 now_ns=""
+
+normalize_project_key() {
+    local value="${1:-}"
+    case "${value}" in
+        memory_console)
+            echo "mem_console"
+            ;;
+        *)
+            echo "${value}"
+            ;;
+    esac
+}
+
+require_int_ge() {
+    local flag="$1"
+    local value="$2"
+    local min="$3"
+    if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
+        echo "${flag} must be an integer (got: ${value})" >&2
+        exit 1
+    fi
+    if (( value < min )); then
+        echo "${flag} must be >= ${min} (got: ${value})" >&2
+        exit 1
+    fi
+}
+
+require_int_range() {
+    local flag="$1"
+    local value="$2"
+    local min="$3"
+    local max="$4"
+    require_int_ge "${flag}" "${value}" "${min}"
+    if (( value > max )); then
+        echo "${flag} must be <= ${max} (got: ${value})" >&2
+        exit 1
+    fi
+}
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -157,6 +195,28 @@ if [[ ! -x "${MEM_CLI}" ]]; then
     exit 1
 fi
 
+project_key="$(normalize_project_key "${project_key}")"
+
+require_int_ge "--stale-days" "${stale_days}" 0
+require_int_ge "--min-active-nodes-before-rollup" "${min_active_nodes_before_rollup}" 0
+require_int_ge "--min-stale-candidates-before-rollup" "${min_stale_candidates_before_rollup}" 0
+require_int_ge "--scan-limit" "${scan_limit}" 1
+require_int_range "--page-size" "${page_size}" 1 1000
+require_int_ge "--candidate-limit" "${candidate_limit}" 1
+require_int_ge "--rollup-chunk-max-items" "${rollup_chunk_max_items}" 0
+require_int_ge "--rollup-max-groups" "${rollup_max_groups}" 1
+require_int_range "--canonical-limit" "${canonical_limit}" 1 1000
+require_int_range "--pinned-limit" "${pinned_limit}" 1 1000
+require_int_range "--recent-limit" "${recent_limit}" 1 1000
+require_int_range "--events-limit" "${events_limit}" 1 1000
+require_int_range "--audits-limit" "${audits_limit}" 1 1000
+if [[ -n "${now_ns}" ]]; then
+    require_int_ge "--now-ns" "${now_ns}" 1
+fi
+if [[ -n "${before_ns}" ]]; then
+    require_int_ge "--before-ns" "${before_ns}" 1
+fi
+
 mkdir -p "${run_dir}"
 
 if [[ -z "${now_ns}" ]]; then
@@ -184,8 +244,11 @@ plan_path="${run_dir}/pruner_plan.json"
 
 tmp_all="$(mktemp)"
 tmp_new="$(mktemp)"
-trap 'rm -f "${tmp_all}" "${tmp_new}"' EXIT
+tmp_rollup="$(mktemp)"
+tmp_rollup_new="$(mktemp)"
+trap 'rm -f "${tmp_all}" "${tmp_new}" "${tmp_rollup}" "${tmp_rollup_new}"' EXIT
 printf '[]\n' > "${tmp_all}"
+printf '[]\n' > "${tmp_rollup}"
 
 "${MEM_CLI}" health --db "${db_path}" --format json > "${health_path}"
 "${MEM_CLI}" query --db "${db_path}" --workspace "${workspace_key}" --project "${project_key}" --canonical-only --limit "${canonical_limit}" --format json > "${canonical_path}"
@@ -193,7 +256,6 @@ printf '[]\n' > "${tmp_all}"
 "${MEM_CLI}" query --db "${db_path}" --workspace "${workspace_key}" --project "${project_key}" --limit "${recent_limit}" --format json > "${recent_path}"
 "${MEM_CLI}" event-list --db "${db_path}" --limit "${events_limit}" --format json > "${events_path}"
 "${MEM_CLI}" audit-list --db "${db_path}" --limit "${audits_limit}" --format json > "${audits_path}"
-"${MEM_CLI}" query --db "${db_path}" --workspace "${workspace_key}" --project "${project_key}" --kind rollup --limit "${scan_limit}" --format json > "${rollup_kind_path}"
 
 offset=0
 scanned=0
@@ -202,6 +264,9 @@ while (( scanned < scan_limit )); do
     chunk_limit="${page_size}"
     if (( remaining < chunk_limit )); then
         chunk_limit="${remaining}"
+    fi
+    if (( chunk_limit > 1000 )); then
+        chunk_limit=1000
     fi
     chunk_json="$("${MEM_CLI}" query --db "${db_path}" --workspace "${workspace_key}" --project "${project_key}" --limit "${chunk_limit}" --offset "${offset}" --format json)"
     chunk_count="$(printf '%s\n' "${chunk_json}" | jq 'length')"
@@ -218,6 +283,33 @@ while (( scanned < scan_limit )); do
 done
 
 cp "${tmp_all}" "${scan_path}"
+
+rollup_offset=0
+rollup_scanned=0
+while (( rollup_scanned < scan_limit )); do
+    remaining=$(( scan_limit - rollup_scanned ))
+    chunk_limit="${page_size}"
+    if (( remaining < chunk_limit )); then
+        chunk_limit="${remaining}"
+    fi
+    if (( chunk_limit > 1000 )); then
+        chunk_limit=1000
+    fi
+    chunk_json="$("${MEM_CLI}" query --db "${db_path}" --workspace "${workspace_key}" --project "${project_key}" --kind rollup --limit "${chunk_limit}" --offset "${rollup_offset}" --format json)"
+    chunk_count="$(printf '%s\n' "${chunk_json}" | jq 'length')"
+    if (( chunk_count == 0 )); then
+        break
+    fi
+    jq -n --slurpfile a "${tmp_rollup}" --argjson b "${chunk_json}" '$a[0] + $b' > "${tmp_rollup_new}"
+    mv "${tmp_rollup_new}" "${tmp_rollup}"
+    rollup_scanned=$(( rollup_scanned + chunk_count ))
+    rollup_offset=$(( rollup_offset + chunk_count ))
+    if (( chunk_count < chunk_limit )); then
+        break
+    fi
+done
+
+cp "${tmp_rollup}" "${rollup_kind_path}"
 
 jq --argjson before "${before_ns}" --argjson max "${candidate_limit}" --slurpfile rollup_items "${rollup_kind_path}" '
     ($rollup_items[0] | map(.id)) as $rollup_ids

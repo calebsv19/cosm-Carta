@@ -19,7 +19,7 @@ Implemented capabilities:
 Current status:
 - the SQLite amalgamation is now vendored under `external/` and compiled into the module archive
 - the core DB API runs against real SQLite handles
-- `mem_cli` supports `add`, `list`, `find`, `show`, `pin`, `canonical`, `item-retag`, and `rollup`
+- `mem_cli` supports `add`, `list`, `find`, `show`, `pin`, `canonical`, `item-retag`, `item-archive`, and `rollup`
 - `mem_cli` now includes bounded retrieval via `query` for agent-oriented fetch flows
 - `mem_cli add` now supports scoped metadata (`workspace_key`, `project_key`, `kind`)
 - `mem_cli query` now supports scoped filters (`--workspace`, `--project`, `--kind`)
@@ -150,6 +150,9 @@ Current gaps / next focus:
 - formalize snapshot + cursor artifact flow on top of `event-replay-apply` (outside SQLite projection)
 - add CLI-level replay/apply fixtures for long-lived multi-session datasets
 
+Recent update notes:
+- `0.28.0`: additive `item-archive` CLI lane, manual rollup flow wrapper, stricter nightly/codex rollup script validation, and canonical `mem_console` naming across maintenance helpers.
+
 Current CLI surface:
 - `mem_cli add --db <path> --title <text> --body <text> [--stable-id <id>] [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>]`
 - `mem_cli batch-add --db <path> --input <tsv_path> [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>] [--continue-on-error] [--max-errors <n>] [--retry-attempts <n>] [--retry-delay-ms <ms>]`
@@ -166,6 +169,7 @@ Current CLI surface:
 - `mem_cli pin --db <path> --id <rowid> --on|--off [--session-id <id>]`
 - `mem_cli canonical --db <path> --id <rowid> --on|--off [--session-id <id>]`
 - `mem_cli item-retag --db <path> --id <rowid> [--workspace <key>] [--project <key>] [--kind <value>] [--include-archived] [--session-id <id>]`
+- `mem_cli item-archive --db <path> --id <rowid> [--session-id <id>]`
 - `mem_cli rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>]`
 - `mem_cli link-add --db <path> --from <item_id> --to <item_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>]`
 - `mem_cli link-list --db <path> --item-id <item_id>`

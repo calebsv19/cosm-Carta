@@ -194,6 +194,86 @@ static void test_validation_reports_invalid_bounds(void) {
     assert(strcmp(core_pane_validation_code_string(report.code), "invalid_bounds") == 0);
 }
 
+static void test_collect_splitter_hits_matches_tree_hit_testing(void) {
+    CorePaneNode nodes[7] = {
+        { CORE_PANE_NODE_SPLIT, 100u, CORE_PANE_AXIS_HORIZONTAL, 0.50f, 1u, 2u, { 120.0f, 120.0f } },
+        { CORE_PANE_NODE_SPLIT, 101u, CORE_PANE_AXIS_VERTICAL, 0.40f, 3u, 4u, { 80.0f, 80.0f } },
+        { CORE_PANE_NODE_SPLIT, 102u, CORE_PANE_AXIS_VERTICAL, 0.60f, 5u, 6u, { 90.0f, 90.0f } },
+        { CORE_PANE_NODE_LEAF, 10u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 11u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 12u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 13u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneRect bounds = { 0.0f, 0.0f, 1000.0f, 700.0f };
+    CorePaneSplitterHit cached_hits[4] = {0};
+    CorePaneSplitterHit cached_hit = {0};
+    CorePaneSplitterHit direct_hit = {0};
+    uint32_t hit_count = 0u;
+
+    assert(core_pane_collect_splitter_hits(nodes,
+                                           7u,
+                                           0u,
+                                           bounds,
+                                           12.0f,
+                                           cached_hits,
+                                           4u,
+                                           &hit_count));
+    assert(hit_count == 3u);
+    assert(cached_hits[0].node_index == 1u);
+    assert(cached_hits[1].node_index == 2u);
+    assert(cached_hits[2].node_index == 0u);
+
+    assert(core_pane_hit_test_splitter(nodes,
+                                       7u,
+                                       0u,
+                                       bounds,
+                                       12.0f,
+                                       200.0f,
+                                       280.0f,
+                                       &direct_hit));
+    assert(core_pane_hit_test_splitter_hits(cached_hits,
+                                            hit_count,
+                                            200.0f,
+                                            280.0f,
+                                            &cached_hit));
+    assert(cached_hit.node_index == direct_hit.node_index);
+    assert(cached_hit.axis == direct_hit.axis);
+    assert(nearf(cached_hit.splitter_bounds.y, direct_hit.splitter_bounds.y, 0.0001f));
+}
+
+static void test_collect_splitter_hits_reports_capacity_shortfall(void) {
+    CorePaneNode nodes[7] = {
+        { CORE_PANE_NODE_SPLIT, 100u, CORE_PANE_AXIS_HORIZONTAL, 0.50f, 1u, 2u, { 120.0f, 120.0f } },
+        { CORE_PANE_NODE_SPLIT, 101u, CORE_PANE_AXIS_VERTICAL, 0.40f, 3u, 4u, { 80.0f, 80.0f } },
+        { CORE_PANE_NODE_SPLIT, 102u, CORE_PANE_AXIS_VERTICAL, 0.60f, 5u, 6u, { 90.0f, 90.0f } },
+        { CORE_PANE_NODE_LEAF, 10u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 11u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 12u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 13u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneSplitterHit hits[2] = {0};
+    uint32_t hit_count = 0u;
+
+    assert(core_pane_collect_splitter_hits(nodes,
+                                           7u,
+                                           0u,
+                                           (CorePaneRect){ 0.0f, 0.0f, 1000.0f, 700.0f },
+                                           12.0f,
+                                           NULL,
+                                           0u,
+                                           &hit_count));
+    assert(hit_count == 3u);
+    assert(!core_pane_collect_splitter_hits(nodes,
+                                            7u,
+                                            0u,
+                                            (CorePaneRect){ 0.0f, 0.0f, 1000.0f, 700.0f },
+                                            12.0f,
+                                            hits,
+                                            2u,
+                                            &hit_count));
+    assert(hit_count == 3u);
+}
+
 int main(void) {
     test_solve_basic_horizontal_split();
     test_solve_respects_min_constraints();
@@ -204,5 +284,7 @@ int main(void) {
     test_drag_sequence_is_deterministic();
     test_validation_reports_duplicate_child();
     test_validation_reports_invalid_bounds();
+    test_collect_splitter_hits_matches_tree_hit_testing();
+    test_collect_splitter_hits_reports_capacity_shortfall();
     return 0;
 }

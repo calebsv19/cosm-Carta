@@ -1,7 +1,7 @@
 # Shared Libraries Current State (CodeWork)
 
-Last updated: 2026-04-23
-Scope: active build wiring and integration across `behavior_sim`, `datalab`, `daw`, `fisiCs`, `ide`, `line_drawing`, `line_drawing3d`, `map_forge`, `physics_sim`, `ray_tracing`.
+Last updated: 2026-05-03
+Scope: active build wiring and integration across `behavior_sim`, `datalab`, `daw`, `drawing_program`, `fisiCs`, `gravity_orbit_sim`, `ide`, `line_drawing`, `map_forge`, `physics_sim`, `ray_tracing`, `workspace_sandbox`.
 
 ## Core Library Versions (current)
 - `core_base`: `1.0.0`
@@ -14,11 +14,13 @@ Scope: active build wiring and integration across `behavior_sim`, `datalab`, `da
 - `core_scene`: `1.1.0`
 - `core_scene_compile`: `0.3.0`
 - `core_space`: `1.0.0`
+- `core_viewport2d`: `0.1.0`
 - `core_units`: `0.1.0`
 - `core_object`: `0.1.0`
 - `core_trace`: `1.0.0`
 - `core_math`: `1.0.0`
-- `core_pane`: `0.2.0`
+- `core_pane`: `0.3.0`
+- `core_sim`: `0.2.0`
 - `core_theme`: `2.0.0`
 - `core_font`: `1.0.1`
 - `core_time`: `1.0.0`
@@ -31,20 +33,22 @@ Scope: active build wiring and integration across `behavior_sim`, `datalab`, `da
 - `core_memdb`: `0.24.10`
 
 ## New Bootstrap Modules
-- `core_pane`: shared renderer-agnostic pane-tree foundation for split solve, constraint-aware ratio clamping, splitter hit metadata, and bounded drag updates (`v0.2.0` in current shared docs; `behavior_sim` currently consumes the vendored subtree surface available from its imported shared commit, which resolves to `v0.1.2`), now adopted by `physics_sim` and `behavior_sim` for editor-shell pane geometry while broader pane-host rollout remains bootstrap-stage elsewhere.
+- `core_pane`: shared renderer-agnostic pane-tree foundation for split solve, constraint-aware ratio clamping, splitter hit metadata, cached splitter-hit enumeration, and bounded drag updates (`v0.3.0` in current shared docs), now adopted by `physics_sim`, `behavior_sim`, and `gravity_orbit_sim` for bounded pane-shell geometry while broader pane-host rollout remains bootstrap-stage elsewhere.
+- `core_sim`: shared UI-free simulation control-plane bootstrap (`v0.2.0`) for fixed-step accumulation, pause/play/single-step state, max-tick clamping, ordered pass execution, deterministic frame outcomes, host adapter diagnostics, and frame reason bits; standalone tests are in place, with `gravity_orbit_sim` proving fixed-step runtime-loop adoption, `behavior_sim` proving persistent loop-state ownership plus ordered entity/group pass execution, and `physics_sim` proving scene-level substep pass routing plus a 3D solver pass shell.
 - `core_layout`: shared layout transaction-state scaffold (`v0.1.0`) for runtime/authoring mode lifecycle, draft/apply/cancel semantics, and rebuild intent signaling, currently in bootstrap validation and not yet tracked as adopted by matrix apps.
 - `core_config`: shared typed runtime configuration table scaffold (`v0.1.0`) for bounded key/value host settings, currently in bootstrap validation and not yet tracked as adopted by matrix apps.
 - `core_action`: shared action registry scaffold (`v0.1.0`) for action identity and trigger binding resolution, currently in bootstrap validation and not yet tracked as adopted by matrix apps.
 - `core_pane_module`: shared pane-module registry scaffold (`v0.1.0`) for stable module descriptors, capability/hook validation, and pane-leaf binding validation, currently in bootstrap validation and not yet tracked as adopted by matrix apps.
+- `core_viewport2d`: shared 2D viewport/camera math scaffold (`v0.1.0`) for fit-to-window reset, screen/content transforms, drag-pan deltas, and anchor-preserving zoom state updates; first proving-host integration is now live in DataLab sketch/image inspection, with later convergence candidates in DrawingProgram and selected MapForge camera semantics.
 - `core_units`: shared units conversion scaffold (`v0.1.0`) for canonical unit vocabulary and world-scale conversion helpers, currently in bootstrap validation and not yet tracked as adopted by matrix apps.
 - `core_object`: shared object contract scaffold (`v0.1.0`) for app-neutral identity/transform/dimensional-mode validation, currently in bootstrap validation and not yet tracked as adopted by matrix apps.
 - `core_scene`: shared scene contract module is now at `1.1.0` with additive typed scene-root/object helpers layered above the existing bundle/source resolver path: space-mode vocabulary, root metadata validation (`scene_id`, mode intent/default, unit kind, world scale), canonical object-kind vocabulary, and first primitive payload validation for `plane_primitive` / `rect_prism_primitive`.
 - `core_scene_compile`: shared scene compile module is now at `0.3.0` with additive primitive-contract hardening layered above the existing authoring/runtime normalization path: canonical primitive payload validation for known primitive object kinds, deterministic preservation of object-local `primitive` payloads in runtime output, compile metadata emission, extension-preserving runtime handoff normalization, scene-aware semantic diff tooling (`scene_contract_diff`), and shared writeback merge-guard helpers (`core_scene_overlay_merge_shared.h`) consumed by trio runtime bridges.
-- `kit_pane`: shared pane-shell presentation scaffold (`v0.1.0`) for chrome/splitter/authoring visuals layered above `core_pane`, currently in bootstrap validation and not yet tracked as adopted by matrix apps.
-- `kit_workspace_authoring`: shared host-agnostic authoring interaction scaffold is now at `v0.4.1` with shared overlay UI + derive/submit seam helpers and host-attach contract guidance for theme/font state handoff (including top-level picker/shell theme parity expectations); current proving-host + pilot-host coverage is `workspace_sandbox` + `datalab`.
+- `kit_pane`: shared pane-shell presentation kit is now at `v0.3.0` with baseline chrome/splitter visuals plus reusable splitter hover/drag interaction state layered above `core_pane`, including cached-hit hover/begin-drag entry points for IDE-style divider registries; proving-host adoption is now live in `line_drawing`, `drawing_program`, `physics_sim`, `behavior_sim`, and `gravity_orbit_sim`, while broader authoring topology work remains with `workspace_sandbox`.
+- `kit_workspace_authoring`: shared host-agnostic authoring interaction scaffold is now at `v0.4.1` with shared overlay UI + derive/submit seam helpers and host-attach contract guidance for theme/font state handoff (including top-level picker/shell theme parity expectations); current proving-host + pilot-host coverage is `workspace_sandbox` + `datalab`, with `drawing_program` now using the entry-chord and reserved-trigger seam for `WA1-S1`.
 - `kit_runtime_diag`: shared runtime diagnostics scaffold (`v0.1.0`) for app-neutral stage-timing derivation and input totals accumulation helpers, with first adoption in `map_forge` runtime perf logging.
 - `core_memdb`: shared SQLite-backed memory DB foundation remains stable with additive event-lane ops (schema v6 with scope fields, `mem_audit`, `mem_event`, link-graph constraints), built-in `v1 -> v2 -> v3 -> v4 -> v5 -> v6` migration on open, scoped `mem_cli add/query`, session-budget controls on writes, `batch-add` with retry/failure controls, bounded `neighbors` retrieval, `health`, `audit-list`, `event-list`, full-field replay drift verification via `event-replay-check`, deterministic rebuild parity via `event-replay-apply`, event-first writes across `add`/`pin`/`canonical`/`rollup`/`link-*`, and legacy parity seeding/upgrade via `event-backfill`
-- `vk_renderer`: shared Vulkan renderer module is now explicitly versioned at `1.0.0` (`shared/vk_renderer/VERSION`) with opt-in-only capture behavior (no automatic `vk_frame.ppm` frame dumps).
+- `vk_renderer`: shared Vulkan renderer module is now explicitly versioned at `1.1.0` (`shared/vk_renderer/VERSION`) with opt-in-only capture behavior (no automatic `vk_frame.ppm` frame dumps) plus additive in-place RGBA subrect texture updates for dirty-rect preview workflows.
 
 ## Program -> Shared Library Integration Map
 Legend:
@@ -52,18 +56,20 @@ Legend:
 - `P` = partial/additive/export-path only
 - `-` = not wired
 
-| Program | base | io | data | pack | scene | space | trace | math | theme | font | time | queue | sched | jobs | workers | wake | kernel | kit_viz | sys_shims |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| datalab | A | A | A | A | - | - | - | - | - | A | - | - | - | - | - | - | - | A | - |
-| behavior_sim | - | - | - | - | - | - | - | - | - | A | - | - | - | - | - | - | - | - | - |
-| daw | A | A | P | P | - | - | P | - | A | A | A | A | A | A | P | A | A | A | - |
-| fisiCs | P | P | P | P | - | - | - | - | - | - | - | - | - | - | - | - | - | - | A |
-| ide | A | A | A | A | - | - | - | - | A | A | A | A | A | A | A | A | A | - | - |
-| line_drawing | A | P | P | P | P | - | P | P | A | A | A | - | - | - | - | - | - | - | - |
-| line_drawing3d | A | P | P | P | P | - | P | P | A | A | A | - | - | - | - | - | - | - | - |
-| map_forge | A | A | P | P | - | A | P | - | A | A | A | A | A | A | A | A | A | - | - |
-| physics_sim | A | A | P | A | A | - | P | - | A | A | - | - | - | - | - | - | - | A | P |
-| ray_tracing | A | A | P | P | A | A | P | - | A | A | A | - | - | - | - | - | - | A | - |
+| Program | base | io | data | pack | scene | space | trace | math | sim | theme | font | time | queue | sched | jobs | workers | wake | kernel | kit_viz | sys_shims |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| datalab | A | A | A | A | - | - | - | - | - | - | A | - | - | - | - | - | - | - | A | - |
+| behavior_sim | A | - | - | - | - | - | - | - | A | A | A | - | - | - | - | - | - | - | - | - |
+| daw | A | A | P | P | - | - | P | - | - | A | A | A | A | A | A | P | A | A | A | - |
+| drawing_program | A | - | - | A | - | - | - | - | - | A | A | - | - | - | - | - | - | - | - | - |
+| fisiCs | P | P | P | P | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | A |
+| gravity_orbit_sim | A | A | - | - | - | - | - | - | A | A | A | - | - | - | - | - | - | - | A | - |
+| ide | A | A | A | A | - | - | - | - | - | A | A | A | A | A | A | A | A | A | - | - |
+| line_drawing | A | P | P | P | P | - | P | P | - | A | A | A | - | - | - | - | - | - | - | - |
+| map_forge | A | A | P | P | - | A | P | - | - | A | A | A | A | A | A | A | A | A | - | - |
+| physics_sim | A | A | P | A | A | - | P | - | P | A | A | - | - | - | - | - | - | - | A | P |
+| ray_tracing | A | A | P | P | A | A | P | - | A | A | A | A | - | - | - | - | - | - | A | - |
+| workspace_sandbox | A | - | - | A | - | - | - | - | - | A | A | - | - | - | - | - | - | - | - | - |
 
 ## Execution Core Adoption Snapshot
 - Fully adopted (all 7 execution cores):
@@ -71,10 +77,10 @@ Legend:
 - Partially adopted:
   - `map_forge` (`core_time`, `core_queue`, `core_sched`, `core_jobs`, `core_workers`, `core_wake`, `core_kernel`) via tile-loader lane; broader runtime still in progress
   - `daw` (`core_time`, `core_queue`, `core_sched`, `core_jobs`, `core_workers`, `core_wake`, `core_kernel`) via mainthread loop path plus diagnostics async export lane
-  - `line_drawing`, `line_drawing3d` (`core_time`)
-  - `ray_tracing` (`core_time`)
+- `line_drawing` (`core_time`)
+- `ray_tracing` (`core_time`, `core_sim`) via runtime-frame control-plane routing; broader execution-core adoption beyond that remains app-local
 - Not yet adopted:
-  - `datalab`, `physics_sim`, `fisiCs`
+  - `datalab`, `physics_sim`, `fisiCs`, `gravity_orbit_sim`
 
 ## Notes on Current Reality
 - `map_forge` tile-loader lane is now on shared execution core (`queue/sched/jobs/workers/wake/kernel`) with additive migration.
@@ -87,15 +93,22 @@ Legend:
 - `daw` Slice 3 data contract hardening is complete: additive dataset metadata keys (`schema_family`, `schema_variant`) and canonical `daw_selection_v1` table are now locked by deterministic parity coverage.
 - `daw` Slice 4 trace diagnostics lane is complete: deterministic `daw_trace_export_contract_test` validates canonical `core_trace` lanes (`frame_dt`, `transport_frame`, scheduler timing/count lanes) and `trace_start/trace_end` markers.
 - `daw` Slice 5 workers lane is complete: async diagnostics trace export now uses shared `core_workers` with deterministic completion/contract coverage (`daw_trace_export_async_contract_test`).
-- `daw` has no mandatory shared-lib connection gap in the current rollout plan; remaining shared work is optional consolidation/hardening.
+- `daw` has no mandatory shared-lib connection gap in the current rollout plan; remaining shared work is optional consolidation/hardening. Its centralized UI font lane now also partially adopts `kit_render`: vendored `kit_render_external_text.*` drives active Vulkan draw/measure, while the bounded clipped-draw seam remains local because the shared external runtime still does not expose host-agnostic source-rect crop behavior.
 - `core_wake` is at `1.0.1` (standards-safe timeout constant update), and downstream checks pass.
 - `core_data` + `core_pack` remain mostly additive/export-path integrations in several apps (`daw`, `ray_tracing`, `map_forge`, `ide`, `fisiCs`) rather than full runtime-domain ownership.
 - `datalab` now adopts shared `core_font` for overlay text rendering (runtime zoom now scales real TTF fonts instead of bitmap glyph text).
-- Shared theme/font adapters are now default-on in the current UI app set (`daw`, `ide`, `line_drawing`, `line_drawing3d`, `map_forge`, `ray_tracing`, `physics_sim`), with app-local persistence added for runtime preset selection.
+- `datalab` now also adopts shared `core_viewport2d` for sketch/image raster inspection: BMP and sketch lanes use shared fit-reset, cursor-anchor zoom, and drag-pan math while SDL event policy remains app-local.
+- `map_forge` now partially adopts shared `core_viewport2d` through a camera-local bridge: cursor-anchor zoom and drag-pan target math route through the shared viewport contract while Mercator projection, hot `screen<->world` render transforms, target smoothing, region-fit policy, and runtime input gating remain app-local.
+- Shared theme/font adapters are now default-on in the current UI app set (`daw`, `ide`, `line_drawing`, `map_forge`, `ray_tracing`, `physics_sim`), with app-local persistence added for runtime preset selection.
+- `ide` remains the strongest direct Vulkan/text-quality reference host; its runtime is still mostly app-local by design, but the remaining Timer HUD lane now reuses the central IDE text draw/measure helpers instead of owning a private font-open + raster/upload seam.
 - `core_font` is now at `1.0.1` with shared-asset fallback paths aligned to real font files in `shared/assets/fonts`, reducing bitmap fallback in kit Vulkan text rendering.
 - `kit_render` is now at `0.14.0` with one shared Vulkan text runtime path: the additive `kit_render_external_text.*` helpers remain the public bridge surface for non-`kit_ui` hosts, the internal `KIT_RENDER_CMD_TEXT` backend path consumes that same extracted SDL_ttf/cache runtime instead of keeping a duplicate internal raster-font cache implementation, and wrapped UTF-8 draw support now lives in that shared external runtime as well.
 - `physics_sim` now partially adopts `kit_render` for both policy and runtime in its font migration: menu, editor, HUD, timer HUD, and structural font-open lanes resolve shared role/tier/zoom/render-scale policy through `kit_render`, the active UTF-8 raster/upload/cache path lives in shared `kit_render_external_text.*`, and the shared Vulkan command-text path now uses that same runtime so bridge hosts and full command-buffer hosts no longer diverge inside `kit_render`; the host also now consumes shared code through a vendored `third_party/codework_shared` subtree instead of direct live `../shared` linkage.
 - `ray_tracing` now partially adopts `kit_render` for both build/runtime in its font migration: the host Makefile wires shared `kit_render`, app-local bridge/helper files resolve shared role/tier/zoom/render-scale policy and font-source registration through the shared runtime, active helper/menu/timer-HUD UTF-8 measure/draw lanes route through `kit_render_external_text.*`, wrapped helper labels now use that same shared runtime path, the old local `text_font_quality` helper is retired, and the host now consumes those shared modules through a vendored `third_party/codework_shared` subtree instead of direct live `../shared` linkage; remaining work is limited to final thin-wrapper decisions and any visual tuning.
+- `ray_tracing` now also partially adopts `core_sim` through that same vendored subtree host: runtime-frame control-plane routing resolves through `third_party/codework_shared/core/core_sim` instead of a direct workspace-local `../shared` include path, while broader scheduler/job/worker semantics remain app-local.
+- `ray_tracing` now uses shared `core_pane` + `kit_pane` for its first pane-resize slice: the scene editor window is pane-resizable through the shared graph, the menu host window is now SDL-resizable with runtime-sized layout rebuilds, simulation runtime windows stay config-sized and fixed, live splitter hover/drag routes through `KitPaneSplitterInteraction`, and pane purpose plus editor/viewport semantics remain app-local.
+- `line_drawing` now consumes shared modules through a vendored `third_party/codework_shared` subtree instead of direct live `../shared` linkage, and the first font-runtime unification slice is complete: Makefile roots, packaged shared assets, shape sync, and shape-wrapper tooling resolve through the committed subtree snapshot; `font_bridge` now resolves shared preset/role/tier/zoom policy through `kit_render`, `text_draw` wraps `kit_render_external_text.*` for active UTF-8 draw/measure/runtime caching, `font_manager` is reduced to a thin host owner for TTF lifecycle plus shared font-source registration, `vulkan_adapter` no longer owns the raw text raster/upload path, the old scattered SDL fallback text helpers are removed in favor of the centralized `text_draw` wrapper, and launcher/runtime defaults now align to the shared `ide` font baseline. Remaining drift is bounded to centralized non-Vulkan fallback behavior plus emergency local fallback font paths.
+- `workspace_sandbox` now consumes shared modules through a vendored `third_party/codework_shared` subtree instead of direct live `../shared` linkage: Makefile roots, packaged font assets, and validation/package paths all resolve through the committed subtree snapshot, while active UI text remains on shared `kit_render`. The host now also defaults to the shared `ide` font baseline, exposes `ide` as a real selectable font preset in the font/theme panel, and uses WorkspaceSandbox-specific launcher env wiring instead of stale copied foreign app env names.
 - `kit_ui` is now at `0.8.0` with additive theme-scale style sync (`kit_ui_style_apply_theme_scale`), allowing UI density to track active shared theme presets at runtime.
 - `kit_graph_timeseries` is now at `0.2.1`, and DataLab has started incremental adoption via shared stride guidance.
 - `kit_graph_struct` is now at `0.8.0`.
@@ -103,15 +116,25 @@ Legend:
 - `mem_console` (top-level program host) includes an optional (`--kernel-bridge`) evaluation scaffold over `core_sched` + `core_jobs` + `core_wake` + `core_kernel`; this is additive host validation and is not yet a production-app matrix requirement.
 - `mem_console` (top-level program host) serializes theme/font UI prefs through `core_pack` (`<db_path>.ui.pack`) as app-local persistence.
 - `mem_console` (top-level program host) now evaluates shared `core_pane` (`0.1.0`) for split-pane solve + draggable splitter interaction in the 15C lane, with pane-ratio persistence wired through app-local prefs packs.
-- `core_pane` is now at `0.2.0` with additive graph validation diagnostics (`core_pane_validate_graph`, validation-code strings) layered on top of the earlier deterministic drag and invalid-graph hardening coverage.
+- `core_pane` is now at `0.3.0` with additive cached splitter-hit enumeration and hit-test helpers layered on top of the earlier graph validation diagnostics (`core_pane_validate_graph`, validation-code strings), deterministic drag, and invalid-graph hardening coverage.
 - `physics_sim` now adopts `core_pane` for its `PS4D-2B` editor shell: left/center/right pane rectangles are solved through an app-local pane-host wrapper while pane purpose and editor behavior remain app-local.
+- `gravity_orbit_sim` now adopts shared `core_pane` in `workspace-linked` mode for pane-backed shell geometry, shared `kit_pane` for live splitter hover/drag interaction, shared `core_io` for close/reopen session-state file reads/writes, and also adopts shared `core_theme`, `core_font`, and a bounded `kit_render` policy lane for UI palette/font/text-zoom resolution: viewport, diagnostics, and controls rectangles are solved through an app-local pane-shell wrapper, interaction state now routes through `KitPaneSplitterInteraction`, session-schema and directory-create policy remain app-local, theme-token and role/tier text sizing come from shared policy, packaged shared font assets now ship inside the desktop bundle, and active UTF-8 draw/runtime ownership intentionally remains local SDL_ttf because the current host is still a plain SDL renderer rather than a shared Vulkan backend host.
+- `gravity_orbit_sim` now also adopts shared `core_viewport2d` for its first camera-control slice: cursor-anchor mouse-wheel zoom, right-drag pan, and fit-reset math now route through an app-local world-meter bridge, while viewport input policy, edit-handle hit behavior, and far-body despawn semantics remain app-local.
 - `core_pack` is now at `1.1.0` with additive truthful volumetric PhysicsSim export conversion (`core_pack_convert_vf3d`) and a frozen `VF3H/DENS/VELX/VELY/VELZ/PRES/SOLI` profile layered alongside the unchanged legacy planar `VFHD` profile.
-- `behavior_sim` now adopts shared `core_font` for shell labels and shared `core_pane` for top-level shell pane geometry through its vendored shared subtree import; current pane-host use stays bounded to `viewport`, `side_panel`, and `hud_strip` leaves while editor/debug meaning remains app-local.
-- `kit_pane` is now scaffolded at `0.1.0` with baseline pane chrome/splitter rendering helpers and null-backend unit tests; adoption into app hosts is deferred behind workspace sandbox gates.
+- `behavior_sim` now adopts shared `core_base`, `core_theme`, `core_font`, `kit_render`, `core_pane`, `kit_pane`, and `core_sim`: UI/shared presentation modules still flow through its vendored shared subtree host, while `core_sim` is linked from the workspace shared source for persistent `CoreSimLoopState` ownership and ordered pass execution. The window is SDL-resizable, shell pane widths stay metric-driven until user drag customizes a split, live splitter hover/drag routes through `KitPaneSplitterInteraction`, ordered stub-pass execution now routes through the persistent 30ms `core_sim` shell with frame diagnostics surfaced in headless output, and active SDL draw ownership plus editor/debug/domain meaning remain app-local.
+- `kit_pane` is now at `0.3.0` with baseline pane chrome/splitter rendering helpers, reusable `KitPaneSplitterInteraction` hover/drag state, cached-hit hover/begin-drag entry points, and null-backend interaction coverage; `drawing_program` is the first production proving host on the cached-hit path, while `line_drawing`, `physics_sim`, `behavior_sim`, and `gravity_orbit_sim` remain on the direct tree-hit path and broader authoring overlays still remain with `workspace_sandbox`.
+- `line_drawing` now uses shared `core_pane` + `kit_pane` for its first live pane-resize slice: pane ratios are solved through the shared graph, splitter hover/drag state is centralized through `KitPaneSplitterInteraction`, window resize no longer resets user-adjusted pane targets, and pane purpose plus render routing remain app-local.
+- `drawing_program` now uses shared `core_pane` + `kit_pane` for its first live pane-resize slice: pane ratios continue to persist directly in the shared graph, splitter hover/update-drag state stays centralized through `KitPaneSplitterInteraction`, hover and begin-drag now route through a cached splitter-hit registry populated during pane-host rebuild, and pane purpose plus panel/canvas semantics remain app-local.
+- `drawing_program` rollout note for future pane hosts: if shared pane/session headers move, stale incremental objects can masquerade as broken persistence or corrupt project packs. The confirmed failure pattern in this lane was resolved by a true clean rebuild plus Makefile depfile coverage, after which the saved `DPS3` shell and project packs loaded normally again.
+- `drawing_program` now starts its first Workspace Authoring `WA1` host attach through vendored `kit_workspace_authoring`: `WA1-S1` routes the shared `Alt+C+V` entry/toggle chord before normal drawing input, consumes authoring-reserved triggers only while authoring mode is active, exits on `Esc`, and normalizes saved draft/authoring layout mode back to runtime on startup; `WA1-S2` adds a visible authoring panel, draft status, pane/module rows, and per-pane module labels; `WA1-S3` adds baseline-backed Apply/Cancel semantics; `WA1-S4` keeps snapshot persistence accepted-only so applied pane/module state survives save/load while active drafts serialize as the entry baseline. Module-content swapping and second-host rollout remain future WA1 boundaries.
+- `physics_sim` now uses shared `core_pane` + `kit_pane` for its first live pane-resize slice: pane ratios are solved through the shared graph, splitter hover/drag state is centralized through `KitPaneSplitterInteraction`, and pane purpose plus editor/viewport semantics remain app-local.
+- `physics_sim` now partially adopts `core_sim >= 0.2.0` at the scene runtime step layer: `SceneState` owns persistent runtime loop state, the former inline substep loop is routed through seven ordered `core_sim` passes (`mode_pre`, `emitters_boundary`, `backend_step`, `post_enforce`, `mode_post`, `objects`, `dynamic_obstacles`), and the 3D backend still has its nested solver first-pass shell; physics equations, mode hook bodies, emitter/backend/object operations, scene time semantics, and HUD/render payloads remain app-local callbacks.
+- `gravity_orbit_sim` now uses shared `core_pane` + `kit_pane` for its first live pane-resize slice: pane ratios are solved through the shared graph, splitter hover/drag state is centralized through `KitPaneSplitterInteraction`, and pane purpose plus menu/viewport/sidebar semantics remain app-local.
 - `kit_runtime_diag` is now at `0.1.0` with baseline stage timing + input totals helpers, and `map_forge` now adopts it for runtime perf diagnostics math/counter accumulation while keeping routing/render behavior app-local.
 - `workspace_sandbox` runtime now owns `core_action` registry/binding storage and exposes trigger-resolve + action-execute APIs, with the visual harness delegating key routing through that shared runtime path.
 - `workspace_sandbox` runtime now uses shared `core_layout` as source-of-truth for mode transitions, pending-change tracking, revision counters, and rebuild acknowledgment semantics.
 - `workspace_sandbox` runtime now uses shared `core_config` for split-authoring defaults (`split.default_ratio`, `split.min_size_a`, `split.min_size_b`) instead of hardcoded split creation constants.
+- `drawing_program` now defaults to a vendored `third_party/codework_shared` host instead of live `../shared` build/package roots: core modules and packaged shared fonts resolve through the committed subtree snapshot by default, the old `shared-subtree-prepare` rsync lane now routes through `bin/update_shared_subtrees.sh`, the active centralized SDL text/runtime lane keeps the shared `ide` font baseline, and runtime font-path fallback no longer prefers workspace-local `../shared/assets/fonts`.
 - `workspace_sandbox` `SX2` lane now routes local authoring-engine adapter helpers through shared `kit_workspace_authoring` (`v0.1.0`) for entry-chord checks, trigger mapping, callback-driven action execution wrappers, and text-size helper adapters.
 - `workspace_sandbox` visual run path now auto-loads/saves session preset state (`workspace_sandbox/data/last_session.pack`) for close/reopen pane-layout persistence during iterative authoring.
 - `workspace_sandbox` P12 lane has started: authoring-mode divider hit-test + drag now routes through runtime APIs backed by `core_pane` splitter primitives.

@@ -14,4 +14,4 @@ Deterministic layout-edit transaction state for workspace shells.
 - No rendering/UI dependencies
 
 ## Status
-- Initial scaffold (`v0.1.0`) with state machine tests.
+- Metadata hook expansion (`v0.2.0`) with snapshot-aware revision source support and external revision apply helper.

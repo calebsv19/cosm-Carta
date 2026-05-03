@@ -4,11 +4,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 PRUNER_BASE="${ROOT_DIR}/shared/core/core_memdb/tools/mem_nightly_pruner.sh"
 CODEX_BIN="${CODEX_BIN:-codex}"
-SKILL_FILE="${ROOT_DIR}/skills/memory-nightly-pruner/SKILL.md"
+SKILL_FILE="${ROOT_DIR}/skills/_archive/legacy_memory_nightly/memory-nightly-pruner/SKILL.md"
 
 usage() {
     cat <<'EOF'
 usage: mem_nightly_pruner_codex.sh --db <path> --run-dir <dir> [options]
+
+legacy notice:
+  This nightly pruner lane is legacy/archived. Prefer manual rollup flow skills:
+  - skills/memory-rollup-flow
+  - skills/memory-rollup-candidate-pass
+  - skills/memory-rollup-plan-pass
 
 required:
   --db <path>                  SQLite DB path
@@ -47,6 +53,12 @@ normalize_plan_basic_fields() {
         --arg db_path "${run_db_path}" \
         --arg generated_at_utc "${generated_at}" \
         '
+        def normalize_project_key:
+            if (type == "string" and . == "memory_console") then
+                "mem_console"
+            else
+                .
+            end;
         .version = (if ((.version | type) == "number") then .version else 1 end) |
         .generated_at_utc = (
             if ((.generated_at_utc | type) == "string" and (.generated_at_utc | length) > 0) then
@@ -75,15 +87,37 @@ normalize_plan_basic_fields() {
         ) |
         .project = (
             if ((.project | type) == "string" and (.project | length) > 0) then
-                .project
+                (.project | normalize_project_key)
             elif ((.operations.rollup.scope.project | type) == "string" and (.operations.rollup.scope.project | length) > 0) then
-                .operations.rollup.scope.project
+                (.operations.rollup.scope.project | normalize_project_key)
             elif ((.proposals.rollup.scope.project | type) == "string" and (.proposals.rollup.scope.project | length) > 0) then
-                .proposals.rollup.scope.project
+                (.proposals.rollup.scope.project | normalize_project_key)
             else
-                "memory_console"
+                "mem_console"
             end
         ) |
+        if ((.operations.rollup.scope | type) == "object") then
+            .operations.rollup.scope.project = (
+                if ((.operations.rollup.scope.project | type) == "string" and (.operations.rollup.scope.project | length) > 0) then
+                    (.operations.rollup.scope.project | normalize_project_key)
+                else
+                    .project
+                end
+            )
+        else
+            .
+        end |
+        if ((.proposals.rollup.scope | type) == "object") then
+            .proposals.rollup.scope.project = (
+                if ((.proposals.rollup.scope.project | type) == "string" and (.proposals.rollup.scope.project | length) > 0) then
+                    (.proposals.rollup.scope.project | normalize_project_key)
+                else
+                    .project
+                end
+            )
+        else
+            .
+        end |
         .mode = (
             if ((.mode | type) == "string" and (.mode | length) > 0) then
                 .mode
@@ -111,9 +145,65 @@ validate_plan_basic() {
     ' "${plan_file}" > /dev/null
 }
 
+validate_plan_semantics_strict() {
+    local plan_file="$1"
+    jq -e '
+        def allowed_kind($k):
+            ["supports","depends_on","references","summarizes","implements","blocks","contradicts","related"] | index($k) != null;
+        def lane_items($lane):
+            if ($lane | type) == "array" then
+                $lane
+            elif ($lane | type) == "object" then
+                ($lane.items // [])
+            else
+                []
+            end;
+        ((.operations.connection_pass // {} | type) == "object")
+        and ((.operations.connection_pass.enabled // false | type) == "boolean")
+        and (
+            (.operations.connection_pass.link_kind // "related") as $k
+            | (($k | type) == "string" and allowed_kind($k))
+        )
+        and (
+            (.operations.connection_pass.anchor_kind // "summarizes") as $k
+            | (($k | type) == "string" and allowed_kind($k))
+        )
+        and (
+            if ((.operations.link_additions | type) == "array") then true
+            else ((.operations.link_additions // {} | type) == "object")
+                 and ((.operations.link_additions.enabled // false | type) == "boolean")
+                 and ((.operations.link_additions.items // [] | type) == "array")
+            end
+        )
+        and (
+            if ((.operations.link_updates | type) == "array") then true
+            else ((.operations.link_updates // {} | type) == "object")
+                 and ((.operations.link_updates.enabled // false | type) == "boolean")
+                 and ((.operations.link_updates.items // [] | type) == "array")
+            end
+        )
+        and (
+            lane_items(.operations.link_additions)
+            | all(
+                ((.kind // "related") as $k
+                 | (($k | type) == "string" and allowed_kind($k)))
+            )
+        )
+        and (
+            lane_items(.operations.link_updates)
+            | all(
+                ((.kind // "related") as $k
+                 | (($k | type) == "string" and allowed_kind($k)))
+            )
+        )
+    ' "${plan_file}" > /dev/null
+}
+
 validate_plan_apply_strict() {
     local plan_file="$1"
     jq -e '
+        def allowed_kind($k):
+            ["supports","depends_on","references","summarizes","implements","blocks","contradicts","related"] | index($k) != null;
         def rollup_runs:
             if (.operations.rollup.enabled | not) then 0
             else
@@ -141,8 +231,14 @@ validate_plan_apply_strict() {
         and ((.budgets.max_nodes_affected | type) == "number" and .budgets.max_nodes_affected >= 0)
         and ((.operations.connection_pass // {} | type) == "object")
         and ((.operations.connection_pass.enabled // false | type) == "boolean")
-        and ((.operations.connection_pass.link_kind // "related" | type) == "string")
-        and ((.operations.connection_pass.anchor_kind // "summarizes" | type) == "string")
+        and (
+            (.operations.connection_pass.link_kind // "related") as $k
+            | (($k | type) == "string" and allowed_kind($k))
+        )
+        and (
+            (.operations.connection_pass.anchor_kind // "summarizes") as $k
+            | (($k | type) == "string" and allowed_kind($k))
+        )
         and ((.operations.connection_pass.anchor_item_id // 0 | type) == "number")
         and ((.operations.connection_pass.ensure_min_degree // true | type) == "boolean")
         and ((.operations.connection_pass.propagate_neighbor_links // false | type) == "boolean")
@@ -158,6 +254,20 @@ validate_plan_apply_strict() {
         and ((.operations.link_updates.enabled | type) == "boolean")
         and ((.operations.link_additions.items | type) == "array")
         and ((.operations.link_updates.items | type) == "array")
+        and (
+            .operations.link_additions.items
+            | all(
+                ((.kind // "related") as $k
+                 | (($k | type) == "string" and allowed_kind($k)))
+            )
+        )
+        and (
+            .operations.link_updates.items
+            | all(
+                ((.kind // "related") as $k
+                 | (($k | type) == "string" and allowed_kind($k)))
+            )
+        )
         and (
             ((.operations.rollup.chunk_max_items // 0) | type) == "number"
             and (.operations.rollup.chunk_max_items // 0) >= 0
@@ -286,6 +396,10 @@ if ! validate_plan_basic "${plan_path}"; then
     echo "plan validation failed: missing required top-level schema fields or unsupported version (expected [1,2])." >&2
     exit 1
 fi
+if ! validate_plan_semantics_strict "${plan_path}"; then
+    echo "plan validation failed: expected canonical link kinds and normalized operations schema lanes." >&2
+    exit 1
+fi
 
 if [[ "${skip_codex}" != "true" ]]; then
     if ! command -v "${CODEX_BIN}" > /dev/null 2>&1; then
@@ -333,6 +447,8 @@ Hard constraints:
   - \`operations.rollup.chunk_max_items = <n>\`
 - Preserve connection-pass fields when present:
   - \`operations.connection_pass = { enabled, link_kind, anchor_kind, anchor_item_id, ensure_min_degree, propagate_neighbor_links, max_neighbor_links_per_rollup, neighbor_scan_max_edges, neighbor_scan_max_nodes }\`
+- Allowed kinds for \`operations.connection_pass.link_kind\`, \`operations.connection_pass.anchor_kind\`, and link item \`kind\` values:
+  - \`supports\`, \`depends_on\`, \`references\`, \`summarizes\`, \`implements\`, \`blocks\`, \`contradicts\`, \`related\`
 - If \`apply_mode=true\` and plan contains approved operations, do not force budgets to zero below planned operation counts.
 - If \`apply_mode=false\` and no operations are proposed, conservative zero budgets are acceptable.
 
@@ -360,6 +476,10 @@ fi
 normalize_plan_basic_fields "${plan_path}" "${db_path}"
 if ! validate_plan_basic "${plan_path}"; then
     echo "plan validation failed after review: missing required top-level schema fields or unsupported version (expected [1,2])." >&2
+    exit 1
+fi
+if ! validate_plan_semantics_strict "${plan_path}"; then
+    echo "plan validation failed after review: expected canonical link kinds and normalized operations schema lanes." >&2
     exit 1
 fi
 

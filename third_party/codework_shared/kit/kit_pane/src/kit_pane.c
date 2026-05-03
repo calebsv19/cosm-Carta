@@ -14,10 +14,45 @@ static CoreResult kit_pane_invalid(const char *message) {
     return r;
 }
 
+static CoreResult kit_pane_not_found(const char *message) {
+    CoreResult r = { CORE_ERR_NOT_FOUND, message };
+    return r;
+}
+
 static float pane_clampf(float value, float lo, float hi) {
     if (value < lo) return lo;
     if (value > hi) return hi;
     return value;
+}
+
+static void pane_clear_splitter_hit(CorePaneSplitterHit *hit) {
+    if (!hit) {
+        return;
+    }
+    hit->active = false;
+    hit->node_index = 0u;
+    hit->axis = CORE_PANE_AXIS_HORIZONTAL;
+    hit->splitter_bounds = (CorePaneRect){ 0.0f, 0.0f, 0.0f, 0.0f };
+    hit->ratio_01 = 0.0f;
+    hit->parent_span = 0.0f;
+    hit->min_ratio_01 = 0.0f;
+    hit->max_ratio_01 = 0.0f;
+}
+
+static void pane_shift_splitter_hit(CorePaneSplitterHit *hit, float before_ratio, float after_ratio) {
+    float moved = 0.0f;
+
+    if (!hit || !hit->active || hit->parent_span <= 0.0f) {
+        return;
+    }
+
+    moved = (after_ratio - before_ratio) * hit->parent_span;
+    if (hit->axis == CORE_PANE_AXIS_HORIZONTAL) {
+        hit->splitter_bounds.x += moved;
+    } else {
+        hit->splitter_bounds.y += moved;
+    }
+    hit->ratio_01 = after_ratio;
 }
 
 static CoreResult pane_color(KitRenderContext *render_ctx,
@@ -86,6 +121,223 @@ void kit_pane_style_default(KitPaneStyle *out_style) {
     out_style->corner_radius = 4.0f;
     out_style->title_padding = 8.0f;
     out_style->splitter_thickness = 8.0f;
+}
+
+void kit_pane_splitter_interaction_init(KitPaneSplitterInteraction *out_interaction,
+                                        float handle_thickness) {
+    if (!out_interaction) {
+        return;
+    }
+
+    out_interaction->handle_thickness = (handle_thickness > 0.0f) ? handle_thickness : 8.0f;
+    out_interaction->hover_active = 0;
+    out_interaction->drag_active = 0;
+    pane_clear_splitter_hit(&out_interaction->hover_hit);
+    pane_clear_splitter_hit(&out_interaction->drag_hit);
+    out_interaction->drag_last_x = 0.0f;
+    out_interaction->drag_last_y = 0.0f;
+}
+
+CoreResult kit_pane_splitter_interaction_set_hover(KitPaneSplitterInteraction *interaction,
+                                                   const CorePaneNode *nodes,
+                                                   uint32_t node_count,
+                                                   uint32_t root_index,
+                                                   CorePaneRect bounds,
+                                                   float point_x,
+                                                   float point_y) {
+    CorePaneSplitterHit hit = {0};
+
+    if (!interaction || !nodes) {
+        return kit_pane_invalid("invalid splitter hover request");
+    }
+    if (interaction->drag_active) {
+        return core_result_ok();
+    }
+
+    if (!core_pane_hit_test_splitter(nodes,
+                                     node_count,
+                                     root_index,
+                                     bounds,
+                                     interaction->handle_thickness,
+                                     point_x,
+                                     point_y,
+                                     &hit)) {
+        interaction->hover_active = 0;
+        pane_clear_splitter_hit(&interaction->hover_hit);
+        return kit_pane_not_found("splitter not found at point");
+    }
+
+    interaction->hover_active = 1;
+    interaction->hover_hit = hit;
+    return core_result_ok();
+}
+
+CoreResult kit_pane_splitter_interaction_set_hover_from_hits(KitPaneSplitterInteraction *interaction,
+                                                             const CorePaneSplitterHit *hits,
+                                                             uint32_t hit_count,
+                                                             float point_x,
+                                                             float point_y) {
+    CorePaneSplitterHit hit = {0};
+
+    if (!interaction || !hits) {
+        return kit_pane_invalid("invalid cached splitter hover request");
+    }
+    if (interaction->drag_active) {
+        return core_result_ok();
+    }
+
+    if (!core_pane_hit_test_splitter_hits(hits, hit_count, point_x, point_y, &hit)) {
+        interaction->hover_active = 0;
+        pane_clear_splitter_hit(&interaction->hover_hit);
+        return kit_pane_not_found("cached splitter not found at point");
+    }
+
+    interaction->hover_active = 1;
+    interaction->hover_hit = hit;
+    return core_result_ok();
+}
+
+CoreResult kit_pane_splitter_interaction_begin_drag(KitPaneSplitterInteraction *interaction,
+                                                    const CorePaneNode *nodes,
+                                                    uint32_t node_count,
+                                                    uint32_t root_index,
+                                                    CorePaneRect bounds,
+                                                    float point_x,
+                                                    float point_y) {
+    CorePaneSplitterHit hit = {0};
+
+    if (!interaction || !nodes) {
+        return kit_pane_invalid("invalid splitter drag begin request");
+    }
+
+    if (!core_pane_hit_test_splitter(nodes,
+                                     node_count,
+                                     root_index,
+                                     bounds,
+                                     interaction->handle_thickness,
+                                     point_x,
+                                     point_y,
+                                     &hit)) {
+        return kit_pane_not_found("splitter not found at drag begin point");
+    }
+
+    interaction->hover_active = 1;
+    interaction->drag_active = 1;
+    interaction->hover_hit = hit;
+    interaction->drag_hit = hit;
+    interaction->drag_last_x = point_x;
+    interaction->drag_last_y = point_y;
+    return core_result_ok();
+}
+
+CoreResult kit_pane_splitter_interaction_begin_drag_from_hits(KitPaneSplitterInteraction *interaction,
+                                                              const CorePaneSplitterHit *hits,
+                                                              uint32_t hit_count,
+                                                              float point_x,
+                                                              float point_y) {
+    CorePaneSplitterHit hit = {0};
+
+    if (!interaction || !hits) {
+        return kit_pane_invalid("invalid cached splitter drag begin request");
+    }
+
+    if (!core_pane_hit_test_splitter_hits(hits, hit_count, point_x, point_y, &hit)) {
+        return kit_pane_not_found("cached splitter not found at drag begin point");
+    }
+
+    interaction->hover_active = 1;
+    interaction->drag_active = 1;
+    interaction->hover_hit = hit;
+    interaction->drag_hit = hit;
+    interaction->drag_last_x = point_x;
+    interaction->drag_last_y = point_y;
+    return core_result_ok();
+}
+
+CoreResult kit_pane_splitter_interaction_update_drag(KitPaneSplitterInteraction *interaction,
+                                                     CorePaneNode *nodes,
+                                                     uint32_t node_count,
+                                                     float point_x,
+                                                     float point_y,
+                                                     int *out_changed) {
+    CorePaneNode *node = 0;
+    float delta_x = 0.0f;
+    float delta_y = 0.0f;
+    float before_ratio = 0.0f;
+    int changed = 0;
+
+    if (!interaction || !nodes || !out_changed) {
+        return kit_pane_invalid("invalid splitter drag update request");
+    }
+    if (!interaction->drag_active || !interaction->drag_hit.active) {
+        return kit_pane_invalid("splitter drag update requires active drag");
+    }
+    if (interaction->drag_hit.node_index >= node_count) {
+        return kit_pane_invalid("splitter drag hit node out of range");
+    }
+
+    node = &nodes[interaction->drag_hit.node_index];
+    before_ratio = node->ratio_01;
+    delta_x = point_x - interaction->drag_last_x;
+    delta_y = point_y - interaction->drag_last_y;
+    changed = core_pane_apply_splitter_drag(nodes,
+                                            node_count,
+                                            &interaction->drag_hit,
+                                            delta_x,
+                                            delta_y) ? 1 : 0;
+    interaction->drag_last_x = point_x;
+    interaction->drag_last_y = point_y;
+    if (changed) {
+        pane_shift_splitter_hit(&interaction->drag_hit, before_ratio, node->ratio_01);
+        interaction->hover_active = 1;
+        interaction->hover_hit = interaction->drag_hit;
+    }
+    *out_changed = changed;
+    return core_result_ok();
+}
+
+void kit_pane_splitter_interaction_end_drag(KitPaneSplitterInteraction *interaction) {
+    if (!interaction) {
+        return;
+    }
+
+    interaction->drag_active = 0;
+    interaction->hover_active = 0;
+    pane_clear_splitter_hit(&interaction->hover_hit);
+    pane_clear_splitter_hit(&interaction->drag_hit);
+}
+
+int kit_pane_splitter_interaction_current(const KitPaneSplitterInteraction *interaction,
+                                          CorePaneRect *out_bounds,
+                                          int *out_hovered,
+                                          int *out_active) {
+    const CorePaneSplitterHit *hit = 0;
+
+    if (!interaction) {
+        return 0;
+    }
+
+    if (interaction->drag_active && interaction->hover_active) {
+        hit = &interaction->drag_hit;
+    } else if (interaction->hover_active) {
+        hit = &interaction->hover_hit;
+    } else {
+        return 0;
+    }
+
+    if (!hit->active) {
+        return 0;
+    }
+    if (out_bounds) {
+        *out_bounds = hit->splitter_bounds;
+    }
+    if (out_hovered) {
+        *out_hovered = interaction->hover_active ? 1 : 0;
+    }
+    if (out_active) {
+        *out_active = interaction->drag_active ? 1 : 0;
+    }
+    return 1;
 }
 
 CoreResult kit_pane_draw_chrome(KitRenderContext *render_ctx,

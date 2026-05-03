@@ -10,6 +10,12 @@ usage() {
     cat <<'EOF'
 usage: mem_nightly_run_codex.sh --db <path> [options]
 
+legacy notice:
+  This nightly orchestration lane is legacy/archived. Prefer manual rollup flow skills:
+  - skills/memory-rollup-flow
+  - skills/memory-rollup-candidate-pass
+  - skills/memory-rollup-plan-pass
+
 required:
   --db <path>                  SQLite DB path
 
@@ -17,7 +23,7 @@ options:
   --run-dir <dir>              Existing run dir. If unset, auto-create under nightly_runs.
   --runs-root <dir>            Default: docs/private_program_docs/memory_console/nightly_runs
   --workspace <key>            Default: codework
-  --project <key>              Default: memory_console
+  --project <key>              Default: mem_console
   --stale-days <n>             Default: 30
   --min-active-nodes-before-rollup <n>
                                Default: 40
@@ -31,7 +37,7 @@ options:
   --events-limit <n>           Default: 200
   --audits-limit <n>           Default: 200
   --session-id <id>            Default: mem-nightly-<yyyymmdd>
-  --suggestion-project <key>   Default: memory_console_codex_suggestions
+  --suggestion-project <key>   Default: mem_console_codex_suggestions
   --suggestion-kind <value>    Default: decision
   --max-suggestion-links <n>   Default: 3
   --always-write-suggestion-md Always write suggestion markdown even for small suggestions
@@ -49,7 +55,7 @@ db_path=""
 run_dir=""
 runs_root="${ROOT_DIR}/docs/private_program_docs/memory_console/nightly_runs"
 workspace_key="codework"
-project_key="memory_console"
+project_key="mem_console"
 stale_days=30
 min_active_nodes_before_rollup=40
 min_stale_candidates_before_rollup=4
@@ -61,7 +67,7 @@ rollup_max_groups=8
 events_limit=200
 audits_limit=200
 session_id=""
-suggestion_project="memory_console_codex_suggestions"
+suggestion_project="mem_console_codex_suggestions"
 suggestion_kind="decision"
 max_suggestion_links=3
 always_write_suggestion_md=false
@@ -71,6 +77,21 @@ allow_empty_apply=false
 locked_apply=false
 skip_reader_codex=false
 skip_pruner_codex=false
+
+normalize_project_key() {
+    local value="${1:-}"
+    case "${value}" in
+        memory_console)
+            echo "mem_console"
+            ;;
+        memory_console_codex_suggestions)
+            echo "mem_console_codex_suggestions"
+            ;;
+        *)
+            echo "${value}"
+            ;;
+    esac
+}
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -218,6 +239,9 @@ if [[ -z "${db_path}" ]]; then
     usage >&2
     exit 1
 fi
+
+project_key="$(normalize_project_key "${project_key}")"
+suggestion_project="$(normalize_project_key "${suggestion_project}")"
 if ! [[ "${max_suggestion_links}" =~ ^[0-9]+$ ]]; then
     echo "invalid --max-suggestion-links value: ${max_suggestion_links}" >&2
     exit 1

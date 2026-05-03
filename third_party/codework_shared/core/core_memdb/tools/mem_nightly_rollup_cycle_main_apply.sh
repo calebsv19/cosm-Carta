@@ -20,7 +20,7 @@ options:
   --runs-root <dir>              Default: docs/private_program_docs/memory_console/nightly_runs
   --run-dir <dir>                Optional explicit run dir
   --workspace <key>              Default: codework
-  --project <key>                Default: memory_console
+  --project <key>                Default: mem_console
   --stale-days <n>               Default: 30
   --min-active-nodes-before-rollup <n>
                                  Default: 40
@@ -40,7 +40,7 @@ db_path="/Users/calebsv/Desktop/CodeWork/data/codework_mem_console.sqlite"
 runs_root="${ROOT_DIR}/docs/private_program_docs/memory_console/nightly_runs"
 run_dir=""
 workspace_key="codework"
-project_key="memory_console"
+project_key="mem_console"
 stale_days=30
 min_active_nodes_before_rollup=40
 min_stale_candidates_before_rollup=4
@@ -50,6 +50,18 @@ skip_reader_codex=false
 skip_pruner_codex=false
 allow_non_main_filename=false
 confirm_main_apply=false
+
+normalize_project_key() {
+    local value="${1:-}"
+    case "${value}" in
+        memory_console)
+            echo "mem_console"
+            ;;
+        *)
+            echo "${value}"
+            ;;
+    esac
+}
 
 abs_path() {
     local p="$1"
@@ -128,6 +140,8 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+project_key="$(normalize_project_key "${project_key}")"
 
 if [[ ! -x "${RUN_CODEX}" ]]; then
     echo "missing executable: ${RUN_CODEX}" >&2

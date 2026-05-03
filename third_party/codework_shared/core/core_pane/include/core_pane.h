@@ -99,6 +99,21 @@ bool core_pane_hit_test_splitter(const CorePaneNode *nodes,
                                  float point_y,
                                  CorePaneSplitterHit *out_hit);
 
+bool core_pane_collect_splitter_hits(const CorePaneNode *nodes,
+                                     uint32_t node_count,
+                                     uint32_t root_index,
+                                     CorePaneRect bounds,
+                                     float handle_thickness,
+                                     CorePaneSplitterHit *out_hits,
+                                     uint32_t out_hit_cap,
+                                     uint32_t *out_hit_count);
+
+bool core_pane_hit_test_splitter_hits(const CorePaneSplitterHit *hits,
+                                      uint32_t hit_count,
+                                      float point_x,
+                                      float point_y,
+                                      CorePaneSplitterHit *out_hit);
+
 bool core_pane_apply_splitter_drag(CorePaneNode *nodes,
                                    uint32_t node_count,
                                    const CorePaneSplitterHit *hit,

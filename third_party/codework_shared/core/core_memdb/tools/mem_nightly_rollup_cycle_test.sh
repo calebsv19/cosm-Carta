@@ -23,7 +23,7 @@ options:
   --runs-root <dir>            Default: docs/private_program_docs/memory_console/nightly_runs
   --run-dir <dir>              Optional explicit run dir
   --workspace <key>            Default: codework
-  --project <key>              Default: memory_console
+  --project <key>              Default: mem_console
   --stale-days <n>             Default: 0 (forces stale candidates for test)
   --min-active-nodes-before-rollup <n>
                                Default: 40
@@ -43,7 +43,7 @@ test_db="/Users/calebsv/Desktop/CodeWork/data/codework_mem_console_rollup_cycle_
 runs_root="${ROOT_DIR}/docs/private_program_docs/memory_console/nightly_runs"
 run_dir=""
 workspace_key="codework"
-project_key="memory_console"
+project_key="mem_console"
 stale_days=0
 min_active_nodes_before_rollup=40
 min_stale_candidates_before_rollup=4
@@ -52,6 +52,18 @@ model_name=""
 skip_reader_codex=false
 skip_pruner_codex=false
 allow_non_test_filename=false
+
+normalize_project_key() {
+    local value="${1:-}"
+    case "${value}" in
+        memory_console)
+            echo "mem_console"
+            ;;
+        *)
+            echo "${value}"
+            ;;
+    esac
+}
 
 abs_path() {
     local p="$1"
@@ -135,6 +147,8 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+project_key="$(normalize_project_key "${project_key}")"
 
 if [[ ! -x "${RUN_CODEX}" || ! -x "${MEM_CLI}" ]]; then
     echo "missing required executables:" >&2
