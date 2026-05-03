@@ -18,7 +18,7 @@ Modes:
 Options:
   --db <path>                    Target DB path (required)
   --workspace <key>              Default: codework
-  --project <key>                Project bucket (repeatable). Default: memory_console
+  --project <key>                Project bucket (repeatable). Default: mem_console
   --use-doc-project-buckets      Use every directory under docs/private_program_docs as project set
   --scan-limit <n>               Query limit per project for recategorization planning (default: 1000)
   --max-link-adds <n>            Max link adds in apply mode (default: 250)
@@ -58,6 +58,18 @@ is_allowed_link_kind() {
             ;;
         *)
             return 1
+            ;;
+    esac
+}
+
+normalize_project_key() {
+    local value="${1:-}"
+    case "${value}" in
+        memory_console)
+            echo "mem_console"
+            ;;
+        *)
+            echo "${value}"
             ;;
     esac
 }
@@ -205,13 +217,14 @@ if [[ "${use_doc_project_buckets}" == "true" ]]; then
 fi
 
 if (( ${#projects[@]} == 0 )); then
-    projects=("memory_console")
+    projects=("mem_console")
 fi
 
 # De-duplicate projects while preserving order.
 uniq_projects=()
 seen_projects="|"
 for p in "${projects[@]}"; do
+    p="$(normalize_project_key "${p}")"
     if [[ -z "${p}" ]]; then
         continue
     fi

@@ -22,9 +22,10 @@ lifecycle management.
 ## Versioning
 
 - Module version source of truth: `shared/vk_renderer/VERSION`
-- Current version: `1.1.0`
+- Current version: `1.1.1`
 - `1.0.0` behavior note: debug capture is opt-in only and runs only when `vk_renderer_request_capture(...)` is called.
 - `1.1.0` behavior note: long-lived textures can now be updated in place through `vk_renderer_texture_update_rgba_subrect(...)` for bounded dirty-rect preview workflows without recreating whole textures every frame.
+- `1.1.1` behavior note: debug frame capture now normalizes SDL surface creation and channel ordering for both RGBA and BGRA source paths so saved captures are consistent across swapchain formats.
 
 ## Layout
 

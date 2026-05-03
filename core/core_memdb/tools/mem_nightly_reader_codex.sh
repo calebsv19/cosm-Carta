@@ -4,11 +4,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 READER_BASE="${ROOT_DIR}/shared/core/core_memdb/tools/mem_nightly_reader.sh"
 CODEX_BIN="${CODEX_BIN:-codex}"
-SKILL_FILE="${ROOT_DIR}/skills/memory-nightly-reader/SKILL.md"
+SKILL_FILE="${ROOT_DIR}/skills/_archive/legacy_memory_nightly/memory-nightly-reader/SKILL.md"
 
 usage() {
     cat <<'EOF'
 usage: mem_nightly_reader_codex.sh --db <path> [options]
+
+legacy notice:
+  This nightly reader lane is legacy/archived. Prefer manual rollup flow skills:
+  - skills/memory-rollup-flow
+  - skills/memory-rollup-candidate-pass
+  - skills/memory-rollup-plan-pass
 
 required:
   --db <path>                  SQLite DB path
@@ -17,7 +23,7 @@ options:
   --run-dir <dir>              Existing run dir. If unset, auto-create under nightly_runs.
   --runs-root <dir>            Default: docs/private_program_docs/memory_console/nightly_runs
   --workspace <key>            Default: codework
-  --project <key>              Default: memory_console
+  --project <key>              Default: mem_console
   --stale-days <n>             Default: 30
   --min-active-nodes-before-rollup <n>
                                Default: 40
@@ -40,7 +46,7 @@ db_path=""
 run_dir=""
 runs_root="${ROOT_DIR}/docs/private_program_docs/memory_console/nightly_runs"
 workspace_key="codework"
-project_key="memory_console"
+project_key="mem_console"
 stale_days=30
 min_active_nodes_before_rollup=40
 min_stale_candidates_before_rollup=4
@@ -53,6 +59,18 @@ events_limit=200
 audits_limit=200
 model_name=""
 skip_codex=false
+
+normalize_project_key() {
+    local value="${1:-}"
+    case "${value}" in
+        memory_console)
+            echo "mem_console"
+            ;;
+        *)
+            echo "${value}"
+            ;;
+    esac
+}
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -141,6 +159,8 @@ if [[ -z "${db_path}" ]]; then
     exit 1
 fi
 
+project_key="$(normalize_project_key "${project_key}")"
+
 if [[ ! -x "${READER_BASE}" ]]; then
     echo "missing executable: ${READER_BASE}" >&2
     exit 1
@@ -216,6 +236,7 @@ Hard constraints:
    - \`operations.connection_pass = { enabled: <bool>, link_kind: <kind>, anchor_kind: <kind>, anchor_item_id: <id>, ensure_min_degree: <bool>, propagate_neighbor_links: <bool>, max_neighbor_links_per_rollup: <n>, neighbor_scan_max_edges: <n>, neighbor_scan_max_nodes: <n> }\`
    - \`operations.link_additions = { enabled: <bool>, items: [] }\`
    - \`operations.link_updates = { enabled: <bool>, items: [] }\`
+   - Allowed link kinds for \`link_kind\` and \`anchor_kind\`: \`supports\`, \`depends_on\`, \`references\`, \`summarizes\`, \`implements\`, \`blocks\`, \`contradicts\`, \`related\`
 8. Keep plan schema version stable and compatible (\`version\` in [1,2]); do not emit incompatible version values.
 
 When done:

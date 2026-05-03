@@ -11,6 +11,7 @@
 #include <SDL2/SDL_vulkan.h>
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -414,14 +415,41 @@ static void vk_renderer_debug_capture_destroy(VkRenderer* renderer) {
     memset(capture, 0, sizeof(*capture));
 }
 
-static SDL_PixelFormatEnum select_capture_pixel_format(VkRenderer* renderer) {
-    if (!renderer) return SDL_PIXELFORMAT_BGRA8888;
-    VkFormat format = renderer->context.swapchain.image_format;
-    if (format == VK_FORMAT_R8G8B8A8_UNORM ||
-        format == VK_FORMAT_R8G8B8A8_SRGB) {
-        return SDL_PIXELFORMAT_RGBA8888;
+static SDL_Surface* create_capture_surface_argb8888(VkRenderer* renderer,
+                                                    const uint8_t* pixels,
+                                                    uint32_t width,
+                                                    uint32_t height) {
+    SDL_Surface* surface = NULL;
+    const bool source_is_rgba =
+        renderer &&
+        (renderer->context.swapchain.image_format == VK_FORMAT_R8G8B8A8_UNORM ||
+         renderer->context.swapchain.image_format == VK_FORMAT_R8G8B8A8_SRGB);
+    if (!pixels || width == 0 || height == 0) return NULL;
+
+    surface = SDL_CreateRGBSurfaceWithFormat(0,
+                                             (int)width,
+                                             (int)height,
+                                             32,
+                                             SDL_PIXELFORMAT_ARGB8888);
+    if (!surface) return NULL;
+
+    for (uint32_t y = 0; y < height; ++y) {
+        const uint8_t* src_row = pixels + ((size_t)y * width * 4u);
+        uint32_t* dst_row = (uint32_t*)((uint8_t*)surface->pixels + ((size_t)y * surface->pitch));
+        for (uint32_t x = 0; x < width; ++x) {
+            const uint8_t* src = src_row + x * 4u;
+            uint8_t r = source_is_rgba ? src[0] : src[2];
+            uint8_t g = src[1];
+            uint8_t b = source_is_rgba ? src[2] : src[0];
+            uint8_t a = src[3];
+            dst_row[x] = ((uint32_t)a << 24) |
+                         ((uint32_t)r << 16) |
+                         ((uint32_t)g << 8) |
+                         (uint32_t)b;
+        }
     }
-    return SDL_PIXELFORMAT_BGRA8888;
+
+    return surface;
 }
 
 static int capture_ends_with_bmp(const char* path) {
@@ -452,14 +480,7 @@ static void vk_renderer_debug_capture_dump(VkRenderer* renderer) {
 
     const char* output_path = capture->output_path[0] ? capture->output_path : VK_RENDERER_CAPTURE_FILENAME;
     if (capture_ends_with_bmp(output_path)) {
-        SDL_PixelFormatEnum format = select_capture_pixel_format(renderer);
-        SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(
-            (void*)pixels,
-            (int)width,
-            (int)height,
-            32,
-            (int)width * 4,
-            format);
+        SDL_Surface* surface = create_capture_surface_argb8888(renderer, pixels, width, height);
         if (surface) {
             if (SDL_SaveBMP(surface, output_path) != 0) {
                 VK_RENDERER_DEBUG_LOG("[vulkan] failed to write capture bmp %s: %s\n",
@@ -477,11 +498,19 @@ static void vk_renderer_debug_capture_dump(VkRenderer* renderer) {
         FILE* file = fopen(output_path, "wb");
         if (file) {
             fprintf(file, "P6\n%u %u\n255\n", width, height);
+            const bool source_is_rgba =
+                renderer &&
+                (renderer->context.swapchain.image_format == VK_FORMAT_R8G8B8A8_UNORM ||
+                 renderer->context.swapchain.image_format == VK_FORMAT_R8G8B8A8_SRGB);
             for (uint32_t y = 0; y < height; ++y) {
                 const uint8_t* row = pixels + ((size_t)y * width * 4u);
                 for (uint32_t x = 0; x < width; ++x) {
                     const uint8_t* p = row + x * 4u;
-                    uint8_t rgb[3] = {p[2], p[1], p[0]};
+                    uint8_t rgb[3] = {
+                        source_is_rgba ? p[0] : p[2],
+                        p[1],
+                        source_is_rgba ? p[2] : p[0]
+                    };
                     fwrite(rgb, 1, sizeof(rgb), file);
                 }
             }

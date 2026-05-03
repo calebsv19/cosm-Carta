@@ -19,6 +19,7 @@ This document defines what each shared library owns so behavior does not overlap
 - `core_scene`: scene schema and scene-level object grouping/state metadata.
 - `core_scene_compile`: shared authoring-to-runtime scene compile and normalization boundary.
 - `core_space`: coordinate-space mapping, transforms, and grid/window/world conversion.
+- `core_viewport2d`: renderer-agnostic 2D viewport/camera state transitions for fit-to-window, screen/content transforms, drag pan, and cursor-anchor zoom.
 - `core_units`: unit vocabulary, unit conversions, and world-scale conversion primitives.
 - `core_object`: app-neutral object identity/transform/dimensional-mode validation primitives.
 - `core_pack`: versioned chunked interchange container (`.pack`).
@@ -27,7 +28,8 @@ This document defines what each shared library owns so behavior does not overlap
 - `core_action`: action identity + trigger-binding registry boundary.
 - `core_pane_module`: renderer-agnostic pane-module descriptor registry and binding validation semantics.
 - `core_trace`: trace capture/ingest/export primitives.
-- `core_pane`: renderer-agnostic pane tree layout semantics (split ratios, constraints, splitter hit/drag math).
+- `core_sim`: UI-free simulation control-plane semantics for fixed-step accumulation, pause/play/single-step state, max-tick clamping, ordered pass execution, and deterministic frame outcomes.
+- `core_pane`: renderer-agnostic pane tree layout semantics (split ratios, constraints, splitter hit/drag math). It does not own app snapshot selection, session fallback policy, or host build dependency hygiene around those structs.
 - `core_theme`: tokenized color + spacing presets.
 - `core_font`: font roles + font tier/size preset contracts.
 
@@ -47,7 +49,8 @@ This document defines what each shared library owns so behavior does not overlap
 
 - Vector math:
   - Put generic vec/matrix numeric ops in `core_math`.
-  - Put world/screen/viewport conversion and spatial mapping in `core_space`.
+  - Put world/unit placement conversion in `core_space`.
+  - Put generic 2D screen/content viewport-camera transforms in `core_viewport2d`.
 
 - Scene vs object ownership:
   - `core_scene` owns app-agnostic scene structure/schema.
@@ -66,6 +69,7 @@ This document defines what each shared library owns so behavior does not overlap
   - `core_workers` owns background task execution.
   - `core_wake` owns wait/signal bridge.
   - `core_kernel` owns loop policy and phase order.
+  - `core_sim` owns simulation-specific cadence/pass semantics layered above app-domain solvers and optionally above execution-core adapters.
 
 - Theme/font:
   - Preset and token source of truth must stay in `core_theme` / `core_font`.
@@ -74,6 +78,7 @@ This document defines what each shared library owns so behavior does not overlap
 ## Anti-Overlap Rules
 
 - Do not duplicate generic math helpers in app code if `core_math` already owns them.
+- Do not place SDL input routing, mouse-wheel policy, or app pane hit-testing in `core_viewport2d`.
 - Do not place scene-schema types in app-specific UI/render modules.
 - Do not add compiler include emulation behavior to runtime core libs.
 - Do not hardcode theme/font constants in app UI where adapter lookup exists.

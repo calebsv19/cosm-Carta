@@ -17,9 +17,15 @@ Shared pane-layout primitives for split-pane geometry and drag updates.
 
 ## Status
 
-Bootstrap foundation for Phase 15C pane standardization (`v0.2.0`).
+Bootstrap foundation for Phase 15C pane standardization (`v0.3.0`).
 
-## Recent Changes (`v0.2.0`)
+## Recent Changes (`v0.3.0`)
+
+1. Added deterministic splitter-hit enumeration via `core_pane_collect_splitter_hits(...)`.
+2. Added cached-hit testing via `core_pane_hit_test_splitter_hits(...)` so hosts can keep explicit divider-hitbox registries like IDE.
+3. Kept collected splitter order aligned with direct tree hit-testing so cached and uncached paths resolve the same divider first.
+
+## Previous Changes (`v0.2.0`)
 
 1. Added explicit graph validation diagnostics via `core_pane_validate_graph(...)` and `CorePaneValidationReport`.
 2. Added validation error-string surface (`core_pane_validation_code_string(...)`) for deterministic host diagnostics.

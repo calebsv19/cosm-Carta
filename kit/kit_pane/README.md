@@ -10,7 +10,8 @@ This initial scaffold provides:
 
 1. pane chrome rendering (`kit_pane_draw_chrome(...)`),
 2. default pane style presets (`kit_pane_style_default(...)`),
-3. splitter rendering for hover/active states (`kit_pane_draw_splitter(...)`).
+3. splitter rendering for hover/active states (`kit_pane_draw_splitter(...)`),
+4. reusable splitter hover/drag interaction state layered over `core_pane` (`KitPaneSplitterInteraction`).
 
 ## Boundary
 
@@ -18,7 +19,8 @@ This initial scaffold provides:
 
 1. pane shell presentation,
 2. authoring-mode visual affordances,
-3. UI-level pane chrome consistency.
+3. UI-level pane chrome consistency,
+4. host-side splitter hover/drag interaction state.
 
 `kit_pane` does not own:
 
@@ -33,7 +35,19 @@ Implemented now:
 1. baseline style contract (`KitPaneStyle`),
 2. pane chrome contract (`KitPaneChrome`),
 3. chrome and splitter draw helpers,
-4. null-backend test coverage for command emission.
+4. reusable splitter interaction controller for hover/begin-drag/update-drag/end-drag,
+5. null-backend test coverage for command emission and splitter interaction state.
+
+## Recent Changes (`v0.3.0`)
+
+1. Added cached-hit interaction entry points so hosts can drive hover/drag from explicit splitter registries (`kit_pane_splitter_interaction_set_hover_from_hits(...)` and `kit_pane_splitter_interaction_begin_drag_from_hits(...)`).
+2. This matches the IDE-style divider registry model without forcing editor-specific split-tree behavior into shared code.
+
+## Previous Changes (`v0.2.0`)
+
+1. Added baseline pane chrome/splitter rendering helpers.
+2. Added reusable `KitPaneSplitterInteraction` hover/drag state.
+3. Added null-backend interaction coverage.
 
 ## Planned Growth
 

@@ -65,6 +65,9 @@ int main(int argc, char **argv) {
     if (strcmp(command, "item-retag") == 0) {
         return cmd_item_retag(argc, argv);
     }
+    if (strcmp(command, "item-archive") == 0) {
+        return cmd_item_archive(argc, argv);
+    }
     if (strcmp(command, "rollup") == 0) {
         return cmd_rollup(argc, argv);
     }
