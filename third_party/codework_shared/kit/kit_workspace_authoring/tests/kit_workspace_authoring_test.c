@@ -299,6 +299,101 @@ static void test_pane_overlay_visibility(void) {
     assert(kit_workspace_authoring_ui_pane_overlay_visible(1, 1, 1, 1) == 0);
 }
 
+static void test_font_theme_layout_and_hit_test(void) {
+    KitWorkspaceAuthoringFontThemeLayout layout = {0};
+    KitWorkspaceAuthoringFontThemeButtonId hit = KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_NONE;
+
+    assert(kit_workspace_authoring_ui_font_theme_build_layout(NULL, 1280, 720, &layout) == 1);
+    assert(layout.panel.x == 28.0f);
+    assert(layout.panel.width == 1224.0f);
+    assert(layout.font_preset_button_count == KIT_WORKSPACE_AUTHORING_FONT_THEME_FONT_PRESET_BUTTON_COUNT);
+    assert(layout.theme_preset_button_count == KIT_WORKSPACE_AUTHORING_FONT_THEME_THEME_PRESET_BUTTON_COUNT);
+    assert(layout.custom_theme_button_count == KIT_WORKSPACE_AUTHORING_FONT_THEME_CUSTOM_THEME_BUTTON_COUNT);
+    assert(layout.font_preset_section.y < layout.text_size_section.y);
+    assert(layout.text_size_section.y < layout.theme_preset_section.y);
+    assert(layout.theme_preset_section.y < layout.custom_theme_section.y);
+
+    hit = kit_workspace_authoring_ui_font_theme_hit_button(
+        &layout,
+        layout.text_size_dec_button.x + 2.0f,
+        layout.text_size_dec_button.y + 2.0f);
+    assert(hit == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_TEXT_SIZE_DEC);
+
+    hit = kit_workspace_authoring_ui_font_theme_hit_button(
+        &layout,
+        layout.font_preset_buttons[1].x + 2.0f,
+        layout.font_preset_buttons[1].y + 2.0f);
+    assert(hit == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_FONT_PRESET_IDE);
+
+    hit = kit_workspace_authoring_ui_font_theme_hit_button(
+        &layout,
+        layout.theme_preset_buttons[2].x + 2.0f,
+        layout.theme_preset_buttons[2].y + 2.0f);
+    assert(hit == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_THEME_PRESET_MIDNIGHT_CONTRAST);
+
+    hit = kit_workspace_authoring_ui_font_theme_hit_button(
+        &layout,
+        layout.custom_theme_buttons[0].x + 2.0f,
+        layout.custom_theme_buttons[0].y + 2.0f);
+    assert(hit == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_CUSTOM_THEME_CREATE_STUB);
+
+    hit = kit_workspace_authoring_ui_font_theme_hit_button(&layout, 2.0f, 2.0f);
+    assert(hit == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_NONE);
+
+    assert(kit_workspace_authoring_ui_font_theme_build_layout(NULL, 40, 40, &layout) == 0);
+}
+
+static void test_font_theme_preset_and_action_mapping(void) {
+    CoreFontPresetId font_id = CORE_FONT_PRESET_IDE;
+    CoreThemePresetId theme_id = CORE_THEME_PRESET_DAW_DEFAULT;
+    const char *status = NULL;
+    KitWorkspaceAuthoringFontThemeAction action = {0};
+
+    assert(strcmp(kit_workspace_authoring_ui_font_theme_button_label(
+                      KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_FONT_PRESET_DAW_DEFAULT),
+                  "daw_default") == 0);
+    assert(kit_workspace_authoring_ui_font_theme_button_enabled(
+               KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_FONT_PRESET_CUSTOM_STUB) == 0u);
+
+    assert(kit_workspace_authoring_ui_font_theme_button_font_preset_id(
+               KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_FONT_PRESET_IDE,
+               &font_id) == 1);
+    assert(font_id == CORE_FONT_PRESET_IDE);
+    assert(kit_workspace_authoring_ui_font_theme_button_font_preset_id(
+               KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_FONT_PRESET_CUSTOM_STUB,
+               &font_id) == 0);
+
+    assert(kit_workspace_authoring_ui_font_theme_button_theme_preset_id(
+               KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_THEME_PRESET_MIDNIGHT_CONTRAST,
+               &theme_id) == 1);
+    assert(theme_id == CORE_THEME_PRESET_DARK_DEFAULT);
+
+    assert(kit_workspace_authoring_ui_font_theme_button_custom_theme_status(
+               KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_CUSTOM_THEME_EDIT_STUB,
+               &status) == 1);
+    assert(status != NULL);
+    assert(strstr(status, "Edit requested") != NULL);
+
+    action = kit_workspace_authoring_ui_font_theme_action_for_button(
+        KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_TEXT_SIZE_INC);
+    assert(action.type == KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_INC);
+
+    action = kit_workspace_authoring_ui_font_theme_action_for_button(
+        KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_FONT_PRESET_DAW_DEFAULT);
+    assert(action.type == KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_SET_FONT_PRESET);
+    assert(action.font_preset_id == CORE_FONT_PRESET_DAW_DEFAULT);
+
+    action = kit_workspace_authoring_ui_font_theme_action_for_button(
+        KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_THEME_PRESET_GREYSCALE);
+    assert(action.type == KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_SET_THEME_PRESET);
+    assert(action.theme_preset_id == CORE_THEME_PRESET_GREYSCALE);
+
+    action = kit_workspace_authoring_ui_font_theme_action_for_button(
+        KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_CUSTOM_THEME_CREATE_STUB);
+    assert(action.type == KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_CUSTOM_THEME_STATUS);
+    assert(action.custom_status_text != NULL);
+}
+
 static void test_render_derive_submit(void) {
     KitWorkspaceAuthoringRenderDeriveFrame derive = {0};
     KitWorkspaceAuthoringRenderSubmitOutcome outcome = {0};
@@ -364,6 +459,8 @@ int main(void) {
     test_overlay_button_layout();
     test_overlay_hit_and_drop_intent();
     test_pane_overlay_visibility();
+    test_font_theme_layout_and_hit_test();
+    test_font_theme_preset_and_action_mapping();
     test_render_derive_submit();
     puts("kit_workspace_authoring tests passed");
     return 0;

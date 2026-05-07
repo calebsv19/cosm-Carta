@@ -1,6 +1,6 @@
 # MapForge Current Truth
 
-Last updated: 2026-04-29
+Last updated: 2026-05-04
 
 ## Program Identity
 - Repository directory: `map_forge/`
@@ -16,8 +16,10 @@ Last updated: 2026-04-29
   - C: package/runtime-source contract discipline
   - D: throughput/productization closure
 - Current in-flight worktree boundary:
-  - tile-pipeline modularization split around helper/runtime seams
-  - goal is structural reduction with behavior parity
+  - offline tooling decomposition under `tools/`
+  - `mapforge_graph.c` now delegates source-format detection/input normalization and output/publish responsibilities into dedicated helper files
+  - `mapforge_region.c` now delegates staged build/publish, archive/meta emission, metrics dataset output, and tile-file responsibilities into dedicated helper files
+  - goal remains structural reduction with behavior parity and unchanged public region-pack contracts
 
 ## Structure
 - Required lanes: `docs/`, `src/`, `include/`, `tests/`, `build/`
@@ -30,6 +32,10 @@ Last updated: 2026-04-29
 - Tile-store contract is explicit in region metadata (`kind`, `root`, optional archive path).
 - Runtime source-policy lane is active (`archive_required`, `archive_preferred`, `filesystem_only`) with validation.
 - Coverage metadata contract is active and used by runtime queue suppression and diagnostics.
+- Offline build-tool contract is active:
+  - `mapforge_graph` owns graph ingest + publish for XML/PBF-backed inputs
+  - `mapforge_region` owns staged region-pack generation, validation, and publish
+  - generated region directories still publish `meta.json`, tile payloads, and dataset/archive companions without changing operator-facing layout
 
 ## Verification Contract
 - Build/tests:
@@ -48,7 +54,7 @@ Last updated: 2026-04-29
 
 ## Current Boundary
 - Continue post-A-D maintenance hardening while preserving contract-driven runtime behavior.
-- Complete current tile-pipeline modularization without changing published operator contract semantics.
+- Complete current `tools/` decomposition without changing published operator contract semantics.
 - Camera runtime now keeps Mercator zoom semantics, smoothing, and hot screen/world render transforms local while routing generic cursor-anchor zoom and drag-pan target math through vendored shared `core_viewport2d`.
 - Throughput guardrail calibration now reflects current local variance:
   - D2 `seattle` matrix precondition uses a higher absolute `l0_peak` ceiling

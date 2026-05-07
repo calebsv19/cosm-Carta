@@ -212,10 +212,23 @@ void app_draw_ingest_panel(AppState *app) {
     MapForgeThemePalette palette = app_ui_theme_palette();
     SDL_Color text = palette.text_primary;
     SDL_Color muted = palette.text_muted;
-    int line_h = ui_font_line_height(1.0f);
-    if (line_h <= 0) {
+    const AppUiTextRole title_role = APP_UI_TEXT_ROLE_PANEL_TITLE;
+    const AppUiTextRole control_role = APP_UI_TEXT_ROLE_CONTROL;
+    const AppUiTextRole body_role = APP_UI_TEXT_ROLE_PANEL_BODY;
+    const float title_scale = app_ui_text_scale(title_role);
+    const float control_scale = app_ui_text_scale(control_role);
+    const float body_scale = app_ui_text_scale(body_role);
+    int title_h = app_ui_text_line_height(title_role);
+    int control_h = app_ui_text_line_height(control_role);
+    int body_h = app_ui_text_line_height(body_role);
+    if (title_h <= 0 || control_h <= 0 || body_h <= 0) {
         return;
     }
+    float control_box_h = (float)control_h + 8.0f;
+    if (control_box_h < 24.0f) {
+        control_box_h = 24.0f;
+    }
+    float row_h = (float)body_h + 6.0f;
 
     float base_y = APP_HEADER_HEIGHT + 8.0f;
     if (app->ui_state_bridge.overlay.enabled) {
@@ -242,21 +255,21 @@ void app_draw_ingest_panel(AppState *app) {
         renderer_fill_rect(&app->renderer, &handle);
         renderer_set_draw_color(&app->renderer, palette.overlay_outline.r, palette.overlay_outline.g, palette.overlay_outline.b, palette.overlay_outline.a);
         renderer_draw_rect(&app->renderer, &handle);
-        ui_draw_text(&app->renderer, (int)handle.x + 6, (int)handle.y + 4, ">", text, 1.0f);
+        ui_draw_text(&app->renderer, (int)handle.x + 6, (int)handle.y + 4, ">", text, control_scale);
         return;
     }
 
     float panel_x = 10.0f;
     float panel_y = base_y;
-    float panel_w = 560.0f;
+    float panel_w = 760.0f;
     float panel_w_max = (float)app->width - 20.0f;
     if (panel_w > panel_w_max) {
         panel_w = panel_w_max;
     }
-    if (panel_w < 420.0f) {
-        panel_w = 420.0f;
+    if (panel_w < 560.0f) {
+        panel_w = 560.0f;
     }
-    float panel_h = (float)(line_h * 11 + 96);
+    float panel_h = (float)(body_h * 11 + title_h + 128);
     float panel_h_max = (float)app->height - panel_y - 8.0f;
     if (panel_h > panel_h_max) {
         panel_h = panel_h_max;
@@ -281,17 +294,19 @@ void app_draw_ingest_panel(AppState *app) {
     renderer_fill_rect(&app->renderer, &collapse);
     renderer_set_draw_color(&app->renderer, palette.overlay_outline.r, palette.overlay_outline.g, palette.overlay_outline.b, palette.overlay_outline.a);
     renderer_draw_rect(&app->renderer, &collapse);
-    ui_draw_text(&app->renderer, (int)collapse.x + 4, (int)collapse.y + 1, "-", text, 1.0f);
+    ui_draw_text(&app->renderer, (int)collapse.x + 4, (int)collapse.y + 1, "-", text, control_scale);
 
+    float title_y = panel.y + 8.0f;
     ui_draw_text(&app->renderer,
                  (int)panel.x + 10,
-                 (int)panel.y + 8,
+                 (int)title_y,
                  "INGEST PANEL (O toggle, TAB tab, E edit path, B folder, A import all)",
                  text,
-                 1.0f);
+                 title_scale);
 
-    SDL_FRect source_tab = {panel.x + 10.0f, panel.y + 26.0f, 116.0f, 20.0f};
-    SDL_FRect active_tab = {panel.x + 132.0f, panel.y + 26.0f, 128.0f, 20.0f};
+    float control_y = title_y + (float)title_h + 8.0f;
+    SDL_FRect source_tab = {panel.x + 10.0f, control_y, 132.0f, control_box_h};
+    SDL_FRect active_tab = {panel.x + 148.0f, control_y, 152.0f, control_box_h};
     app->ui_state_bridge.hud_ingest_source_tab_rect = source_tab;
     app->ui_state_bridge.hud_ingest_active_tab_rect = active_tab;
     SDL_Color source_fill = app->ingest_show_active_tab ? palette.button_fill : palette.button_active_primary;
@@ -303,14 +318,14 @@ void app_draw_ingest_panel(AppState *app) {
     renderer_set_draw_color(&app->renderer, palette.button_outline.r, palette.button_outline.g, palette.button_outline.b, palette.button_outline.a);
     renderer_draw_rect(&app->renderer, &source_tab);
     renderer_draw_rect(&app->renderer, &active_tab);
-    ui_draw_text(&app->renderer, (int)source_tab.x + 8, (int)source_tab.y + 4, "OSM SOURCES", text, 1.0f);
-    ui_draw_text(&app->renderer, (int)active_tab.x + 8, (int)active_tab.y + 4, "ACTIVE REGIONS", text, 1.0f);
+    ui_draw_text(&app->renderer, (int)source_tab.x + 8, (int)(source_tab.y + 4.0f), "OSM SOURCES", text, control_scale);
+    ui_draw_text(&app->renderer, (int)active_tab.x + 8, (int)(active_tab.y + 4.0f), "ACTIVE REGIONS", text, control_scale);
 
-    SDL_FRect edit_btn = {panel.x + panel.w - 324.0f, panel.y + 26.0f, 64.0f, 20.0f};
-    SDL_FRect folder_btn = {panel.x + panel.w - 254.0f, panel.y + 26.0f, 64.0f, 20.0f};
-    SDL_FRect apply_btn = {panel.x + panel.w - 184.0f, panel.y + 26.0f, 64.0f, 20.0f};
-    SDL_FRect import_btn = {panel.x + panel.w - 108.0f, panel.y + 26.0f, 98.0f, 20.0f};
-    SDL_FRect import_all_btn = {panel.x + panel.w - 108.0f, panel.y + 50.0f, 98.0f, 20.0f};
+    SDL_FRect edit_btn = {panel.x + panel.w - 366.0f, control_y, 72.0f, control_box_h};
+    SDL_FRect folder_btn = {panel.x + panel.w - 288.0f, control_y, 78.0f, control_box_h};
+    SDL_FRect apply_btn = {panel.x + panel.w - 204.0f, control_y, 74.0f, control_box_h};
+    SDL_FRect import_btn = {panel.x + panel.w - 118.0f, control_y, 108.0f, control_box_h};
+    SDL_FRect import_all_btn = {panel.x + panel.w - 118.0f, control_y + control_box_h + 5.0f, 108.0f, control_box_h};
     app->ui_state_bridge.hud_ingest_edit_toggle_rect = edit_btn;
     app->ui_state_bridge.hud_ingest_folder_rect = folder_btn;
     app->ui_state_bridge.hud_ingest_apply_rect = apply_btn;
@@ -329,24 +344,28 @@ void app_draw_ingest_panel(AppState *app) {
     renderer_draw_rect(&app->renderer, &apply_btn);
     renderer_draw_rect(&app->renderer, &import_btn);
     renderer_draw_rect(&app->renderer, &import_all_btn);
-    ui_draw_text(&app->renderer, (int)edit_btn.x + 8, (int)edit_btn.y + 4, app->ingest_edit_mode ? "EDIT*" : "EDIT", text, 1.0f);
-    ui_draw_text(&app->renderer, (int)folder_btn.x + 8, (int)folder_btn.y + 4, "FOLDER", text, 1.0f);
-    ui_draw_text(&app->renderer, (int)apply_btn.x + 8, (int)apply_btn.y + 4, "APPLY", text, 1.0f);
-    ui_draw_text(&app->renderer, (int)import_btn.x + 8, (int)import_btn.y + 4, "IMPORT", text, 1.0f);
-    ui_draw_text(&app->renderer, (int)import_all_btn.x + 8, (int)import_all_btn.y + 4, "IMPORT ALL", text, 1.0f);
+    ui_draw_text(&app->renderer, (int)edit_btn.x + 8, (int)(edit_btn.y + 4.0f), app->ingest_edit_mode ? "EDIT*" : "EDIT", text, control_scale);
+    ui_draw_text(&app->renderer, (int)folder_btn.x + 8, (int)(folder_btn.y + 4.0f), "FOLDER", text, control_scale);
+    ui_draw_text(&app->renderer, (int)apply_btn.x + 8, (int)(apply_btn.y + 4.0f), "APPLY", text, control_scale);
+    ui_draw_text(&app->renderer, (int)import_btn.x + 8, (int)(import_btn.y + 4.0f), "IMPORT", text, control_scale);
+    ui_draw_text(&app->renderer, (int)import_all_btn.x + 8, (int)(import_all_btn.y + 4.0f), "IMPORT ALL", text, control_scale);
 
     const char *path_text = app->ingest_edit_mode ? app->input_root_edit : app->input_root;
     const char *package_status_text = app->ingest_package_status[0] != '\0'
         ? app->ingest_package_status
         : "region package status unavailable";
-    ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)panel.y + 52, "Input Root:", text, 1.0f, (int)panel.w - 22);
-    ui_draw_text_clipped(&app->renderer, (int)panel.x + 92, (int)panel.y + 52, path_text, muted, 1.0f, (int)panel.w - 214);
-    ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)panel.y + 68, "Status:", text, 1.0f, (int)panel.w - 22);
-    ui_draw_text_clipped(&app->renderer, (int)panel.x + 62, (int)panel.y + 68, app->ingest_status, muted, 1.0f, (int)panel.w - 74);
-    ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)panel.y + 84, "Package:", text, 1.0f, (int)panel.w - 22);
-    ui_draw_text_clipped(&app->renderer, (int)panel.x + 72, (int)panel.y + 84, package_status_text, muted, 1.0f, (int)panel.w - 84);
+    float detail_y = control_y + control_box_h + 8.0f;
+    float detail_step = (float)body_h + 6.0f;
+    ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)detail_y, "Input Root:", text, body_scale, (int)panel.w - 22);
+    ui_draw_text_clipped(&app->renderer, (int)panel.x + 108, (int)detail_y, path_text, muted, body_scale, (int)panel.w - 230);
+    detail_y += detail_step;
+    ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)detail_y, "Status:", text, body_scale, (int)panel.w - 22);
+    ui_draw_text_clipped(&app->renderer, (int)panel.x + 78, (int)detail_y, app->ingest_status, muted, body_scale, (int)panel.w - 90);
+    detail_y += detail_step;
+    ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)detail_y, "Package:", text, body_scale, (int)panel.w - 22);
+    ui_draw_text_clipped(&app->renderer, (int)panel.x + 90, (int)detail_y, package_status_text, muted, body_scale, (int)panel.w - 102);
 
-    float list_y = panel.y + 104.0f;
+    float list_y = detail_y + detail_step + 8.0f;
     float list_bottom_pad = 114.0f;
     bool show_import_progress = app->ingest_import_running || app->ingest_import_total_steps > 0;
     if (show_import_progress) {
@@ -362,7 +381,7 @@ void app_draw_ingest_panel(AppState *app) {
             completed_steps = total_steps;
         }
 
-        float progress_label_y = panel.y + 98.0f;
+        float progress_label_y = list_y - 6.0f;
         float progress_track_x = panel.x + 86.0f;
         float progress_track_w = panel.w - 250.0f;
         if (progress_track_w < 120.0f) {
@@ -374,11 +393,11 @@ void app_draw_ingest_panel(AppState *app) {
         float progress_track_h = 8.0f;
         SDL_FRect progress_track = {
             progress_track_x,
-            progress_label_y + (float)((line_h - (int)progress_track_h) / 2),
+            progress_label_y + (float)((body_h - (int)progress_track_h) / 2),
             progress_track_w,
             progress_track_h
         };
-        ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)progress_label_y, "Progress:", text, 1.0f, 74);
+        ui_draw_text_clipped(&app->renderer, (int)panel.x + 10, (int)progress_label_y, "Progress:", text, body_scale, 86);
         renderer_set_draw_color(&app->renderer, palette.progress_bg.r, palette.progress_bg.g, palette.progress_bg.b, palette.progress_bg.a);
         renderer_fill_rect(&app->renderer, &progress_track);
         renderer_set_draw_color(&app->renderer, palette.route_panel_outline.r, palette.route_panel_outline.g, palette.route_panel_outline.b, palette.route_panel_outline.a);
@@ -444,12 +463,12 @@ void app_draw_ingest_panel(AppState *app) {
                                  (int)progress_label_y,
                                  progress_text,
                                  muted,
-                                 1.0f,
+                                 body_scale,
                                  progress_text_w);
         }
 
-        list_y += 22.0f;
-        list_bottom_pad += 22.0f;
+        list_y += row_h;
+        list_bottom_pad += row_h;
     }
 
     SDL_FRect list = {panel.x + 10.0f, list_y, panel.w - 20.0f, panel.h - list_bottom_pad};
@@ -460,7 +479,7 @@ void app_draw_ingest_panel(AppState *app) {
 
     int total = app->ingest_show_active_tab ? app->ingest_active_count : app->ingest_osm_count;
     int selected = app->ingest_show_active_tab ? app->ingest_selected_active : app->ingest_selected_osm;
-    int visible_rows = (int)((list.h - 10.0f) / (float)(line_h + 2));
+    int visible_rows = (int)((list.h - 10.0f) / row_h);
     if (visible_rows < 1) {
         visible_rows = 1;
     }
@@ -478,8 +497,8 @@ void app_draw_ingest_panel(AppState *app) {
         if (idx >= total || idx >= APP_INGEST_LIST_MAX) {
             break;
         }
-        float y = list.y + 6.0f + (float)i * (float)(line_h + 2);
-        SDL_FRect row = {list.x + 6.0f, y - 1.0f, list.w - 12.0f, (float)line_h + 2.0f};
+        float y = list.y + 6.0f + (float)i * row_h;
+        SDL_FRect row = {list.x + 6.0f, y - 1.0f, list.w - 12.0f, row_h};
         app->ui_state_bridge.hud_ingest_row_rects[i] = row;
         app->ui_state_bridge.hud_ingest_row_count = i + 1;
         if (idx == selected) {
@@ -496,7 +515,7 @@ void app_draw_ingest_panel(AppState *app) {
                              (int)row.y + 1,
                              name,
                              text,
-                             1.0f,
+                             body_scale,
                              (int)row.w - 10);
     }
 
@@ -504,6 +523,6 @@ void app_draw_ingest_panel(AppState *app) {
         const char *msg = app->ingest_show_active_tab
             ? "No imported regions found"
             : "No OSM source files found in input root";
-        ui_draw_text(&app->renderer, (int)list.x + 8, (int)list.y + 8, msg, muted, 1.0f);
+        ui_draw_text(&app->renderer, (int)list.x + 8, (int)list.y + 8, msg, muted, body_scale);
     }
 }

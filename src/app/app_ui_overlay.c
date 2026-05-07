@@ -316,7 +316,9 @@ void app_draw_layer_debug(AppState *app) {
 
     MapForgeThemePalette palette = app_ui_theme_palette();
     SDL_Color color = palette.text_primary;
-    int line_h = ui_font_line_height(1.0f);
+    const AppUiTextRole diagnostic_role = APP_UI_TEXT_ROLE_DIAGNOSTIC;
+    const float diagnostic_scale = app_ui_text_scale(diagnostic_role);
+    int line_h = app_ui_text_line_height(diagnostic_role);
     if (line_h <= 0) {
         return;
     }
@@ -334,14 +336,14 @@ void app_draw_layer_debug(AppState *app) {
             if (!app_layer_debug_format_line(app, i, line, sizeof(line))) {
                 continue;
             }
-            int width = ui_measure_text_width(line, 1.0f);
+            int width = app_ui_text_width(line, diagnostic_role);
             if (width > max_line_w) {
                 max_line_w = width;
             }
         }
         app->ui_state_bridge.hud_layer_debug_cached_max_text_w = max_line_w;
         app->ui_state_bridge.hud_layer_debug_cached_w = (float)(max_line_w + 22 + 18);
-        app->ui_state_bridge.hud_layer_debug_cached_h = (float)(total_lines * (line_h + 2) + 14);
+        app->ui_state_bridge.hud_layer_debug_cached_h = (float)(total_lines * (line_h + 3) + 16);
         app->ui_state_bridge.hud_layer_debug_cached_line_count = total_lines;
         app->ui_state_bridge.hud_layer_debug_layout_hash = layout_hash;
         app->ui_state_bridge.hud_layer_debug_layout_dirty = false;
@@ -394,8 +396,8 @@ void app_draw_layer_debug(AppState *app) {
         if (!app_layer_debug_format_line(app, i, line, sizeof(line))) {
             continue;
         }
-        ui_draw_text_clipped(&app->renderer, x, y, line, color, 1.0f, max_text_w);
-        y += line_h + ((i < 4) ? 4 : 2);
+        ui_draw_text_clipped(&app->renderer, x, y, line, color, diagnostic_scale, max_text_w);
+        y += line_h + ((i < 4) ? 5 : 3);
     }
 }
 

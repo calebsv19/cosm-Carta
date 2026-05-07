@@ -167,6 +167,7 @@ void app_runtime_render_submit_frame(AppState *app,
     app_draw_header_bar(app);
     app_draw_layer_debug(app);
     app_draw_ingest_panel(app);
+    app_draw_workspace_authoring_overlay(app);
     debug_overlay_render(&app->ui_state_bridge.overlay, &app->renderer);
     out_submit->draw_pass_count += 1u;
 

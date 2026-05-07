@@ -10,6 +10,7 @@
 #include "map/tile_loader.h"
 #include "map/tile_manager.h"
 #include "app/app_runtime_loop.h"
+#include "app/workspace_authoring/map_forge_workspace_authoring_host.h"
 #include "render/renderer.h"
 #include "render/vk_tile_cache.h"
 #include "route/route.h"
@@ -532,6 +533,7 @@ typedef struct AppWorkerState {
 typedef struct AppUiState {
     InputState input;
     DebugOverlay overlay;
+    MapForgeWorkspaceAuthoringHostState workspace_authoring;
     bool hud_layer_debug_collapsed;
     SDL_FRect hud_layer_debug_panel_rect;
     SDL_FRect hud_layer_debug_collapse_rect;
@@ -858,6 +860,7 @@ bool app_header_layer_scroll_update(AppState *app);
 bool app_header_layer_slider_update(AppState *app);
 void app_draw_header_bar(AppState *app);
 void app_draw_layer_debug(AppState *app);
+void app_draw_workspace_authoring_overlay(AppState *app);
 void app_copy_overlay_text(AppState *app);
 bool app_handle_hud_clicks(AppState *app);
 void app_draw_ingest_panel(AppState *app);

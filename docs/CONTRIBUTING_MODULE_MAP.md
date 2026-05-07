@@ -55,6 +55,20 @@ Use this map to find where to make changes safely.
 - `src/map/*`
   - tile formats, loaders, cache, road/polygon rendering, zoom policies
 
+## Offline Tooling Domain
+
+- `tools/mapforge_region.c`
+  - top-level staged region-pack build/publish orchestration
+
+- `tools/mapforge_region_*.c`
+  - focused region-build seams for source ingest, tile generation, archive/meta output, metrics dataset output, and staged publish/prune behavior
+
+- `tools/mapforge_graph.c`
+  - top-level graph-build orchestration
+
+- `tools/mapforge_graph_*.c`
+  - focused graph ingest, source conversion, and output/publish seams
+
 ## UI/HUD Domain
 
 - `src/app/app_ui.c`
@@ -80,6 +94,12 @@ Change async worker semantics:
 - `src/app/app_worker_contract.c`
 - queue code in `src/app/app_tile_pipeline.c`
 - route worker scheduling/lifecycle in `src/app/route/app_route_worker_lifecycle.c`
+
+Change region-build or graph-build tool behavior:
+
+- `tools/mapforge_region.c` plus the relevant `tools/mapforge_region_*.c` helper seam
+- `tools/mapforge_graph.c` plus the relevant `tools/mapforge_graph_*.c` helper seam
+- update `docs/ADDING_OSM_REGIONS.md` or `docs/REGION_PACK_LAYOUT.md` if the operator contract changes
 
 Change layer visibility/fade behavior:
 

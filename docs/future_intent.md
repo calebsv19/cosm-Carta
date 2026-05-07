@@ -1,6 +1,6 @@
 # MapForge Future Intent
 
-Last updated: 2026-04-21
+Last updated: 2026-05-04
 
 ## Scaffold Alignment Intent
 1. Preserve current subsystem decomposition strengths (`app`, `map`, `route`, `render`, etc.).
@@ -16,12 +16,21 @@ Last updated: 2026-04-21
   - preserve package contract and runtime-source-policy validation discipline for every region build/import lane.
 
 ## Near-Term Modularization Intent (Current)
-- complete the `app_tile_pipeline.c` decomposition so queue/runtime/helper logic is stably distributed across:
-  - `src/app/app_tile_pipeline.c`
-  - `src/app/app_tile_pipeline_helpers.c`
-  - `src/app/app_tile_pipeline_runtime.c`
-  - `include/app/app_tile_pipeline_helpers.h`
-- keep behavioral parity while reducing top-level pipeline file size; prefer seam extraction and contract-preserving moves over mixed behavioral rewrites.
+- complete the current offline tooling decomposition so region-build and graph-build orchestration stay thin while helper ownership becomes explicit:
+  - `tools/mapforge_graph.c`
+  - `tools/mapforge_graph_source.c`
+  - `tools/mapforge_graph_output.c`
+  - `tools/mapforge_graph_internal.h`
+  - `tools/mapforge_region.c`
+  - `tools/mapforge_region_source.c`
+  - `tools/mapforge_region_publish.c`
+  - `tools/mapforge_region_archive_meta.c`
+  - `tools/mapforge_region_metrics_dataset.c`
+  - `tools/mapforge_region_tile_build.c`
+  - `tools/mapforge_region_tile_files.c`
+  - `tools/mapforge_region_internal.h`
+- keep behavioral parity while reducing top-level tool-file size; prefer seam extraction and contract-preserving moves over mixed behavioral rewrites.
+- keep runtime tile/Vulkan behavior stable unless a tool-contract change proves a runtime follow-up is required.
 
 ## Planned Next Structural Intent
 - `MF-S3` (completed):
@@ -39,6 +48,17 @@ Last updated: 2026-04-21
 - `MF-S5` (completed):
   - stabilization closeout completed in scaffold matrix/backlog/private plan.
   - scaffold completion commit title policy executed.
+
+## Tooling Producer Intent
+- keep `mapforge_region` focused on high-level staged publish orchestration:
+  - source ingest and feature extraction stay in source helpers
+  - tile generation and file output stay in tile helpers
+  - publish/snapshot/prune behavior stays in publish helpers
+  - archive/meta and dataset emission stay in their own helpers
+- keep `mapforge_graph` focused on high-level graph-build orchestration:
+  - source-type detection and conversion stay in source helpers
+  - final graph write/publish responsibilities stay in output helpers
+- maintain region-pack layout compatibility while the producer seams settle.
 
 ## Near-Term Maintain Intent (Post Route/Cache Split)
 - keep the `src/app/route/*` runtime grouping stable and avoid moving route-runtime responsibilities back into `app.c` or unrelated app files.

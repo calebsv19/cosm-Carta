@@ -97,9 +97,11 @@ CORE_KERNEL_DIR := $(SHARED_ROOT)/core/core_kernel
 CORE_TRACE_DIR := $(SHARED_ROOT)/core/core_trace
 CORE_THEME_DIR := $(SHARED_ROOT)/core/core_theme
 CORE_FONT_DIR := $(SHARED_ROOT)/core/core_font
+CORE_PANE_DIR := $(SHARED_ROOT)/core/core_pane
 CORE_VIEWPORT2D_DIR := $(SHARED_ROOT)/core/core_viewport2d
 KIT_RUNTIME_DIAG_DIR := $(SHARED_ROOT)/kit/kit_runtime_diag
 KIT_RENDER_DIR := $(SHARED_ROOT)/kit/kit_render
+KIT_WORKSPACE_AUTHORING_DIR := $(SHARED_ROOT)/kit/kit_workspace_authoring
 SHARED_CC := $(HOST_CC) $(ARCH_FLAGS)
 
 CORE_SPACE_LIB := $(SHARED_BUILD_DIR)/libcore_space.a
@@ -119,7 +121,13 @@ CORE_THEME_LIB := $(SHARED_BUILD_DIR)/libcore_theme.a
 CORE_FONT_LIB := $(SHARED_BUILD_DIR)/libcore_font.a
 CORE_VIEWPORT2D_LIB := $(SHARED_BUILD_DIR)/libcore_viewport2d.a
 KIT_RUNTIME_DIAG_LIB := $(SHARED_BUILD_DIR)/libkit_runtime_diag.a
+KIT_RENDER_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render.o
+KIT_RENDER_BACKEND_NULL_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_backend_null.o
+KIT_RENDER_BACKEND_VK_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_backend_vk.o
 KIT_RENDER_EXTERNAL_TEXT_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_external_text.o
+KIT_WORKSPACE_AUTHORING_OBJ := $(HOST_BUILD_ROOT)/kit_workspace_authoring/kit_workspace_authoring.o
+KIT_WORKSPACE_AUTHORING_UI_OVERLAY_OBJ := $(HOST_BUILD_ROOT)/kit_workspace_authoring/kit_workspace_authoring_ui_overlay.o
+KIT_WORKSPACE_AUTHORING_UI_FONT_THEME_OBJ := $(HOST_BUILD_ROOT)/kit_workspace_authoring/kit_workspace_authoring_ui_font_theme.o
 
 VK_RENDERER_DIR ?= $(SHARED_ROOT)/vk_renderer
 VK_RENDERER_RESOLVED_DIR := $(VK_RENDERER_DIR)
@@ -282,9 +290,11 @@ APP_CFLAGS += -I$(CORE_KERNEL_DIR)/include
 APP_CFLAGS += -I$(CORE_TRACE_DIR)/include
 APP_CFLAGS += -I$(CORE_THEME_DIR)/include
 APP_CFLAGS += -I$(CORE_FONT_DIR)/include
+APP_CFLAGS += -I$(CORE_PANE_DIR)/include
 APP_CFLAGS += -I$(CORE_VIEWPORT2D_DIR)/include
 APP_CFLAGS += -I$(KIT_RUNTIME_DIAG_DIR)/include
 APP_CFLAGS += -I$(KIT_RENDER_DIR)/include
+APP_CFLAGS += -I$(KIT_WORKSPACE_AUTHORING_DIR)/include
 HOST_CFLAGS += -I$(CORE_SPACE_DIR)/include
 HOST_CFLAGS += -I$(CORE_BASE_DIR)/include
 HOST_CFLAGS += -I$(CORE_IO_DIR)/include
@@ -300,18 +310,32 @@ HOST_CFLAGS += -I$(CORE_KERNEL_DIR)/include
 HOST_CFLAGS += -I$(CORE_TRACE_DIR)/include
 HOST_CFLAGS += -I$(CORE_THEME_DIR)/include
 HOST_CFLAGS += -I$(CORE_FONT_DIR)/include
+HOST_CFLAGS += -I$(CORE_PANE_DIR)/include
 HOST_CFLAGS += -I$(CORE_VIEWPORT2D_DIR)/include
 HOST_CFLAGS += -I$(KIT_RUNTIME_DIAG_DIR)/include
 HOST_CFLAGS += -I$(KIT_RENDER_DIR)/include
+HOST_CFLAGS += -I$(KIT_WORKSPACE_AUTHORING_DIR)/include
 
 SRCS := $(shell find src -name '*.c')
 OBJS := $(patsubst src/%.c,$(APP_OBJ_DIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 DEPS += $(KIT_RENDER_EXTERNAL_TEXT_OBJ:.o=.d)
+DEPS += $(KIT_RENDER_OBJ:.o=.d)
+DEPS += $(KIT_RENDER_BACKEND_NULL_OBJ:.o=.d)
+DEPS += $(KIT_RENDER_BACKEND_VK_OBJ:.o=.d)
+DEPS += $(KIT_WORKSPACE_AUTHORING_OBJ:.o=.d)
+DEPS += $(KIT_WORKSPACE_AUTHORING_UI_OVERLAY_OBJ:.o=.d)
+DEPS += $(KIT_WORKSPACE_AUTHORING_UI_FONT_THEME_OBJ:.o=.d)
 DEPS += $(VK_RENDERER_OBJS:.o=.d)
 LINK_OBJS := $(OBJS)
 CORE_SHARED_LIBS := $(CORE_TRACE_LIB) $(CORE_PACK_LIB) $(CORE_KERNEL_LIB) $(CORE_WAKE_LIB) $(CORE_WORKERS_LIB) $(CORE_JOBS_LIB) $(CORE_SCHED_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_VIEWPORT2D_LIB) $(KIT_RUNTIME_DIAG_LIB) $(CORE_SPACE_LIB) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 LINK_OBJS += $(KIT_RENDER_EXTERNAL_TEXT_OBJ)
+LINK_OBJS += $(KIT_RENDER_OBJ)
+LINK_OBJS += $(KIT_RENDER_BACKEND_NULL_OBJ)
+LINK_OBJS += $(KIT_RENDER_BACKEND_VK_OBJ)
+LINK_OBJS += $(KIT_WORKSPACE_AUTHORING_OBJ)
+LINK_OBJS += $(KIT_WORKSPACE_AUTHORING_UI_OVERLAY_OBJ)
+LINK_OBJS += $(KIT_WORKSPACE_AUTHORING_UI_FONT_THEME_OBJ)
 LINK_OBJS += $(CORE_SHARED_LIBS)
 TARGET := $(APP_BIN)
 DIST_DIR := $(TARGET_BUILD_ROOT)/dist
@@ -358,11 +382,11 @@ APPLE_TEAM_ID ?=
 STAPLE_MAX_ATTEMPTS ?= 6
 STAPLE_RETRY_DELAY_SEC ?= 15
 TOOL_TARGET := $(TOOL_BIN_DIR)/mapforge_region
-TOOL_SRCS := tools/mapforge_region.c src/map/mercator.c src/map/tile_math.c src/core/log.c
+TOOL_SRCS := tools/mapforge_region.c tools/mapforge_region_source.c tools/mapforge_region_tile_build.c tools/mapforge_region_tile_files.c tools/mapforge_region_archive_meta.c tools/mapforge_region_metrics_dataset.c tools/mapforge_region_publish.c src/map/mercator.c src/map/tile_math.c src/core/log.c
 REGION_VALIDATE_TARGET := $(TOOL_BIN_DIR)/mapforge_region_validate
 REGION_VALIDATE_SRCS := tools/mapforge_region_validate.c src/app/region.c src/app/region_loader.c src/map/tile_source.c src/core/log.c
 GRAPH_TARGET := $(TOOL_BIN_DIR)/mapforge_graph
-GRAPH_SRCS := tools/mapforge_graph.c src/map/mercator.c src/core/log.c
+GRAPH_SRCS := tools/mapforge_graph.c tools/mapforge_graph_source.c tools/mapforge_graph_output.c src/map/mercator.c src/core/log.c
 MAP_SPACE_TEST_TARGET := $(TEST_BIN_DIR)/map_space_test
 MAP_SPACE_TEST_SRCS := tests/map_space_test.c src/map/map_space.c src/map/tile_math.c src/map/mercator.c src/camera/camera.c src/camera/camera_viewport_bridge.c
 SHARED_THEME_FONT_ADAPTER_TEST_TARGET := $(TEST_BIN_DIR)/shared_theme_font_adapter_test
@@ -383,6 +407,8 @@ POLYGON_CACHE_GUARDRAILS_TEST_TARGET := $(TEST_BIN_DIR)/polygon_cache_guardrails
 POLYGON_CACHE_GUARDRAILS_TEST_SRCS := tests/polygon_cache_guardrails_test.c src/map/polygon_cache.c src/map/polygon_triangulator.c
 APP_RUNTIME_INPUT_POLICY_TEST_TARGET := $(TEST_BIN_DIR)/app_runtime_input_policy_test
 APP_RUNTIME_INPUT_POLICY_TEST_SRCS := tests/app_runtime_input_policy_test.c src/app/app_runtime_input_policy.c
+MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_TARGET := $(TEST_BIN_DIR)/map_forge_workspace_authoring_host_test
+MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_SRCS := tests/map_forge_workspace_authoring_host_test.c src/app/workspace_authoring/map_forge_workspace_authoring_host.c src/ui/shared_theme_font_adapter.c $(KIT_WORKSPACE_AUTHORING_DIR)/src/kit_workspace_authoring.c $(KIT_WORKSPACE_AUTHORING_DIR)/src/ui/kit_workspace_authoring_ui_overlay.c $(KIT_WORKSPACE_AUTHORING_DIR)/src/ui/kit_workspace_authoring_ui_font_theme.c $(KIT_RENDER_DIR)/src/kit_render.c $(KIT_RENDER_DIR)/src/kit_render_backend_null.c $(KIT_RENDER_DIR)/src/kit_render_backend_vk.c $(CORE_THEME_DIR)/src/core_theme.c $(CORE_FONT_DIR)/src/core_font.c $(CORE_BASE_DIR)/src/core_base.c
 APP_HEADER_LAYER_LAYOUT_TEST_TARGET := $(TEST_BIN_DIR)/app_header_layer_layout_test
 APP_HEADER_LAYER_LAYOUT_TEST_SRCS := tests/app_header_layer_layout_test.c src/app/app_header_layer_layout.c
 APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET := $(TEST_BIN_DIR)/app_runtime_window_resize_test
@@ -543,7 +569,31 @@ $(HOST_BUILD_ROOT)/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
+$(KIT_RENDER_OBJ): $(KIT_RENDER_DIR)/src/kit_render.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
+$(KIT_RENDER_BACKEND_NULL_OBJ): $(KIT_RENDER_DIR)/src/kit_render_backend_null.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
+$(KIT_RENDER_BACKEND_VK_OBJ): $(KIT_RENDER_DIR)/src/kit_render_backend_vk.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
 $(KIT_RENDER_EXTERNAL_TEXT_OBJ): $(KIT_RENDER_DIR)/src/kit_render_external_text.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
+$(KIT_WORKSPACE_AUTHORING_OBJ): $(KIT_WORKSPACE_AUTHORING_DIR)/src/kit_workspace_authoring.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
+$(KIT_WORKSPACE_AUTHORING_UI_OVERLAY_OBJ): $(KIT_WORKSPACE_AUTHORING_DIR)/src/ui/kit_workspace_authoring_ui_overlay.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
+$(KIT_WORKSPACE_AUTHORING_UI_FONT_THEME_OBJ): $(KIT_WORKSPACE_AUTHORING_DIR)/src/ui/kit_workspace_authoring_ui_font_theme.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
@@ -981,6 +1031,9 @@ test-polygon-cache-guardrails: $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
 test-input-policy: $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 	./$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 
+test-workspace-authoring-host: $(MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_TARGET)
+	./$(MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_TARGET)
+
 test-header-layer-layout: $(APP_HEADER_LAYER_LAYOUT_TEST_TARGET)
 	./$(APP_HEADER_LAYER_LAYOUT_TEST_TARGET)
 
@@ -1102,6 +1155,10 @@ $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET): $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS)
 $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET): $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_TARGET): $(MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(APP_HEADER_LAYER_LAYOUT_TEST_TARGET): $(APP_HEADER_LAYER_LAYOUT_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -1237,6 +1294,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-header-layer-layout test-window-resize test-tile-manager-residency test-phase-a-viewport-scenario test-phase-b-continuity-stress test-phase-d1-budget-control test-phase-d1-budget-matrix test-phase-d2-trace-matrix test-phase-d2-tuning-profiles test-phase-d2-trend-summary test-phase-d2-guardrails test-phase-d3-regression-gate test-phase-d3-contract-preview test-phase-d-throughput route route-rebuild region region-archive region-validate region-rebuild region-rebuild-archive tools-progress graph-progress region-progress region-progress-archive route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-workspace-authoring-host test-header-layer-layout test-window-resize test-tile-manager-residency test-phase-a-viewport-scenario test-phase-b-continuity-stress test-phase-d1-budget-control test-phase-d1-budget-matrix test-phase-d2-trace-matrix test-phase-d2-tuning-profiles test-phase-d2-trend-summary test-phase-d2-guardrails test-phase-d3-regression-gate test-phase-d3-contract-preview test-phase-d-throughput route route-rebuild region region-archive region-validate region-rebuild region-rebuild-archive tools-progress graph-progress region-progress region-progress-archive route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)

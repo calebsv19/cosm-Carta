@@ -12,6 +12,7 @@ static int fail(const char *msg) {
 int main(void) {
     MapForgeThemePalette palette = {0};
     char path[256] = {0};
+    char preset_name[64] = {0};
     int point_size = 0;
     int base_point_size = 0;
     int zoomed_point_size = 0;
@@ -44,6 +45,10 @@ int main(void) {
     if (point_size != 11) {
         return fail("default shared font should resolve to the BASIC IDE tier size");
     }
+    if (!mapforge_shared_font_current_preset(preset_name, sizeof(preset_name)) ||
+        strcmp(preset_name, "ide") != 0) {
+        return fail("default shared font preset should report ide");
+    }
     base_point_size = point_size;
 
     setenv("MAPFORGE_USE_SHARED_THEME_FONT", "1", 1);
@@ -58,12 +63,21 @@ int main(void) {
     }
 
     setenv("MAPFORGE_USE_SHARED_FONT", "1", 1);
-    setenv("MAPFORGE_FONT_PRESET", "studio_blue", 1);
+    if (!mapforge_shared_font_set_preset("daw_default")) {
+        return fail("runtime font preset should accept daw_default");
+    }
+    if (!mapforge_shared_font_current_preset(preset_name, sizeof(preset_name)) ||
+        strcmp(preset_name, "daw_default") != 0) {
+        return fail("runtime font preset should report daw_default");
+    }
     if (!mapforge_shared_font_resolve_ui_regular(path, sizeof(path), &point_size)) {
         return fail("font should resolve when enabled");
     }
     if (path[0] == '\0' || point_size <= 0) {
         return fail("font resolution returned invalid path or point size");
+    }
+    if (!mapforge_shared_font_set_preset("ide")) {
+        return fail("runtime font preset should return to ide");
     }
     if (!mapforge_shared_font_set_zoom_step(2)) {
         return fail("zoom step should change from default");

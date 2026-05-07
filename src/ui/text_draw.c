@@ -105,13 +105,6 @@ static int map_forge_text_draw_utf8_clipped_vulkan(Renderer *renderer,
         logical_w = surface->w;
         logical_h = surface->h;
     }
-    if (raster_scale > 1.0f) {
-        logical_w = (int)lroundf((float)surface->w / raster_scale);
-        logical_h = (int)lroundf((float)surface->h / raster_scale);
-        if (logical_w < 1) logical_w = 1;
-        if (logical_h < 1) logical_h = 1;
-    }
-
     dst = *io_dst;
     if (dst.w <= 0) {
         dst.w = logical_w;

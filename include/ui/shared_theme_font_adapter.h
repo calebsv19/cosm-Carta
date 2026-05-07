@@ -42,6 +42,8 @@ bool mapforge_shared_theme_set_preset(const char *preset_name);
 bool mapforge_shared_theme_current_preset(char *out_name, size_t out_name_size);
 bool mapforge_shared_theme_load_persisted(void);
 bool mapforge_shared_theme_save_persisted(void);
+bool mapforge_shared_font_set_preset(const char *preset_name);
+bool mapforge_shared_font_current_preset(char *out_name, size_t out_name_size);
 int mapforge_shared_font_zoom_step(void);
 bool mapforge_shared_font_set_zoom_step(int step);
 bool mapforge_shared_font_step_by(int delta);

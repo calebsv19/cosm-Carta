@@ -134,6 +134,7 @@ bool app_init(AppState *app) {
 
     mapforge_shared_theme_load_persisted();
     app->lifetime.theme_loaded = true;
+    map_forge_workspace_authoring_host_reset(&app->ui_state_bridge.workspace_authoring);
     app->width = 1280;
     app->height = 720;
     renderer_set_backend(&app->renderer, RENDERER_BACKEND_SDL);
@@ -587,6 +588,13 @@ void app_shutdown(AppState *app) {
     app_runtime_ingest_shutdown(app);
 
     if (app->lifetime.persisted_state_ready) {
+        if (map_forge_workspace_authoring_host_active(&app->ui_state_bridge.workspace_authoring)) {
+            (void)map_forge_workspace_authoring_host_cancel(&app->ui_state_bridge.workspace_authoring);
+            if (map_forge_workspace_authoring_host_take_font_dirty(
+                    &app->ui_state_bridge.workspace_authoring)) {
+                app_apply_shared_ui_font(app);
+            }
+        }
         app_bridge_sync_to_legacy(app);
         app_save_persisted_view_state(app);
         if (app->lifetime.theme_loaded) {

@@ -12,6 +12,12 @@
   - overlay button hit-testing
   - pane drop-intent and ghost-rect geometry helpers
   - HUD overlay-button draw composition via `kit_render`
+- shared font/theme authoring panel model:
+  - standard font/theme/custom-stub button IDs
+  - responsive panel layout derivation
+  - button hit-testing
+  - core font/theme preset mapping
+  - button-to-action classification for host adapters
 - shared render composition helpers:
   - pane/font-theme overlay-visibility policy helper
   - frame clear helper with theme-token resolve
@@ -22,6 +28,7 @@
   - conflict-matrix coverage extended in kit tests for modifier-suppressed pane triggers and chord collision cases
 
 ## Next (additive only)
+- move Workspace Sandbox to the shared font/theme panel model and remove its app-local duplicate definitions
 - publish reusable host attach checklist lane:
   - codify host obligations for theme preset/text zoom state handoff and persistence
   - codify top-level picker/shell theming parity requirement (not overlay-only reactivity)

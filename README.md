@@ -8,7 +8,7 @@ This repository currently lives in the CodeWork workspace under `map_forge/`, bu
 
 - Offline map viewing with smooth pan and zoom.
 - Local route solving with on-disk region data.
-- Region-pack build tooling for OSM-derived inputs.
+- Region-pack build tooling for OSM-derived inputs, with the current toolchain split across focused `tools/mapforge_graph_*` and `tools/mapforge_region_*` helper seams.
 - Shared CodeWork runtime integrations for queues, workers, wake paths, tracing, theme, and font adapters.
 - Phase-B continuity hardening gates for tile residency + viewport churn stress are active in `tests/`.
 
@@ -54,7 +54,7 @@ Start with the public operator docs:
 ## Repository Layout
 
 - `src/` and `include/`: runtime application code
-- `tools/`: offline region-build tooling
+- `tools/`: offline region-build tooling, staged publish helpers, and graph/region pack producers
 - `tests/`: focused C test targets and smoke checks
 - `docs/`: public usage and format references
 - `third_party/codework_shared/`: vendored shared CodeWork libraries

@@ -14,6 +14,8 @@
 
 static bool g_theme_runtime_initialized = false;
 static CoreThemePresetId g_theme_runtime_preset = CORE_THEME_PRESET_DARK_DEFAULT;
+static bool g_font_runtime_initialized = false;
+static CoreFontPresetId g_font_runtime_preset = CORE_FONT_PRESET_IDE;
 static bool g_font_zoom_runtime_initialized = false;
 static int g_font_zoom_step = 0;
 static const char *k_theme_persist_path = "config/theme_preset.txt";
@@ -36,6 +38,26 @@ static int clamp_int(int value, int min_value, int max_value) {
     return value;
 }
 
+static CoreResult font_preset_id_from_name(const char *preset_name,
+                                           CoreFontPresetId *out_id) {
+    int i;
+    if (!preset_name || !preset_name[0] || !out_id) {
+        CoreResult result = { CORE_ERR_INVALID_ARG, "invalid font preset name" };
+        return result;
+    }
+    for (i = 0; i < (int)CORE_FONT_PRESET_COUNT; ++i) {
+        const char *name = core_font_preset_name((CoreFontPresetId)i);
+        if (name && strcmp(name, preset_name) == 0) {
+            *out_id = (CoreFontPresetId)i;
+            return core_result_ok();
+        }
+    }
+    {
+        CoreResult result = { CORE_ERR_NOT_FOUND, "unknown font preset name" };
+        return result;
+    }
+}
+
 static void font_zoom_runtime_init_if_needed(void) {
     char *end = NULL;
     long parsed = 0;
@@ -53,6 +75,22 @@ static void font_zoom_runtime_init_if_needed(void) {
         }
     }
     g_font_zoom_runtime_initialized = true;
+}
+
+static void font_runtime_init_if_needed(void) {
+    const char *preset_name;
+    CoreFontPresetId resolved_id;
+    if (g_font_runtime_initialized) {
+        return;
+    }
+    preset_name = getenv("MAPFORGE_FONT_PRESET");
+    if (preset_name && preset_name[0] &&
+        font_preset_id_from_name(preset_name, &resolved_id).code == CORE_OK) {
+        g_font_runtime_preset = resolved_id;
+    } else {
+        g_font_runtime_preset = CORE_FONT_PRESET_IDE;
+    }
+    g_font_runtime_initialized = true;
 }
 
 static int font_zoom_step_percent(void) {
@@ -443,8 +481,35 @@ bool mapforge_shared_font_reset_zoom_step(void) {
     return mapforge_shared_font_set_zoom_step(0);
 }
 
+bool mapforge_shared_font_set_preset(const char *preset_name) {
+    CoreFontPresetId id;
+    if (!preset_name || !preset_name[0]) {
+        return false;
+    }
+    if (font_preset_id_from_name(preset_name, &id).code != CORE_OK) {
+        return false;
+    }
+    g_font_runtime_preset = id;
+    g_font_runtime_initialized = true;
+    return true;
+}
+
+bool mapforge_shared_font_current_preset(char *out_name, size_t out_name_size) {
+    const char *name;
+    if (!out_name || out_name_size == 0) {
+        return false;
+    }
+    font_runtime_init_if_needed();
+    name = core_font_preset_name(g_font_runtime_preset);
+    if (!name || !name[0]) {
+        return false;
+    }
+    strncpy(out_name, name, out_name_size - 1);
+    out_name[out_name_size - 1] = '\0';
+    return true;
+}
+
 bool mapforge_shared_font_resolve_ui_regular(char *out_path, size_t out_path_size, int *out_point_size) {
-    const char *preset_name;
     CoreFontPreset preset = {0};
     CoreFontRoleSpec role = {0};
     int tier_size = 0;
@@ -454,12 +519,8 @@ bool mapforge_shared_font_resolve_ui_regular(char *out_path, size_t out_path_siz
         return false;
     }
 
-    preset_name = getenv("MAPFORGE_FONT_PRESET");
-    if (!preset_name || !preset_name[0]) {
-        preset_name = "ide";
-    }
-
-    r = core_font_get_preset_by_name(preset_name, &preset);
+    font_runtime_init_if_needed();
+    r = core_font_get_preset(g_font_runtime_preset, &preset);
     if (r.code != CORE_OK) {
         r = core_font_get_preset(CORE_FONT_PRESET_IDE, &preset);
         if (r.code != CORE_OK) {

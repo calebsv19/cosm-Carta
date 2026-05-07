@@ -1,13 +1,14 @@
 # MapForge Docs
 
 Start here for the public, operator-facing documentation that ships with the repository.
-Last audited: 2026-04-29.
+Last audited: 2026-05-04.
 
 ## Current Focus
 
-- Tile-pipeline modularization is currently in progress:
-  - `src/app/app_tile_pipeline.c` is being split into helper/runtime lanes.
-  - active worktree files include `src/app/app_tile_pipeline_helpers.c`, `src/app/app_tile_pipeline_runtime.c`, and `include/app/app_tile_pipeline_helpers.h`.
+- Runtime scaffold A-D is closed; continuity/residency guardrails remain active and are still the main non-GUI safety gates.
+- Offline tooling decomposition is currently in progress under `tools/`:
+  - `tools/mapforge_graph.c` now routes graph ingest through `tools/mapforge_graph_source.c` and graph output/publish through `tools/mapforge_graph_output.c`.
+  - `tools/mapforge_region.c` now routes staged region-pack production across dedicated source, publish, archive/meta, metrics-dataset, and tile-file helper seams.
 - Camera input math now partially adopts vendored shared `core_viewport2d`:
   - cursor-anchor zoom and drag-pan target math route through a camera-local bridge
   - Mercator semantics, smoothing, and hot render transforms remain app-local for parity/performance
@@ -51,6 +52,7 @@ If you are new to the runtime code, read in this order:
 3. `src/app/app_runtime_render.c`: render-stage draw flow.
 4. `src/app/route/app_route.c` and `src/app/route/app_route_service.c`: route graph worker flow plus route selection/toggle boundary.
 5. `src/app/app_tile_pipeline.c` and `src/render/vk_tile_cache_policy.c`: async tile/Vulkan queue integration and cache slot policy boundary.
+6. `tools/mapforge_region.c` plus `tools/mapforge_region_*.c`, and `tools/mapforge_graph.c` plus `tools/mapforge_graph_*.c`: offline region-build and graph-build orchestration.
 
 ## Non-GUI Stability Checks
 

@@ -1,5 +1,8 @@
 #include "app/app_internal.h"
+#include "app/app_persist_state.h"
+#include "app/app_runtime_loop.h"
 #include "app/app_runtime_input_policy.h"
+#include "ui/shared_theme_font_adapter.h"
 
 #include "core/time.h"
 
@@ -44,6 +47,29 @@ static void app_runtime_input_record_event(AppState *app,
         default:
             out_raw->other_event_count += 1u;
             break;
+    }
+    map_forge_workspace_authoring_host_set_viewport(
+        &app->ui_state_bridge.workspace_authoring,
+        app->width > 0 ? (uint32_t)app->width : 0u,
+        app->height > 0 ? (uint32_t)app->height : 0u);
+    if (map_forge_workspace_authoring_host_handle_sdl_event(
+            &app->ui_state_bridge.workspace_authoring,
+            event,
+            false)) {
+        if (map_forge_workspace_authoring_host_take_font_dirty(
+                &app->ui_state_bridge.workspace_authoring)) {
+            app_apply_shared_ui_font(app);
+        }
+        if (map_forge_workspace_authoring_host_last_event_accepted(
+                &app->ui_state_bridge.workspace_authoring) &&
+            app->lifetime.persisted_state_ready) {
+            app_bridge_sync_to_legacy(app);
+            app_save_persisted_view_state(app);
+            if (app->lifetime.theme_loaded) {
+                (void)mapforge_shared_theme_save_persisted();
+            }
+        }
+        return;
     }
     input_handle_event(&app->ui_state_bridge.input, event);
 }
