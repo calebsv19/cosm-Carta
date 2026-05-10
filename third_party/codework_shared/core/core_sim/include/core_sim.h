@@ -88,7 +88,41 @@ typedef struct CoreSimFrameOutcome {
     const char *message;
 } CoreSimFrameOutcome;
 
+typedef struct CoreSimFrameSummary {
+    const char *status_name;
+    uint64_t frame_index;
+    uint32_t ticks_executed;
+    uint32_t passes_executed;
+    uint32_t reason_bits;
+    uint32_t reason_count;
+    bool render_requested;
+    bool max_tick_clamp_hit;
+    bool single_step_consumed;
+    bool failed;
+    uint32_t failed_pass_id;
+    const char *failed_pass_name;
+    const char *message;
+    double simulation_time_advanced_seconds;
+    double accumulator_remaining_seconds;
+} CoreSimFrameSummary;
+
+typedef struct CoreSimStageMark {
+    const char *name;
+    double seconds;
+} CoreSimStageMark;
+
+typedef struct CoreSimStageTiming {
+    const char *name;
+    double start_seconds;
+    double end_seconds;
+    double duration_seconds;
+} CoreSimStageTiming;
+
 const char *core_sim_status_name(CoreSimStatus status);
+const char *core_sim_frame_reason_name(CoreSimFrameReason reason);
+size_t core_sim_frame_reason_names(uint32_t reason_bits,
+                                   const char **out_names,
+                                   size_t out_name_capacity);
 
 void core_sim_step_policy_defaults(CoreSimStepPolicy *policy);
 bool core_sim_step_policy_valid(const CoreSimStepPolicy *policy);
@@ -103,6 +137,13 @@ void core_sim_loop_request_single_step(CoreSimLoopState *state);
 void core_sim_pass_outcome_init(CoreSimPassOutcome *outcome, uint32_t pass_id);
 CoreSimFrameOutcome core_sim_frame_outcome_make_invalid(CoreSimStatus status,
                                                         const char *message);
+bool core_sim_frame_summary_from_outcome(const CoreSimFrameOutcome *outcome,
+                                         CoreSimFrameSummary *summary);
+bool core_sim_stage_timings_compute(const CoreSimStageMark *marks,
+                                    size_t mark_count,
+                                    CoreSimStageTiming *out_timings,
+                                    size_t out_timing_capacity,
+                                    size_t *out_timing_count);
 CoreSimFrameOutcome core_sim_loop_advance(CoreSimLoopState *state,
                                           const CoreSimFrameRequest *request);
 

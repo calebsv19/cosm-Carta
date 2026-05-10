@@ -13,6 +13,7 @@ typedef struct CoreViewport2D {
     float zoom;
     float min_zoom;
     float max_zoom;
+    float rotation_rad;
 } CoreViewport2D;
 
 CoreResult core_viewport2d_init(CoreViewport2D *viewport);
@@ -33,6 +34,10 @@ CoreResult core_viewport2d_zoom_at_screen_anchor(CoreViewport2D *viewport,
                                                  float screen_x,
                                                  float screen_y,
                                                  float zoom_factor);
+CoreResult core_viewport2d_set_rotation_at_screen_anchor(CoreViewport2D *viewport,
+                                                         float screen_x,
+                                                         float screen_y,
+                                                         float rotation_rad);
 CoreResult core_viewport2d_reset_to_fit(CoreViewport2D *viewport,
                                         float view_width,
                                         float view_height,

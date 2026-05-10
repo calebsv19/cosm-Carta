@@ -181,17 +181,72 @@ static int test_public_helpers(void) {
     CoreSimPassDescriptor invalid_pass = { 1u, "missing", 0 };
     CoreSimPassOrder invalid_order = { &invalid_pass, 1u };
     CoreSimPassOutcome outcome;
+    CoreSimFrameOutcome frame_outcome;
+    CoreSimFrameSummary summary;
+    const char *reason_names[4];
+    size_t reason_count;
+    CoreSimStageMark marks[] = {
+        { "frame_begin", 10.0 },
+        { "after_events", 10.125 },
+        { "after_update", 10.250 },
+        { "after_submit", 10.500 },
+    };
+    CoreSimStageTiming timings[3];
+    size_t timing_count = 0u;
 
     core_sim_pass_outcome_init(&outcome, 42u);
+    frame_outcome = core_sim_frame_outcome_make_invalid(CORE_SIM_STATUS_PASS_FAILED,
+                                                        "summary failure");
+    frame_outcome.frame_index = 7u;
+    frame_outcome.ticks_executed = 2u;
+    frame_outcome.passes_executed = 5u;
+    frame_outcome.reason_bits = CORE_SIM_FRAME_REASON_TICK_EXECUTED |
+                                CORE_SIM_FRAME_REASON_RENDER_REQUESTED |
+                                CORE_SIM_FRAME_REASON_PASS_FAILED;
+    frame_outcome.failed_pass_id = 99u;
+    frame_outcome.failed_pass_name = "failing_pass";
+    frame_outcome.simulation_time_advanced_seconds = 0.5;
+    frame_outcome.accumulator_remaining_seconds = 0.125;
+    reason_count = core_sim_frame_reason_names(frame_outcome.reason_bits,
+                                               reason_names,
+                                               sizeof(reason_names) / sizeof(reason_names[0]));
     return expect_true(strcmp(core_sim_status_name(CORE_SIM_STATUS_OK), "ok") == 0,
                        "status name ok") &&
            expect_true(strcmp(core_sim_status_name(CORE_SIM_STATUS_PASS_FAILED), "pass_failed") == 0,
                        "status name pass failed") &&
+           expect_true(strcmp(core_sim_frame_reason_name(CORE_SIM_FRAME_REASON_TICK_EXECUTED),
+                              "tick_executed") == 0,
+                       "reason name tick") &&
+           expect_true(reason_count == 3u, "reason name count") &&
+           expect_true(strcmp(reason_names[0], "tick_executed") == 0,
+                       "reason name first") &&
+           expect_true(strcmp(reason_names[2], "pass_failed") == 0,
+                       "reason name third") &&
            expect_true(core_sim_pass_order_valid(0), "null order valid") &&
            expect_true(!core_sim_pass_order_valid(&invalid_order), "invalid order rejected") &&
            expect_true(outcome.status == CORE_SIM_STATUS_OK, "pass outcome status") &&
            expect_true(outcome.pass_id == 42u, "pass outcome id") &&
-           expect_true(outcome.message == 0, "pass outcome message");
+           expect_true(outcome.message == 0, "pass outcome message") &&
+           expect_true(core_sim_frame_summary_from_outcome(&frame_outcome, &summary),
+                       "summary computed") &&
+           expect_true(strcmp(summary.status_name, "pass_failed") == 0,
+                       "summary status") &&
+           expect_true(summary.failed && summary.failed_pass_id == 99u,
+                       "summary failure fields") &&
+           expect_true(summary.reason_count == 3u, "summary reason count") &&
+           expect_true(nearly_equal(summary.simulation_time_advanced_seconds, 0.5),
+                       "summary sim time") &&
+           expect_true(core_sim_stage_timings_compute(marks,
+                                                      sizeof(marks) / sizeof(marks[0]),
+                                                      timings,
+                                                      sizeof(timings) / sizeof(timings[0]),
+                                                      &timing_count),
+                       "stage timings computed") &&
+           expect_true(timing_count == 3u, "stage timing count") &&
+           expect_true(strcmp(timings[0].name, "after_events") == 0,
+                       "stage timing name") &&
+           expect_true(nearly_equal(timings[2].duration_seconds, 0.250),
+                       "stage timing duration");
 }
 
 int main(void) {

@@ -38,6 +38,90 @@ const char *core_sim_status_name(CoreSimStatus status) {
     }
 }
 
+const char *core_sim_frame_reason_name(CoreSimFrameReason reason) {
+    switch (reason) {
+        case CORE_SIM_FRAME_REASON_NONE:
+            return "none";
+        case CORE_SIM_FRAME_REASON_TICK_EXECUTED:
+            return "tick_executed";
+        case CORE_SIM_FRAME_REASON_RENDER_REQUESTED:
+            return "render_requested";
+        case CORE_SIM_FRAME_REASON_MAX_TICK_CLAMP_HIT:
+            return "max_tick_clamp_hit";
+        case CORE_SIM_FRAME_REASON_SINGLE_STEP_CONSUMED:
+            return "single_step_consumed";
+        case CORE_SIM_FRAME_REASON_PASS_FAILED:
+            return "pass_failed";
+        default:
+            return "unknown";
+    }
+}
+
+static size_t core_sim_reason_names_add(const char *name,
+                                        const char **out_names,
+                                        size_t out_name_capacity,
+                                        size_t count) {
+    if (out_names && count < out_name_capacity) {
+        out_names[count] = name;
+    }
+    return count + 1u;
+}
+
+size_t core_sim_frame_reason_names(uint32_t reason_bits,
+                                   const char **out_names,
+                                   size_t out_name_capacity) {
+    uint32_t known_bits = CORE_SIM_FRAME_REASON_TICK_EXECUTED |
+                          CORE_SIM_FRAME_REASON_RENDER_REQUESTED |
+                          CORE_SIM_FRAME_REASON_MAX_TICK_CLAMP_HIT |
+                          CORE_SIM_FRAME_REASON_SINGLE_STEP_CONSUMED |
+                          CORE_SIM_FRAME_REASON_PASS_FAILED;
+    size_t count = 0u;
+
+    if (reason_bits == CORE_SIM_FRAME_REASON_NONE) {
+        return core_sim_reason_names_add(core_sim_frame_reason_name(CORE_SIM_FRAME_REASON_NONE),
+                                         out_names,
+                                         out_name_capacity,
+                                         count);
+    }
+    if ((reason_bits & CORE_SIM_FRAME_REASON_TICK_EXECUTED) != 0u) {
+        count = core_sim_reason_names_add(core_sim_frame_reason_name(CORE_SIM_FRAME_REASON_TICK_EXECUTED),
+                                          out_names,
+                                          out_name_capacity,
+                                          count);
+    }
+    if ((reason_bits & CORE_SIM_FRAME_REASON_RENDER_REQUESTED) != 0u) {
+        count = core_sim_reason_names_add(core_sim_frame_reason_name(CORE_SIM_FRAME_REASON_RENDER_REQUESTED),
+                                          out_names,
+                                          out_name_capacity,
+                                          count);
+    }
+    if ((reason_bits & CORE_SIM_FRAME_REASON_MAX_TICK_CLAMP_HIT) != 0u) {
+        count = core_sim_reason_names_add(core_sim_frame_reason_name(CORE_SIM_FRAME_REASON_MAX_TICK_CLAMP_HIT),
+                                          out_names,
+                                          out_name_capacity,
+                                          count);
+    }
+    if ((reason_bits & CORE_SIM_FRAME_REASON_SINGLE_STEP_CONSUMED) != 0u) {
+        count = core_sim_reason_names_add(core_sim_frame_reason_name(CORE_SIM_FRAME_REASON_SINGLE_STEP_CONSUMED),
+                                          out_names,
+                                          out_name_capacity,
+                                          count);
+    }
+    if ((reason_bits & CORE_SIM_FRAME_REASON_PASS_FAILED) != 0u) {
+        count = core_sim_reason_names_add(core_sim_frame_reason_name(CORE_SIM_FRAME_REASON_PASS_FAILED),
+                                          out_names,
+                                          out_name_capacity,
+                                          count);
+    }
+    if ((reason_bits & ~known_bits) != 0u) {
+        count = core_sim_reason_names_add("unknown",
+                                          out_names,
+                                          out_name_capacity,
+                                          count);
+    }
+    return count;
+}
+
 void core_sim_step_policy_defaults(CoreSimStepPolicy *policy) {
     if (!policy) {
         return;
@@ -145,6 +229,76 @@ void core_sim_pass_outcome_init(CoreSimPassOutcome *outcome, uint32_t pass_id) {
     outcome->status = CORE_SIM_STATUS_OK;
     outcome->pass_id = pass_id;
     outcome->message = 0;
+}
+
+bool core_sim_frame_summary_from_outcome(const CoreSimFrameOutcome *outcome,
+                                         CoreSimFrameSummary *summary) {
+    if (!outcome || !summary) {
+        return false;
+    }
+
+    summary->status_name = core_sim_status_name(outcome->status);
+    summary->frame_index = outcome->frame_index;
+    summary->ticks_executed = outcome->ticks_executed;
+    summary->passes_executed = outcome->passes_executed;
+    summary->reason_bits = outcome->reason_bits;
+    summary->reason_count = (uint32_t)core_sim_frame_reason_names(outcome->reason_bits,
+                                                                  0,
+                                                                  0u);
+    summary->render_requested = outcome->render_requested;
+    summary->max_tick_clamp_hit = outcome->max_tick_clamp_hit;
+    summary->single_step_consumed = outcome->single_step_consumed;
+    summary->failed = outcome->status != CORE_SIM_STATUS_OK;
+    summary->failed_pass_id = outcome->failed_pass_id;
+    summary->failed_pass_name = outcome->failed_pass_name;
+    summary->message = outcome->message;
+    summary->simulation_time_advanced_seconds = outcome->simulation_time_advanced_seconds;
+    summary->accumulator_remaining_seconds = outcome->accumulator_remaining_seconds;
+    return true;
+}
+
+bool core_sim_stage_timings_compute(const CoreSimStageMark *marks,
+                                    size_t mark_count,
+                                    CoreSimStageTiming *out_timings,
+                                    size_t out_timing_capacity,
+                                    size_t *out_timing_count) {
+    size_t timing_count;
+    size_t i;
+
+    if (out_timing_count) {
+        *out_timing_count = 0u;
+    }
+    if (mark_count == 0u || mark_count == 1u) {
+        return true;
+    }
+    if (!marks) {
+        return false;
+    }
+
+    timing_count = mark_count - 1u;
+    if (out_timing_count) {
+        *out_timing_count = timing_count;
+    }
+    if (timing_count > out_timing_capacity) {
+        return false;
+    }
+    if (timing_count > 0u && !out_timings) {
+        return false;
+    }
+
+    for (i = 0u; i < timing_count; ++i) {
+        double start_seconds = marks[i].seconds;
+        double end_seconds = marks[i + 1u].seconds;
+        if (end_seconds < start_seconds) {
+            return false;
+        }
+
+        out_timings[i].name = marks[i + 1u].name ? marks[i + 1u].name : marks[i].name;
+        out_timings[i].start_seconds = start_seconds;
+        out_timings[i].end_seconds = end_seconds;
+        out_timings[i].duration_seconds = end_seconds - start_seconds;
+    }
+    return true;
 }
 
 bool core_sim_pass_order_valid(const CoreSimPassOrder *pass_order) {
