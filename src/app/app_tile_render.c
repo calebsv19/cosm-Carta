@@ -107,22 +107,39 @@ void app_draw_region_bounds(AppState *app) {
 
     MercatorMeters min_m = mercator_from_latlon((LatLon){app->region.min_lat, app->region.min_lon});
     MercatorMeters max_m = mercator_from_latlon((LatLon){app->region.max_lat, app->region.max_lon});
-
-    float x0 = 0.0f;
-    float y0 = 0.0f;
-    float x1 = 0.0f;
-    float y1 = 0.0f;
-    map_world_to_screen(&app->view_state_bridge.camera, app->width, app->height, (float)min_m.x, (float)max_m.y, &x0, &y0);
-    map_world_to_screen(&app->view_state_bridge.camera, app->width, app->height, (float)max_m.x, (float)min_m.y, &x1, &y1);
-
-    float left = x0 < x1 ? x0 : x1;
-    float right = x0 < x1 ? x1 : x0;
-    float top = y0 < y1 ? y0 : y1;
-    float bottom = y0 < y1 ? y1 : y0;
+    SDL_FPoint points[5];
+    map_world_to_screen(&app->view_state_bridge.camera,
+                        app->width,
+                        app->height,
+                        (float)min_m.x,
+                        (float)max_m.y,
+                        &points[0].x,
+                        &points[0].y);
+    map_world_to_screen(&app->view_state_bridge.camera,
+                        app->width,
+                        app->height,
+                        (float)max_m.x,
+                        (float)max_m.y,
+                        &points[1].x,
+                        &points[1].y);
+    map_world_to_screen(&app->view_state_bridge.camera,
+                        app->width,
+                        app->height,
+                        (float)max_m.x,
+                        (float)min_m.y,
+                        &points[2].x,
+                        &points[2].y);
+    map_world_to_screen(&app->view_state_bridge.camera,
+                        app->width,
+                        app->height,
+                        (float)min_m.x,
+                        (float)min_m.y,
+                        &points[3].x,
+                        &points[3].y);
+    points[4] = points[0];
 
     renderer_set_draw_color(&app->renderer, 80, 140, 220, 200);
-    SDL_FRect rect = {left, top, right - left, bottom - top};
-    renderer_draw_rect(&app->renderer, &rect);
+    renderer_draw_lines(&app->renderer, points, 5);
 }
 
 static void app_draw_vk_mesh_for_coord(AppState *app,

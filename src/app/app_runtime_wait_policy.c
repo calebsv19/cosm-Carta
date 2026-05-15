@@ -11,13 +11,29 @@ enum {
     APP_RUNTIME_WAIT_MAX_MS = 5000
 };
 
+static float app_runtime_normalize_angle(float angle_rad) {
+    const float tau = 6.28318530717958647693f;
+    if (!isfinite(angle_rad)) {
+        return 0.0f;
+    }
+
+    angle_rad = fmodf(angle_rad, tau);
+    if (angle_rad <= -3.14159265358979323846f) {
+        angle_rad += tau;
+    } else if (angle_rad > 3.14159265358979323846f) {
+        angle_rad -= tau;
+    }
+    return angle_rad;
+}
+
 static bool app_runtime_camera_has_settling_motion(const Camera *camera) {
     if (!camera) {
         return false;
     }
     return fabsf(camera->x_target - camera->x) > 0.5f ||
            fabsf(camera->y_target - camera->y) > 0.5f ||
-           fabsf(camera->zoom_target - camera->zoom) > 0.01f;
+           fabsf(camera->zoom_target - camera->zoom) > 0.01f ||
+           fabsf(app_runtime_normalize_angle(camera->heading_target_rad - camera->heading_rad)) > 0.001f;
 }
 
 static bool app_runtime_input_has_continuous_activity(const InputState *input) {

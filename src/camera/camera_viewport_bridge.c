@@ -10,12 +10,41 @@ static float camera_viewport_bridge_pixels_per_meter_for_zoom(float zoom_level) 
     return (float)(pixels / world_size);
 }
 
+static float camera_viewport_bridge_rotation_from_heading(float heading_rad) {
+    return -heading_rad;
+}
+
+static CoreResult camera_viewport_bridge_pan_to_center(CoreViewport2D *viewport,
+                                                       int screen_w,
+                                                       int screen_h,
+                                                       float center_x,
+                                                       float center_y) {
+    CoreResult result;
+    float screen_x = 0.0f;
+    float screen_y = 0.0f;
+    if (!viewport || screen_w <= 0 || screen_h <= 0) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "viewport and screen bounds are required" };
+    }
+
+    viewport->pan_x = 0.0f;
+    viewport->pan_y = 0.0f;
+    result = core_viewport2d_content_to_screen(viewport, center_x, -center_y, &screen_x, &screen_y);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+
+    viewport->pan_x += ((float)screen_w * 0.5f) - screen_x;
+    viewport->pan_y += ((float)screen_h * 0.5f) - screen_y;
+    return core_viewport2d_validate(viewport);
+}
+
 static CoreResult camera_viewport_bridge_viewport_from_camera(const Camera *camera,
                                                               int screen_w,
                                                               int screen_h,
                                                               float zoom_level,
                                                               float center_x,
                                                               float center_y,
+                                                              float heading_rad,
                                                               CoreViewport2D *out_viewport) {
     CoreResult result;
     float ppm = 0.0f;
@@ -32,9 +61,8 @@ static CoreResult camera_viewport_bridge_viewport_from_camera(const Camera *came
     out_viewport->zoom = ppm;
     out_viewport->min_zoom = camera_viewport_bridge_pixels_per_meter_for_zoom((float)CAMERA_ZOOM_MIN_LEVEL);
     out_viewport->max_zoom = camera_viewport_bridge_pixels_per_meter_for_zoom((float)CAMERA_ZOOM_MAX_LEVEL);
-    out_viewport->pan_x = ((float)screen_w * 0.5f) - (center_x * out_viewport->zoom);
-    out_viewport->pan_y = ((float)screen_h * 0.5f) + (center_y * out_viewport->zoom);
-    return core_viewport2d_validate(out_viewport);
+    out_viewport->rotation_rad = camera_viewport_bridge_rotation_from_heading(heading_rad);
+    return camera_viewport_bridge_pan_to_center(out_viewport, screen_w, screen_h, center_x, center_y);
 }
 
 static CoreResult camera_viewport_bridge_target_center_from_viewport(const CoreViewport2D *viewport,
@@ -77,6 +105,7 @@ CoreResult camera_viewport_bridge_world_to_screen(const Camera *camera,
                                                                     camera ? camera->zoom : 0.0f,
                                                                     camera ? camera->x : 0.0f,
                                                                     camera ? camera->y : 0.0f,
+                                                                    camera ? camera->heading_rad : 0.0f,
                                                                     &viewport);
     if (result.code != CORE_OK) {
         return result;
@@ -103,6 +132,7 @@ CoreResult camera_viewport_bridge_screen_to_world(const Camera *camera,
                                                                     camera ? camera->zoom : 0.0f,
                                                                     camera ? camera->x : 0.0f,
                                                                     camera ? camera->y : 0.0f,
+                                                                    camera ? camera->heading_rad : 0.0f,
                                                                     &viewport);
     float content_x = 0.0f;
     float content_y = 0.0f;
@@ -145,6 +175,7 @@ CoreResult camera_viewport_bridge_zoom_target_at_anchor(Camera *camera,
                                                          camera->zoom,
                                                          camera->x,
                                                          camera->y,
+                                                         camera->heading_rad,
                                                          &viewport);
     if (result.code != CORE_OK) {
         return result;
@@ -192,6 +223,7 @@ CoreResult camera_viewport_bridge_pan_target_by_screen_delta(Camera *camera,
                                                          camera->zoom,
                                                          camera->x_target,
                                                          camera->y_target,
+                                                         camera->heading_rad,
                                                          &viewport);
     if (result.code != CORE_OK) {
         return result;
@@ -207,4 +239,49 @@ CoreResult camera_viewport_bridge_pan_target_by_screen_delta(Camera *camera,
                                                               screen_h,
                                                               &camera->x_target,
                                                               &camera->y_target);
+}
+
+CoreResult camera_viewport_bridge_rotate_target_at_anchor(Camera *camera,
+                                                          float screen_x,
+                                                          float screen_y,
+                                                          int screen_w,
+                                                          int screen_h,
+                                                          float next_heading_rad) {
+    CoreViewport2D viewport;
+    CoreResult result;
+    if (!camera) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "camera is required" };
+    }
+
+    result = camera_viewport_bridge_viewport_from_camera(camera,
+                                                         screen_w,
+                                                         screen_h,
+                                                         camera->zoom,
+                                                         camera->x,
+                                                         camera->y,
+                                                         camera->heading_rad,
+                                                         &viewport);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+
+    result = core_viewport2d_set_rotation_at_screen_anchor(&viewport,
+                                                           screen_x,
+                                                           screen_y,
+                                                           camera_viewport_bridge_rotation_from_heading(next_heading_rad));
+    if (result.code != CORE_OK) {
+        return result;
+    }
+
+    result = camera_viewport_bridge_target_center_from_viewport(&viewport,
+                                                                screen_w,
+                                                                screen_h,
+                                                                &camera->x_target,
+                                                                &camera->y_target);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+
+    camera_set_heading_target(camera, next_heading_rad);
+    return core_result_ok();
 }

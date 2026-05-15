@@ -5,6 +5,25 @@
 
 #include <math.h>
 
+static float camera_normalize_angle(float angle_rad) {
+    const float tau = 6.28318530717958647693f;
+    if (!isfinite(angle_rad)) {
+        return 0.0f;
+    }
+
+    angle_rad = fmodf(angle_rad, tau);
+    if (angle_rad <= -3.14159265358979323846f) {
+        angle_rad += tau;
+    } else if (angle_rad > 3.14159265358979323846f) {
+        angle_rad -= tau;
+    }
+    return angle_rad;
+}
+
+static float camera_shortest_angle_delta(float current_angle_rad, float target_angle_rad) {
+    return camera_normalize_angle(target_angle_rad - current_angle_rad);
+}
+
 static float clampf(float value, float min_value, float max_value) {
     if (value < min_value) {
         return min_value;
@@ -27,6 +46,8 @@ void camera_init(Camera *camera) {
     camera->y_target = camera->y;
     camera->zoom = 14.0f;
     camera->zoom_target = camera->zoom;
+    camera->heading_rad = 0.0f;
+    camera->heading_target_rad = 0.0f;
 }
 
 void camera_handle_input(Camera *camera, const InputState *input, int screen_w, int screen_h, float dt, bool allow_mouse_pan) {
@@ -89,6 +110,16 @@ void camera_update(Camera *camera, float dt) {
     camera->zoom += (camera->zoom_target - camera->zoom) * alpha;
     camera->x += (camera->x_target - camera->x) * alpha;
     camera->y += (camera->y_target - camera->y) * alpha;
+    camera->heading_target_rad = camera_normalize_angle(camera->heading_target_rad);
+    camera->heading_rad = camera_normalize_angle(camera->heading_rad +
+                                                 camera_shortest_angle_delta(camera->heading_rad, camera->heading_target_rad) * alpha);
+}
+
+void camera_set_heading_target(Camera *camera, float heading_rad) {
+    if (!camera) {
+        return;
+    }
+    camera->heading_target_rad = camera_normalize_angle(heading_rad);
 }
 
 float camera_pixels_per_meter(const Camera *camera) {
@@ -105,28 +136,77 @@ void camera_world_to_screen(const Camera *camera, float world_x, float world_y, 
     if (!camera || !out_x || !out_y) {
         return;
     }
-
-    float ppm = camera_pixels_per_meter(camera);
-    float dx = (world_x - camera->x) * ppm;
-    float dy = (camera->y - world_y) * ppm;
-
-    *out_x = (float)screen_w * 0.5f + dx;
-    *out_y = (float)screen_h * 0.5f + dy;
+    if (camera_viewport_bridge_world_to_screen(camera, world_x, world_y, screen_w, screen_h, out_x, out_y).code != CORE_OK) {
+        *out_x = 0.0f;
+        *out_y = 0.0f;
+    }
 }
 
 void camera_screen_to_world(const Camera *camera, float screen_x, float screen_y, int screen_w, int screen_h, float *out_x, float *out_y) {
     if (!camera || !out_x || !out_y) {
         return;
     }
+    if (camera_viewport_bridge_screen_to_world(camera, screen_x, screen_y, screen_w, screen_h, out_x, out_y).code != CORE_OK) {
+        *out_x = 0.0f;
+        *out_y = 0.0f;
+    }
+}
 
-    float ppm = camera_pixels_per_meter(camera);
-    if (ppm <= 0.0f) {
-        return;
+bool camera_visible_world_aabb(const Camera *camera,
+                               int screen_w,
+                               int screen_h,
+                               float *out_min_x,
+                               float *out_min_y,
+                               float *out_max_x,
+                               float *out_max_y) {
+    if (!camera || screen_w <= 0 || screen_h <= 0 ||
+        !out_min_x || !out_min_y || !out_max_x || !out_max_y) {
+        return false;
     }
 
-    float dx = screen_x - (float)screen_w * 0.5f;
-    float dy = screen_y - (float)screen_h * 0.5f;
+    static const float corner_uvs[4][2] = {
+        {0.0f, 0.0f},
+        {1.0f, 0.0f},
+        {0.0f, 1.0f},
+        {1.0f, 1.0f}
+    };
 
-    *out_x = camera->x + dx / ppm;
-    *out_y = camera->y - dy / ppm;
+    float min_x = 0.0f;
+    float min_y = 0.0f;
+    float max_x = 0.0f;
+    float max_y = 0.0f;
+    for (int i = 0; i < 4; ++i) {
+        float world_x = 0.0f;
+        float world_y = 0.0f;
+        camera_screen_to_world(camera,
+                               corner_uvs[i][0] * (float)screen_w,
+                               corner_uvs[i][1] * (float)screen_h,
+                               screen_w,
+                               screen_h,
+                               &world_x,
+                               &world_y);
+        if (i == 0) {
+            min_x = max_x = world_x;
+            min_y = max_y = world_y;
+            continue;
+        }
+        if (world_x < min_x) {
+            min_x = world_x;
+        }
+        if (world_x > max_x) {
+            max_x = world_x;
+        }
+        if (world_y < min_y) {
+            min_y = world_y;
+        }
+        if (world_y > max_y) {
+            max_y = world_y;
+        }
+    }
+
+    *out_min_x = min_x;
+    *out_min_y = min_y;
+    *out_max_x = max_x;
+    *out_max_y = max_y;
+    return true;
 }

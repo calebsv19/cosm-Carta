@@ -26,12 +26,19 @@ void input_init(InputState *input) {
     input->toggle_landuse_pressed = false;
     input->toggle_building_fill_pressed = false;
     input->toggle_polygon_outline_pressed = false;
+    input->toggle_follow_preview_pressed = false;
+    input->toggle_follow_heading_mode_pressed = false;
     input->theme_cycle_next_pressed = false;
     input->theme_cycle_prev_pressed = false;
     input->playback_step_forward = false;
     input->playback_step_back = false;
+    input->zoom_step_in_pressed = false;
+    input->zoom_step_out_pressed = false;
     input->playback_speed_up = false;
     input->playback_speed_down = false;
+    input->rotate_heading_left_pressed = false;
+    input->rotate_heading_right_pressed = false;
+    input->rotate_heading_reset_pressed = false;
     input->shift_down = false;
     input->alt_down = false;
     input->left_click_pressed = false;
@@ -72,12 +79,19 @@ void input_begin_frame(InputState *input) {
     input->toggle_landuse_pressed = false;
     input->toggle_building_fill_pressed = false;
     input->toggle_polygon_outline_pressed = false;
+    input->toggle_follow_preview_pressed = false;
+    input->toggle_follow_heading_mode_pressed = false;
     input->theme_cycle_next_pressed = false;
     input->theme_cycle_prev_pressed = false;
     input->playback_step_forward = false;
     input->playback_step_back = false;
+    input->zoom_step_in_pressed = false;
+    input->zoom_step_out_pressed = false;
     input->playback_speed_up = false;
     input->playback_speed_down = false;
+    input->rotate_heading_left_pressed = false;
+    input->rotate_heading_right_pressed = false;
+    input->rotate_heading_reset_pressed = false;
     input->left_click_pressed = false;
     input->right_click_pressed = false;
     input->middle_click_pressed = false;
@@ -162,16 +176,37 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
                 input->toggle_building_fill_pressed = true;
             } else if (event->key.keysym.sym == SDLK_F7) {
                 input->toggle_polygon_outline_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_F8) {
+                input->toggle_follow_preview_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_F9) {
+                input->toggle_follow_heading_mode_pressed = true;
             } else if (event->key.keysym.sym == SDLK_SPACE) {
                 input->toggle_playback_pressed = true;
             } else if (event->key.keysym.sym == SDLK_PERIOD) {
                 input->playback_step_forward = true;
             } else if (event->key.keysym.sym == SDLK_COMMA) {
                 input->playback_step_back = true;
-            } else if (event->key.keysym.sym == SDLK_EQUALS) {
-                input->playback_speed_up = true;
-            } else if (event->key.keysym.sym == SDLK_MINUS) {
-                input->playback_speed_down = true;
+            } else if (event->key.keysym.sym == SDLK_EQUALS ||
+                       event->key.keysym.sym == SDLK_PLUS ||
+                       event->key.keysym.sym == SDLK_KP_PLUS) {
+                if ((event->key.keysym.mod & KMOD_SHIFT) != 0) {
+                    input->playback_speed_up = true;
+                } else {
+                    input->zoom_step_in_pressed = true;
+                }
+            } else if (event->key.keysym.sym == SDLK_MINUS ||
+                       event->key.keysym.sym == SDLK_KP_MINUS) {
+                if ((event->key.keysym.mod & KMOD_SHIFT) != 0) {
+                    input->playback_speed_down = true;
+                } else {
+                    input->zoom_step_out_pressed = true;
+                }
+            } else if (event->key.keysym.sym == SDLK_SEMICOLON) {
+                input->rotate_heading_left_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_QUOTE) {
+                input->rotate_heading_right_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_0 || event->key.keysym.sym == SDLK_KP_0) {
+                input->rotate_heading_reset_pressed = true;
             } else if (event->key.keysym.sym == SDLK_RETURN || event->key.keysym.sym == SDLK_KP_ENTER) {
                 input->enter_pressed = true;
             } else if (event->key.keysym.sym == SDLK_c &&

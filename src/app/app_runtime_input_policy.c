@@ -22,8 +22,12 @@ uint32_t app_runtime_apply_text_entry_shortcut_policy(InputState *input,
     blocked_count += app_runtime_clear_shortcut_flag(&input->toggle_landuse_pressed);
     blocked_count += app_runtime_clear_shortcut_flag(&input->toggle_building_fill_pressed);
     blocked_count += app_runtime_clear_shortcut_flag(&input->toggle_polygon_outline_pressed);
+    blocked_count += app_runtime_clear_shortcut_flag(&input->toggle_follow_preview_pressed);
+    blocked_count += app_runtime_clear_shortcut_flag(&input->toggle_follow_heading_mode_pressed);
     blocked_count += app_runtime_clear_shortcut_flag(&input->theme_cycle_next_pressed);
     blocked_count += app_runtime_clear_shortcut_flag(&input->theme_cycle_prev_pressed);
+    blocked_count += app_runtime_clear_shortcut_flag(&input->zoom_step_in_pressed);
+    blocked_count += app_runtime_clear_shortcut_flag(&input->zoom_step_out_pressed);
     blocked_count += app_runtime_clear_shortcut_flag(&input->copy_overlay_pressed);
     blocked_count += app_runtime_clear_shortcut_flag(&input->font_zoom_in_pressed);
     blocked_count += app_runtime_clear_shortcut_flag(&input->font_zoom_out_pressed);

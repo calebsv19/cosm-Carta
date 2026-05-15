@@ -126,10 +126,14 @@ static void app_runtime_input_normalize(AppState *app,
     keyboard_actions += app_runtime_count_bool(input->toggle_landuse_pressed);
     keyboard_actions += app_runtime_count_bool(input->toggle_building_fill_pressed);
     keyboard_actions += app_runtime_count_bool(input->toggle_polygon_outline_pressed);
+    keyboard_actions += app_runtime_count_bool(input->toggle_follow_preview_pressed);
+    keyboard_actions += app_runtime_count_bool(input->toggle_follow_heading_mode_pressed);
     keyboard_actions += app_runtime_count_bool(input->theme_cycle_next_pressed);
     keyboard_actions += app_runtime_count_bool(input->theme_cycle_prev_pressed);
     keyboard_actions += app_runtime_count_bool(input->playback_step_forward);
     keyboard_actions += app_runtime_count_bool(input->playback_step_back);
+    keyboard_actions += app_runtime_count_bool(input->zoom_step_in_pressed);
+    keyboard_actions += app_runtime_count_bool(input->zoom_step_out_pressed);
     keyboard_actions += app_runtime_count_bool(input->playback_speed_up);
     keyboard_actions += app_runtime_count_bool(input->playback_speed_down);
     keyboard_actions += app_runtime_count_bool(input->font_zoom_in_pressed);
@@ -173,6 +177,8 @@ static void app_runtime_input_normalize(AppState *app,
         input->toggle_polygon_outline_pressed ||
         input->theme_cycle_next_pressed ||
         input->theme_cycle_prev_pressed ||
+        input->zoom_step_in_pressed ||
+        input->zoom_step_out_pressed ||
         input->ingest_panel_toggle_pressed ||
         input->ingest_tab_toggle_pressed ||
         input->ingest_select_prev_pressed ||

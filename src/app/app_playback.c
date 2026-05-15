@@ -200,6 +200,7 @@ void app_playback_reset(AppState *app) {
     }
     app->route_state_bridge.playback_time_s = 0.0f;
     app->route_state_bridge.playback_playing = false;
+    app_route_preview_reset(app);
 }
 
 void app_playback_update(AppState *app, float dt) {
@@ -218,66 +219,24 @@ void app_playback_update(AppState *app, float dt) {
     }
 }
 
-static bool app_playback_position(const AppState *app, float *out_x, float *out_y) {
-    const RoutePath *active_path = playback_active_path(app, NULL);
-    if (!app || !out_x || !out_y || !active_path || active_path->count < 2 ||
-        !active_path->cumulative_time_s || active_path->total_time_s <= 0.0f) {
-        return false;
-    }
-
-    float t = app->route_state_bridge.playback_time_s;
-    if (t <= 0.0f) {
-        uint32_t node = active_path->nodes[0];
-        *out_x = (float)app->route_state_bridge.route.graph.node_x[node];
-        *out_y = (float)app->route_state_bridge.route.graph.node_y[node];
-        return true;
-    }
-    if (t >= active_path->total_time_s) {
-        uint32_t node = active_path->nodes[active_path->count - 1];
-        *out_x = (float)app->route_state_bridge.route.graph.node_x[node];
-        *out_y = (float)app->route_state_bridge.route.graph.node_y[node];
-        return true;
-    }
-
-    uint32_t segment = 0;
-    for (uint32_t i = 0; i + 1 < active_path->count; ++i) {
-        if (t <= active_path->cumulative_time_s[i + 1]) {
-            segment = i;
-            break;
-        }
-    }
-
-    float t0 = active_path->cumulative_time_s[segment];
-    float t1 = active_path->cumulative_time_s[segment + 1];
-    float denom = t1 - t0;
-    float alpha = denom > 0.0001f ? (t - t0) / denom : 0.0f;
-
-    uint32_t a = active_path->nodes[segment];
-    uint32_t b = active_path->nodes[segment + 1];
-    float ax = (float)app->route_state_bridge.route.graph.node_x[a];
-    float ay = (float)app->route_state_bridge.route.graph.node_y[a];
-    float bx = (float)app->route_state_bridge.route.graph.node_x[b];
-    float by = (float)app->route_state_bridge.route.graph.node_y[b];
-
-    *out_x = ax + (bx - ax) * alpha;
-    *out_y = ay + (by - ay) * alpha;
-    return true;
-}
-
 void app_draw_playback_marker(AppState *app) {
     if (!app) {
         return;
     }
 
-    float wx = 0.0f;
-    float wy = 0.0f;
-    if (!app_playback_position(app, &wx, &wy)) {
+    if (!app->route_state_bridge.preview.valid) {
         return;
     }
 
     float sx = 0.0f;
     float sy = 0.0f;
-    camera_world_to_screen(&app->view_state_bridge.camera, wx, wy, app->width, app->height, &sx, &sy);
+    camera_world_to_screen(&app->view_state_bridge.camera,
+                           app->route_state_bridge.preview.world_x,
+                           app->route_state_bridge.preview.world_y,
+                           app->width,
+                           app->height,
+                           &sx,
+                           &sy);
     MapForgeThemePalette palette = playback_theme_palette();
     renderer_set_draw_color(&app->renderer,
                             palette.playback_marker_fill.r,

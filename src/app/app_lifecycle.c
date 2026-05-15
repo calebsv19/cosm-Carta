@@ -468,6 +468,11 @@ bool app_init(AppState *app) {
     app->route_state_bridge.playback_playing = false;
     app->route_state_bridge.playback_time_s = 0.0f;
     app->route_state_bridge.playback_speed = 1.0f;
+    app->route_state_bridge.preview_follow_enabled = false;
+    app->route_state_bridge.preview_heading_up = true;
+    app->route_state_bridge.preview_heading_memory_valid = false;
+    app->route_state_bridge.preview_heading_memory_rad = 0.0f;
+    app->route_state_bridge.preview_heading_memory_sample_time_s = 0.0f;
     app->view_state_bridge.show_landuse = false;
     app->view_state_bridge.building_zoom_bias = app_building_zoom_bias_for_region(&app->region);
     app->view_state_bridge.building_fill_enabled = true;

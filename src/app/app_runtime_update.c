@@ -47,6 +47,8 @@ static void app_run_viewport_scenario_phase_a(AppState *app, double now_sec) {
     camera->y_target = camera->y;
     camera->zoom = zoom;
     camera->zoom_target = zoom;
+    camera->heading_rad = 0.0f;
+    camera->heading_target_rad = 0.0f;
 }
 
 static void app_run_viewport_scenario_phase_b(AppState *app, double now_sec) {
@@ -77,7 +79,7 @@ static void app_run_viewport_scenario_phase_b(AppState *app, double now_sec) {
     const float tau = 6.28318530718f;
 
     /* Box-like sweep with harmonic jitter to force continuity churn under pan. */
-    float cycle = fmodf(t * 8.0f, 4.0f);
+    float cycle = fmodf(t * 6.5f, 4.0f);
     float side_t = cycle - floorf(cycle);
     float edge_x = 0.0f;
     float edge_y = 0.0f;
@@ -95,24 +97,24 @@ static void app_run_viewport_scenario_phase_b(AppState *app, double now_sec) {
         edge_y = 1.0f - 2.0f * side_t;
     }
 
-    float jitter_x = cosf(t * tau * 9.0f) * 110.0f + sinf(t * tau * 5.0f) * 70.0f;
-    float jitter_y = sinf(t * tau * 8.0f) * 95.0f + cosf(t * tau * 6.0f) * 60.0f;
-    float pan_x = edge_x * 950.0f + jitter_x;
-    float pan_y = edge_y * 760.0f + jitter_y;
+    float jitter_x = cosf(t * tau * 9.0f) * 90.0f + sinf(t * tau * 5.0f) * 55.0f;
+    float jitter_y = sinf(t * tau * 8.0f) * 80.0f + cosf(t * tau * 6.0f) * 48.0f;
+    float pan_x = edge_x * 860.0f + jitter_x;
+    float pan_y = edge_y * 680.0f + jitter_y;
 
     /* Aggressive stepped zoom with wave overlay to stress cross-band continuity. */
     int step_phase = ((int)floorf(t * 10.0f)) % 4;
     float zoom_step = 0.0f;
     if (step_phase == 0) {
-        zoom_step = -0.95f;
+        zoom_step = -0.85f;
     } else if (step_phase == 1) {
-        zoom_step = 0.55f;
+        zoom_step = 0.45f;
     } else if (step_phase == 2) {
-        zoom_step = -0.35f;
+        zoom_step = -0.28f;
     } else {
-        zoom_step = 0.80f;
+        zoom_step = 0.68f;
     }
-    float zoom_wave = sinf(t * tau * 7.5f) * 0.28f + cosf(t * tau * 3.2f) * 0.18f;
+    float zoom_wave = sinf(t * tau * 7.5f) * 0.22f + cosf(t * tau * 3.2f) * 0.14f;
     float zoom = app->viewport_scenario_origin_zoom + zoom_step + zoom_wave;
     float min_zoom = app->viewport_scenario_origin_zoom - 1.5f;
     float max_zoom = app->viewport_scenario_origin_zoom + 1.2f;
@@ -124,6 +126,24 @@ static void app_run_viewport_scenario_phase_b(AppState *app, double now_sec) {
     camera->y_target = camera->y;
     camera->zoom = zoom;
     camera->zoom_target = zoom;
+    camera->heading_rad = 0.0f;
+    camera->heading_target_rad = 0.0f;
+}
+
+static bool app_runtime_has_manual_camera_override(const InputState *input,
+                                                   bool allow_mouse_pan) {
+    if (!input) {
+        return false;
+    }
+    if (input->pan_left || input->pan_right || input->pan_up || input->pan_down) {
+        return true;
+    }
+    if (allow_mouse_pan &&
+        (input->mouse_buttons & SDL_BUTTON_LMASK) != 0u &&
+        (input->mouse_dx != 0 || input->mouse_dy != 0)) {
+        return true;
+    }
+    return false;
 }
 
 void app_runtime_update_frame(AppState *app,
@@ -182,7 +202,17 @@ void app_runtime_update_frame(AppState *app,
     if (app_header_layer_scroll_update(app)) {
         camera_input.mouse_wheel_y = 0;
     }
+    if (app->route_state_bridge.preview_follow_enabled &&
+        !app->viewport_scenario_active &&
+        app_runtime_has_manual_camera_override(&camera_input, allow_mouse_pan)) {
+        app->route_state_bridge.preview_follow_enabled = false;
+    }
     camera_handle_input(&app->view_state_bridge.camera, &camera_input, app->width, app->height, dt, allow_mouse_pan);
+
+    app_route_poll_result(app);
+    app_route_panel_model_update(app);
+    app_playback_update(app, dt);
+    app_route_preview_update(app);
     camera_update(&app->view_state_bridge.camera, dt);
     if (app->viewport_scenario_mode == APP_VIEWPORT_SCENARIO_PHASE_B) {
         app_run_viewport_scenario_phase_b(app, now);
@@ -190,12 +220,9 @@ void app_runtime_update_frame(AppState *app,
         app_run_viewport_scenario_phase_a(app, now);
     }
     debug_overlay_update(&app->ui_state_bridge.overlay, dt);
-
     app_update_hover(app);
     double after_update = time_now_seconds();
 
-    app_route_poll_result(app);
-    app_route_panel_model_update(app);
     if (app->tile_state_bridge.budget_policy.integrate_cap == 0u) {
         app_runtime_budget_policy_init(app);
     }
@@ -381,8 +408,6 @@ void app_runtime_update_frame(AppState *app,
     app_route_poll_result(app);
     app_route_panel_model_update(app);
     double after_route = time_now_seconds();
-
-    app_playback_update(app, dt);
     app_bridge_sync_to_legacy(app);
 
     if (out_dt) {

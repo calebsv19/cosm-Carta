@@ -425,6 +425,19 @@ typedef struct AppTileState {
     AppRuntimeBudgetFrameStats budget_frame;
 } AppTileState;
 
+typedef struct AppRoutePreviewState {
+    bool valid;
+    bool follow_active;
+    bool has_lookahead;
+    uint32_t segment_index;
+    float sample_time_s;
+    float world_x;
+    float world_y;
+    float heading_rad;
+    float lookahead_world_x;
+    float lookahead_world_y;
+} AppRoutePreviewState;
+
 /* Phase 2 bridge: target ownership bucket for route/path interaction state. */
 typedef struct AppRouteRuntimeState {
     RouteState route;
@@ -441,6 +454,12 @@ typedef struct AppRouteRuntimeState {
     bool playback_playing;
     float playback_time_s;
     float playback_speed;
+    bool preview_follow_enabled;
+    bool preview_heading_up;
+    bool preview_heading_memory_valid;
+    float preview_heading_memory_rad;
+    float preview_heading_memory_sample_time_s;
+    AppRoutePreviewState preview;
     bool route_alt_visible[ROUTE_ALTERNATIVE_MAX];
     uint32_t route_snap_debug_cells;
     uint32_t route_snap_debug_segments;
@@ -846,6 +865,8 @@ const RoutePath *app_route_primary_path(const AppState *app, uint32_t *out_alt_i
 bool app_route_service_select_alternative(AppState *app, uint32_t alt_index);
 bool app_route_service_toggle_alternative_visibility(AppState *app, uint32_t alt_index);
 
+void app_route_preview_reset(AppState *app);
+void app_route_preview_update(AppState *app);
 void app_playback_reset(AppState *app);
 void app_playback_update(AppState *app, float dt);
 float app_next_playback_speed(float current, int direction);

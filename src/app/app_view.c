@@ -119,6 +119,8 @@ void app_center_camera_on_region(Camera *camera, const RegionInfo *region, int s
     camera->x_target = camera->x;
     camera->y_target = camera->y;
     camera->zoom_target = camera->zoom;
+    camera->heading_rad = 0.0f;
+    camera->heading_target_rad = 0.0f;
 }
 
 float app_building_zoom_bias_for_region(const RegionInfo *region) {

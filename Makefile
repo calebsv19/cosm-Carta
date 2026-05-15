@@ -401,6 +401,8 @@ TILE_SOURCE_ARCHIVE_TEST_TARGET := $(TEST_BIN_DIR)/tile_source_archive_test
 TILE_SOURCE_ARCHIVE_TEST_SRCS := tests/tile_source_archive_test.c src/map/tile_source.c
 APP_ROUTE_SERVICE_TEST_TARGET := $(TEST_BIN_DIR)/app_route_service_test
 APP_ROUTE_SERVICE_TEST_SRCS := tests/app_route_service_test.c src/app/route/app_route_service.c
+APP_ROUTE_PREVIEW_TEST_TARGET := $(TEST_BIN_DIR)/app_route_preview_test
+APP_ROUTE_PREVIEW_TEST_SRCS := tests/app_route_preview_test.c src/app/route/app_route_preview.c src/app/route/app_route_selection.c
 APP_TILE_PRESENTER_POLICY_TEST_TARGET := $(TEST_BIN_DIR)/app_tile_presenter_policy_test
 APP_TILE_PRESENTER_POLICY_TEST_SRCS := tests/app_tile_presenter_policy_test.c src/app/app_tile_presenter.c src/app/app_tile_lifecycle.c src/core/time.c
 POLYGON_CACHE_GUARDRAILS_TEST_TARGET := $(TEST_BIN_DIR)/polygon_cache_guardrails_test
@@ -1019,6 +1021,9 @@ test-tile-source-archive: $(TILE_SOURCE_ARCHIVE_TEST_TARGET)
 test-route-service: $(APP_ROUTE_SERVICE_TEST_TARGET)
 	./$(APP_ROUTE_SERVICE_TEST_TARGET)
 
+test-route-preview: $(APP_ROUTE_PREVIEW_TEST_TARGET)
+	./$(APP_ROUTE_PREVIEW_TEST_TARGET)
+
 test-tile-presenter-policy: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 	./$(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 
@@ -1143,6 +1148,10 @@ $(TILE_SOURCE_ARCHIVE_TEST_TARGET): $(TILE_SOURCE_ARCHIVE_TEST_SRCS)
 $(APP_ROUTE_SERVICE_TEST_TARGET): $(APP_ROUTE_SERVICE_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_ROUTE_SERVICE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(APP_ROUTE_PREVIEW_TEST_TARGET): $(APP_ROUTE_PREVIEW_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_ROUTE_PREVIEW_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(APP_TILE_PRESENTER_POLICY_TEST_TARGET): $(APP_TILE_PRESENTER_POLICY_TEST_SRCS) $(CORE_TIME_LIB)
 	@mkdir -p $(dir $@)

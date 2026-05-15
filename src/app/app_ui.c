@@ -433,11 +433,16 @@ void app_draw_header_bar(AppState *app) {
 
     float cursor_x = button.x + button.w + 12.0f;
     char speed_text[32];
-    snprintf(speed_text, sizeof(speed_text), "Speed: %.1fx", app->route_state_bridge.playback_speed);
+    snprintf(speed_text, sizeof(speed_text), "Speed: %.1fx [Shift +/-]", app->route_state_bridge.playback_speed);
+    char follow_text[32];
+    char mode_text[32];
     char distance_text[48];
     char zoom_text[24];
+    char heading_text[48];
+    bool show_preview_status = !app->viewport_scenario_active;
     float km = 0.0f;
     float minutes = 0.0f;
+    float heading_deg = app->view_state_bridge.camera.heading_rad * 57.2957795f;
     const RoutePath *primary_path = app_route_primary_path(app, NULL);
     if (primary_path && primary_path->count > 1) {
         km = primary_path->total_length_m / 1000.0f;
@@ -455,15 +460,27 @@ void app_draw_header_bar(AppState *app) {
     } else {
         snprintf(distance_text, sizeof(distance_text), "Route: %.2f km | %.1f min", km, minutes);
     }
-    snprintf(zoom_text, sizeof(zoom_text), "Zoom: %.2f", app->view_state_bridge.camera.zoom);
+    snprintf(follow_text, sizeof(follow_text), "%s [F8]",
+             app->route_state_bridge.preview_follow_enabled ? "FOLLOW" : "FREE");
+    snprintf(mode_text, sizeof(mode_text), "%s [F9]",
+             app->route_state_bridge.preview_heading_up ? "HEAD UP" : "NORTH UP");
+    snprintf(zoom_text, sizeof(zoom_text), "Zoom: %.2f [- =]", app->view_state_bridge.camera.zoom);
+    if (app->route_state_bridge.preview_follow_enabled) {
+        snprintf(heading_text, sizeof(heading_text), "Heading: %.0fdeg", heading_deg);
+    } else {
+        snprintf(heading_text, sizeof(heading_text), "Heading: %.0fdeg [; ' 0]", heading_deg);
+    }
 
     SDL_Color badge_fill = palette.badge_fill;
     SDL_Color badge_outline = palette.badge_outline;
     float pad_x = 8.0f;
     float pad_y = 3.0f;
     int speed_w = ui_measure_text_width(speed_text, 1.0f);
+    int follow_w = show_preview_status ? ui_measure_text_width(follow_text, 1.0f) : 0;
+    int mode_w = show_preview_status ? ui_measure_text_width(mode_text, 1.0f) : 0;
     int distance_w = ui_measure_text_width(distance_text, 1.0f);
     int zoom_w = ui_measure_text_width(zoom_text, 1.0f);
+    int heading_w = ui_measure_text_width(heading_text, 1.0f);
     float box_h = (float)text_h + pad_y * 2.0f;
     float box_y = (APP_HEADER_HEIGHT - box_h) * 0.5f;
     float speed_box_w = (float)speed_w + pad_x * 2.0f;
@@ -474,6 +491,44 @@ void app_draw_header_bar(AppState *app) {
     renderer_draw_rect(&app->renderer, &speed_box);
     ui_draw_text(&app->renderer, (int)(speed_box.x + pad_x), (int)(speed_box.y + (box_h - text_h) * 0.5f), speed_text, label_color, 1.0f);
     cursor_x += speed_box_w + 10.0f;
+
+    if (show_preview_status) {
+        float follow_box_w = (float)follow_w + pad_x * 2.0f;
+        SDL_FRect follow_box = {cursor_x, box_y, follow_box_w, box_h};
+        renderer_set_draw_color(&app->renderer,
+                                app->route_state_bridge.preview_follow_enabled ? palette.button_active_primary.r : badge_fill.r,
+                                app->route_state_bridge.preview_follow_enabled ? palette.button_active_primary.g : badge_fill.g,
+                                app->route_state_bridge.preview_follow_enabled ? palette.button_active_primary.b : badge_fill.b,
+                                app->route_state_bridge.preview_follow_enabled ? palette.button_active_primary.a : badge_fill.a);
+        renderer_fill_rect(&app->renderer, &follow_box);
+        renderer_set_draw_color(&app->renderer, badge_outline.r, badge_outline.g, badge_outline.b, badge_outline.a);
+        renderer_draw_rect(&app->renderer, &follow_box);
+        ui_draw_text(&app->renderer,
+                     (int)(follow_box.x + pad_x),
+                     (int)(follow_box.y + (box_h - text_h) * 0.5f),
+                     follow_text,
+                     label_color,
+                     1.0f);
+        cursor_x += follow_box_w + 10.0f;
+
+        float mode_box_w = (float)mode_w + pad_x * 2.0f;
+        SDL_FRect mode_box = {cursor_x, box_y, mode_box_w, box_h};
+        renderer_set_draw_color(&app->renderer,
+                                app->route_state_bridge.preview_heading_up ? palette.button_active_success.r : badge_fill.r,
+                                app->route_state_bridge.preview_heading_up ? palette.button_active_success.g : badge_fill.g,
+                                app->route_state_bridge.preview_heading_up ? palette.button_active_success.b : badge_fill.b,
+                                app->route_state_bridge.preview_heading_up ? palette.button_active_success.a : badge_fill.a);
+        renderer_fill_rect(&app->renderer, &mode_box);
+        renderer_set_draw_color(&app->renderer, badge_outline.r, badge_outline.g, badge_outline.b, badge_outline.a);
+        renderer_draw_rect(&app->renderer, &mode_box);
+        ui_draw_text(&app->renderer,
+                     (int)(mode_box.x + pad_x),
+                     (int)(mode_box.y + (box_h - text_h) * 0.5f),
+                     mode_text,
+                     label_color,
+                     1.0f);
+        cursor_x += mode_box_w + 10.0f;
+    }
 
     float distance_box_w = (float)distance_w + pad_x * 2.0f;
     SDL_FRect distance_box = {cursor_x, box_y, distance_box_w, box_h};
@@ -492,6 +547,20 @@ void app_draw_header_bar(AppState *app) {
     renderer_draw_rect(&app->renderer, &zoom_box);
     ui_draw_text(&app->renderer, (int)(zoom_box.x + pad_x), (int)(zoom_box.y + (box_h - text_h) * 0.5f), zoom_text, label_color, 1.0f);
     cursor_x += zoom_box_w + 10.0f;
+
+    float heading_box_w = (float)heading_w + pad_x * 2.0f;
+    SDL_FRect heading_box = {cursor_x, box_y, heading_box_w, box_h};
+    renderer_set_draw_color(&app->renderer, badge_fill.r, badge_fill.g, badge_fill.b, badge_fill.a);
+    renderer_fill_rect(&app->renderer, &heading_box);
+    renderer_set_draw_color(&app->renderer, badge_outline.r, badge_outline.g, badge_outline.b, badge_outline.a);
+    renderer_draw_rect(&app->renderer, &heading_box);
+    ui_draw_text(&app->renderer,
+                 (int)(heading_box.x + pad_x),
+                 (int)(heading_box.y + (box_h - text_h) * 0.5f),
+                 heading_text,
+                 label_color,
+                 1.0f);
+    cursor_x += heading_box_w + 10.0f;
 
     float zoom_toggle_w = 74.0f;
     float zoom_toggle_gap = 6.0f;

@@ -13,14 +13,19 @@ static bool app_compute_visible_tile_bounds(AppState *app, uint16_t *out_z, Tile
         return false;
     }
 
-    float ppm = camera_pixels_per_meter(&app->view_state_bridge.camera);
-    float half_w_m = (float)app->width * 0.5f / ppm;
-    float half_h_m = (float)app->height * 0.5f / ppm;
-
-    float min_x = app->view_state_bridge.camera.x - half_w_m;
-    float max_x = app->view_state_bridge.camera.x + half_w_m;
-    float min_y = app->view_state_bridge.camera.y - half_h_m;
-    float max_y = app->view_state_bridge.camera.y + half_h_m;
+    float min_x = 0.0f;
+    float max_x = 0.0f;
+    float min_y = 0.0f;
+    float max_y = 0.0f;
+    if (!camera_visible_world_aabb(&app->view_state_bridge.camera,
+                                   app->width,
+                                   app->height,
+                                   &min_x,
+                                   &min_y,
+                                   &max_x,
+                                   &max_y)) {
+        return false;
+    }
 
     uint16_t z = app_zoom_to_tile_level(app->view_state_bridge.camera.zoom, &app->region);
     TileCoord top_left = tile_from_meters(z, (MercatorMeters){min_x, max_y});

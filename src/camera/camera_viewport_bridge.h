@@ -34,5 +34,11 @@ CoreResult camera_viewport_bridge_pan_target_by_screen_delta(Camera *camera,
                                                              float delta_y,
                                                              int screen_w,
                                                              int screen_h);
+CoreResult camera_viewport_bridge_rotate_target_at_anchor(Camera *camera,
+                                                          float screen_x,
+                                                          float screen_y,
+                                                          int screen_w,
+                                                          int screen_h,
+                                                          float next_heading_rad);
 
 #endif

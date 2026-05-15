@@ -1,4 +1,5 @@
 #include "camera/camera.h"
+#include "../src/camera/camera_viewport_bridge.h"
 #include "map/map_space.h"
 #include "map/mercator.h"
 #include "map/tile_math.h"
@@ -39,6 +40,8 @@ static int test_tile_affine_matches_screen_projection(void) {
     camera.x = -13618288.0f;
     camera.y = 6046761.0f;
     camera.zoom = 12.5f;
+    camera.heading_rad = 0.4f;
+    camera.heading_target_rad = camera.heading_rad;
 
     TileCoord coord = {12, 655, 1582};
     MapTileTransform transform;
@@ -68,7 +71,7 @@ static int test_tile_affine_matches_screen_projection(void) {
     float sx_affine = affine.m00 * local_x + affine.m01 * local_y + affine.m02;
     float sy_affine = affine.m10 * local_x + affine.m11 * local_y + affine.m12;
 
-    if (!nearly_equal(sx_ref, sx_affine, 0.01f) || !nearly_equal(sy_ref, sy_affine, 0.01f)) {
+    if (!nearly_equal(sx_ref, sx_affine, 0.02f) || !nearly_equal(sy_ref, sy_affine, 0.02f)) {
         printf("FAIL affine parity ref=(%.4f,%.4f) affine=(%.4f,%.4f)\n",
                sx_ref, sy_ref, sx_affine, sy_affine);
         return 1;
@@ -82,6 +85,8 @@ static int test_screen_world_roundtrip(void) {
     camera.x = -13618288.0f;
     camera.y = 6046761.0f;
     camera.zoom = 13.0f;
+    camera.heading_rad = 0.6f;
+    camera.heading_target_rad = camera.heading_rad;
 
     const int screen_w = 1920;
     const int screen_h = 1080;
@@ -146,6 +151,8 @@ static int test_camera_wheel_anchor_preserved(void) {
     camera.y_target = camera.y;
     camera.zoom = 13.0f;
     camera.zoom_target = camera.zoom;
+    camera.heading_rad = 0.45f;
+    camera.heading_target_rad = camera.heading_rad;
 
     camera_screen_to_world(&camera, anchor_x, anchor_y, screen_w, screen_h, &world_before_x, &world_before_y);
 
@@ -158,6 +165,7 @@ static int test_camera_wheel_anchor_preserved(void) {
     target_camera.x = camera.x_target;
     target_camera.y = camera.y_target;
     target_camera.zoom = camera.zoom_target;
+    target_camera.heading_rad = camera.heading_target_rad;
     camera_screen_to_world(&target_camera, anchor_x, anchor_y, screen_w, screen_h, &world_after_x, &world_after_y);
 
     if (!nearly_equal(world_before_x, world_after_x, 1.0f) ||
@@ -193,6 +201,8 @@ static int test_camera_drag_pan_moves_world_with_cursor(void) {
     camera.y_target = camera.y;
     camera.zoom = 13.0f;
     camera.zoom_target = camera.zoom;
+    camera.heading_rad = -0.75f;
+    camera.heading_target_rad = camera.heading_rad;
 
     camera_screen_to_world(&camera, screen_x, screen_y, screen_w, screen_h, &world_x, &world_y);
 
@@ -204,6 +214,7 @@ static int test_camera_drag_pan_moves_world_with_cursor(void) {
     target_camera = camera;
     target_camera.x = camera.x_target;
     target_camera.y = camera.y_target;
+    target_camera.heading_rad = camera.heading_target_rad;
     camera_world_to_screen(&target_camera, world_x, world_y, screen_w, screen_h, &moved_screen_x, &moved_screen_y);
 
     if (!nearly_equal(moved_screen_x, screen_x + delta_x, 0.1f) ||
@@ -211,6 +222,138 @@ static int test_camera_drag_pan_moves_world_with_cursor(void) {
         printf("FAIL camera_drag_pan_moves_world_with_cursor expected=(%.4f,%.4f) got=(%.4f,%.4f)\n",
                screen_x + delta_x, screen_y + delta_y, moved_screen_x, moved_screen_y);
         return 1;
+    }
+
+    return 0;
+}
+
+static int test_camera_rotation_anchor_preserved(void) {
+    Camera camera;
+    Camera target_camera;
+    const int screen_w = 1920;
+    const int screen_h = 1080;
+    const float anchor_x = 1320.0f;
+    const float anchor_y = 420.0f;
+    float world_before_x = 0.0f;
+    float world_before_y = 0.0f;
+    float world_after_x = 0.0f;
+    float world_after_y = 0.0f;
+
+    camera_init(&camera);
+    camera.x = -13618288.0f;
+    camera.y = 6046761.0f;
+    camera.x_target = camera.x;
+    camera.y_target = camera.y;
+    camera.zoom = 13.0f;
+    camera.zoom_target = camera.zoom;
+    camera.heading_rad = 0.15f;
+    camera.heading_target_rad = camera.heading_rad;
+
+    camera_screen_to_world(&camera, anchor_x, anchor_y, screen_w, screen_h, &world_before_x, &world_before_y);
+    if (camera_viewport_bridge_rotate_target_at_anchor(&camera,
+                                                       anchor_x,
+                                                       anchor_y,
+                                                       screen_w,
+                                                       screen_h,
+                                                       1.0f).code != CORE_OK) {
+        printf("FAIL camera_rotation_anchor_preserved rotation request failed\n");
+        return 1;
+    }
+
+    target_camera = camera;
+    target_camera.x = camera.x_target;
+    target_camera.y = camera.y_target;
+    target_camera.zoom = camera.zoom_target;
+    target_camera.heading_rad = camera.heading_target_rad;
+    camera_screen_to_world(&target_camera, anchor_x, anchor_y, screen_w, screen_h, &world_after_x, &world_after_y);
+
+    if (!nearly_equal(world_before_x, world_after_x, 2.5f) ||
+        !nearly_equal(world_before_y, world_after_y, 2.5f) ||
+        !nearly_equal(camera.heading_target_rad, 1.0f, 0.0001f)) {
+        printf("FAIL camera_rotation_anchor_preserved before=(%.4f,%.4f) after=(%.4f,%.4f) heading_target=%.4f\n",
+               world_before_x, world_before_y, world_after_x, world_after_y, camera.heading_target_rad);
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_camera_heading_update_shortest_arc(void) {
+    Camera camera;
+    float before_error = 0.0f;
+    float after_error = 0.0f;
+
+    camera_init(&camera);
+    camera.heading_rad = 3.0f;
+    camera.heading_target_rad = -3.0f;
+    before_error = fabsf(atan2f(sinf(camera.heading_target_rad - camera.heading_rad),
+                                cosf(camera.heading_target_rad - camera.heading_rad)));
+    camera_update(&camera, 0.1f);
+    after_error = fabsf(atan2f(sinf(camera.heading_target_rad - camera.heading_rad),
+                               cosf(camera.heading_target_rad - camera.heading_rad)));
+
+    if (!(after_error < before_error)) {
+        printf("FAIL camera_heading_update_shortest_arc error did not shrink: before=%.6f after=%.6f heading=%.6f\n",
+               before_error, after_error, camera.heading_rad);
+        return 1;
+    }
+    if (fabsf(camera.heading_target_rad + 3.0f) > 0.0001f) {
+        printf("FAIL camera_heading_update_shortest_arc target normalized unexpectedly: %.6f\n", camera.heading_target_rad);
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_camera_visible_world_aabb_contains_screen_corners(void) {
+    Camera camera;
+    const int screen_w = 1600;
+    const int screen_h = 900;
+    float min_x = 0.0f;
+    float min_y = 0.0f;
+    float max_x = 0.0f;
+    float max_y = 0.0f;
+
+    camera_init(&camera);
+    camera.x = -13618288.0f;
+    camera.y = 6046761.0f;
+    camera.zoom = 13.2f;
+    camera.zoom_target = camera.zoom;
+    camera.heading_rad = 0.9f;
+    camera.heading_target_rad = camera.heading_rad;
+
+    if (!camera_visible_world_aabb(&camera, screen_w, screen_h, &min_x, &min_y, &max_x, &max_y)) {
+        printf("FAIL camera_visible_world_aabb returned false\n");
+        return 1;
+    }
+
+    static const float corners[4][2] = {
+        {0.0f, 0.0f},
+        {(float)screen_w, 0.0f},
+        {0.0f, (float)screen_h},
+        {(float)screen_w, (float)screen_h}
+    };
+
+    for (int i = 0; i < 4; ++i) {
+        float world_x = 0.0f;
+        float world_y = 0.0f;
+        camera_screen_to_world(&camera, corners[i][0], corners[i][1], screen_w, screen_h, &world_x, &world_y);
+        if (world_x < min_x - 0.01f || world_x > max_x + 0.01f ||
+            world_y < min_y - 0.01f || world_y > max_y + 0.01f) {
+            printf("FAIL camera_visible_world_aabb corner %d outside bounds: world=(%.4f,%.4f) bounds=[%.4f,%.4f]-[%.4f,%.4f]\n",
+                   i, world_x, world_y, min_x, min_y, max_x, max_y);
+            return 1;
+        }
+    }
+
+    {
+        float screen_cx = 0.0f;
+        float screen_cy = 0.0f;
+        camera_world_to_screen(&camera, min_x, min_y, screen_w, screen_h, &screen_cx, &screen_cy);
+        if (!isfinite(screen_cx) || !isfinite(screen_cy)) {
+            printf("FAIL camera_visible_world_aabb produced non-finite projection\n");
+            return 1;
+        }
     }
 
     return 0;
@@ -248,6 +391,9 @@ int main(void) {
     failures += test_tile_wrap_and_clamp();
     failures += test_camera_wheel_anchor_preserved();
     failures += test_camera_drag_pan_moves_world_with_cursor();
+    failures += test_camera_rotation_anchor_preserved();
+    failures += test_camera_heading_update_shortest_arc();
+    failures += test_camera_visible_world_aabb_contains_screen_corners();
     failures += test_affine_constraint_solver();
 
     if (failures != 0) {

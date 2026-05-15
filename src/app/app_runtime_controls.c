@@ -1,5 +1,6 @@
 #include "app/app_internal.h"
 
+#include "../camera/camera_viewport_bridge.h"
 #include "ui/shared_theme_font_adapter.h"
 
 static const RouteObjective kObjectiveCycle[] = {
@@ -19,11 +20,48 @@ static RouteObjective app_runtime_next_route_objective(RouteObjective current) {
     return ROUTE_OBJECTIVE_SHORTEST_DISTANCE;
 }
 
+static void app_runtime_rotate_heading(AppState *app, float delta_rad) {
+    if (!app || app->width <= 0 || app->height <= 0) {
+        return;
+    }
+
+    Camera *camera = &app->view_state_bridge.camera;
+    float next_heading = camera->heading_target_rad + delta_rad;
+    CoreResult result = camera_viewport_bridge_rotate_target_at_anchor(camera,
+                                                                       (float)app->width * 0.5f,
+                                                                       (float)app->height * 0.5f,
+                                                                       app->width,
+                                                                       app->height,
+                                                                       next_heading);
+    if (result.code != CORE_OK) {
+        camera_set_heading_target(camera, next_heading);
+    }
+}
+
+static void app_runtime_step_zoom(AppState *app, float zoom_delta) {
+    if (!app || app->width <= 0 || app->height <= 0) {
+        return;
+    }
+
+    Camera *camera = &app->view_state_bridge.camera;
+    float next_zoom = app_clampf(camera->zoom_target + zoom_delta,
+                                 (float)CAMERA_ZOOM_MIN_LEVEL,
+                                 (float)CAMERA_ZOOM_MAX_LEVEL);
+    (void)camera_viewport_bridge_zoom_target_at_anchor(camera,
+                                                       (float)app->width * 0.5f,
+                                                       (float)app->height * 0.5f,
+                                                       app->width,
+                                                       app->height,
+                                                       next_zoom);
+}
+
 bool app_runtime_handle_global_controls(AppState *app) {
     if (!app) {
         return false;
     }
 
+    const float kRotateStepRad = 0.0872664626f;
+    const RoutePath *active_path = app_route_primary_path(app, NULL);
     bool ingest_consumed = app_runtime_ingest_tick(app);
 
     if (app->ui_state_bridge.input.toggle_debug_pressed) {
@@ -71,16 +109,36 @@ bool app_runtime_handle_global_controls(AppState *app) {
     if (font_zoom_changed) {
         app_apply_shared_ui_font(app);
     }
-    if (app->ui_state_bridge.input.toggle_playback_pressed && app->route_state_bridge.route.path.count >= 2) {
-        app->route_state_bridge.playback_playing = !app->route_state_bridge.playback_playing;
-    }
-    if (app->ui_state_bridge.input.playback_step_forward && app->route_state_bridge.route.path.total_time_s > 0.0f) {
-        app->route_state_bridge.playback_time_s += 5.0f;
-        if (app->route_state_bridge.playback_time_s > app->route_state_bridge.route.path.total_time_s) {
-            app->route_state_bridge.playback_time_s = app->route_state_bridge.route.path.total_time_s;
+    if (app->ui_state_bridge.input.toggle_follow_preview_pressed) {
+        if (app->route_state_bridge.preview_follow_enabled) {
+            app->route_state_bridge.preview_follow_enabled = false;
+        } else if (active_path && active_path->count >= 2u) {
+            app->route_state_bridge.preview_follow_enabled = true;
         }
     }
-    if (app->ui_state_bridge.input.playback_step_back && app->route_state_bridge.route.path.total_time_s > 0.0f) {
+    if (app->ui_state_bridge.input.toggle_follow_heading_mode_pressed) {
+        app->route_state_bridge.preview_heading_up = !app->route_state_bridge.preview_heading_up;
+        if (app->route_state_bridge.preview_follow_enabled &&
+            !app->route_state_bridge.preview_heading_up) {
+            camera_set_heading_target(&app->view_state_bridge.camera, 0.0f);
+        }
+    }
+    if (app->ui_state_bridge.input.toggle_playback_pressed && active_path && active_path->count >= 2u) {
+        app->route_state_bridge.playback_playing = !app->route_state_bridge.playback_playing;
+    }
+    if (!app->ingest_edit_mode && app->ui_state_bridge.input.zoom_step_in_pressed) {
+        app_runtime_step_zoom(app, 0.25f);
+    }
+    if (!app->ingest_edit_mode && app->ui_state_bridge.input.zoom_step_out_pressed) {
+        app_runtime_step_zoom(app, -0.25f);
+    }
+    if (app->ui_state_bridge.input.playback_step_forward && active_path && active_path->total_time_s > 0.0f) {
+        app->route_state_bridge.playback_time_s += 5.0f;
+        if (app->route_state_bridge.playback_time_s > active_path->total_time_s) {
+            app->route_state_bridge.playback_time_s = active_path->total_time_s;
+        }
+    }
+    if (app->ui_state_bridge.input.playback_step_back && active_path && active_path->total_time_s > 0.0f) {
         app->route_state_bridge.playback_time_s -= 5.0f;
         if (app->route_state_bridge.playback_time_s < 0.0f) {
             app->route_state_bridge.playback_time_s = 0.0f;
@@ -91,6 +149,24 @@ bool app_runtime_handle_global_controls(AppState *app) {
     }
     if (app->ui_state_bridge.input.playback_speed_down) {
         app->route_state_bridge.playback_speed = app_next_playback_speed(app->route_state_bridge.playback_speed, -1);
+    }
+    if (!app->ingest_edit_mode && app->ui_state_bridge.input.rotate_heading_left_pressed) {
+        if (app->route_state_bridge.preview_follow_enabled) {
+            app->route_state_bridge.preview_follow_enabled = false;
+        }
+        app_runtime_rotate_heading(app, -kRotateStepRad);
+    }
+    if (!app->ingest_edit_mode && app->ui_state_bridge.input.rotate_heading_right_pressed) {
+        if (app->route_state_bridge.preview_follow_enabled) {
+            app->route_state_bridge.preview_follow_enabled = false;
+        }
+        app_runtime_rotate_heading(app, kRotateStepRad);
+    }
+    if (!app->ingest_edit_mode && app->ui_state_bridge.input.rotate_heading_reset_pressed) {
+        if (app->route_state_bridge.preview_follow_enabled) {
+            app->route_state_bridge.preview_follow_enabled = false;
+        }
+        camera_set_heading_target(&app->view_state_bridge.camera, 0.0f);
     }
 
     return ingest_consumed;
