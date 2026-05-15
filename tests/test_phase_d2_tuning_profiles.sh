@@ -23,6 +23,9 @@ d2_candidate_profile_name="${MAPFORGE_D2_CANDIDATE_PROFILE_NAME:-l0_relief_candi
 d2_baseline_preset="${MAPFORGE_D2_BASELINE_PRESET:-baseline}"
 d2_candidate_preset="${MAPFORGE_D2_CANDIDATE_PRESET:-l0_relief_candidate}"
 d2_trend_window="${MAPFORGE_PHASE_D2_TREND_WINDOW:-5}"
+d2_profile_max_attempts="${MAPFORGE_PHASE_D2_PROFILE_MAX_ATTEMPTS:-3}"
+d2_profile_min_cov_floor="${MAPFORGE_PHASE_D2_PROFILE_MIN_COV_FLOOR:-0.55}"
+d2_profile_min_seattle_load_ex="${MAPFORGE_PHASE_D2_PROFILE_MIN_SEATTLE_LOAD_EX:-40}"
 skip_guardrails="${MAPFORGE_PHASE_D2_SKIP_GUARDRAILS:-0}"
 phase_gate_mode="${MAPFORGE_PHASE_D_GATE_MODE:-d2}"
 
@@ -48,6 +51,16 @@ trend_alert_messages=""
 
 if ! [[ "$d2_trend_window" =~ ^[0-9]+$ ]] || [[ "$d2_trend_window" -lt 1 ]]; then
     echo "invalid MAPFORGE_PHASE_D2_TREND_WINDOW='$d2_trend_window' (must be integer >=1)" >&2
+    exit 1
+fi
+
+if ! [[ "$d2_profile_max_attempts" =~ ^[0-9]+$ ]] || [[ "$d2_profile_max_attempts" -lt 1 ]]; then
+    echo "invalid MAPFORGE_PHASE_D2_PROFILE_MAX_ATTEMPTS='$d2_profile_max_attempts' (must be integer >=1)" >&2
+    exit 1
+fi
+
+if ! [[ "$d2_profile_min_seattle_load_ex" =~ ^[0-9]+$ ]]; then
+    echo "invalid MAPFORGE_PHASE_D2_PROFILE_MIN_SEATTLE_LOAD_EX='$d2_profile_min_seattle_load_ex' (must be integer >=0)" >&2
     exit 1
 fi
 
@@ -210,6 +223,12 @@ run_profile() {
     local preset="$2"
 
     local output=""
+    local attempt=1
+    local matrix_report=""
+    local seattle_cov=""
+    local downtown_cov=""
+    local seattle_load_ex=""
+    local stable_report=0
     local -a preset_env=()
     case "$preset" in
         baseline)
@@ -227,18 +246,38 @@ run_profile() {
             ;;
     esac
 
-    if ! output="$(cd "$repo_root" && env "${preset_env[@]}" "$matrix_script" 2>&1)"; then
-        printf "%s\n" "$output" >&2
+    while [[ "$attempt" -le "$d2_profile_max_attempts" ]]; do
+        if ! output="$(cd "$repo_root" && env "${preset_env[@]}" "$matrix_script" 2>&1)"; then
+            printf "%s\n" "$output" >&2
+            return 1
+        fi
+
+        matrix_report="$(printf "%s\n" "$output" | sed -n 's/.*report=\([^ ]*\).*/\1/p' | tail -n 1)"
+        if [[ -z "$matrix_report" ]]; then
+            printf "unable to locate matrix report for profile '%s'\n" "$profile" >&2
+            printf "%s\n" "$output" >&2
+            return 1
+        fi
+
+        seattle_cov="$(awk -F '\t' '$1=="seattle" { print $4; exit }' "$matrix_report")"
+        downtown_cov="$(awk -F '\t' '$1=="seattle_downtown" { print $4; exit }' "$matrix_report")"
+        seattle_load_ex="$(awk -F '\t' '$1=="seattle" { print $11; exit }' "$matrix_report")"
+        if awk -v s="$seattle_cov" -v d="$downtown_cov" -v l="$seattle_load_ex" -v floor="$d2_profile_min_cov_floor" -v min_load="$d2_profile_min_seattle_load_ex" 'BEGIN { exit !((s + 0) >= floor && (d + 0) >= floor && (l + 0) >= min_load) }'; then
+            stable_report=1
+            break
+        fi
+
+        printf "d2_profile retry profile=%s preset=%s attempt=%d/%s unstable_row(seattle_cov=%s downtown_cov=%s cov_floor=%s seattle_load_ex=%s min_load_ex=%s)\n" \
+            "$profile" "$preset" "$attempt" "$d2_profile_max_attempts" "$seattle_cov" "$downtown_cov" "$d2_profile_min_cov_floor" "$seattle_load_ex" "$d2_profile_min_seattle_load_ex" >&2
+        attempt=$((attempt + 1))
+    done
+
+    if [[ "$stable_report" -ne 1 ]]; then
+        printf "d2_profile unstable profile=%s preset=%s attempts=%s row(seattle_cov=%s downtown_cov=%s cov_floor=%s seattle_load_ex=%s min_load_ex=%s)\n" \
+            "$profile" "$preset" "$d2_profile_max_attempts" "$seattle_cov" "$downtown_cov" "$d2_profile_min_cov_floor" "$seattle_load_ex" "$d2_profile_min_seattle_load_ex" >&2
         return 1
     fi
 
-    local matrix_report=""
-    matrix_report="$(printf "%s\n" "$output" | sed -n 's/.*report=\([^ ]*\).*/\1/p' | tail -n 1)"
-    if [[ -z "$matrix_report" ]]; then
-        printf "unable to locate matrix report for profile '%s'\n" "$profile" >&2
-        printf "%s\n" "$output" >&2
-        return 1
-    fi
     append_profile_rows "$profile" "$matrix_report"
 
     local seattle_summary=""
