@@ -15,6 +15,8 @@ Last audited: 2026-05-04.
 - Phase D throughput harness remains active and currently calibrated to:
   - tolerate higher absolute `seattle` `l0_peak` variance in D2 matrix preconditions
   - use a lower-pressure `l0_relief_candidate` preset (`road_cap=7`, `integrate_cap=60`)
+  - keep D1's strict load-clamp budget gate separate from the D2 profile matrix, whose default absolute clamp ceiling is `96`
+  - allow `seattle` D2 `load_ex` profile delta up to `10` while D3 keeps `8` as a non-blocking trend alert
 
 ## Start Here
 

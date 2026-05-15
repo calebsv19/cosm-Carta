@@ -59,6 +59,8 @@ Last updated: 2026-05-04
 - Throughput guardrail calibration now reflects current local variance:
   - D2 `seattle` matrix precondition uses a higher absolute `l0_peak` ceiling
   - D2 `l0_relief_candidate` defaults now actually reduce pressure (`road_cap=7`, `integrate_cap=60`)
+  - D2 matrix stress runs use a matrix-local absolute `load_clamp` ceiling of `96`; direct D1 budget control remains strict at `48`
+  - D2 `seattle` `load_ex` candidate delta ceiling is `10`, with D3 retaining `8` as a non-blocking trend alert
   - D2 downtown `l0_peak` delta ceiling is widened to `800ms` while continuity/fallback/churn checks remain unchanged
 
 ## History and Deep Lane References

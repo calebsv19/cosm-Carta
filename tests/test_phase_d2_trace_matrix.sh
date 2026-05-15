@@ -5,8 +5,14 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 stress_script="$repo_root/tests/test_phase_b_continuity_stress.sh"
 trace_root="$repo_root/build/traces"
 d2_trace_dir="$trace_root/d2"
+d2_max_load_clamp_total="${MAPFORGE_PHASE_D2_MATRIX_MAX_LOAD_CLAMP_TOTAL:-96}"
+d2_max_load_ex_total="${MAPFORGE_PHASE_D2_MATRIX_MAX_LOAD_EX_TOTAL:-72}"
 d2_max_lane_l2_hits="${MAPFORGE_PHASE_D2_MATRIX_MAX_L2_HITS_TOTAL:-24}"
 d2_max_lane_l3_hits="${MAPFORGE_PHASE_D2_MATRIX_MAX_L3_HITS_TOTAL:-12}"
+d2_max_integ_clamp_total="${MAPFORGE_PHASE_D2_MATRIX_MAX_INTEG_CLAMP_TOTAL:-16}"
+d2_max_integ_ex_total="${MAPFORGE_PHASE_D2_MATRIX_MAX_INTEG_EX_TOTAL:-32}"
+d2_max_vk_asset_sat_total="${MAPFORGE_PHASE_D2_MATRIX_MAX_VK_ASSET_SAT_TOTAL:-8}"
+d2_max_vk_poly_hit_total="${MAPFORGE_PHASE_D2_MATRIX_MAX_VK_POLY_HIT_TOTAL:-8}"
 binary="${MAPFORGE_BINARY:-$repo_root/build/toolchains/clang/bin/mapforge}"
 
 if [[ ! -x "$stress_script" ]]; then
@@ -58,14 +64,14 @@ run_case() {
         MAPFORGE_PHASE_B_MAX_L0_LATENCY_MS="$max_l0_ms" \
         MAPFORGE_PHASE_B_COVERAGE_MIN="$min_cov" \
         MAPFORGE_PHASE_B_MAX_CONSEC_BELOW="$max_consec" \
-        MAPFORGE_PHASE_D1_MAX_LOAD_CLAMP_TOTAL="${MAPFORGE_PHASE_D1_MAX_LOAD_CLAMP_TOTAL:-48}" \
-        MAPFORGE_PHASE_D1_MAX_LOAD_EX_TOTAL="${MAPFORGE_PHASE_D1_MAX_LOAD_EX_TOTAL:-72}" \
+        MAPFORGE_PHASE_D1_MAX_LOAD_CLAMP_TOTAL="$d2_max_load_clamp_total" \
+        MAPFORGE_PHASE_D1_MAX_LOAD_EX_TOTAL="$d2_max_load_ex_total" \
         MAPFORGE_PHASE_D1_MAX_L2_HITS_TOTAL="$d2_max_lane_l2_hits" \
         MAPFORGE_PHASE_D1_MAX_L3_HITS_TOTAL="$d2_max_lane_l3_hits" \
-        MAPFORGE_PHASE_D1_MAX_INTEG_CLAMP_TOTAL="${MAPFORGE_PHASE_D1_MAX_INTEG_CLAMP_TOTAL:-16}" \
-        MAPFORGE_PHASE_D1_MAX_INTEG_EX_TOTAL="${MAPFORGE_PHASE_D1_MAX_INTEG_EX_TOTAL:-32}" \
-        MAPFORGE_PHASE_D1_MAX_VK_ASSET_SAT_TOTAL="${MAPFORGE_PHASE_D1_MAX_VK_ASSET_SAT_TOTAL:-8}" \
-        MAPFORGE_PHASE_D1_MAX_VK_POLY_HIT_TOTAL="${MAPFORGE_PHASE_D1_MAX_VK_POLY_HIT_TOTAL:-8}" \
+        MAPFORGE_PHASE_D1_MAX_INTEG_CLAMP_TOTAL="$d2_max_integ_clamp_total" \
+        MAPFORGE_PHASE_D1_MAX_INTEG_EX_TOTAL="$d2_max_integ_ex_total" \
+        MAPFORGE_PHASE_D1_MAX_VK_ASSET_SAT_TOTAL="$d2_max_vk_asset_sat_total" \
+        MAPFORGE_PHASE_D1_MAX_VK_POLY_HIT_TOTAL="$d2_max_vk_poly_hit_total" \
         "$stress_script" 2>&1
     )"; then
         printf "%s\n" "$output" >&2
