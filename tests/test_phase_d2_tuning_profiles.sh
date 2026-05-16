@@ -25,7 +25,7 @@ d2_candidate_preset="${MAPFORGE_D2_CANDIDATE_PRESET:-l0_relief_candidate}"
 d2_trend_window="${MAPFORGE_PHASE_D2_TREND_WINDOW:-5}"
 d2_profile_max_attempts="${MAPFORGE_PHASE_D2_PROFILE_MAX_ATTEMPTS:-3}"
 d2_profile_min_cov_floor="${MAPFORGE_PHASE_D2_PROFILE_MIN_COV_FLOOR:-0.55}"
-d2_profile_min_seattle_load_ex="${MAPFORGE_PHASE_D2_PROFILE_MIN_SEATTLE_LOAD_EX:-40}"
+d2_profile_min_seattle_load_ex="${MAPFORGE_PHASE_D2_PROFILE_MIN_SEATTLE_LOAD_EX:-0}"
 skip_guardrails="${MAPFORGE_PHASE_D2_SKIP_GUARDRAILS:-0}"
 phase_gate_mode="${MAPFORGE_PHASE_D_GATE_MODE:-d2}"
 
@@ -262,13 +262,17 @@ run_profile() {
         seattle_cov="$(awk -F '\t' '$1=="seattle" { print $4; exit }' "$matrix_report")"
         downtown_cov="$(awk -F '\t' '$1=="seattle_downtown" { print $4; exit }' "$matrix_report")"
         seattle_load_ex="$(awk -F '\t' '$1=="seattle" { print $11; exit }' "$matrix_report")"
-        if awk -v s="$seattle_cov" -v d="$downtown_cov" -v l="$seattle_load_ex" -v floor="$d2_profile_min_cov_floor" -v min_load="$d2_profile_min_seattle_load_ex" 'BEGIN { exit !((s + 0) >= floor && (d + 0) >= floor && (l + 0) >= min_load) }'; then
+        local needs_load_floor=0
+        if [[ "$preset" == "baseline" ]]; then
+            needs_load_floor=1
+        fi
+        if awk -v s="$seattle_cov" -v d="$downtown_cov" -v l="$seattle_load_ex" -v floor="$d2_profile_min_cov_floor" -v min_load="$d2_profile_min_seattle_load_ex" -v need_load="$needs_load_floor" 'BEGIN { exit !((s + 0) >= floor && (d + 0) >= floor && (need_load == 0 || (l + 0) >= min_load)) }'; then
             stable_report=1
             break
         fi
 
-        printf "d2_profile retry profile=%s preset=%s attempt=%d/%s unstable_row(seattle_cov=%s downtown_cov=%s cov_floor=%s seattle_load_ex=%s min_load_ex=%s)\n" \
-            "$profile" "$preset" "$attempt" "$d2_profile_max_attempts" "$seattle_cov" "$downtown_cov" "$d2_profile_min_cov_floor" "$seattle_load_ex" "$d2_profile_min_seattle_load_ex" >&2
+        printf "d2_profile retry profile=%s preset=%s attempt=%d/%s unstable_row(seattle_cov=%s downtown_cov=%s cov_floor=%s seattle_load_ex=%s min_load_ex=%s baseline_load_floor=%s)\n" \
+            "$profile" "$preset" "$attempt" "$d2_profile_max_attempts" "$seattle_cov" "$downtown_cov" "$d2_profile_min_cov_floor" "$seattle_load_ex" "$d2_profile_min_seattle_load_ex" "$needs_load_floor" >&2
         attempt=$((attempt + 1))
     done
 

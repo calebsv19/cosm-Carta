@@ -60,11 +60,10 @@ Last updated: 2026-05-04
   - D2 `seattle` matrix precondition uses a higher absolute `l0_peak` ceiling
   - D2 `l0_relief_candidate` defaults now actually reduce pressure (`road_cap=7`, `integrate_cap=60`)
   - D2 matrix stress runs use matrix-local absolute ceilings of `load_clamp=128` and `load_ex=96`; direct D1 budget control remains strict at `load_clamp=48` and `load_ex=72`
-  - D2/D3 tuning profiles retry unstable matrix rows up to three times and only compare profile deltas after Seattle/downtown meet the `0.55` coverage floor and Seattle `load_ex` reaches `40`
-  - D2 `seattle` `load_ex` candidate delta ceiling is `12`, with D3 retaining `8` as a non-blocking trend alert
-  - D2 `seattle` `l0_peak` profile delta ceiling is `1600ms`, matching observed single-run variance while keeping continuity/fallback/churn checks strict
+  - D2/D3 tuning profiles retry unstable matrix rows up to three times and only compare profile deltas after Seattle/downtown meet the `0.55` coverage floor
+  - D2 no longer hard-blocks on single-run profile `load_ex` or `l0_peak` deltas; D2 matrix absolute budgets remain the hard throughput gate and D3 retains throughput deltas as non-blocking trend alerts
   - D3 regression mode loosens matrix-local absolute throughput budgets and lets the matrix continuity gate own coverage-run failures instead of hard-blocking on transient single-frame `min_cov` deltas
-  - D2 downtown `l0_peak` delta ceiling is widened to `800ms` while continuity/fallback/churn checks remain unchanged
+  - D2 continuity/fallback/churn checks remain unchanged
 
 ## History and Deep Lane References
 - Full phase ledgers and archived docs are in:

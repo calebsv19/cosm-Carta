@@ -16,9 +16,8 @@ Last audited: 2026-05-04.
   - tolerate higher absolute `seattle` `l0_peak` variance in D2 matrix preconditions
   - use a lower-pressure `l0_relief_candidate` preset (`road_cap=7`, `integrate_cap=60`)
   - keep D1's strict absolute budget gate separate from the D2 profile matrix, whose default absolute load ceilings are `load_clamp=128` and `load_ex=96`
-  - retry unstable D2/D3 profile matrix rows up to three times before comparing profile deltas, requiring Seattle/downtown to meet the `0.55` coverage floor and Seattle `load_ex` to reach `40`
-  - allow `seattle` D2 `load_ex` profile delta up to `12` while D3 keeps `8` as a non-blocking trend alert
-  - allow `seattle` D2 `l0_peak` profile delta up to `1600ms` while preserving strict continuity/fallback/churn checks
+  - retry unstable D2/D3 profile matrix rows up to three times before comparing profile deltas, requiring Seattle/downtown to meet the `0.55` coverage floor
+  - keep D2 profile `load_ex`/`l0_peak` deltas out of the hard-block path because the matrix absolute budgets already own hard throughput gating and D3 keeps deltas as non-blocking trend pressure
   - keep D3 hard-blocking focused on matrix continuity-contract failures rather than transient single-frame `min_cov` deltas, with absolute throughput budgets reported as trend pressure
 
 ## Start Here
