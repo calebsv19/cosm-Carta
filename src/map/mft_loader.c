@@ -39,6 +39,32 @@ static bool cursor_read_u8(MftCursor *cursor, uint8_t *out) {
     return cursor_read_bytes(cursor, out, sizeof(*out));
 }
 
+static bool mft_mul_size_overflow(size_t a, size_t b, size_t *out) {
+    if (!out) {
+        return true;
+    }
+    if (a == 0u || b == 0u) {
+        *out = 0u;
+        return false;
+    }
+    if (a > SIZE_MAX / b) {
+        return true;
+    }
+    *out = a * b;
+    return false;
+}
+
+static bool mft_add_u32_overflow(uint32_t a, uint32_t b, uint32_t *out) {
+    if (!out) {
+        return true;
+    }
+    if (a > UINT32_MAX - b) {
+        return true;
+    }
+    *out = a + b;
+    return false;
+}
+
 bool mft_load_tile(const char *path, MftTile *out_tile) {
     CoreBuffer file_data = {0};
     CoreResult read_result;
@@ -142,6 +168,10 @@ bool mft_load_tile(const char *path, MftTile *out_tile) {
         return true;
     }
 
+    if ((size_t)polygon_count > SIZE_MAX / sizeof(MftPolygon)) {
+        log_error("MFT polygon count overflows allocation: %s", path);
+        goto fail;
+    }
     out_tile->polygons = (MftPolygon *)calloc(polygon_count, sizeof(MftPolygon));
     if (!out_tile->polygons) {
         goto fail;
@@ -160,7 +190,10 @@ bool mft_load_tile(const char *path, MftTile *out_tile) {
         out_tile->polygons[i].ring_count = ring_count;
         out_tile->polygons[i].ring_offset = ring_total;
         out_tile->polygons[i].point_offset = 0;
-        ring_total += ring_count;
+        if (mft_add_u32_overflow(ring_total, (uint32_t)ring_count, &ring_total)) {
+            log_error("MFT polygon ring accumulation overflow: %s", path);
+            goto fail;
+        }
     }
 
     out_tile->polygon_ring_total = ring_total;
@@ -169,6 +202,10 @@ bool mft_load_tile(const char *path, MftTile *out_tile) {
         return true;
     }
 
+    if ((size_t)ring_total > SIZE_MAX / sizeof(uint32_t)) {
+        log_error("MFT polygon ring allocation overflow: %s", path);
+        goto fail;
+    }
     out_tile->polygon_rings = (uint32_t *)calloc(ring_total, sizeof(uint32_t));
     if (!out_tile->polygon_rings) {
         goto fail;
@@ -187,19 +224,36 @@ bool mft_load_tile(const char *path, MftTile *out_tile) {
                 out_tile->polygons[i].point_offset = total_polygon_points;
             }
 
-            out_tile->polygon_rings[out_tile->polygons[i].ring_offset + r] = point_count;
-            total_polygon_points += point_count;
+            uint32_t ring_index = 0u;
+            if (mft_add_u32_overflow(out_tile->polygons[i].ring_offset, (uint32_t)r, &ring_index) ||
+                ring_index >= out_tile->polygon_ring_total) {
+                log_error("MFT polygon ring index out of bounds: %s", path);
+                goto fail;
+            }
+
+            out_tile->polygon_rings[ring_index] = point_count;
+            if (mft_add_u32_overflow(total_polygon_points, point_count, &total_polygon_points)) {
+                log_error("MFT polygon point accumulation overflow: %s", path);
+                goto fail;
+            }
         }
     }
 
     out_tile->polygon_point_total = total_polygon_points;
     if (total_polygon_points > 0) {
+        size_t point_value_count = 0u;
+        size_t point_bytes = 0u;
+        if (mft_mul_size_overflow((size_t)total_polygon_points, 2u, &point_value_count) ||
+            mft_mul_size_overflow(point_value_count, sizeof(uint16_t), &point_bytes)) {
+            log_error("MFT polygon point allocation overflow: %s", path);
+            goto fail;
+        }
         out_tile->polygon_points = (uint16_t *)calloc(total_polygon_points * 2, sizeof(uint16_t));
         if (!out_tile->polygon_points) {
             goto fail;
         }
 
-        if (!cursor_read_bytes(&cursor, out_tile->polygon_points, sizeof(uint16_t) * total_polygon_points * 2u)) {
+        if (!cursor_read_bytes(&cursor, out_tile->polygon_points, point_bytes)) {
             log_error("MFT polygon point data truncated: %s", path);
             goto fail;
         }
