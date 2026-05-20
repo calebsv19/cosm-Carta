@@ -21,17 +21,18 @@ static RouteObjective app_runtime_next_route_objective(RouteObjective current) {
 }
 
 static void app_runtime_rotate_heading(AppState *app, float delta_rad) {
-    if (!app || app->width <= 0 || app->height <= 0) {
+    SDL_FRect viewport = app_map_viewport_rect(app);
+    if (!app || viewport.w <= 0.0f || viewport.h <= 0.0f) {
         return;
     }
 
     Camera *camera = &app->view_state_bridge.camera;
     float next_heading = camera->heading_target_rad + delta_rad;
     CoreResult result = camera_viewport_bridge_rotate_target_at_anchor(camera,
-                                                                       (float)app->width * 0.5f,
-                                                                       (float)app->height * 0.5f,
-                                                                       app->width,
-                                                                       app->height,
+                                                                       viewport.w * 0.5f,
+                                                                       viewport.h * 0.5f,
+                                                                       (int)viewport.w,
+                                                                       (int)viewport.h,
                                                                        next_heading);
     if (result.code != CORE_OK) {
         camera_set_heading_target(camera, next_heading);
@@ -39,7 +40,8 @@ static void app_runtime_rotate_heading(AppState *app, float delta_rad) {
 }
 
 static void app_runtime_step_zoom(AppState *app, float zoom_delta) {
-    if (!app || app->width <= 0 || app->height <= 0) {
+    SDL_FRect viewport = app_map_viewport_rect(app);
+    if (!app || viewport.w <= 0.0f || viewport.h <= 0.0f) {
         return;
     }
 
@@ -48,10 +50,10 @@ static void app_runtime_step_zoom(AppState *app, float zoom_delta) {
                                  (float)CAMERA_ZOOM_MIN_LEVEL,
                                  (float)CAMERA_ZOOM_MAX_LEVEL);
     (void)camera_viewport_bridge_zoom_target_at_anchor(camera,
-                                                       (float)app->width * 0.5f,
-                                                       (float)app->height * 0.5f,
-                                                       app->width,
-                                                       app->height,
+                                                       viewport.w * 0.5f,
+                                                       viewport.h * 0.5f,
+                                                       (int)viewport.w,
+                                                       (int)viewport.h,
                                                        next_zoom);
 }
 

@@ -230,13 +230,13 @@ void app_draw_playback_marker(AppState *app) {
 
     float sx = 0.0f;
     float sy = 0.0f;
-    camera_world_to_screen(&app->view_state_bridge.camera,
-                           app->route_state_bridge.preview.world_x,
-                           app->route_state_bridge.preview.world_y,
-                           app->width,
-                           app->height,
-                           &sx,
-                           &sy);
+    if (!app_map_world_to_viewport_local(app,
+                                         app->route_state_bridge.preview.world_x,
+                                         app->route_state_bridge.preview.world_y,
+                                         &sx,
+                                         &sy)) {
+        return;
+    }
     MapForgeThemePalette palette = playback_theme_palette();
     renderer_set_draw_color(&app->renderer,
                             palette.playback_marker_fill.r,

@@ -12,8 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const uint32_t APP_INGEST_ACTIVE_DOUBLE_CLICK_MS = 350u;
-
 static SDL_FRect app_header_button_rect(const AppState *app) {
     float width = 140.0f;
     float height = 22.0f;
@@ -431,7 +429,7 @@ void app_draw_header_bar(AppState *app) {
         ui_draw_text(&app->renderer, walk_x, label_y, "WALK", label_color, 1.0f);
     }
 
-    float cursor_x = button.x + button.w + 12.0f;
+    float cursor_x = button.x + button.w + 18.0f;
     char speed_text[32];
     snprintf(speed_text, sizeof(speed_text), "Speed: %.1fx [Shift +/-]", app->route_state_bridge.playback_speed);
     char follow_text[32];

@@ -12,13 +12,14 @@ void app_update_hover(AppState *app) {
 
     float world_x = 0.0f;
     float world_y = 0.0f;
-    camera_screen_to_world(&app->view_state_bridge.camera,
-                           (float)app->ui_state_bridge.input.mouse_x,
-                           (float)app->ui_state_bridge.input.mouse_y,
-                           app->width,
-                           app->height,
-                           &world_x,
-                           &world_y);
+    if (!app_map_screen_to_world(app,
+                                 (float)app->ui_state_bridge.input.mouse_x,
+                                 (float)app->ui_state_bridge.input.mouse_y,
+                                 &world_x,
+                                 &world_y)) {
+        app->route_state_bridge.has_hover = false;
+        return;
+    }
 
     RouteEndpointAnchor hover = {0};
     if (app_pick_route_anchor(app, world_x, world_y, &hover)) {
@@ -38,13 +39,13 @@ bool app_mouse_over_node(const AppState *app, uint32_t node, float radius) {
 
     float sx = 0.0f;
     float sy = 0.0f;
-    camera_world_to_screen(&app->view_state_bridge.camera,
-                           (float)app->route_state_bridge.route.graph.node_x[node],
-                           (float)app->route_state_bridge.route.graph.node_y[node],
-                           app->width,
-                           app->height,
-                           &sx,
-                           &sy);
+    if (!app_map_world_to_screen(app,
+                                 (float)app->route_state_bridge.route.graph.node_x[node],
+                                 (float)app->route_state_bridge.route.graph.node_y[node],
+                                 &sx,
+                                 &sy)) {
+        return false;
+    }
     float dx = (float)app->ui_state_bridge.input.mouse_x - sx;
     float dy = (float)app->ui_state_bridge.input.mouse_y - sy;
     return (dx * dx + dy * dy) <= radius * radius;
@@ -57,7 +58,9 @@ bool app_mouse_over_anchor(const AppState *app, const RouteEndpointAnchor *ancho
 
     float sx = 0.0f;
     float sy = 0.0f;
-    camera_world_to_screen(&app->view_state_bridge.camera, anchor->world_x, anchor->world_y, app->width, app->height, &sx, &sy);
+    if (!app_map_world_to_screen(app, anchor->world_x, anchor->world_y, &sx, &sy)) {
+        return false;
+    }
     float dx = (float)app->ui_state_bridge.input.mouse_x - sx;
     float dy = (float)app->ui_state_bridge.input.mouse_y - sy;
     return (dx * dx + dy * dy) <= radius * radius;
@@ -75,13 +78,13 @@ void app_draw_hover_marker(AppState *app) {
 
     float sx = 0.0f;
     float sy = 0.0f;
-    camera_world_to_screen(&app->view_state_bridge.camera,
-                           app->route_state_bridge.hover_anchor.world_x,
-                           app->route_state_bridge.hover_anchor.world_y,
-                           app->width,
-                           app->height,
-                           &sx,
-                           &sy);
+    if (!app_map_world_to_viewport_local(app,
+                                         app->route_state_bridge.hover_anchor.world_x,
+                                         app->route_state_bridge.hover_anchor.world_y,
+                                         &sx,
+                                         &sy)) {
+        return;
+    }
     renderer_set_draw_color(&app->renderer, 80, 200, 255, 220);
     SDL_FRect rect = {sx - 5.0f, sy - 5.0f, 10.0f, 10.0f};
     renderer_draw_rect(&app->renderer, &rect);
@@ -93,20 +96,18 @@ void app_draw_hover_marker(AppState *app) {
         float ay = 0.0f;
         float bx = 0.0f;
         float by = 0.0f;
-        camera_world_to_screen(&app->view_state_bridge.camera,
-                               (float)app->route_state_bridge.route.graph.node_x[app->route_state_bridge.hover_anchor.edge_from],
-                               (float)app->route_state_bridge.route.graph.node_y[app->route_state_bridge.hover_anchor.edge_from],
-                               app->width,
-                               app->height,
-                               &ax,
-                               &ay);
-        camera_world_to_screen(&app->view_state_bridge.camera,
-                               (float)app->route_state_bridge.route.graph.node_x[app->route_state_bridge.hover_anchor.edge_to],
-                               (float)app->route_state_bridge.route.graph.node_y[app->route_state_bridge.hover_anchor.edge_to],
-                               app->width,
-                               app->height,
-                               &bx,
-                               &by);
+        if (!app_map_world_to_viewport_local(app,
+                                             (float)app->route_state_bridge.route.graph.node_x[app->route_state_bridge.hover_anchor.edge_from],
+                                             (float)app->route_state_bridge.route.graph.node_y[app->route_state_bridge.hover_anchor.edge_from],
+                                             &ax,
+                                             &ay) ||
+            !app_map_world_to_viewport_local(app,
+                                             (float)app->route_state_bridge.route.graph.node_x[app->route_state_bridge.hover_anchor.edge_to],
+                                             (float)app->route_state_bridge.route.graph.node_y[app->route_state_bridge.hover_anchor.edge_to],
+                                             &bx,
+                                             &by)) {
+            return;
+        }
         renderer_set_draw_color(&app->renderer, 255, 210, 70, 220);
         renderer_draw_line(&app->renderer, ax, ay, bx, by);
     }

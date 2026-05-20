@@ -78,6 +78,11 @@ $(CORE_FONT_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
 	@$(MAKE) -C "$(CORE_FONT_DIR)" CC="$(SHARED_CC)"
 	@cp "$(CORE_FONT_DIR)/build/libcore_font.a" "$@"
 
+$(CORE_PANE_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_PANE_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_PANE_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_PANE_DIR)/build/libcore_pane.a" "$@"
+
 $(CORE_VIEWPORT2D_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
 	@$(MAKE) -C "$(CORE_VIEWPORT2D_DIR)" clean CC="$(SHARED_CC)"
 	@$(MAKE) -C "$(CORE_VIEWPORT2D_DIR)" CC="$(SHARED_CC)"
@@ -135,4 +140,3 @@ $(KIT_WORKSPACE_AUTHORING_UI_FONT_THEME_OBJ): $(KIT_WORKSPACE_AUTHORING_DIR)/src
 
 clean:
 	rm -rf build
-

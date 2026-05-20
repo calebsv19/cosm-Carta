@@ -42,7 +42,10 @@ test: test-route-service
 test: test-tile-presenter-policy
 test: test-presentation-stability
 test: test-input-policy
+test: test-map-viewport
+test: test-pin-panel-rename
 test: test-tile-manager-residency
+test: test-pins
 test: test-phase-d-throughput
 
 test-region-validate-strict: tools-build
@@ -114,8 +117,17 @@ test-header-layer-layout: $(APP_HEADER_LAYER_LAYOUT_TEST_TARGET)
 test-window-resize: $(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET)
 	./$(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET)
 
+test-map-viewport: $(APP_MAP_VIEWPORT_TEST_TARGET)
+	./$(APP_MAP_VIEWPORT_TEST_TARGET)
+
+test-pin-panel-rename: $(APP_PIN_PANEL_RENAME_TEST_TARGET)
+	./$(APP_PIN_PANEL_RENAME_TEST_TARGET)
+
 test-tile-manager-residency: $(TILE_MANAGER_RESIDENCY_TEST_TARGET)
 	./$(TILE_MANAGER_RESIDENCY_TEST_TARGET)
+
+test-pins: $(APP_PINS_TEST_TARGET)
+	./$(APP_PINS_TEST_TARGET)
 
 test-phase-a-viewport-scenario: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" MAPFORGE_PHASE_A_MAX_L0_LATENCY_MS=1500 \
@@ -258,6 +270,18 @@ $(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET): $(APP_RUNTIME_WINDOW_RESIZE_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_RUNTIME_WINDOW_RESIZE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
+$(APP_MAP_VIEWPORT_TEST_TARGET): $(APP_MAP_VIEWPORT_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_MAP_VIEWPORT_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
+
+$(APP_PIN_PANEL_RENAME_TEST_TARGET): $(APP_PIN_PANEL_RENAME_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_PIN_PANEL_RENAME_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
 $(TILE_MANAGER_RESIDENCY_TEST_TARGET): $(TILE_MANAGER_RESIDENCY_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(TILE_MANAGER_RESIDENCY_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
+
+$(APP_PINS_TEST_TARGET): $(APP_PINS_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_PINS_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS)

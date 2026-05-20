@@ -148,6 +148,7 @@ static void app_runtime_input_normalize(AppState *app,
     keyboard_actions += app_runtime_count_bool(input->ingest_import_all_pressed);
     keyboard_actions += app_runtime_count_bool(input->ingest_edit_toggle_pressed);
     keyboard_actions += app_runtime_count_bool(input->ingest_folder_dialog_pressed);
+    keyboard_actions += app_runtime_count_bool(input->pin_panel_toggle_pressed);
     keyboard_actions += app_runtime_count_bool(input->backspace_pressed);
     keyboard_actions += app_runtime_count_bool(input->text_input_received);
     keyboard_actions += app_runtime_count_bool(input->pan_left);
@@ -186,6 +187,7 @@ static void app_runtime_input_normalize(AppState *app,
         input->ingest_import_all_pressed ||
         input->ingest_edit_toggle_pressed ||
         input->ingest_folder_dialog_pressed ||
+        input->pin_panel_toggle_pressed ||
         input->font_zoom_in_pressed ||
         input->font_zoom_out_pressed ||
         input->font_zoom_reset_pressed;

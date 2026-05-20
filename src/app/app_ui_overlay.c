@@ -6,8 +6,6 @@
 #include <stdio.h>
 #include <string.h>
 
-static const uint32_t APP_INGEST_ACTIVE_DOUBLE_CLICK_MS = 350u;
-
 static const char *app_layer_label(TileLayerKind kind) {
     return layer_policy_label(kind);
 }
@@ -17,19 +15,6 @@ static const char *app_layer_runtime_state_label(const AppState *app, TileLayerK
         return "off";
     }
     return app_layer_active_runtime(app, kind) ? "on" : "off";
-}
-
-static bool app_point_in_rect(int x, int y, const SDL_FRect *rect) {
-    if (!rect) {
-        return false;
-    }
-    if (rect->w <= 0.0f || rect->h <= 0.0f) {
-        return false;
-    }
-    return (float)x >= rect->x &&
-           (float)x <= rect->x + rect->w &&
-           (float)y >= rect->y &&
-           (float)y <= rect->y + rect->h;
 }
 
 static int app_layer_debug_line_count(void) {
@@ -304,101 +289,13 @@ static bool app_layer_debug_format_line(const AppState *app, int index, char *li
 }
 
 void app_draw_layer_debug(AppState *app) {
-    if (!app || !app->ui_state_bridge.overlay.enabled) {
-        if (app) {
-            memset(&app->ui_state_bridge.hud_layer_debug_panel_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_panel_rect));
-            memset(&app->ui_state_bridge.hud_layer_debug_collapse_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_collapse_rect));
-            memset(&app->ui_state_bridge.hud_layer_debug_handle_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_handle_rect));
-            app->ui_state_bridge.hud_layer_debug_layout_dirty = true;
-        }
+    if (!app) {
         return;
     }
-
-    MapForgeThemePalette palette = app_ui_theme_palette();
-    SDL_Color color = palette.text_primary;
-    const AppUiTextRole diagnostic_role = APP_UI_TEXT_ROLE_DIAGNOSTIC;
-    const float diagnostic_scale = app_ui_text_scale(diagnostic_role);
-    int line_h = app_ui_text_line_height(diagnostic_role);
-    if (line_h <= 0) {
-        return;
-    }
-
-    int x = 10;
-    int y = (int)APP_HEADER_HEIGHT + 6;
-    int total_lines = app_layer_debug_line_count();
-    char line[256];
-    uint64_t layout_hash = app_layer_debug_layout_hash(app);
-    if (app->ui_state_bridge.hud_layer_debug_layout_dirty ||
-        app->ui_state_bridge.hud_layer_debug_layout_hash != layout_hash ||
-        app->ui_state_bridge.hud_layer_debug_cached_line_count != total_lines) {
-        int max_line_w = 0;
-        for (int i = 0; i < total_lines; ++i) {
-            if (!app_layer_debug_format_line(app, i, line, sizeof(line))) {
-                continue;
-            }
-            int width = app_ui_text_width(line, diagnostic_role);
-            if (width > max_line_w) {
-                max_line_w = width;
-            }
-        }
-        app->ui_state_bridge.hud_layer_debug_cached_max_text_w = max_line_w;
-        app->ui_state_bridge.hud_layer_debug_cached_w = (float)(max_line_w + 22 + 18);
-        app->ui_state_bridge.hud_layer_debug_cached_h = (float)(total_lines * (line_h + 3) + 16);
-        app->ui_state_bridge.hud_layer_debug_cached_line_count = total_lines;
-        app->ui_state_bridge.hud_layer_debug_layout_hash = layout_hash;
-        app->ui_state_bridge.hud_layer_debug_layout_dirty = false;
-    }
-
-    float panel_w = app->ui_state_bridge.hud_layer_debug_cached_w;
-    float panel_w_max = (float)(app->width - 20);
-    if (panel_w < 220.0f) {
-        panel_w = 220.0f;
-    }
-    if (panel_w > panel_w_max) {
-        panel_w = panel_w_max;
-    }
-    float panel_h = app->ui_state_bridge.hud_layer_debug_cached_h;
-    SDL_FRect panel = {(float)(x - 6), (float)(y - 4), panel_w, panel_h};
-    app->ui_state_bridge.hud_layer_debug_panel_rect = panel;
-
-    if (app->ui_state_bridge.hud_layer_debug_collapsed) {
-        SDL_FRect handle = {6.0f, APP_HEADER_HEIGHT + 8.0f, 20.0f, 20.0f};
-        app->ui_state_bridge.hud_layer_debug_handle_rect = handle;
-        memset(&app->ui_state_bridge.hud_layer_debug_collapse_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_collapse_rect));
-        renderer_set_draw_color(&app->renderer, palette.overlay_fill.r, palette.overlay_fill.g, palette.overlay_fill.b, palette.overlay_fill.a);
-        renderer_fill_rect(&app->renderer, &handle);
-        renderer_set_draw_color(&app->renderer, palette.overlay_outline.r, palette.overlay_outline.g, palette.overlay_outline.b, palette.overlay_outline.a);
-        renderer_draw_rect(&app->renderer, &handle);
-        ui_draw_text(&app->renderer, (int)handle.x + 6, (int)handle.y + 4, ">", color, 1.0f);
-        return;
-    }
-
+    memset(&app->ui_state_bridge.hud_layer_debug_panel_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_panel_rect));
+    memset(&app->ui_state_bridge.hud_layer_debug_collapse_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_collapse_rect));
     memset(&app->ui_state_bridge.hud_layer_debug_handle_rect, 0, sizeof(app->ui_state_bridge.hud_layer_debug_handle_rect));
-    SDL_FRect collapse = {panel.x + panel.w - 18.0f, panel.y + 3.0f, 14.0f, 14.0f};
-    app->ui_state_bridge.hud_layer_debug_collapse_rect = collapse;
-
-    renderer_set_draw_color(&app->renderer, palette.overlay_fill.r, palette.overlay_fill.g, palette.overlay_fill.b, palette.overlay_fill.a);
-    renderer_fill_rect(&app->renderer, &panel);
-    renderer_set_draw_color(&app->renderer, palette.overlay_outline.r, palette.overlay_outline.g, palette.overlay_outline.b, palette.overlay_outline.a);
-    renderer_draw_rect(&app->renderer, &panel);
-    SDL_FRect accent = {panel.x, panel.y, 3.0f, panel.h};
-    renderer_set_draw_color(&app->renderer, palette.overlay_accent.r, palette.overlay_accent.g, palette.overlay_accent.b, palette.overlay_accent.a);
-    renderer_fill_rect(&app->renderer, &accent);
-
-    renderer_set_draw_color(&app->renderer, palette.overlay_fill.r, palette.overlay_fill.g, palette.overlay_fill.b, 245);
-    renderer_fill_rect(&app->renderer, &collapse);
-    renderer_set_draw_color(&app->renderer, palette.overlay_outline.r, palette.overlay_outline.g, palette.overlay_outline.b, palette.overlay_outline.a);
-    renderer_draw_rect(&app->renderer, &collapse);
-    ui_draw_text(&app->renderer, (int)collapse.x + 4, (int)collapse.y + 1, "-", color, 1.0f);
-
-    int max_text_w = (int)(panel.w - 16.0f - collapse.w - 4.0f);
-    for (int i = 0; i < total_lines; ++i) {
-        if (!app_layer_debug_format_line(app, i, line, sizeof(line))) {
-            continue;
-        }
-        ui_draw_text_clipped(&app->renderer, x, y, line, color, diagnostic_scale, max_text_w);
-        y += line_h + ((i < 4) ? 5 : 3);
-    }
+    app->ui_state_bridge.hud_layer_debug_layout_dirty = true;
 }
 
 bool app_handle_hud_clicks(AppState *app) {
@@ -413,93 +310,7 @@ bool app_handle_hud_clicks(AppState *app) {
     if (app_route_panel_handle_click(app)) {
         return true;
     }
-    if (!app->ui_state_bridge.overlay.enabled) {
-        return false;
-    }
-
-    int mx = app->ui_state_bridge.input.mouse_x;
-    int my = app->ui_state_bridge.input.mouse_y;
-
-    if (app->ingest_panel_open) {
-        if (app->ui_state_bridge.hud_ingest_panel_collapsed) {
-            if (app->ui_state_bridge.input.left_click_pressed && app_point_in_rect(mx, my, &app->ui_state_bridge.hud_ingest_handle_rect)) {
-                app->ui_state_bridge.hud_ingest_panel_collapsed = false;
-                return true;
-            }
-            if (app_point_in_rect(mx, my, &app->ui_state_bridge.hud_ingest_handle_rect)) {
-                return true;
-            }
-        } else {
-            if (app->ui_state_bridge.input.left_click_pressed && app_point_in_rect(mx, my, &app->ui_state_bridge.hud_ingest_collapse_rect)) {
-                app->ui_state_bridge.hud_ingest_panel_collapsed = true;
-                return true;
-            }
-            if (app->ui_state_bridge.input.left_click_pressed && app_point_in_rect(mx, my, &app->ui_state_bridge.hud_ingest_source_tab_rect)) {
-                app->ingest_show_active_tab = false;
-                return true;
-            }
-            if (app->ui_state_bridge.input.left_click_pressed && app_point_in_rect(mx, my, &app->ui_state_bridge.hud_ingest_active_tab_rect)) {
-                app->ingest_show_active_tab = true;
-                return true;
-            }
-            if (app->ui_state_bridge.input.left_click_pressed && app_point_in_rect(mx, my, &app->ui_state_bridge.hud_ingest_edit_toggle_rect)) {
-                app->ingest_edit_mode = !app->ingest_edit_mode;
-                if (app->ingest_edit_mode) {
-                    snprintf(app->input_root_edit, sizeof(app->input_root_edit), "%s", app->input_root);
-                }
-                return true;
-            }
-            for (int i = 0; i < app->ui_state_bridge.hud_ingest_row_count && i < APP_INGEST_LIST_MAX; ++i) {
-                if (!app->ui_state_bridge.input.left_click_pressed) {
-                    continue;
-                }
-                if (!app_point_in_rect(mx, my, &app->ui_state_bridge.hud_ingest_row_rects[i])) {
-                    continue;
-                }
-                int idx = app->ui_state_bridge.hud_ingest_row_base + i;
-                if (app->ingest_show_active_tab) {
-                    if (idx >= 0 && idx < app->ingest_active_count) {
-                        uint32_t now_tick = SDL_GetTicks();
-                        bool same_row = idx == app->ingest_last_active_click_index;
-                        uint32_t delta_ms = now_tick - app->ingest_last_active_click_tick;
-                        bool activate_row = same_row &&
-                                            app->ingest_last_active_click_tick != 0u &&
-                                            delta_ms <= APP_INGEST_ACTIVE_DOUBLE_CLICK_MS;
-                        app->ingest_selected_active = idx;
-                        app->ingest_last_active_click_index = idx;
-                        app->ingest_last_active_click_tick = now_tick;
-                        if (activate_row) {
-                            (void)app_ingest_open_selected_active_region(app);
-                            app->ingest_last_active_click_index = -1;
-                            app->ingest_last_active_click_tick = 0u;
-                        }
-                    }
-                } else if (idx >= 0 && idx < app->ingest_osm_count) {
-                    app->ingest_selected_osm = idx;
-                    app->ingest_last_active_click_index = -1;
-                    app->ingest_last_active_click_tick = 0u;
-                }
-                return true;
-            }
-            if (app_point_in_rect(mx, my, &app->ui_state_bridge.hud_ingest_panel_rect)) {
-                return true;
-            }
-        }
-    }
-
-    if (app->ui_state_bridge.hud_layer_debug_collapsed) {
-        if (app->ui_state_bridge.input.left_click_pressed && app_point_in_rect(mx, my, &app->ui_state_bridge.hud_layer_debug_handle_rect)) {
-            app->ui_state_bridge.hud_layer_debug_collapsed = false;
-            return true;
-        }
-        return app_point_in_rect(mx, my, &app->ui_state_bridge.hud_layer_debug_handle_rect);
-    }
-
-    if (app->ui_state_bridge.input.left_click_pressed && app_point_in_rect(mx, my, &app->ui_state_bridge.hud_layer_debug_collapse_rect)) {
-        app->ui_state_bridge.hud_layer_debug_collapsed = true;
-        return true;
-    }
-    return app_point_in_rect(mx, my, &app->ui_state_bridge.hud_layer_debug_panel_rect);
+    return false;
 }
 
 void app_copy_overlay_text(AppState *app) {

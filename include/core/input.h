@@ -58,7 +58,10 @@ typedef struct InputState {
     bool ingest_import_all_pressed;
     bool ingest_edit_toggle_pressed;
     bool ingest_folder_dialog_pressed;
+    bool pin_panel_toggle_pressed;
     bool backspace_pressed;
+    bool cursor_left_pressed;
+    bool cursor_right_pressed;
     bool text_input_received;
     char text_input[32];
 } InputState;

@@ -425,6 +425,7 @@ static bool app_runtime_open_region_index(AppState *app, int region_index) {
     app->view_state_bridge.building_zoom_bias = app_building_zoom_bias_for_region(&app->region);
     app->view_state_bridge.road_zoom_bias = app_road_zoom_bias_for_region(&app->region);
     app_center_camera_on_region(&app->view_state_bridge.camera, &app->region, app->width, app->height);
+    app_reload_pins_state(app);
     app_runtime_format_region_package_status(app->region.name, &validation, app->ingest_package_status, sizeof(app->ingest_package_status));
     snprintf(app->ingest_status, sizeof(app->ingest_status), "Opened region package: %s", app->ingest_package_status);
     snprintf(app->latest_imported_region, sizeof(app->latest_imported_region), "%s", app->region.name ? app->region.name : "");

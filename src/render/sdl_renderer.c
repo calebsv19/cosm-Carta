@@ -92,6 +92,71 @@ static const char *renderer_shader_root(void) {
 #endif
 }
 
+static SDL_Rect renderer_active_clip_rect(const Renderer *renderer) {
+    SDL_Rect rect = {0, 0, 0, 0};
+    if (!renderer) {
+        return rect;
+    }
+    if (renderer->viewport_enabled) {
+        rect.x = renderer->viewport_x;
+        rect.y = renderer->viewport_y;
+        rect.w = renderer->width;
+        rect.h = renderer->height;
+    }
+    return rect;
+}
+
+static void renderer_apply_backend_clip(Renderer *renderer) {
+    if (!renderer) {
+        return;
+    }
+#if defined(MAPFORGE_HAVE_VK)
+    if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+        VkRenderer *vk = (VkRenderer *)renderer->vk;
+        SDL_Rect clip = renderer_active_clip_rect(renderer);
+        if (renderer->viewport_enabled) {
+            vk_renderer_set_clip_rect(vk, &clip);
+        } else {
+            vk_renderer_set_clip_rect(vk, NULL);
+        }
+        return;
+    }
+#endif
+    if (renderer->sdl) {
+        if (renderer->viewport_enabled) {
+            SDL_Rect clip = renderer_active_clip_rect(renderer);
+            SDL_RenderSetClipRect(renderer->sdl, &clip);
+        } else {
+            SDL_RenderSetClipRect(renderer->sdl, NULL);
+        }
+    }
+}
+
+static void renderer_offset_point(const Renderer *renderer, float *x, float *y) {
+    if (!renderer || !renderer->viewport_enabled) {
+        return;
+    }
+    if (x) {
+        *x += (float)renderer->viewport_x;
+    }
+    if (y) {
+        *y += (float)renderer->viewport_y;
+    }
+}
+
+static SDL_FRect renderer_offset_rectf(const Renderer *renderer, const SDL_FRect *rect) {
+    SDL_FRect out = {0};
+    if (!rect) {
+        return out;
+    }
+    out = *rect;
+    if (renderer && renderer->viewport_enabled) {
+        out.x += (float)renderer->viewport_x;
+        out.y += (float)renderer->viewport_y;
+    }
+    return out;
+}
+
 bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height) {
     if (!renderer || !window) {
         return false;
@@ -103,6 +168,11 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
     renderer->vk = NULL;
     renderer->vk_cmd = 0;
     renderer->window = window;
+    renderer->surface_width = width;
+    renderer->surface_height = height;
+    renderer->viewport_x = 0;
+    renderer->viewport_y = 0;
+    renderer->viewport_enabled = false;
     renderer->vulkan_available = false;
     renderer->vk_geom_budget = 24000;
     renderer->vk_geom_used = 0;
@@ -155,6 +225,8 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
                 renderer->vk = vk;
                 renderer->vulkan_available = true;
                 renderer->sdl = NULL;
+                renderer->surface_width = width;
+                renderer->surface_height = height;
                 renderer->width = width;
                 renderer->height = height;
                 return true;
@@ -179,6 +251,9 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
 
     renderer->width = width;
     renderer->height = height;
+    renderer->surface_width = width;
+    renderer->surface_height = height;
+    renderer_apply_backend_clip(renderer);
     return true;
 }
 
@@ -187,8 +262,12 @@ bool renderer_resize(Renderer *renderer, int width, int height) {
         return false;
     }
 
-    renderer->width = width;
-    renderer->height = height;
+    renderer->surface_width = width;
+    renderer->surface_height = height;
+    if (!renderer->viewport_enabled) {
+        renderer->width = width;
+        renderer->height = height;
+    }
 
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer->backend == RENDERER_BACKEND_VULKAN &&
@@ -196,7 +275,7 @@ bool renderer_resize(Renderer *renderer, int width, int height) {
         renderer->vk &&
         renderer->window) {
         VkRenderer *vk = (VkRenderer *)renderer->vk;
-        vk_renderer_set_logical_size(vk, (float)width, (float)height);
+        vk_renderer_set_logical_size(vk, (float)renderer->surface_width, (float)renderer->surface_height);
         VkResult result = vk_renderer_recreate_swapchain(vk, renderer->window);
         renderer->vk_last_begin_result = (int)result;
         if (result == VK_SUCCESS) {
@@ -214,7 +293,33 @@ bool renderer_resize(Renderer *renderer, int width, int height) {
     }
 #endif
 
+    renderer_apply_backend_clip(renderer);
     return true;
+}
+
+bool renderer_set_viewport(Renderer *renderer, int x, int y, int width, int height) {
+    if (!renderer || width <= 0 || height <= 0) {
+        return false;
+    }
+    renderer->viewport_enabled = true;
+    renderer->viewport_x = x;
+    renderer->viewport_y = y;
+    renderer->width = width;
+    renderer->height = height;
+    renderer_apply_backend_clip(renderer);
+    return true;
+}
+
+void renderer_reset_viewport(Renderer *renderer) {
+    if (!renderer) {
+        return;
+    }
+    renderer->viewport_enabled = false;
+    renderer->viewport_x = 0;
+    renderer->viewport_y = 0;
+    renderer->width = renderer->surface_width;
+    renderer->height = renderer->surface_height;
+    renderer_apply_backend_clip(renderer);
 }
 
 void renderer_shutdown(Renderer *renderer) {
@@ -246,7 +351,7 @@ void renderer_begin_frame(Renderer *renderer) {
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vulkan_available && renderer->vk && renderer->window) {
         VkRenderer *vk = (VkRenderer *)renderer->vk;
-        vk_renderer_set_logical_size(vk, (float)renderer->width, (float)renderer->height);
+        vk_renderer_set_logical_size(vk, (float)renderer->surface_width, (float)renderer->surface_height);
 
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         VkFramebuffer fb = VK_NULL_HANDLE;
@@ -358,6 +463,8 @@ void renderer_draw_line(Renderer *renderer, float x0, float y0, float x1, float 
     if (!renderer) {
         return;
     }
+    renderer_offset_point(renderer, &x0, &y0);
+    renderer_offset_point(renderer, &x1, &y1);
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk && renderer->vk_cmd != 0) {
         if (renderer->vk_line_budget > 0 && renderer->vk_lines_drawn >= renderer->vk_line_budget) {
@@ -380,6 +487,20 @@ void renderer_draw_lines(Renderer *renderer, const SDL_FPoint *points, int count
     if (!renderer || !points || count < 2) {
         return;
     }
+    SDL_FPoint *translated_points = NULL;
+    const SDL_FPoint *draw_points = points;
+    if (renderer->viewport_enabled) {
+        translated_points = (SDL_FPoint *)SDL_malloc(sizeof(SDL_FPoint) * (size_t)count);
+        if (!translated_points) {
+            return;
+        }
+        for (int i = 0; i < count; ++i) {
+            translated_points[i] = points[i];
+            translated_points[i].x += (float)renderer->viewport_x;
+            translated_points[i].y += (float)renderer->viewport_y;
+        }
+        draw_points = translated_points;
+    }
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk && renderer->vk_cmd != 0) {
         int segments = count - 1;
@@ -398,15 +519,18 @@ void renderer_draw_lines(Renderer *renderer, const SDL_FPoint *points, int count
             }
         }
         VkRenderer *vk = (VkRenderer *)renderer->vk;
-        vk_renderer_draw_line_strip(vk, points, (uint32_t)count);
+        vk_renderer_draw_line_strip(vk, draw_points, (uint32_t)count);
         renderer->vk_lines_drawn += (uint32_t)segments;
+        SDL_free(translated_points);
         return;
     }
 #endif
     if (!renderer->sdl) {
+        SDL_free(translated_points);
         return;
     }
-    SDL_RenderDrawLinesF(renderer->sdl, points, count);
+    SDL_RenderDrawLinesF(renderer->sdl, draw_points, count);
+    SDL_free(translated_points);
 }
 
 static SDL_Rect renderer_rectf_to_rect(const SDL_FRect *rect) {
@@ -431,10 +555,11 @@ void renderer_draw_rect(Renderer *renderer, const SDL_FRect *rect) {
     if (!renderer || !rect) {
         return;
     }
+    SDL_FRect translated = renderer_offset_rectf(renderer, rect);
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk && renderer->vk_cmd != 0) {
         VkRenderer *vk = (VkRenderer *)renderer->vk;
-        SDL_Rect irect = renderer_rectf_to_rect(rect);
+        SDL_Rect irect = renderer_rectf_to_rect(&translated);
         vk_renderer_draw_rect(vk, &irect);
         renderer->vk_rects_drawn += 1;
         return;
@@ -443,17 +568,18 @@ void renderer_draw_rect(Renderer *renderer, const SDL_FRect *rect) {
     if (!renderer->sdl) {
         return;
     }
-    SDL_RenderDrawRectF(renderer->sdl, rect);
+    SDL_RenderDrawRectF(renderer->sdl, &translated);
 }
 
 void renderer_fill_rect(Renderer *renderer, const SDL_FRect *rect) {
     if (!renderer || !rect) {
         return;
     }
+    SDL_FRect translated = renderer_offset_rectf(renderer, rect);
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk && renderer->vk_cmd != 0) {
         VkRenderer *vk = (VkRenderer *)renderer->vk;
-        SDL_Rect irect = renderer_rectf_to_rect(rect);
+        SDL_Rect irect = renderer_rectf_to_rect(&translated);
         vk_renderer_fill_rect(vk, &irect);
         renderer->vk_rects_filled += 1;
         return;
@@ -462,7 +588,7 @@ void renderer_fill_rect(Renderer *renderer, const SDL_FRect *rect) {
     if (!renderer->sdl) {
         return;
     }
-    SDL_RenderFillRectF(renderer->sdl, rect);
+    SDL_RenderFillRectF(renderer->sdl, &translated);
 }
 
 void renderer_draw_geometry(Renderer *renderer,
@@ -526,5 +652,20 @@ void renderer_draw_geometry(Renderer *renderer,
     if (!renderer->sdl) {
         return;
     }
-    SDL_RenderGeometry(renderer->sdl, NULL, vertices, num_vertices, indices, num_indices);
+    if (!renderer->viewport_enabled) {
+        SDL_RenderGeometry(renderer->sdl, NULL, vertices, num_vertices, indices, num_indices);
+        return;
+    }
+
+    SDL_Vertex *translated = (SDL_Vertex *)SDL_malloc(sizeof(SDL_Vertex) * (size_t)num_vertices);
+    if (!translated) {
+        return;
+    }
+    memcpy(translated, vertices, sizeof(SDL_Vertex) * (size_t)num_vertices);
+    for (int i = 0; i < num_vertices; ++i) {
+        translated[i].position.x += (float)renderer->viewport_x;
+        translated[i].position.y += (float)renderer->viewport_y;
+    }
+    SDL_RenderGeometry(renderer->sdl, NULL, translated, num_vertices, indices, num_indices);
+    SDL_free(translated);
 }

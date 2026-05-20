@@ -32,6 +32,11 @@ typedef struct Renderer {
     uint64_t vk_begin_failures_total;
     uint32_t vk_begin_fail_streak;
     int vk_last_begin_result;
+    int surface_width;
+    int surface_height;
+    int viewport_x;
+    int viewport_y;
+    bool viewport_enabled;
     int width;
     int height;
 } Renderer;
@@ -50,6 +55,8 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
 
 // Updates render target sizing after the host window changes size.
 bool renderer_resize(Renderer *renderer, int width, int height);
+bool renderer_set_viewport(Renderer *renderer, int x, int y, int width, int height);
+void renderer_reset_viewport(Renderer *renderer);
 
 // Shuts down the renderer backend.
 void renderer_shutdown(Renderer *renderer);

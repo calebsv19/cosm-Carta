@@ -1,6 +1,7 @@
 #ifndef MAPFORGE_APP_APP_HEADLESS_H
 #define MAPFORGE_APP_APP_HEADLESS_H
 
+#include "app/app_pins.h"
 #include "app/region.h"
 #include "route/route.h"
 
@@ -21,24 +22,6 @@ typedef struct MapForgeHeadlessCliOptions {
     const char *job_path;
     const char *out_dir;
 } MapForgeHeadlessCliOptions;
-
-typedef struct MapForgeHeadlessPin {
-    char id[MAPFORGE_HEADLESS_ID_CAPACITY];
-    char name[MAPFORGE_HEADLESS_NAME_CAPACITY];
-    char type[MAPFORGE_HEADLESS_TEXT_CAPACITY];
-    char color[MAPFORGE_HEADLESS_TEXT_CAPACITY];
-    char notes[MAPFORGE_HEADLESS_TEXT_CAPACITY];
-    double lat;
-    double lon;
-    bool private_flag;
-} MapForgeHeadlessPin;
-
-typedef struct MapForgeHeadlessPinsFile {
-    uint32_t version;
-    char map_region[MAPFORGE_HEADLESS_NAME_CAPACITY];
-    MapForgeHeadlessPin *pins;
-    size_t pin_count;
-} MapForgeHeadlessPinsFile;
 
 typedef struct MapForgeHeadlessCameraConfig {
     int width;
@@ -156,15 +139,10 @@ void map_forge_headless_args_usage(const char *program_name,
                                    char *out_text,
                                    size_t out_text_size);
 
-void map_forge_headless_pins_file_free(MapForgeHeadlessPinsFile *pins_file);
 bool map_forge_headless_job_load(const char *job_path,
                                  MapForgeHeadlessJob *out_job,
                                  char *out_error,
                                  size_t out_error_size);
-bool map_forge_headless_pins_load(const char *pins_path,
-                                  MapForgeHeadlessPinsFile *out_pins,
-                                  char *out_error,
-                                  size_t out_error_size);
 void map_forge_headless_playback_reset_heading_state(MapForgeHeadlessPlaybackHeadingState *state);
 bool map_forge_headless_playback_plan(const MapForgeHeadlessPlaybackConfig *config,
                                       const RoutePath *path,

@@ -109,29 +109,29 @@ void app_draw_region_bounds(AppState *app) {
     MercatorMeters max_m = mercator_from_latlon((LatLon){app->region.max_lat, app->region.max_lon});
     SDL_FPoint points[5];
     map_world_to_screen(&app->view_state_bridge.camera,
-                        app->width,
-                        app->height,
+                        app->renderer.width,
+                        app->renderer.height,
                         (float)min_m.x,
                         (float)max_m.y,
                         &points[0].x,
                         &points[0].y);
     map_world_to_screen(&app->view_state_bridge.camera,
-                        app->width,
-                        app->height,
+                        app->renderer.width,
+                        app->renderer.height,
                         (float)max_m.x,
                         (float)max_m.y,
                         &points[1].x,
                         &points[1].y);
     map_world_to_screen(&app->view_state_bridge.camera,
-                        app->width,
-                        app->height,
+                        app->renderer.width,
+                        app->renderer.height,
                         (float)max_m.x,
                         (float)min_m.y,
                         &points[2].x,
                         &points[2].y);
     map_world_to_screen(&app->view_state_bridge.camera,
-                        app->width,
-                        app->height,
+                        app->renderer.width,
+                        app->renderer.height,
                         (float)min_m.x,
                         (float)min_m.y,
                         &points[3].x,
@@ -152,6 +152,10 @@ static void app_draw_vk_mesh_for_coord(AppState *app,
     MapTileAffine affine;
     if (!map_tile_affine_from_camera(&app->view_state_bridge.camera, app->renderer.width, app->renderer.height, coord, &affine)) {
         return;
+    }
+    if (app->renderer.viewport_enabled) {
+        affine.m02 += (float)app->renderer.viewport_x;
+        affine.m12 += (float)app->renderer.viewport_y;
     }
     vk_renderer_draw_line_mesh_affine((VkRenderer *)app->renderer.vk,
                                       mesh,
@@ -182,6 +186,10 @@ static void app_draw_vk_mesh_for_coord_tinted(AppState *app,
     MapTileAffine affine;
     if (!map_tile_affine_from_camera(&app->view_state_bridge.camera, app->renderer.width, app->renderer.height, coord, &affine)) {
         return;
+    }
+    if (app->renderer.viewport_enabled) {
+        affine.m02 += (float)app->renderer.viewport_x;
+        affine.m12 += (float)app->renderer.viewport_y;
     }
     if (tint_r < 0.0f) tint_r = 0.0f;
     if (tint_g < 0.0f) tint_g = 0.0f;
@@ -308,6 +316,10 @@ static void app_draw_vk_tri_mesh_for_coord(AppState *app,
     MapTileAffine affine;
     if (!map_tile_affine_from_camera(&app->view_state_bridge.camera, app->renderer.width, app->renderer.height, coord, &affine)) {
         return;
+    }
+    if (app->renderer.viewport_enabled) {
+        affine.m02 += (float)app->renderer.viewport_x;
+        affine.m12 += (float)app->renderer.viewport_y;
     }
     vk_renderer_draw_tri_mesh_affine((VkRenderer *)app->renderer.vk,
                                      mesh,

@@ -2,6 +2,7 @@
 #define MAPFORGE_APP_INTERNAL_H
 
 #include "camera/camera.h"
+#include "app/app_pins.h"
 #include "core/input.h"
 #include "ui/debug_overlay.h"
 #include "app/region.h"
@@ -14,8 +15,10 @@
 #include "render/renderer.h"
 #include "render/vk_tile_cache.h"
 #include "route/route.h"
+#include "ui/shared_theme_font_adapter.h"
 #include "core_trace.h"
 #include "core_queue.h"
+#include "core_pane.h"
 
 #include <SDL.h>
 #include <stdbool.h>
@@ -68,6 +71,7 @@
 #define APP_HUD_ROUTE_LINE_CAPACITY 192u
 #define APP_INGEST_LIST_MAX 256
 #define APP_INGEST_NAME_CAP 128
+#define APP_PIN_LIST_MAX 256
 
 typedef enum TileQueueLane {
     TILE_QUEUE_LANE_L0_VISIBLE_MISSING = 0,
@@ -438,6 +442,13 @@ typedef struct AppRoutePreviewState {
     float lookahead_world_y;
 } AppRoutePreviewState;
 
+typedef enum AppLeftPaneSection {
+    APP_LEFT_PANE_SECTION_PINS = 0,
+    APP_LEFT_PANE_SECTION_INGEST = 1,
+    APP_LEFT_PANE_SECTION_INSPECT = 2,
+    APP_LEFT_PANE_SECTION_COUNT = 3
+} AppLeftPaneSection;
+
 /* Phase 2 bridge: target ownership bucket for route/path interaction state. */
 typedef struct AppRouteRuntimeState {
     RouteState route;
@@ -608,6 +619,48 @@ typedef struct AppUiState {
     SDL_FRect hud_ingest_row_rects[APP_INGEST_LIST_MAX];
     int hud_ingest_row_base;
     int hud_ingest_row_count;
+    bool left_pane_open;
+    AppLeftPaneSection left_pane_section;
+    SDL_FRect left_pane_rect;
+    SDL_FRect map_viewport_rect;
+    SDL_FRect pin_pane_closed_rect;
+    SDL_FRect pin_pane_header_rect;
+    SDL_FRect pin_pane_close_rect;
+    SDL_FRect pin_pane_tab_rects[APP_LEFT_PANE_SECTION_COUNT];
+    SDL_FRect pin_pane_content_rect;
+    SDL_FRect pin_pane_list_rect;
+    SDL_FRect pin_pane_row_rects[APP_PIN_LIST_MAX];
+    SDL_FRect pin_pane_add_rect;
+    SDL_FRect pin_pane_save_rect;
+    SDL_FRect pin_pane_delete_rect;
+    SDL_FRect pin_pane_cancel_rect;
+    SDL_FRect pin_pane_name_rect;
+    SDL_FRect pin_pane_type_rect;
+    SDL_FRect pin_pane_color_rect;
+    SDL_FRect pin_pane_private_rect;
+    SDL_FRect pin_drag_preview_rect;
+    int pin_pane_row_count;
+    int pin_pane_row_base;
+    int pin_selected_index;
+    bool pin_add_mode_active;
+    bool pin_editor_has_draft;
+    bool pin_editor_is_new;
+    bool pin_editor_waiting_for_map_click;
+    bool pin_name_edit_active;
+    int pin_name_cursor_index;
+    double pin_name_last_click_time_sec;
+    bool pin_list_drag_armed;
+    bool pin_list_drag_active;
+    int pin_drag_source_index;
+    int pin_drag_target_index;
+    int pin_drag_target_slot;
+    int pin_drag_start_mouse_y;
+    int pin_drag_last_mouse_y;
+    char pin_route_start_id[MAPFORGE_PIN_ID_CAPACITY];
+    char pin_route_goal_id[MAPFORGE_PIN_ID_CAPACITY];
+    MapForgePin pin_editor_draft;
+    char pin_editor_name_edit[MAPFORGE_PIN_NAME_CAPACITY];
+    char pin_editor_status[APP_HUD_ROUTE_LINE_CAPACITY];
 } AppUiState;
 
 /* Tracks subsystem ownership so shutdown can be deterministic and idempotent. */
@@ -696,6 +749,9 @@ typedef struct AppState {
     float viewport_scenario_origin_x;
     float viewport_scenario_origin_y;
     float viewport_scenario_origin_zoom;
+    MapForgePinsFile pins_file;
+    char pins_path[MAPFORGE_REGION_PATH_CAPACITY];
+    bool pins_dirty;
 } AppState;
 
 void app_bridge_sync_from_legacy(AppState *app);
@@ -885,9 +941,48 @@ void app_draw_workspace_authoring_overlay(AppState *app);
 void app_copy_overlay_text(AppState *app);
 bool app_handle_hud_clicks(AppState *app);
 void app_draw_ingest_panel(AppState *app);
+void app_pin_panel_layout(AppState *app);
+void app_draw_pin_panel(AppState *app);
+void app_draw_pins_overlay(AppState *app);
+bool app_select_pin_at_screen_point(AppState *app, int screen_x, int screen_y);
+bool app_pin_name_edit_insert_text(char *buffer, size_t cap, int *cursor, const char *text);
+bool app_pin_name_edit_backspace(char *buffer, int *cursor);
+bool app_pin_name_edit_move_left(const char *buffer, int *cursor);
+bool app_pin_name_edit_move_right(const char *buffer, int *cursor);
+void app_pin_panel_select_saved_pin(AppState *app, int index);
+bool app_pin_panel_name_edit_active(const AppState *app);
+void app_pin_panel_name_edit_deactivate(AppState *app);
+void app_pin_panel_name_edit_sync_cursor_to_end(AppState *app);
+void app_pin_panel_draw_name_field(AppState *app,
+                                   const MapForgeThemePalette *palette,
+                                   SDL_Color text,
+                                   SDL_Color muted);
+bool app_pin_panel_handle_name_click(AppState *app, int x, int y);
+bool app_pin_panel_handle_name_runtime_inputs(AppState *app);
+void app_pin_panel_draw_metadata(AppState *app);
+bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y);
+bool app_pin_panel_row_has_route_start(const AppState *app, int pin_index);
+bool app_pin_panel_row_has_route_goal(const AppState *app, int pin_index);
+void app_pin_panel_clear_route_start(AppState *app);
+void app_pin_panel_clear_route_goal(AppState *app);
+void app_pin_panel_clear_route_bindings(AppState *app);
+void app_pin_panel_cancel_list_drag(AppState *app);
+bool app_pin_panel_handle_list_click(AppState *app, int x, int y);
+bool app_pin_panel_handle_list_runtime_inputs(AppState *app);
+bool app_pin_panel_handle_click(AppState *app, int x, int y);
+bool app_pin_panel_handle_runtime_inputs(AppState *app);
+bool app_pin_panel_handle_map_click(AppState *app, int x, int y);
+SDL_FRect app_map_viewport_rect(const AppState *app);
+bool app_map_viewport_contains_screen_point(const AppState *app, int screen_x, int screen_y);
+bool app_map_screen_to_world(const AppState *app, float screen_x, float screen_y, float *out_world_x, float *out_world_y);
+bool app_map_world_to_screen(const AppState *app, float world_x, float world_y, float *out_screen_x, float *out_screen_y);
+bool app_map_world_to_viewport_local(const AppState *app, float world_x, float world_y, float *out_local_x, float *out_local_y);
+bool app_map_viewport_activate(AppState *app);
+void app_map_viewport_deactivate(AppState *app);
 void app_ingest_rescan_sources(AppState *app);
 void app_ingest_rescan_active_regions(AppState *app);
 bool app_ingest_open_selected_active_region(AppState *app);
+void app_reload_pins_state(AppState *app);
 void app_runtime_format_region_package_status(const char *region_name,
                                               const RegionPackageValidationResult *validation,
                                               char *out_status,

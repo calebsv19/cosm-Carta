@@ -36,6 +36,7 @@ CORE_KERNEL_LIB := $(SHARED_BUILD_DIR)/libcore_kernel.a
 CORE_TRACE_LIB := $(SHARED_BUILD_DIR)/libcore_trace.a
 CORE_THEME_LIB := $(SHARED_BUILD_DIR)/libcore_theme.a
 CORE_FONT_LIB := $(SHARED_BUILD_DIR)/libcore_font.a
+CORE_PANE_LIB := $(SHARED_BUILD_DIR)/libcore_pane.a
 CORE_VIEWPORT2D_LIB := $(SHARED_BUILD_DIR)/libcore_viewport2d.a
 KIT_RUNTIME_DIAG_LIB := $(SHARED_BUILD_DIR)/libkit_runtime_diag.a
 KIT_RENDER_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render.o

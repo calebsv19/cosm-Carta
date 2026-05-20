@@ -18,8 +18,8 @@ static bool app_compute_visible_tile_bounds(AppState *app, uint16_t *out_z, Tile
     float min_y = 0.0f;
     float max_y = 0.0f;
     if (!camera_visible_world_aabb(&app->view_state_bridge.camera,
-                                   app->width,
-                                   app->height,
+                                   (int)app_map_viewport_rect(app).w,
+                                   (int)app_map_viewport_rect(app).h,
                                    &min_x,
                                    &min_y,
                                    &max_x,

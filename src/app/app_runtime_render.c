@@ -150,8 +150,10 @@ void app_runtime_render_submit_frame(AppState *app,
         }
     }
     renderer_clear(&app->renderer, derive->clear_r, derive->clear_g, derive->clear_b, derive->clear_a);
+    app_pin_panel_layout(app);
 
     road_renderer_stats_reset();
+    (void)app_map_viewport_activate(app);
     app_draw_visible_tiles(app, &out_submit->tile_stats);
     out_submit->draw_pass_count += 1u;
 
@@ -161,8 +163,11 @@ void app_runtime_render_submit_frame(AppState *app,
         app->route_state_bridge.route.has_start, app->route_state_bridge.route.start_node, app->route_state_bridge.start_anchor.valid, app->route_state_bridge.start_anchor.world_x, app->route_state_bridge.start_anchor.world_y,
         app->route_state_bridge.route.has_goal, app->route_state_bridge.route.goal_node, app->route_state_bridge.goal_anchor.valid, app->route_state_bridge.goal_anchor.world_x, app->route_state_bridge.goal_anchor.world_y,
         app->route_state_bridge.route.has_transfer, app->route_state_bridge.route.transfer_node);
+    app_draw_pins_overlay(app);
     app_draw_hover_marker(app);
     app_draw_playback_marker(app);
+    app_map_viewport_deactivate(app);
+    app_draw_pin_panel(app);
     app_draw_route_panel(app);
     app_draw_header_bar(app);
     app_draw_layer_debug(app);

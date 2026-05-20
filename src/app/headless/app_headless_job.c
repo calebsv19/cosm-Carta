@@ -78,25 +78,6 @@ static bool json_get_required_u32(struct json_object *obj,
     return true;
 }
 
-static bool json_get_required_double(struct json_object *obj,
-                                     const char *key,
-                                     double *out_value,
-                                     char *out_error,
-                                     size_t out_error_size) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_value) {
-        return map_forge_headless_error(out_error, out_error_size, "invalid float parse request");
-    }
-    if (!json_object_object_get_ex(obj, key, &value) ||
-        (!json_object_is_type(value, json_type_double) && !json_object_is_type(value, json_type_int))) {
-        char buffer[256];
-        snprintf(buffer, sizeof(buffer), "missing or invalid number field: %s", key);
-        return map_forge_headless_error(out_error, out_error_size, buffer);
-    }
-    *out_value = json_object_get_double(value);
-    return true;
-}
-
 static bool json_get_optional_bool(struct json_object *obj, const char *key, bool *out_value) {
     struct json_object *value = NULL;
     if (!obj || !key || !out_value) {
@@ -341,91 +322,4 @@ bool map_forge_headless_job_load(const char *job_path,
     json_object_put(root);
     *out_job = job;
     return true;
-}
-
-bool map_forge_headless_pins_load(const char *pins_path,
-                                  MapForgeHeadlessPinsFile *out_pins,
-                                  char *out_error,
-                                  size_t out_error_size) {
-    struct json_object *root = NULL;
-    struct json_object *pins_array = NULL;
-    MapForgeHeadlessPinsFile pins_file;
-    size_t pin_count = 0u;
-
-    if (!pins_path || !out_pins) {
-        return map_forge_headless_error(out_error, out_error_size, "missing pins path");
-    }
-
-    memset(&pins_file, 0, sizeof(pins_file));
-    root = json_object_from_file(pins_path);
-    if (!root || !json_object_is_type(root, json_type_object)) {
-        if (root) {
-            json_object_put(root);
-        }
-        return map_forge_headless_error(out_error, out_error_size, "failed to parse pins JSON");
-    }
-
-    if (!json_get_required_u32(root, "version", &pins_file.version, out_error, out_error_size)) {
-        json_object_put(root);
-        return false;
-    }
-    if (pins_file.version != 1u) {
-        json_object_put(root);
-        return map_forge_headless_error(out_error, out_error_size, "pins version must be 1");
-    }
-    (void)json_get_optional_string(root, "map_region", pins_file.map_region, sizeof(pins_file.map_region));
-
-    if (!json_object_object_get_ex(root, "pins", &pins_array) || !json_object_is_type(pins_array, json_type_array)) {
-        json_object_put(root);
-        return map_forge_headless_error(out_error, out_error_size, "pins must be an array");
-    }
-    pin_count = (size_t)json_object_array_length(pins_array);
-    if (pin_count == 0u) {
-        json_object_put(root);
-        return map_forge_headless_error(out_error, out_error_size, "pins array must not be empty");
-    }
-
-    pins_file.pins = (MapForgeHeadlessPin *)calloc(pin_count, sizeof(MapForgeHeadlessPin));
-    if (!pins_file.pins) {
-        json_object_put(root);
-        return map_forge_headless_error(out_error, out_error_size, "failed to allocate pins");
-    }
-    pins_file.pin_count = pin_count;
-
-    for (size_t i = 0; i < pin_count; ++i) {
-        struct json_object *pin_obj = json_object_array_get_idx(pins_array, (int)i);
-        double lat = 0.0;
-        double lon = 0.0;
-        if (!pin_obj || !json_object_is_type(pin_obj, json_type_object)) {
-            map_forge_headless_pins_file_free(&pins_file);
-            json_object_put(root);
-            return map_forge_headless_error(out_error, out_error_size, "pin entries must be objects");
-        }
-        if (!json_get_required_string(pin_obj, "id", pins_file.pins[i].id, sizeof(pins_file.pins[i].id), out_error, out_error_size) ||
-            !json_get_required_string(pin_obj, "name", pins_file.pins[i].name, sizeof(pins_file.pins[i].name), out_error, out_error_size) ||
-            !json_get_required_double(pin_obj, "lat", &lat, out_error, out_error_size) ||
-            !json_get_required_double(pin_obj, "lon", &lon, out_error, out_error_size)) {
-            map_forge_headless_pins_file_free(&pins_file);
-            json_object_put(root);
-            return false;
-        }
-        pins_file.pins[i].lat = lat;
-        pins_file.pins[i].lon = lon;
-        (void)json_get_optional_string(pin_obj, "type", pins_file.pins[i].type, sizeof(pins_file.pins[i].type));
-        (void)json_get_optional_string(pin_obj, "color", pins_file.pins[i].color, sizeof(pins_file.pins[i].color));
-        (void)json_get_optional_string(pin_obj, "notes", pins_file.pins[i].notes, sizeof(pins_file.pins[i].notes));
-        (void)json_get_optional_bool(pin_obj, "private", &pins_file.pins[i].private_flag);
-    }
-
-    json_object_put(root);
-    *out_pins = pins_file;
-    return true;
-}
-
-void map_forge_headless_pins_file_free(MapForgeHeadlessPinsFile *pins_file) {
-    if (!pins_file) {
-        return;
-    }
-    free(pins_file->pins);
-    memset(pins_file, 0, sizeof(*pins_file));
 }

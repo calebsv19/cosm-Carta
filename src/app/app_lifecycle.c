@@ -3,6 +3,7 @@
 #include "app/app_trace_runtime.h"
 
 #include "core/log.h"
+#include "core_io.h"
 #include "app/region_loader.h"
 #include "ui/font.h"
 #include "ui/shared_theme_font_adapter.h"
@@ -122,6 +123,100 @@ static int app_find_region_index_by_name(const char *name) {
         }
     }
     return -1;
+}
+
+static bool app_legacy_pins_private_path(const RegionInfo *region,
+                                         char *out_path,
+                                         size_t out_path_size) {
+    if (!out_path || out_path_size == 0u || !region || !region->name || region->name[0] == '\0') {
+        return false;
+    }
+    snprintf(out_path,
+             out_path_size,
+             "data/pins/private/%s.pins.local.json",
+             region->name);
+    return true;
+}
+
+void app_reload_pins_state(AppState *app) {
+    char error[256];
+    char default_path[MAPFORGE_REGION_PATH_CAPACITY];
+    char legacy_path[MAPFORGE_REGION_PATH_CAPACITY];
+    bool loaded = false;
+    bool loaded_from_legacy = false;
+    if (!app) {
+        return;
+    }
+    map_forge_pins_file_free(&app->pins_file);
+    map_forge_pins_file_init(&app->pins_file);
+    app->pins_dirty = false;
+    app->pins_path[0] = '\0';
+    if (!map_forge_pins_default_private_path(&app->region, default_path, sizeof(default_path))) {
+        return;
+    }
+    snprintf(app->pins_path, sizeof(app->pins_path), "%s", default_path);
+    snprintf(app->pins_file.map_region, sizeof(app->pins_file.map_region), "%s", app->region.name ? app->region.name : "");
+
+    if (core_io_path_exists(default_path)) {
+        loaded = map_forge_pins_load(default_path, &app->pins_file, error, sizeof(error));
+    } else if (getenv("MAPFORGE_RUNTIME_DIR") &&
+               getenv("MAPFORGE_RUNTIME_DIR")[0] != '\0' &&
+               app_legacy_pins_private_path(&app->region, legacy_path, sizeof(legacy_path)) &&
+               core_io_path_exists(legacy_path)) {
+        snprintf(app->pins_path, sizeof(app->pins_path), "%s", legacy_path);
+        loaded = map_forge_pins_load(legacy_path, &app->pins_file, error, sizeof(error));
+        loaded_from_legacy = loaded;
+    } else {
+        loaded = true;
+    }
+
+    if (!loaded) {
+        snprintf(app->ingest_status,
+                 sizeof(app->ingest_status),
+                 "Pins load failed: %s",
+                 error);
+        map_forge_pins_file_free(&app->pins_file);
+        map_forge_pins_file_init(&app->pins_file);
+        snprintf(app->pins_file.map_region, sizeof(app->pins_file.map_region), "%s", app->region.name ? app->region.name : "");
+    }
+    if (loaded_from_legacy) {
+        snprintf(app->pins_path, sizeof(app->pins_path), "%s", default_path);
+        snprintf(app->pins_file.map_region, sizeof(app->pins_file.map_region), "%s", app->region.name ? app->region.name : "");
+        if (!map_forge_pins_save(app->pins_path, &app->pins_file, error, sizeof(error))) {
+            snprintf(app->ingest_status,
+                     sizeof(app->ingest_status),
+                     "Pins migrate failed: %s",
+                     error);
+        }
+    }
+
+    app->ui_state_bridge.pin_selected_index = -1;
+    app->ui_state_bridge.pin_editor_has_draft = false;
+    app->ui_state_bridge.pin_editor_is_new = false;
+    app->ui_state_bridge.pin_editor_waiting_for_map_click = false;
+    app->ui_state_bridge.pin_add_mode_active = false;
+    app->ui_state_bridge.pin_editor_name_edit[0] = '\0';
+    app->ui_state_bridge.pin_editor_status[0] = '\0';
+    app->ui_state_bridge.pin_name_edit_active = false;
+    app->ui_state_bridge.pin_name_cursor_index = 0;
+    app->ui_state_bridge.pin_list_drag_armed = false;
+    app->ui_state_bridge.pin_list_drag_active = false;
+    app->ui_state_bridge.pin_drag_source_index = -1;
+    app->ui_state_bridge.pin_drag_target_index = -1;
+    app->ui_state_bridge.pin_drag_target_slot = -1;
+    app->ui_state_bridge.pin_drag_start_mouse_y = 0;
+    app->ui_state_bridge.pin_drag_last_mouse_y = 0;
+    app->ui_state_bridge.pin_drag_preview_rect = (SDL_FRect){0};
+    app->ui_state_bridge.pin_route_start_id[0] = '\0';
+    app->ui_state_bridge.pin_route_goal_id[0] = '\0';
+}
+
+static void app_init_pins_state(AppState *app) {
+    if (!app) {
+        return;
+    }
+    map_forge_pins_file_init(&app->pins_file);
+    app_reload_pins_state(app);
 }
 
 bool app_init(AppState *app) {
@@ -258,7 +353,7 @@ bool app_init(AppState *app) {
     app->ingest_status[0] = '\0';
     app->ingest_package_status[0] = '\0';
     app->latest_imported_region[0] = '\0';
-    app->ingest_panel_open = true;
+    app->ingest_panel_open = false;
     app->ingest_show_active_tab = false;
     app->ingest_edit_mode = false;
     app->ingest_osm_count = 0;
@@ -498,6 +593,48 @@ bool app_init(AppState *app) {
     app->ui_state_bridge.header_layer_panel_mode = 0;
     app->ui_state_bridge.header_layer_selected_valid = false;
     app->ui_state_bridge.header_layer_selected_kind = TILE_LAYER_ROAD_ARTERY;
+    app->ui_state_bridge.left_pane_open = false;
+    app->ui_state_bridge.left_pane_section = APP_LEFT_PANE_SECTION_PINS;
+    app->ui_state_bridge.pin_selected_index = -1;
+    app->ui_state_bridge.pin_name_edit_active = false;
+    app->ui_state_bridge.pin_name_cursor_index = 0;
+    app->ui_state_bridge.pin_name_last_click_time_sec = 0.0;
+    memset(&app->ui_state_bridge.left_pane_rect, 0, sizeof(app->ui_state_bridge.left_pane_rect));
+    memset(&app->ui_state_bridge.map_viewport_rect, 0, sizeof(app->ui_state_bridge.map_viewport_rect));
+    memset(&app->ui_state_bridge.pin_pane_closed_rect, 0, sizeof(app->ui_state_bridge.pin_pane_closed_rect));
+    memset(&app->ui_state_bridge.pin_pane_header_rect, 0, sizeof(app->ui_state_bridge.pin_pane_header_rect));
+    memset(&app->ui_state_bridge.pin_pane_close_rect, 0, sizeof(app->ui_state_bridge.pin_pane_close_rect));
+    memset(&app->ui_state_bridge.pin_pane_tab_rects, 0, sizeof(app->ui_state_bridge.pin_pane_tab_rects));
+    memset(&app->ui_state_bridge.pin_pane_content_rect, 0, sizeof(app->ui_state_bridge.pin_pane_content_rect));
+    memset(&app->ui_state_bridge.pin_pane_list_rect, 0, sizeof(app->ui_state_bridge.pin_pane_list_rect));
+    memset(&app->ui_state_bridge.pin_pane_row_rects, 0, sizeof(app->ui_state_bridge.pin_pane_row_rects));
+    memset(&app->ui_state_bridge.pin_pane_add_rect, 0, sizeof(app->ui_state_bridge.pin_pane_add_rect));
+    memset(&app->ui_state_bridge.pin_pane_save_rect, 0, sizeof(app->ui_state_bridge.pin_pane_save_rect));
+    memset(&app->ui_state_bridge.pin_pane_delete_rect, 0, sizeof(app->ui_state_bridge.pin_pane_delete_rect));
+    memset(&app->ui_state_bridge.pin_pane_cancel_rect, 0, sizeof(app->ui_state_bridge.pin_pane_cancel_rect));
+    memset(&app->ui_state_bridge.pin_pane_name_rect, 0, sizeof(app->ui_state_bridge.pin_pane_name_rect));
+    memset(&app->ui_state_bridge.pin_pane_type_rect, 0, sizeof(app->ui_state_bridge.pin_pane_type_rect));
+    memset(&app->ui_state_bridge.pin_pane_color_rect, 0, sizeof(app->ui_state_bridge.pin_pane_color_rect));
+    memset(&app->ui_state_bridge.pin_pane_private_rect, 0, sizeof(app->ui_state_bridge.pin_pane_private_rect));
+    memset(&app->ui_state_bridge.pin_drag_preview_rect, 0, sizeof(app->ui_state_bridge.pin_drag_preview_rect));
+    app->ui_state_bridge.pin_pane_row_count = 0;
+    app->ui_state_bridge.pin_pane_row_base = 0;
+    app->ui_state_bridge.pin_editor_has_draft = false;
+    app->ui_state_bridge.pin_add_mode_active = false;
+    app->ui_state_bridge.pin_editor_is_new = false;
+    app->ui_state_bridge.pin_editor_waiting_for_map_click = false;
+    memset(&app->ui_state_bridge.pin_editor_draft, 0, sizeof(app->ui_state_bridge.pin_editor_draft));
+    app->ui_state_bridge.pin_editor_name_edit[0] = '\0';
+    app->ui_state_bridge.pin_editor_status[0] = '\0';
+    app->ui_state_bridge.pin_list_drag_armed = false;
+    app->ui_state_bridge.pin_list_drag_active = false;
+    app->ui_state_bridge.pin_drag_source_index = -1;
+    app->ui_state_bridge.pin_drag_target_index = -1;
+    app->ui_state_bridge.pin_drag_target_slot = -1;
+    app->ui_state_bridge.pin_drag_start_mouse_y = 0;
+    app->ui_state_bridge.pin_drag_last_mouse_y = 0;
+    app->ui_state_bridge.pin_route_start_id[0] = '\0';
+    app->ui_state_bridge.pin_route_goal_id[0] = '\0';
     app->view_state_bridge.zoom_logic_enabled = true;
     app->tile_state_bridge.presenter_invariants_enabled = !app_env_flag_enabled("MAPFORGE_DISABLE_PRESENTER_INVARIANTS");
     app->tile_state_bridge.contour_runtime_enabled = app_env_flag_enabled("MAPFORGE_ENABLE_CONTOUR");
@@ -577,6 +714,7 @@ bool app_init(AppState *app) {
     app->tile_state_bridge.last_queue_rebuild_time = 0.0;
     app_ingest_rescan_sources(app);
     app_ingest_rescan_active_regions(app);
+    app_init_pins_state(app);
     app_refresh_layer_states(app);
     app_bridge_sync_from_legacy(app);
     app->lifetime.persisted_state_ready = true;
@@ -661,6 +799,7 @@ void app_shutdown(AppState *app) {
         route_state_shutdown(&app->route_state_bridge.route);
         app->lifetime.route_state_initialized = false;
     }
+    map_forge_pins_file_free(&app->pins_file);
     if (app->lifetime.trace_session_initialized) {
         app_trace_shutdown(app);
         app->lifetime.trace_session_initialized = false;

@@ -58,7 +58,10 @@ void input_init(InputState *input) {
     input->ingest_import_all_pressed = false;
     input->ingest_edit_toggle_pressed = false;
     input->ingest_folder_dialog_pressed = false;
+    input->pin_panel_toggle_pressed = false;
     input->backspace_pressed = false;
+    input->cursor_left_pressed = false;
+    input->cursor_right_pressed = false;
     input->text_input_received = false;
     input->text_input[0] = '\0';
 }
@@ -109,7 +112,10 @@ void input_begin_frame(InputState *input) {
     input->ingest_import_all_pressed = false;
     input->ingest_edit_toggle_pressed = false;
     input->ingest_folder_dialog_pressed = false;
+    input->pin_panel_toggle_pressed = false;
     input->backspace_pressed = false;
+    input->cursor_left_pressed = false;
+    input->cursor_right_pressed = false;
     input->text_input_received = false;
     input->text_input[0] = '\0';
 }
@@ -226,15 +232,23 @@ void input_handle_event(InputState *input, const SDL_Event *event) {
                 input->ingest_edit_toggle_pressed = true;
             } else if (event->key.keysym.sym == SDLK_b) {
                 input->ingest_folder_dialog_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_p) {
+                input->pin_panel_toggle_pressed = true;
             } else if (event->key.keysym.sym == SDLK_BACKSPACE) {
                 input->backspace_pressed = true;
+            } else if (event->key.keysym.sym == SDLK_LEFT) {
+                input->cursor_left_pressed = true;
+                input->pan_left = true;
+            } else if (event->key.keysym.sym == SDLK_RIGHT) {
+                input->cursor_right_pressed = true;
+                input->pan_right = true;
             } else if (event->key.keysym.sym == SDLK_LSHIFT || event->key.keysym.sym == SDLK_RSHIFT) {
                 input->shift_down = true;
             } else if (event->key.keysym.sym == SDLK_LALT || event->key.keysym.sym == SDLK_RALT) {
                 input->alt_down = true;
-            } else if (event->key.keysym.sym == SDLK_a || event->key.keysym.sym == SDLK_LEFT) {
+            } else if (event->key.keysym.sym == SDLK_a) {
                 input->pan_left = true;
-            } else if (event->key.keysym.sym == SDLK_d || event->key.keysym.sym == SDLK_RIGHT) {
+            } else if (event->key.keysym.sym == SDLK_d) {
                 input->pan_right = true;
             } else if (event->key.keysym.sym == SDLK_w || event->key.keysym.sym == SDLK_UP) {
                 input->pan_up = true;
