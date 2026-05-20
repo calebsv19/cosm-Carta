@@ -405,6 +405,8 @@ APP_TILE_PRESENTER_POLICY_TEST_TARGET := $(TEST_BIN_DIR)/app_tile_presenter_poli
 APP_TILE_PRESENTER_POLICY_TEST_SRCS := tests/app_tile_presenter_policy_test.c src/app/app_tile_presenter.c src/app/app_tile_lifecycle.c src/core/time.c
 POLYGON_CACHE_GUARDRAILS_TEST_TARGET := $(TEST_BIN_DIR)/polygon_cache_guardrails_test
 POLYGON_CACHE_GUARDRAILS_TEST_SRCS := tests/polygon_cache_guardrails_test.c src/map/polygon_cache.c src/map/polygon_triangulator.c
+MFT_LOADER_SECURITY_TEST_TARGET := $(TEST_BIN_DIR)/mft_loader_security_test
+MFT_LOADER_SECURITY_TEST_SRCS := tests/mft_loader_security_test.c src/map/mft_loader.c src/core/log.c
 APP_RUNTIME_INPUT_POLICY_TEST_TARGET := $(TEST_BIN_DIR)/app_runtime_input_policy_test
 APP_RUNTIME_INPUT_POLICY_TEST_SRCS := tests/app_runtime_input_policy_test.c src/app/app_runtime_input_policy.c
 MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_TARGET := $(TEST_BIN_DIR)/map_forge_workspace_authoring_host_test
@@ -976,6 +978,7 @@ test: test-trace-contract
 test: test-worker-contract
 test: test-tile-loader-shutdown
 test: test-tile-source-archive
+test: test-mft-loader-security
 test: test-route-service
 test: test-tile-presenter-policy
 test: test-presentation-stability
@@ -1027,6 +1030,9 @@ test-presentation-stability: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 
 test-polygon-cache-guardrails: $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
 	./$(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
+
+test-mft-loader-security: $(MFT_LOADER_SECURITY_TEST_TARGET)
+	./$(MFT_LOADER_SECURITY_TEST_TARGET)
 
 test-input-policy: $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 	./$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
@@ -1151,6 +1157,10 @@ $(APP_TILE_PRESENTER_POLICY_TEST_TARGET): $(APP_TILE_PRESENTER_POLICY_TEST_SRCS)
 $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET): $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(MFT_LOADER_SECURITY_TEST_TARGET): $(MFT_LOADER_SECURITY_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(MFT_LOADER_SECURITY_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 
 $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET): $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -1294,6 +1304,6 @@ vk-check: vk-lib
 clean:
 	rm -rf build
 
-.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-workspace-authoring-host test-header-layer-layout test-window-resize test-tile-manager-residency test-phase-a-viewport-scenario test-phase-b-continuity-stress test-phase-d1-budget-control test-phase-d1-budget-matrix test-phase-d2-trace-matrix test-phase-d2-tuning-profiles test-phase-d2-trend-summary test-phase-d2-guardrails test-phase-d3-regression-gate test-phase-d3-contract-preview test-phase-d-throughput route route-rebuild region region-archive region-validate region-rebuild region-rebuild-archive tools-progress graph-progress region-progress region-progress-archive route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
+.PHONY: app run run-headless-smoke visual-harness package-desktop package-desktop-smoke package-desktop-self-test package-desktop-copy-desktop package-desktop-sync package-desktop-open package-desktop-remove package-desktop-refresh release-contract release-clean release-build release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact release-distribute release-desktop-refresh run-ide-theme run-daw-theme tools tools-build graph graph-build test-space build-safety-check test test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract metrics-rollup-gate test-shared-theme-font-adapter test-trace-contract test-worker-contract test-tile-loader-shutdown test-tile-source-archive test-mft-loader-security test-route-service test-tile-presenter-policy test-presentation-stability test-polygon-cache-guardrails test-input-policy test-workspace-authoring-host test-header-layer-layout test-window-resize test-tile-manager-residency test-phase-a-viewport-scenario test-phase-b-continuity-stress test-phase-d1-budget-control test-phase-d1-budget-matrix test-phase-d2-trace-matrix test-phase-d2-tuning-profiles test-phase-d2-trend-summary test-phase-d2-guardrails test-phase-d3-regression-gate test-phase-d3-contract-preview test-phase-d-throughput route route-rebuild region region-archive region-validate region-rebuild region-rebuild-archive tools-progress graph-progress region-progress region-progress-archive route-progress batch-regions disk-usage region-clean graph-clean prune-regions shared-check trace-latest vk-lib vk-check clean
 
 -include $(DEPS)
