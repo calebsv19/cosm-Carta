@@ -3,6 +3,7 @@
 #include "core_io.h"
 #include "core/log.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -160,6 +161,10 @@ bool mft_load_tile(const char *path, MftTile *out_tile) {
         out_tile->polygons[i].ring_count = ring_count;
         out_tile->polygons[i].ring_offset = ring_total;
         out_tile->polygons[i].point_offset = 0;
+        if (ring_total > UINT32_MAX - (uint32_t)ring_count) {
+            log_error("MFT polygon ring total overflow: %s", path);
+            goto fail;
+        }
         ring_total += ring_count;
     }
 
@@ -187,7 +192,16 @@ bool mft_load_tile(const char *path, MftTile *out_tile) {
                 out_tile->polygons[i].point_offset = total_polygon_points;
             }
 
+            if (out_tile->polygons[i].ring_offset >= out_tile->polygon_ring_total ||
+                (uint32_t)r > out_tile->polygon_ring_total - out_tile->polygons[i].ring_offset - 1u) {
+                log_error("MFT polygon ring index invalid: %s", path);
+                goto fail;
+            }
             out_tile->polygon_rings[out_tile->polygons[i].ring_offset + r] = point_count;
+            if (total_polygon_points > UINT32_MAX - point_count) {
+                log_error("MFT polygon point total overflow: %s", path);
+                goto fail;
+            }
             total_polygon_points += point_count;
         }
     }
