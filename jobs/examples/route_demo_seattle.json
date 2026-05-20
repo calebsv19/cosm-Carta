@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "type": "route_playback_render",
+  "map_region": "seattle",
+  "pins_file": "data/pins/examples/demo.seattle.pins.json",
+  "from_pin": "demo_start",
+  "to_pin": "demo_goal",
+  "route": {
+    "mode": "walking"
+  },
+  "camera": {
+    "width": 1280,
+    "height": 720,
+    "zoom": 15,
+    "follow_route": true,
+    "rotate_with_heading": true
+  },
+  "playback": {
+    "duration_seconds": 12,
+    "fps": 30,
+    "start_paused": false
+  },
+  "output": {
+    "preview_png": true,
+    "frames": false,
+    "frame_format": "bmp",
+    "video_manifest": false
+  }
+}

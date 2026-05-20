@@ -37,6 +37,6 @@ int map_forge_app_run_loop(MapForgeAppContext *ctx);
 void map_forge_app_shutdown(MapForgeAppContext *ctx);
 
 // Canonical lifecycle-locked entrypoint for map_forge.
-int map_forge_app_main(void);
+int map_forge_app_main(int argc, char **argv);
 
 #endif

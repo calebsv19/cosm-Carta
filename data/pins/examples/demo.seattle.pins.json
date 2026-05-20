@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "map_region": "seattle",
+  "pins": [
+    {
+      "id": "demo_start",
+      "name": "Demo Start",
+      "type": "demo",
+      "color": "blue",
+      "lat": 47.6710,
+      "lon": -122.3490,
+      "notes": "Example-only pin for headless route jobs.",
+      "private": false
+    },
+    {
+      "id": "demo_goal",
+      "name": "Demo Goal",
+      "type": "demo",
+      "color": "green",
+      "lat": 47.6828,
+      "lon": -122.3165,
+      "notes": "Example-only pin for headless route jobs.",
+      "private": false
+    }
+  ]
+}

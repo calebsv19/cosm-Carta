@@ -497,6 +497,6 @@ int app_run_legacy(void) {
     return 0;
 }
 
-int app_run(void) {
-    return map_forge_app_main();
+int app_run(int argc, char **argv) {
+    return map_forge_app_main(argc, argv);
 }

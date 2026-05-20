@@ -405,7 +405,10 @@ static bool app_runtime_open_region_index(AppState *app, int region_index) {
     vk_tile_cache_clear_with_renderer(&app->tile_state_bridge.vk_tile_cache, app->renderer.vk);
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         tile_manager_shutdown(&app->tile_state_bridge.tile_managers[i]);
-        tile_manager_init_with_source(&app->tile_state_bridge.tile_managers[i], 256, &app->region.tile_source);
+        tile_manager_init_with_source_for_layer(&app->tile_state_bridge.tile_managers[i],
+                                                256,
+                                                &app->region.tile_source,
+                                                (TileLayerKind)i);
     }
     tile_loader_init_with_source(&app->tile_state_bridge.tile_loader, &app->region.tile_source);
     app->tile_state_bridge.visible_valid = false;

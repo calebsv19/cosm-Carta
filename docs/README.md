@@ -33,6 +33,8 @@ Last audited: 2026-05-04.
 - `docs/GRAPH_V1.md`: original routing graph format notes.
 - `docs/GRAPH_V2.md`: current routing graph format and compatibility notes.
 - `docs/OSM_ROAD_CLASSES.md`: OSM tag-to-road-class mapping used by the tooling.
+- `docs/carta_route_job_format.md`: headless route-job JSON contract.
+- `docs/carta_pin_format.md`: persistent pin JSON contract.
 
 ## Context And Navigation
 

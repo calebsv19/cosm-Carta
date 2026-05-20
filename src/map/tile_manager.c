@@ -50,6 +50,13 @@ bool tile_manager_init(TileManager *manager, uint32_t capacity, const char *base
 }
 
 bool tile_manager_init_with_source(TileManager *manager, uint32_t capacity, const TileSourceConfig *source) {
+    return tile_manager_init_with_source_for_layer(manager, capacity, source, TILE_LAYER_ROAD_ARTERY);
+}
+
+bool tile_manager_init_with_source_for_layer(TileManager *manager,
+                                             uint32_t capacity,
+                                             const TileSourceConfig *source,
+                                             TileLayerKind kind) {
     if (!manager || capacity == 0 || !source || source->tiles_root[0] == '\0') {
         return false;
     }
@@ -64,6 +71,7 @@ bool tile_manager_init_with_source(TileManager *manager, uint32_t capacity, cons
     manager->count = 0;
     manager->tick = 1;
     manager->source = *source;
+    manager->layer_kind = kind;
     return true;
 }
 
@@ -195,7 +203,7 @@ const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord, Tile
     }
 
     char path[512];
-    if (!tile_source_resolve_legacy_path(&manager->source, coord, band, path, sizeof(path))) {
+    if (!tile_source_resolve_path(&manager->source, coord, manager->layer_kind, band, path, sizeof(path))) {
         return NULL;
     }
 

@@ -6,6 +6,6 @@
 int app_run_legacy(void);
 
 // Public app entry; delegates to map_forge_app_main().
-int app_run(void);
+int app_run(int argc, char **argv);
 
 #endif

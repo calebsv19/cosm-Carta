@@ -399,7 +399,10 @@ bool app_init(AppState *app) {
     log_info("Region data root: %s", region_data_root());
 
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-        if (!tile_manager_init_with_source(&app->tile_state_bridge.tile_managers[i], 256, &app->region.tile_source)) {
+        if (!tile_manager_init_with_source_for_layer(&app->tile_state_bridge.tile_managers[i],
+                                                     256,
+                                                     &app->region.tile_source,
+                                                     (TileLayerKind)i)) {
             log_error("tile_manager_init failed");
             return false;
         }

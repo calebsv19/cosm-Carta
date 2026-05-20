@@ -24,6 +24,7 @@ typedef struct TileManager {
     uint32_t count;
     uint64_t tick;
     TileSourceConfig source;
+    TileLayerKind layer_kind;
 } TileManager;
 
 // Residency pressure policy used when trimming cached tiles.
@@ -44,6 +45,11 @@ typedef struct TileManagerTrimPolicy {
 bool tile_manager_init(TileManager *manager, uint32_t capacity, const char *base_dir);
 // Initializes the tile manager with an explicit tile source contract.
 bool tile_manager_init_with_source(TileManager *manager, uint32_t capacity, const TileSourceConfig *source);
+// Initializes the tile manager for one specific tile layer.
+bool tile_manager_init_with_source_for_layer(TileManager *manager,
+                                             uint32_t capacity,
+                                             const TileSourceConfig *source,
+                                             TileLayerKind kind);
 
 // Releases memory owned by the tile manager.
 void tile_manager_shutdown(TileManager *manager);

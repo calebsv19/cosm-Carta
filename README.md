@@ -8,6 +8,7 @@ This repository currently lives in the CodeWork workspace under `map_forge/`, bu
 
 - Offline map viewing with smooth pan and zoom.
 - Local route solving with on-disk region data.
+- Headless route-job foundation with JSON job/pin parsing and run-folder metadata output.
 - Region-pack build tooling for OSM-derived inputs, with the current toolchain split across focused `tools/mapforge_graph_*` and `tools/mapforge_region_*` helper seams.
 - Shared CodeWork runtime integrations for queues, workers, wake paths, tracing, theme, and font adapters.
 - Phase-B continuity hardening gates for tile residency + viewport churn stress are active in `tests/`.
@@ -50,6 +51,8 @@ Start with the public operator docs:
 - [docs/ADDING_OSM_REGIONS.md](/Users/calebsv/Desktop/CodeWork/map_forge/docs/ADDING_OSM_REGIONS.md)
 - [docs/REGION_PACK_LAYOUT.md](/Users/calebsv/Desktop/CodeWork/map_forge/docs/REGION_PACK_LAYOUT.md)
 - [docs/KEYBINDS.md](/Users/calebsv/Desktop/CodeWork/map_forge/docs/KEYBINDS.md)
+- [docs/carta_route_job_format.md](/Users/calebsv/Desktop/CodeWork/map_forge/docs/carta_route_job_format.md)
+- [docs/carta_pin_format.md](/Users/calebsv/Desktop/CodeWork/map_forge/docs/carta_pin_format.md)
 
 ## Repository Layout
 

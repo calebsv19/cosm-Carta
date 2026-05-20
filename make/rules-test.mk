@@ -4,7 +4,7 @@ test-%: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
-run-headless-smoke: app test-worker-contract test-route-service test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-d-throughput test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
+run-headless-smoke: app test-worker-contract test-route-service test-headless-playback test-headless-route-job test-headless-route-frames test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-d-throughput test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
 	@echo "map_forge headless smoke passed (non-interactive)"
 
 visual-harness: app
@@ -80,6 +80,15 @@ test-tile-source-archive: $(TILE_SOURCE_ARCHIVE_TEST_TARGET)
 
 test-route-service: $(APP_ROUTE_SERVICE_TEST_TARGET)
 	./$(APP_ROUTE_SERVICE_TEST_TARGET)
+
+test-headless-playback: $(APP_HEADLESS_PLAYBACK_TEST_TARGET)
+	./$(APP_HEADLESS_PLAYBACK_TEST_TARGET)
+
+test-headless-route-job: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_job.sh
+
+test-headless-route-frames: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_frames.sh
 
 test-route-preview: $(APP_ROUTE_PREVIEW_TEST_TARGET)
 	./$(APP_ROUTE_PREVIEW_TEST_TARGET)
@@ -216,6 +225,10 @@ $(TILE_SOURCE_ARCHIVE_TEST_TARGET): $(TILE_SOURCE_ARCHIVE_TEST_SRCS)
 $(APP_ROUTE_SERVICE_TEST_TARGET): $(APP_ROUTE_SERVICE_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_ROUTE_SERVICE_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+$(APP_HEADLESS_PLAYBACK_TEST_TARGET): $(APP_HEADLESS_PLAYBACK_TEST_SRCS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_HEADLESS_PLAYBACK_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
 $(APP_ROUTE_PREVIEW_TEST_TARGET): $(APP_ROUTE_PREVIEW_TEST_SRCS)
 	@mkdir -p $(dir $@)

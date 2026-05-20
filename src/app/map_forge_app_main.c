@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app/app.h"
+#include "app/app_headless.h"
 
 typedef enum MapForgeWrapperError {
     MAP_FORGE_WRAPPER_ERROR_NONE = 0,
@@ -140,8 +141,33 @@ void map_forge_app_shutdown(MapForgeAppContext *ctx) {
     }
 }
 
-int map_forge_app_main(void) {
+int map_forge_app_main(int argc, char **argv) {
     MapForgeAppContext app;
+    MapForgeHeadlessCliOptions cli = {0};
+    char usage[512];
+    char error[256];
+
+    memset(&app, 0, sizeof(app));
+    app.argc = argc;
+    app.argv = argv;
+
+    if (!map_forge_headless_args_parse(argc, argv, &cli, error, sizeof(error))) {
+        map_forge_headless_args_usage((argc > 0 && argv && argv[0]) ? argv[0] : "mapforge",
+                                      usage,
+                                      sizeof(usage));
+        fprintf(stderr, "map_forge: %s\n%s", error, usage);
+        return 1;
+    }
+    if (cli.show_help) {
+        map_forge_headless_args_usage((argc > 0 && argv && argv[0]) ? argv[0] : "mapforge",
+                                      usage,
+                                      sizeof(usage));
+        fprintf(stdout, "%s", usage);
+        return 0;
+    }
+    if (cli.headless) {
+        return map_forge_headless_run(&cli, argc, argv);
+    }
 
     if (!map_forge_app_bootstrap(&app)) {
         app.wrapper_error = MAP_FORGE_WRAPPER_ERROR_BOOTSTRAP_FAILED;

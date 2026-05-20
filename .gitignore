@@ -4,6 +4,10 @@ build/
 dist/
 data/regions/
 data/runtime/
+data/pins/private/
+jobs/*.local.json
+*.local.env
+runs/
 tmp/
 ide_files/
 vk_frame.ppm
