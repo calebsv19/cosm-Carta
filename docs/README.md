@@ -1,7 +1,9 @@
-# MapForge Docs
+# Carta Docs
 
 Start here for the public, operator-facing documentation that ships with the repository.
 Last audited: 2026-05-04.
+
+Repository and source-level identifiers still use `map_forge`.
 
 ## Current Focus
 

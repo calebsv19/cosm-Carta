@@ -4,7 +4,7 @@ test-%: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
-run-headless-smoke: app test-worker-contract test-route-service test-headless-playback test-headless-route-job test-headless-route-frames test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-d-throughput test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
+run-headless-smoke: app test-worker-contract test-route-service test-route-preview-contract test-headless-playback test-headless-route-job test-headless-runtime-pins test-headless-saved-pin-script test-headless-saved-pin-skill-contract test-headless-route-frames test-headless-route-video-helper test-headless-visualizer-drop-stage test-headless-saved-pin-visualizer-publish-wrapper test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-d-throughput test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
 	@echo "map_forge headless smoke passed (non-interactive)"
 
 visual-harness: app
@@ -38,11 +38,14 @@ test: test-trace-contract
 test: test-worker-contract
 test: test-tile-loader-shutdown
 test: test-tile-source-archive
+test: test-mft-loader-security
 test: test-route-service
+test: test-route-preview-contract
 test: test-tile-presenter-policy
 test: test-presentation-stability
 test: test-input-policy
 test: test-map-viewport
+test: test-pin-panel-layout
 test: test-pin-panel-rename
 test: test-tile-manager-residency
 test: test-pins
@@ -90,8 +93,29 @@ test-headless-playback: $(APP_HEADLESS_PLAYBACK_TEST_TARGET)
 test-headless-route-job: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_job.sh
 
+test-headless-runtime-pins: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_runtime_pins.sh
+
+test-headless-saved-pin-script: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_saved_pin_route_script.sh
+
+test-headless-saved-pin-skill-contract: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_saved_pin_skill_contract.sh
+
 test-headless-route-frames: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_frames.sh
+
+test-headless-route-video-helper: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_video_helper.sh
+
+test-headless-visualizer-drop-stage: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_visualizer_drop_stage.sh
+
+test-headless-saved-pin-visualizer-publish-wrapper: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_saved_pin_visualizer_publish_wrapper.sh
+
+test-route-preview-contract: test-route-preview test-phase-b-continuity-stress
+	@echo "map_forge route preview contract lane passed"
 
 test-route-preview: $(APP_ROUTE_PREVIEW_TEST_TARGET)
 	./$(APP_ROUTE_PREVIEW_TEST_TARGET)
@@ -104,6 +128,9 @@ test-presentation-stability: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
 
 test-polygon-cache-guardrails: $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
 	./$(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
+
+test-mft-loader-security: $(MFT_LOADER_SECURITY_TEST_TARGET)
+	./$(MFT_LOADER_SECURITY_TEST_TARGET)
 
 test-input-policy: $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
 	./$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
@@ -119,6 +146,9 @@ test-window-resize: $(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET)
 
 test-map-viewport: $(APP_MAP_VIEWPORT_TEST_TARGET)
 	./$(APP_MAP_VIEWPORT_TEST_TARGET)
+
+test-pin-panel-layout: $(APP_PIN_PANEL_LAYOUT_TEST_TARGET)
+	./$(APP_PIN_PANEL_LAYOUT_TEST_TARGET)
 
 test-pin-panel-rename: $(APP_PIN_PANEL_RENAME_TEST_TARGET)
 	./$(APP_PIN_PANEL_RENAME_TEST_TARGET)
@@ -254,6 +284,10 @@ $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET): $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(POLYGON_CACHE_GUARDRAILS_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 
+$(MFT_LOADER_SECURITY_TEST_TARGET): $(MFT_LOADER_SECURITY_TEST_SRCS) $(CORE_IO_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(MFT_LOADER_SECURITY_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_IO_LIB) $(CORE_BASE_LIB)
+
 $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET): $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_RUNTIME_INPUT_POLICY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
@@ -273,6 +307,10 @@ $(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET): $(APP_RUNTIME_WINDOW_RESIZE_TEST_SRCS)
 $(APP_MAP_VIEWPORT_TEST_TARGET): $(APP_MAP_VIEWPORT_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_MAP_VIEWPORT_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
+
+$(APP_PIN_PANEL_LAYOUT_TEST_TARGET): $(APP_PIN_PANEL_LAYOUT_TEST_SRCS) $(CORE_PANE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_PIN_PANEL_LAYOUT_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
 
 $(APP_PIN_PANEL_RENAME_TEST_TARGET): $(APP_PIN_PANEL_RENAME_TEST_SRCS)
 	@mkdir -p $(dir $@)

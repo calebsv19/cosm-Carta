@@ -1,10 +1,10 @@
-# MapForge Current Truth
+# Carta Current Truth
 
-Last updated: 2026-05-04
+Last updated: 2026-05-21
 
 ## Program Identity
-- Repository directory: `map_forge/`
 - Public product name: `Carta`
+- Repository directory: `map_forge/`
 - Primary runtime entry:
   - `src/main.c` -> `map_forge_app_main()`
   - wrapper still delegates run-loop through legacy runtime path for behavior parity
@@ -43,6 +43,9 @@ Last updated: 2026-05-04
   - `make -C map_forge test`
 - Primary smoke/stability gates:
   - `make -C map_forge run-headless-smoke`
+  - `make -C map_forge test-route-preview-contract`
+  - runs the focused route-preview unit lane plus the phase-B continuity stress
+    gate as one explicit follow-preview contract surface
   - `make -C map_forge test-phase-a-viewport-scenario`
   - `make -C map_forge test-phase-b-continuity-stress`
   - `make -C map_forge test-tile-manager-residency`
