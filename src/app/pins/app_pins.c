@@ -214,6 +214,87 @@ bool map_forge_pins_default_private_path(const RegionInfo *region,
     return true;
 }
 
+bool map_forge_pins_legacy_private_path(const RegionInfo *region,
+                                        char *out_path,
+                                        size_t out_path_size) {
+    if (!out_path || out_path_size == 0u || !region || !region->name || region->name[0] == '\0') {
+        return false;
+    }
+    snprintf(out_path,
+             out_path_size,
+             "data/pins/private/%s.pins.local.json",
+             region->name);
+    return true;
+}
+
+bool map_forge_pins_load_preferred_region_file(const RegionInfo *region,
+                                               MapForgePinsFile *out_pins,
+                                               char *out_resolved_path,
+                                               size_t out_resolved_path_size,
+                                               bool *out_loaded_from_file,
+                                               bool *out_loaded_from_legacy,
+                                               char *out_error,
+                                               size_t out_error_size) {
+    char default_path[MAPFORGE_PIN_PATH_CAPACITY];
+    char legacy_path[MAPFORGE_PIN_PATH_CAPACITY];
+
+    if (!region || !out_pins) {
+        return map_forge_pins_error(out_error, out_error_size, "missing region pins load request");
+    }
+
+    if (out_loaded_from_file) {
+        *out_loaded_from_file = false;
+    }
+    if (out_loaded_from_legacy) {
+        *out_loaded_from_legacy = false;
+    }
+    if (out_resolved_path && out_resolved_path_size > 0u) {
+        out_resolved_path[0] = '\0';
+    }
+
+    map_forge_pins_file_free(out_pins);
+    map_forge_pins_file_init(out_pins);
+    snprintf(out_pins->map_region, sizeof(out_pins->map_region), "%s", region->name ? region->name : "");
+
+    if (!map_forge_pins_default_private_path(region, default_path, sizeof(default_path))) {
+        return map_forge_pins_error(out_error, out_error_size, "failed to resolve default pins path");
+    }
+    if (out_resolved_path && out_resolved_path_size > 0u) {
+        snprintf(out_resolved_path, out_resolved_path_size, "%s", default_path);
+    }
+
+    if (core_io_path_exists(default_path)) {
+        if (!map_forge_pins_load(default_path, out_pins, out_error, out_error_size)) {
+            return false;
+        }
+        if (out_loaded_from_file) {
+            *out_loaded_from_file = true;
+        }
+        return true;
+    }
+
+    if (getenv("MAPFORGE_RUNTIME_DIR") &&
+        getenv("MAPFORGE_RUNTIME_DIR")[0] != '\0' &&
+        map_forge_pins_legacy_private_path(region, legacy_path, sizeof(legacy_path)) &&
+        core_io_path_exists(legacy_path)) {
+        if (!map_forge_pins_load(legacy_path, out_pins, out_error, out_error_size)) {
+            return false;
+        }
+        if (out_resolved_path && out_resolved_path_size > 0u) {
+            snprintf(out_resolved_path, out_resolved_path_size, "%s", legacy_path);
+        }
+        if (out_loaded_from_file) {
+            *out_loaded_from_file = true;
+        }
+        if (out_loaded_from_legacy) {
+            *out_loaded_from_legacy = true;
+        }
+        return true;
+    }
+
+    return true;
+}
+
 bool map_forge_pins_load(const char *pins_path,
                          MapForgePinsFile *out_pins,
                          char *out_error,

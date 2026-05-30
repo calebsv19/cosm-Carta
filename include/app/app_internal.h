@@ -421,6 +421,14 @@ typedef struct AppTileState {
     uint32_t presenter_invariant_fail_count;
     bool presenter_invariants_enabled;
     bool contour_runtime_enabled;
+    bool headless_export_policy_active;
+    bool headless_stabilize_visible_zoom;
+    bool headless_stabilize_tile_bands;
+    bool headless_allow_tile_fallback;
+    bool headless_route_simplify_screen_space;
+    bool headless_locked_visible_zoom_valid;
+    bool headless_locked_bands_valid;
+    uint16_t headless_locked_visible_zoom;
     uint64_t present_hold_tick;
     TilePresentHoldEntry present_hold[TILE_LAYER_COUNT][APP_TILE_PRESENT_HOLD_CAPACITY];
     AppTileLifecycleEntry lifecycle_entries[APP_TILE_LIFECYCLE_CAPACITY];
@@ -448,6 +456,12 @@ typedef enum AppLeftPaneSection {
     APP_LEFT_PANE_SECTION_INSPECT = 2,
     APP_LEFT_PANE_SECTION_COUNT = 3
 } AppLeftPaneSection;
+
+typedef enum AppTextEntryFocus {
+    APP_TEXT_ENTRY_FOCUS_NONE = 0,
+    APP_TEXT_ENTRY_FOCUS_PIN_NAME = 1,
+    APP_TEXT_ENTRY_FOCUS_INGEST_PATH = 2
+} AppTextEntryFocus;
 
 /* Phase 2 bridge: target ownership bucket for route/path interaction state. */
 typedef struct AppRouteRuntimeState {
@@ -621,6 +635,7 @@ typedef struct AppUiState {
     int hud_ingest_row_count;
     bool left_pane_open;
     AppLeftPaneSection left_pane_section;
+    AppTextEntryFocus text_entry_focus;
     SDL_FRect left_pane_rect;
     SDL_FRect map_viewport_rect;
     SDL_FRect pin_pane_closed_rect;
@@ -628,6 +643,7 @@ typedef struct AppUiState {
     SDL_FRect pin_pane_close_rect;
     SDL_FRect pin_pane_tab_rects[APP_LEFT_PANE_SECTION_COUNT];
     SDL_FRect pin_pane_content_rect;
+    SDL_FRect pin_pane_summary_rect;
     SDL_FRect pin_pane_list_rect;
     SDL_FRect pin_pane_row_rects[APP_PIN_LIST_MAX];
     SDL_FRect pin_pane_add_rect;
@@ -638,6 +654,8 @@ typedef struct AppUiState {
     SDL_FRect pin_pane_type_rect;
     SDL_FRect pin_pane_color_rect;
     SDL_FRect pin_pane_private_rect;
+    SDL_FRect pin_pane_hint_rect;
+    SDL_FRect pin_pane_status_rect;
     SDL_FRect pin_drag_preview_rect;
     int pin_pane_row_count;
     int pin_pane_row_base;
@@ -825,75 +843,6 @@ bool app_vk_asset_worker_init(AppState *app);
 void app_vk_asset_worker_shutdown(AppState *app);
 void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_time_slice_sec);
 
-void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats);
-void app_draw_region_bounds(AppState *app);
-void app_tile_presenter_reset_frame_counters(AppState *app);
-float app_tile_presenter_band_blend_mix(const AppState *app, TileLayerKind kind, double now_sec);
-bool app_tile_presenter_peek_tile_for_band(const AppState *app,
-                                           TileLayerKind kind,
-                                           TileCoord coord,
-                                           TileZoomBand band,
-                                           const MftTile **out_tile);
-bool app_tile_presenter_pick_tile_with_fallback(const AppState *app,
-                                                TileLayerKind kind,
-                                                TileCoord coord,
-                                                const MftTile **out_tile,
-                                                TileZoomBand *out_band);
-bool app_tile_presenter_resolve_tile_for_present(AppState *app,
-                                                 TileLayerKind kind,
-                                                 TileCoord coord,
-                                                 double now_sec,
-                                                 const MftTile **out_tile,
-                                                 TileZoomBand *out_band);
-void app_tile_presenter_present_hold_remember(AppState *app,
-                                              TileLayerKind kind,
-                                              TileCoord coord,
-                                              TileZoomBand band,
-                                              double now_sec);
-bool app_tile_presenter_present_hold_lookup(AppState *app,
-                                            TileLayerKind kind,
-                                            TileCoord coord,
-                                            double now_sec,
-                                            TileZoomBand *out_band);
-bool app_tile_presenter_draw_polygon_band_blend(AppState *app,
-                                                TileLayerKind kind,
-                                                TileCoord coord,
-                                                float building_zoom_bias,
-                                                float layer_opacity,
-                                                double now_sec);
-bool app_tile_presenter_draw_road_band_blend(AppState *app,
-                                             TileLayerKind kind,
-                                             TileCoord coord,
-                                             bool single_line,
-                                             float road_zoom_bias,
-                                             float road_opacity,
-                                             double now_sec);
-bool app_tile_presenter_draw_road_layer(AppState *app,
-                                        TileLayerKind kind,
-                                        TileCoord coord,
-                                        const MftTile *tile,
-                                        TileZoomBand band,
-                                        bool single_line,
-                                        float road_zoom_bias,
-                                        float road_opacity,
-                                        double now_sec,
-                                        uint32_t *io_vk_asset_misses);
-bool app_tile_presenter_draw_polygon_layer(AppState *app,
-                                           TileLayerKind kind,
-                                           TileCoord coord,
-                                           const MftTile *tile,
-                                           TileZoomBand band,
-                                           float building_zoom_bias,
-                                           float layer_opacity,
-                                           bool allow_immediate_polygon_fallback,
-                                           bool allow_building_fallback,
-                                           VkPolyFillBudget *poly_fill_budget,
-                                           VkPolyAssetBuildBudget *poly_asset_build_budget,
-                                           double now_sec,
-                                           uint32_t *io_vk_asset_misses);
-bool app_tile_presenter_validate_frame_invariants(AppState *app,
-                                                  uint32_t visible_tiles,
-                                                  uint32_t vk_asset_misses);
 bool app_try_draw_vk_cached_polygon_tile(AppState *app,
                                          TileLayerKind kind,
                                          TileCoord coord,
@@ -939,56 +888,6 @@ void app_draw_header_bar(AppState *app);
 void app_draw_layer_debug(AppState *app);
 void app_draw_workspace_authoring_overlay(AppState *app);
 void app_copy_overlay_text(AppState *app);
-bool app_handle_hud_clicks(AppState *app);
-void app_draw_ingest_panel(AppState *app);
-void app_pin_panel_layout(AppState *app);
-void app_draw_pin_panel(AppState *app);
-void app_draw_pins_overlay(AppState *app);
-bool app_select_pin_at_screen_point(AppState *app, int screen_x, int screen_y);
-bool app_pin_name_edit_insert_text(char *buffer, size_t cap, int *cursor, const char *text);
-bool app_pin_name_edit_backspace(char *buffer, int *cursor);
-bool app_pin_name_edit_move_left(const char *buffer, int *cursor);
-bool app_pin_name_edit_move_right(const char *buffer, int *cursor);
-void app_pin_panel_select_saved_pin(AppState *app, int index);
-bool app_pin_panel_name_edit_active(const AppState *app);
-void app_pin_panel_name_edit_deactivate(AppState *app);
-void app_pin_panel_name_edit_sync_cursor_to_end(AppState *app);
-void app_pin_panel_draw_name_field(AppState *app,
-                                   const MapForgeThemePalette *palette,
-                                   SDL_Color text,
-                                   SDL_Color muted);
-bool app_pin_panel_handle_name_click(AppState *app, int x, int y);
-bool app_pin_panel_handle_name_runtime_inputs(AppState *app);
-void app_pin_panel_draw_metadata(AppState *app);
-bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y);
-bool app_pin_panel_row_has_route_start(const AppState *app, int pin_index);
-bool app_pin_panel_row_has_route_goal(const AppState *app, int pin_index);
-void app_pin_panel_clear_route_start(AppState *app);
-void app_pin_panel_clear_route_goal(AppState *app);
-void app_pin_panel_clear_route_bindings(AppState *app);
-void app_pin_panel_cancel_list_drag(AppState *app);
-bool app_pin_panel_handle_list_click(AppState *app, int x, int y);
-bool app_pin_panel_handle_list_runtime_inputs(AppState *app);
-bool app_pin_panel_handle_click(AppState *app, int x, int y);
-bool app_pin_panel_handle_runtime_inputs(AppState *app);
-bool app_pin_panel_handle_map_click(AppState *app, int x, int y);
-SDL_FRect app_map_viewport_rect(const AppState *app);
-bool app_map_viewport_contains_screen_point(const AppState *app, int screen_x, int screen_y);
-bool app_map_screen_to_world(const AppState *app, float screen_x, float screen_y, float *out_world_x, float *out_world_y);
-bool app_map_world_to_screen(const AppState *app, float world_x, float world_y, float *out_screen_x, float *out_screen_y);
-bool app_map_world_to_viewport_local(const AppState *app, float world_x, float world_y, float *out_local_x, float *out_local_y);
-bool app_map_viewport_activate(AppState *app);
-void app_map_viewport_deactivate(AppState *app);
-void app_ingest_rescan_sources(AppState *app);
-void app_ingest_rescan_active_regions(AppState *app);
-bool app_ingest_open_selected_active_region(AppState *app);
-void app_reload_pins_state(AppState *app);
-void app_runtime_format_region_package_status(const char *region_name,
-                                              const RegionPackageValidationResult *validation,
-                                              char *out_status,
-                                              size_t out_size);
-bool app_runtime_ingest_tick(AppState *app);
-bool app_runtime_cycle_next_region(AppState *app);
 bool app_init(AppState *app);
 void app_shutdown(AppState *app);
 

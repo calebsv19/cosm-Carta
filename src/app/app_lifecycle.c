@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_runtime_ingest_internal.h"
 #include "app/app_persist_state.h"
 #include "app/app_trace_runtime.h"
 
@@ -125,49 +126,30 @@ static int app_find_region_index_by_name(const char *name) {
     return -1;
 }
 
-static bool app_legacy_pins_private_path(const RegionInfo *region,
-                                         char *out_path,
-                                         size_t out_path_size) {
-    if (!out_path || out_path_size == 0u || !region || !region->name || region->name[0] == '\0') {
-        return false;
-    }
-    snprintf(out_path,
-             out_path_size,
-             "data/pins/private/%s.pins.local.json",
-             region->name);
-    return true;
-}
-
 void app_reload_pins_state(AppState *app) {
     char error[256];
     char default_path[MAPFORGE_REGION_PATH_CAPACITY];
-    char legacy_path[MAPFORGE_REGION_PATH_CAPACITY];
     bool loaded = false;
     bool loaded_from_legacy = false;
+    bool loaded_from_file = false;
     if (!app) {
         return;
     }
-    map_forge_pins_file_free(&app->pins_file);
-    map_forge_pins_file_init(&app->pins_file);
     app->pins_dirty = false;
     app->pins_path[0] = '\0';
     if (!map_forge_pins_default_private_path(&app->region, default_path, sizeof(default_path))) {
         return;
     }
-    snprintf(app->pins_path, sizeof(app->pins_path), "%s", default_path);
-    snprintf(app->pins_file.map_region, sizeof(app->pins_file.map_region), "%s", app->region.name ? app->region.name : "");
-
-    if (core_io_path_exists(default_path)) {
-        loaded = map_forge_pins_load(default_path, &app->pins_file, error, sizeof(error));
-    } else if (getenv("MAPFORGE_RUNTIME_DIR") &&
-               getenv("MAPFORGE_RUNTIME_DIR")[0] != '\0' &&
-               app_legacy_pins_private_path(&app->region, legacy_path, sizeof(legacy_path)) &&
-               core_io_path_exists(legacy_path)) {
-        snprintf(app->pins_path, sizeof(app->pins_path), "%s", legacy_path);
-        loaded = map_forge_pins_load(legacy_path, &app->pins_file, error, sizeof(error));
-        loaded_from_legacy = loaded;
-    } else {
-        loaded = true;
+    loaded = map_forge_pins_load_preferred_region_file(&app->region,
+                                                       &app->pins_file,
+                                                       app->pins_path,
+                                                       sizeof(app->pins_path),
+                                                       &loaded_from_file,
+                                                       &loaded_from_legacy,
+                                                       error,
+                                                       sizeof(error));
+    if (app->pins_path[0] == '\0') {
+        snprintf(app->pins_path, sizeof(app->pins_path), "%s", default_path);
     }
 
     if (!loaded) {
@@ -179,7 +161,7 @@ void app_reload_pins_state(AppState *app) {
         map_forge_pins_file_init(&app->pins_file);
         snprintf(app->pins_file.map_region, sizeof(app->pins_file.map_region), "%s", app->region.name ? app->region.name : "");
     }
-    if (loaded_from_legacy) {
+    if (loaded_from_legacy && loaded_from_file) {
         snprintf(app->pins_path, sizeof(app->pins_path), "%s", default_path);
         snprintf(app->pins_file.map_region, sizeof(app->pins_file.map_region), "%s", app->region.name ? app->region.name : "");
         if (!map_forge_pins_save(app->pins_path, &app->pins_file, error, sizeof(error))) {
@@ -195,6 +177,7 @@ void app_reload_pins_state(AppState *app) {
     app->ui_state_bridge.pin_editor_is_new = false;
     app->ui_state_bridge.pin_editor_waiting_for_map_click = false;
     app->ui_state_bridge.pin_add_mode_active = false;
+    app->ui_state_bridge.text_entry_focus = APP_TEXT_ENTRY_FOCUS_NONE;
     app->ui_state_bridge.pin_editor_name_edit[0] = '\0';
     app->ui_state_bridge.pin_editor_status[0] = '\0';
     app->ui_state_bridge.pin_name_edit_active = false;
@@ -595,6 +578,7 @@ bool app_init(AppState *app) {
     app->ui_state_bridge.header_layer_selected_kind = TILE_LAYER_ROAD_ARTERY;
     app->ui_state_bridge.left_pane_open = false;
     app->ui_state_bridge.left_pane_section = APP_LEFT_PANE_SECTION_PINS;
+    app->ui_state_bridge.text_entry_focus = APP_TEXT_ENTRY_FOCUS_NONE;
     app->ui_state_bridge.pin_selected_index = -1;
     app->ui_state_bridge.pin_name_edit_active = false;
     app->ui_state_bridge.pin_name_cursor_index = 0;

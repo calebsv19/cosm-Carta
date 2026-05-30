@@ -1,4 +1,5 @@
 SHARED_ROOT ?= third_party/codework_shared
+SHARED_WORKSPACE_DIR ?= ../shared
 CORE_SPACE_DIR := $(SHARED_ROOT)/core/core_space
 CORE_BASE_DIR := $(SHARED_ROOT)/core/core_base
 CORE_IO_DIR := $(SHARED_ROOT)/core/core_io
@@ -12,6 +13,7 @@ CORE_WORKERS_DIR := $(SHARED_ROOT)/core/core_workers
 CORE_WAKE_DIR := $(SHARED_ROOT)/core/core_wake
 CORE_KERNEL_DIR := $(SHARED_ROOT)/core/core_kernel
 CORE_TRACE_DIR := $(SHARED_ROOT)/core/core_trace
+CORE_HEADLESS_JOB_DIR := $(SHARED_ROOT)/core/core_headless_job
 CORE_THEME_DIR := $(SHARED_ROOT)/core/core_theme
 CORE_FONT_DIR := $(SHARED_ROOT)/core/core_font
 CORE_PANE_DIR := $(SHARED_ROOT)/core/core_pane
@@ -20,6 +22,10 @@ KIT_RUNTIME_DIAG_DIR := $(SHARED_ROOT)/kit/kit_runtime_diag
 KIT_RENDER_DIR := $(SHARED_ROOT)/kit/kit_render
 KIT_WORKSPACE_AUTHORING_DIR := $(SHARED_ROOT)/kit/kit_workspace_authoring
 SHARED_CC := $(HOST_CC) $(ARCH_FLAGS)
+
+ifeq ($(wildcard $(CORE_HEADLESS_JOB_DIR)/include/core_headless_job.h),)
+CORE_HEADLESS_JOB_DIR := $(SHARED_WORKSPACE_DIR)/core/core_headless_job
+endif
 
 CORE_SPACE_LIB := $(SHARED_BUILD_DIR)/libcore_space.a
 CORE_BASE_LIB := $(SHARED_BUILD_DIR)/libcore_base.a
@@ -34,6 +40,7 @@ CORE_WORKERS_LIB := $(SHARED_BUILD_DIR)/libcore_workers.a
 CORE_WAKE_LIB := $(SHARED_BUILD_DIR)/libcore_wake.a
 CORE_KERNEL_LIB := $(SHARED_BUILD_DIR)/libcore_kernel.a
 CORE_TRACE_LIB := $(SHARED_BUILD_DIR)/libcore_trace.a
+CORE_HEADLESS_JOB_LIB := $(SHARED_BUILD_DIR)/libcore_headless_job.a
 CORE_THEME_LIB := $(SHARED_BUILD_DIR)/libcore_theme.a
 CORE_FONT_LIB := $(SHARED_BUILD_DIR)/libcore_font.a
 CORE_PANE_LIB := $(SHARED_BUILD_DIR)/libcore_pane.a

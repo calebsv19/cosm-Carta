@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_pin_panel_internal.h"
 #include "app/app_persist_state.h"
 #include "app/app_runtime_loop.h"
 #include "app/app_runtime_input_policy.h"
@@ -108,14 +109,21 @@ static void app_runtime_input_normalize(AppState *app,
         return;
     }
     const InputState *input = &app->ui_state_bridge.input;
-    /*
-     * IR1 policy gate should only engage when app-owned text-entry focus exists.
-     * Map Forge does not currently route any editable text field through input,
-     * so SDL global text-input state must not suppress global shortcuts.
-     */
-    bool text_entry_gate_active = false;
+    const bool pin_name_focus = app_pin_panel_name_edit_active(app);
+    const bool ingest_path_focus = app->ingest_panel_open &&
+                                   !app->ui_state_bridge.hud_ingest_panel_collapsed &&
+                                   app->ingest_edit_mode;
+    bool text_entry_gate_active = pin_name_focus || ingest_path_focus;
+    app->ui_state_bridge.text_entry_focus = APP_TEXT_ENTRY_FOCUS_NONE;
+    if (pin_name_focus) {
+        app->ui_state_bridge.text_entry_focus = APP_TEXT_ENTRY_FOCUS_PIN_NAME;
+    } else if (ingest_path_focus) {
+        app->ui_state_bridge.text_entry_focus = APP_TEXT_ENTRY_FOCUS_INGEST_PATH;
+    }
     uint32_t blocked_shortcuts = app_runtime_apply_text_entry_shortcut_policy(
-        &app->ui_state_bridge.input, text_entry_gate_active);
+        &app->ui_state_bridge.input,
+        text_entry_gate_active,
+        pin_name_focus);
     uint32_t keyboard_actions = 0u;
     keyboard_actions += app_runtime_count_bool(input->quit);
     keyboard_actions += app_runtime_count_bool(input->toggle_debug_pressed);

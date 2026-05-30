@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_pin_panel_internal.h"
 
 #include <assert.h>
 #include <stdio.h>

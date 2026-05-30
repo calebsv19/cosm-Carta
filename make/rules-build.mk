@@ -68,6 +68,11 @@ $(CORE_TRACE_LIB): $(CORE_PACK_LIB) | $(SHARED_BUILD_DIR)
 	@$(MAKE) -C "$(CORE_TRACE_DIR)" CC="$(SHARED_CC)"
 	@cp "$(CORE_TRACE_DIR)/build/libcore_trace.a" "$@"
 
+$(CORE_HEADLESS_JOB_LIB): | $(SHARED_BUILD_DIR)
+	@$(MAKE) -C "$(CORE_HEADLESS_JOB_DIR)" clean CC="$(SHARED_CC)"
+	@$(MAKE) -C "$(CORE_HEADLESS_JOB_DIR)" CC="$(SHARED_CC)"
+	@cp "$(CORE_HEADLESS_JOB_DIR)/build/libcore_headless_job.a" "$@"
+
 $(CORE_THEME_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
 	@$(MAKE) -C "$(CORE_THEME_DIR)" clean CC="$(SHARED_CC)"
 	@$(MAKE) -C "$(CORE_THEME_DIR)" CC="$(SHARED_CC)"

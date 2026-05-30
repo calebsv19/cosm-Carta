@@ -13,6 +13,20 @@ typedef struct RouteStyle {
     int outline_width;
 } RouteStyle;
 
+static RouteRenderOptions route_render_options_default(const RouteRenderOptions *options) {
+    RouteRenderOptions resolved = {0};
+    resolved.screen_scale = 1.0f;
+    resolved.simplify_screen_space = true;
+    if (!options) {
+        return resolved;
+    }
+    if (options->screen_scale > 0.0f) {
+        resolved.screen_scale = options->screen_scale;
+    }
+    resolved.simplify_screen_space = options->simplify_screen_space;
+    return resolved;
+}
+
 static void draw_route_polyline_vulkan(Renderer *renderer,
                                        const SDL_FPoint *points,
                                        uint32_t count,
@@ -126,9 +140,28 @@ static RouteStyle route_style_objective(RouteObjective objective, bool selected)
     return style;
 }
 
-static void draw_marker(Renderer *renderer, float x, float y, uint8_t r, uint8_t g, uint8_t b) {
+static RouteStyle route_style_scale(RouteStyle style, float screen_scale) {
+    if (screen_scale <= 0.0f) {
+        screen_scale = 1.0f;
+    }
+    style.width = SDL_max(1, (int)SDL_roundf((float)style.width * screen_scale));
+    style.outline_width = SDL_max(1, (int)SDL_roundf((float)style.outline_width * screen_scale));
+    return style;
+}
+
+static void draw_marker(Renderer *renderer,
+                        float x,
+                        float y,
+                        uint8_t r,
+                        uint8_t g,
+                        uint8_t b,
+                        float screen_scale) {
+    float radius = 4.0f;
+    if (screen_scale > 0.0f) {
+        radius *= screen_scale;
+    }
     renderer_set_draw_color(renderer, r, g, b, 255);
-    SDL_FRect rect = {x - 4.0f, y - 4.0f, 8.0f, 8.0f};
+    SDL_FRect rect = {x - radius, y - radius, radius * 2.0f, radius * 2.0f};
     renderer_fill_rect(renderer, &rect);
 }
 
@@ -215,10 +248,18 @@ static uint32_t simplify_route_points(SDL_FPoint *points, uint32_t count) {
     return write;
 }
 
-static void draw_route_path(Renderer *renderer, const Camera *camera, const RouteGraph *graph, const RoutePath *path, RouteStyle style) {
+static void draw_route_path(Renderer *renderer,
+                            const Camera *camera,
+                            const RouteGraph *graph,
+                            const RoutePath *path,
+                            RouteStyle style,
+                            const RouteRenderOptions *options) {
     if (!renderer || !camera || !graph || !path || path->count < 2) {
         return;
     }
+
+    RouteRenderOptions resolved = route_render_options_default(options);
+    style = route_style_scale(style, resolved.screen_scale);
 
     SDL_FPoint *points = (SDL_FPoint *)SDL_malloc(sizeof(SDL_FPoint) * (size_t)path->count);
     if (!points) {
@@ -233,7 +274,7 @@ static void draw_route_path(Renderer *renderer, const Camera *camera, const Rout
         points[i].x = sx;
         points[i].y = sy;
     }
-    uint32_t point_count = simplify_route_points(points, path->count);
+    uint32_t point_count = resolved.simplify_screen_space ? simplify_route_points(points, path->count) : path->count;
     if (point_count < 2u) {
         SDL_free(points);
         return;
@@ -272,10 +313,14 @@ static void draw_route_world_segment(Renderer *renderer,
                                      float world_ay,
                                      float world_bx,
                                      float world_by,
-                                     RouteStyle style) {
+                                     RouteStyle style,
+                                     const RouteRenderOptions *options) {
     if (!renderer || !camera) {
         return;
     }
+
+    RouteRenderOptions resolved = route_render_options_default(options);
+    style = route_style_scale(style, resolved.screen_scale);
 
     float sx0 = 0.0f;
     float sy0 = 0.0f;
@@ -336,7 +381,8 @@ static bool draw_alternative_paths(Renderer *renderer,
                                    const RouteAlternativeSet *alternatives,
                                    RouteObjective selected_objective,
                                    const bool *alternative_visible,
-                                   bool draw_selected_path) {
+                                   bool draw_selected_path,
+                                   const RouteRenderOptions *options) {
     if (!renderer || !camera || !graph || !alternatives || alternatives->count == 0) {
         return false;
     }
@@ -351,7 +397,7 @@ static bool draw_alternative_paths(Renderer *renderer,
         if (!route_path_valid(candidate) || selected) {
             continue;
         }
-        draw_route_path(renderer, camera, graph, candidate, route_style_objective(alternatives->objectives[i], false));
+        draw_route_path(renderer, camera, graph, candidate, route_style_objective(alternatives->objectives[i], false), options);
     }
 
     if (!draw_selected_path) {
@@ -367,7 +413,7 @@ static bool draw_alternative_paths(Renderer *renderer,
         if (!route_path_valid(candidate) || !selected) {
             continue;
         }
-        draw_route_path(renderer, camera, graph, candidate, route_style_objective(alternatives->objectives[i], true));
+        draw_route_path(renderer, camera, graph, candidate, route_style_objective(alternatives->objectives[i], true), options);
         drew_selected = true;
         break;
     }
@@ -395,10 +441,13 @@ void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGrap
                        RouteObjective selected_objective, const bool *alternative_visible,
                        bool has_start, uint32_t start_node, bool has_start_world, float start_world_x, float start_world_y,
                        bool has_goal, uint32_t goal_node, bool has_goal_world, float goal_world_x, float goal_world_y,
-                       bool has_transfer, uint32_t transfer_node) {
+                       bool has_transfer, uint32_t transfer_node,
+                       const RouteRenderOptions *options) {
     if (!renderer || !camera || !graph) {
         return;
     }
+
+    RouteRenderOptions resolved = route_render_options_default(options);
 
     bool has_split_paths = route_path_valid(drive_path) || route_path_valid(walk_path);
     bool selected_visible = true;
@@ -410,19 +459,26 @@ void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGrap
             }
         }
     }
-    bool selected_drawn = draw_alternative_paths(renderer, camera, graph, alternatives, selected_objective, alternative_visible, !has_split_paths);
+    bool selected_drawn = draw_alternative_paths(renderer,
+                                                 camera,
+                                                 graph,
+                                                 alternatives,
+                                                 selected_objective,
+                                                 alternative_visible,
+                                                 !has_split_paths,
+                                                 &resolved);
 
     if (selected_visible && route_path_valid(drive_path)) {
-        draw_route_path(renderer, camera, graph, drive_path, route_style_objective(selected_objective, true));
+        draw_route_path(renderer, camera, graph, drive_path, route_style_objective(selected_objective, true), &resolved);
     }
 
     if (selected_visible && route_path_valid(walk_path)) {
-        draw_route_path(renderer, camera, graph, walk_path, route_style_objective(selected_objective, true));
+        draw_route_path(renderer, camera, graph, walk_path, route_style_objective(selected_objective, true), &resolved);
     }
 
     bool has_alternatives = alternatives && alternatives->count > 0u;
     if (!has_split_paths && !selected_drawn && !has_alternatives && route_path_valid(path)) {
-        draw_route_path(renderer, camera, graph, path, route_style_objective(selected_objective, true));
+        draw_route_path(renderer, camera, graph, path, route_style_objective(selected_objective, true), &resolved);
     }
 
     bool has_renderable_route = selected_drawn ||
@@ -435,13 +491,15 @@ void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGrap
             draw_route_world_segment(renderer, camera,
                                      start_world_x, start_world_y,
                                      (float)graph->node_x[start_node], (float)graph->node_y[start_node],
-                                     endpoint_style);
+                                     endpoint_style,
+                                     &resolved);
         }
         if (has_goal && has_goal_world && goal_node < graph->node_count) {
             draw_route_world_segment(renderer, camera,
                                      (float)graph->node_x[goal_node], (float)graph->node_y[goal_node],
                                      goal_world_x, goal_world_y,
-                                     endpoint_style);
+                                     endpoint_style,
+                                     &resolved);
         }
     }
 
@@ -453,7 +511,7 @@ void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGrap
         } else {
             camera_world_to_screen(camera, (float)graph->node_x[start_node], (float)graph->node_y[start_node], renderer->width, renderer->height, &sx, &sy);
         }
-        draw_marker(renderer, sx, sy, 80, 220, 120);
+        draw_marker(renderer, sx, sy, 80, 220, 120, resolved.screen_scale);
     }
 
     if (has_goal && goal_node < graph->node_count) {
@@ -464,13 +522,13 @@ void route_render_draw(Renderer *renderer, const Camera *camera, const RouteGrap
         } else {
             camera_world_to_screen(camera, (float)graph->node_x[goal_node], (float)graph->node_y[goal_node], renderer->width, renderer->height, &sx, &sy);
         }
-        draw_marker(renderer, sx, sy, 230, 80, 90);
+        draw_marker(renderer, sx, sy, 230, 80, 90, resolved.screen_scale);
     }
 
     if (has_transfer && transfer_node < graph->node_count) {
         float sx = 0.0f;
         float sy = 0.0f;
         camera_world_to_screen(camera, (float)graph->node_x[transfer_node], (float)graph->node_y[transfer_node], renderer->width, renderer->height, &sx, &sy);
-        draw_marker(renderer, sx, sy, 250, 200, 70);
+        draw_marker(renderer, sx, sy, 250, 200, 70, resolved.screen_scale);
     }
 }

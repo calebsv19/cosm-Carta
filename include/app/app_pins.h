@@ -47,6 +47,17 @@ bool map_forge_pins_save(const char *pins_path,
 bool map_forge_pins_default_private_path(const RegionInfo *region,
                                          char *out_path,
                                          size_t out_path_size);
+bool map_forge_pins_legacy_private_path(const RegionInfo *region,
+                                        char *out_path,
+                                        size_t out_path_size);
+bool map_forge_pins_load_preferred_region_file(const RegionInfo *region,
+                                               MapForgePinsFile *out_pins,
+                                               char *out_resolved_path,
+                                               size_t out_resolved_path_size,
+                                               bool *out_loaded_from_file,
+                                               bool *out_loaded_from_legacy,
+                                               char *out_error,
+                                               size_t out_error_size);
 
 MapForgePin *map_forge_pins_find_by_id(MapForgePinsFile *pins_file, const char *pin_id);
 const MapForgePin *map_forge_pins_find_by_id_const(const MapForgePinsFile *pins_file, const char *pin_id);

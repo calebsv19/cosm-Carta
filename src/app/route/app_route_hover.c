@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_map_viewport_internal.h"
 
 #include <string.h>
 

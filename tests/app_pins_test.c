@@ -102,11 +102,58 @@ static void test_runtime_dir_default_path(void) {
     assert(unsetenv("MAPFORGE_RUNTIME_DIR") == 0);
 }
 
+static void test_load_preferred_region_file_legacy_fallback(void) {
+    RegionInfo region = {0};
+    MapForgePinsFile pins = {0};
+    MapForgePinsFile seed = {0};
+    MapForgePin pin = {0};
+    char resolved_path[MAPFORGE_PIN_PATH_CAPACITY];
+    char runtime_dir[MAPFORGE_PIN_PATH_CAPACITY];
+    char legacy_path[MAPFORGE_PIN_PATH_CAPACITY];
+    char error[256];
+    bool loaded_from_file = false;
+    bool loaded_from_legacy = false;
+
+    region.name = "seattle";
+    map_forge_pins_file_init(&pins);
+    map_forge_pins_file_init(&seed);
+    snprintf(runtime_dir, sizeof(runtime_dir), "/private/tmp/map_forge_runtime_%d", (int)getpid());
+    assert(setenv("MAPFORGE_RUNTIME_DIR", runtime_dir, 1) == 0);
+    assert(map_forge_pins_legacy_private_path(&region, legacy_path, sizeof(legacy_path)));
+    snprintf(seed.map_region, sizeof(seed.map_region), "seattle");
+    snprintf(pin.id, sizeof(pin.id), "legacy_seed");
+    snprintf(pin.name, sizeof(pin.name), "Legacy Seed");
+    pin.lat = 47.6205;
+    pin.lon = -122.3493;
+    assert(map_forge_pins_upsert(&seed, &pin, error, sizeof(error)));
+    assert(map_forge_pins_save(legacy_path, &seed, error, sizeof(error)));
+
+    assert(map_forge_pins_load_preferred_region_file(&region,
+                                                     &pins,
+                                                     resolved_path,
+                                                     sizeof(resolved_path),
+                                                     &loaded_from_file,
+                                                     &loaded_from_legacy,
+                                                     error,
+                                                     sizeof(error)));
+    assert(loaded_from_file);
+    assert(loaded_from_legacy);
+    assert(strcmp(resolved_path, legacy_path) == 0);
+    assert(pins.pin_count == 1u);
+    assert(map_forge_pins_find_by_id_const(&pins, "legacy_seed") != NULL);
+
+    (void)remove(legacy_path);
+    (void)unsetenv("MAPFORGE_RUNTIME_DIR");
+    map_forge_pins_file_free(&pins);
+    map_forge_pins_file_free(&seed);
+}
+
 int main(void) {
     test_load_and_lookup();
     test_upsert_save_and_remove();
     test_move_reorders_pins();
     test_runtime_dir_default_path();
+    test_load_preferred_region_file_legacy_fallback();
     printf("app_pins_test: success\n");
     return 0;
 }

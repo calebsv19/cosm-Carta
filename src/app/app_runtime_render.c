@@ -1,4 +1,9 @@
 #include "app/app_internal.h"
+#include "app/app_map_viewport_internal.h"
+#include "app/app_pin_panel_internal.h"
+#include "app/app_runtime_ingest_internal.h"
+#include "app/app_tile_render_internal.h"
+#include "app/app_ui_internal.h"
 
 #include "core/time.h"
 #include "map/road_renderer.h"
@@ -158,11 +163,16 @@ void app_runtime_render_submit_frame(AppState *app,
     out_submit->draw_pass_count += 1u;
 
     app_draw_region_bounds(app);
+    RouteRenderOptions route_options = {
+        .screen_scale = 1.0f,
+        .simplify_screen_space = true
+    };
     route_render_draw(&app->renderer, &app->view_state_bridge.camera, &app->route_state_bridge.route.graph, &app->route_state_bridge.route.path, &app->route_state_bridge.route.drive_path, &app->route_state_bridge.route.walk_path,
         &app->route_state_bridge.route.alternatives, app->route_state_bridge.route.objective, app->route_state_bridge.route_alt_visible,
         app->route_state_bridge.route.has_start, app->route_state_bridge.route.start_node, app->route_state_bridge.start_anchor.valid, app->route_state_bridge.start_anchor.world_x, app->route_state_bridge.start_anchor.world_y,
         app->route_state_bridge.route.has_goal, app->route_state_bridge.route.goal_node, app->route_state_bridge.goal_anchor.valid, app->route_state_bridge.goal_anchor.world_x, app->route_state_bridge.goal_anchor.world_y,
-        app->route_state_bridge.route.has_transfer, app->route_state_bridge.route.transfer_node);
+        app->route_state_bridge.route.has_transfer, app->route_state_bridge.route.transfer_node,
+        &route_options);
     app_draw_pins_overlay(app);
     app_draw_hover_marker(app);
     app_draw_playback_marker(app);

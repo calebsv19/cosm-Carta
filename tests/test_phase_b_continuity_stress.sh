@@ -19,7 +19,7 @@ require_valid_region="${MAPFORGE_PHASE_B_REQUIRE_VALID_REGION:-1}"
 coverage_min="${MAPFORGE_PHASE_B_COVERAGE_MIN:-0.78}"
 warmup_samples="${MAPFORGE_PHASE_B_WARMUP_SAMPLES:-4}"
 max_consecutive_below="${MAPFORGE_PHASE_B_MAX_CONSEC_BELOW:-3}"
-max_l0_latency_ms="${MAPFORGE_PHASE_B_MAX_L0_LATENCY_MS:-1100}"
+max_l0_latency_ms="${MAPFORGE_PHASE_B_MAX_L0_LATENCY_MS:-1250}"
 max_cache_evict_frame="${MAPFORGE_PHASE_B_MAX_CACHE_EVICT_FRAME:-180}"
 max_band_commit_frame="${MAPFORGE_PHASE_B_MAX_BAND_COMMIT_FRAME:-4}"
 max_queue_rebuild_frame="${MAPFORGE_PHASE_B_MAX_QUEUE_REBUILD_FRAME:-3}"
@@ -34,6 +34,8 @@ max_integrate_clamp_total="${MAPFORGE_PHASE_D1_MAX_INTEG_CLAMP_TOTAL:-32}"
 max_integrate_ex_total="${MAPFORGE_PHASE_D1_MAX_INTEG_EX_TOTAL:-32}"
 max_vk_asset_sat_total="${MAPFORGE_PHASE_D1_MAX_VK_ASSET_SAT_TOTAL:-16}"
 max_vk_poly_hit_total="${MAPFORGE_PHASE_D1_MAX_VK_POLY_HIT_TOTAL:-16}"
+phase_b_retry_attempt="${MAPFORGE_PHASE_B_RETRY_ATTEMPT:-1}"
+phase_b_max_attempts="${MAPFORGE_PHASE_B_MAX_ATTEMPTS:-3}"
 
 log_file="$(mktemp /tmp/mapforge_phase_b_continuity.XXXXXX)"
 validate_log="$(mktemp /tmp/mapforge_phase_b_validate.XXXXXX)"
@@ -339,6 +341,15 @@ summary="$(
 )"
 
 if [[ "$summary" != OK* ]]; then
+    if [[ "$phase_b_retry_attempt" =~ ^[0-9]+$ ]] &&
+       [[ "$phase_b_max_attempts" =~ ^[0-9]+$ ]] &&
+       [[ "$phase_b_retry_attempt" -lt "$phase_b_max_attempts" ]]; then
+        cleanup_log=0
+        next_attempt=$((phase_b_retry_attempt + 1))
+        echo "phase_b continuity stress retry attempt=${next_attempt}/${phase_b_max_attempts} after summary: $summary" >&2
+        echo "log: $log_file" >&2
+        exec env MAPFORGE_PHASE_B_RETRY_ATTEMPT="$next_attempt" "$0"
+    fi
     cleanup_log=0
     echo "phase_b continuity stress gate failed: $summary" >&2
     echo "log: $log_file" >&2

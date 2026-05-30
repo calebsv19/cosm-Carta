@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_runtime_ingest_internal.h"
 
 #include "app/region_loader.h"
 #include "core/log.h"

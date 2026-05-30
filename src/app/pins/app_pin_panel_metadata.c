@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_pin_panel_internal.h"
 #include "app/app_ui_internal.h"
 
 #include "ui/font.h"
@@ -76,65 +77,88 @@ static void app_pin_metadata_draw_button(AppState *app,
                          (int)rect->w - 12);
 }
 
+static void app_pin_metadata_draw_fact(AppState *app,
+                                       int y,
+                                       const char *label,
+                                       const char *value,
+                                       SDL_Color label_color,
+                                       SDL_Color value_color) {
+    int x = 0;
+    int value_w = 0;
+    int value_x = 0;
+    int max_value_w = 0;
+    if (!app || !label || !value) {
+        return;
+    }
+    x = (int)app->ui_state_bridge.pin_pane_type_rect.x;
+    max_value_w = (int)app->ui_state_bridge.pin_pane_content_rect.w - 96;
+    value_w = ui_measure_text_width(value, 0.8f);
+    value_x = (int)(app->ui_state_bridge.pin_pane_content_rect.x +
+                    app->ui_state_bridge.pin_pane_content_rect.w - 6.0f -
+                    (float)value_w);
+    if (value_x < x + 72) {
+        value_x = x + 72;
+    }
+    ui_draw_text(&app->renderer, x, y, label, label_color, 0.78f);
+    ui_draw_text_clipped(&app->renderer,
+                         value_x,
+                         y,
+                         value,
+                         value_color,
+                         0.8f,
+                         max_value_w);
+}
+
 void app_pin_panel_draw_metadata(AppState *app) {
-    char line[256];
+    char coords[128];
+    char updated[96];
+    const int fact_y = (int)(app->ui_state_bridge.pin_pane_type_rect.y + app->ui_state_bridge.pin_pane_type_rect.h + 8.0f);
     SDL_Color muted = {190, 198, 210, 255};
+    SDL_Color text = {225, 230, 240, 255};
     if (!app || !app->ui_state_bridge.pin_editor_has_draft) {
         return;
     }
 
-    snprintf(line,
-             sizeof(line),
+    snprintf(coords,
+             sizeof(coords),
              "TYPE: %s",
              app->ui_state_bridge.pin_editor_draft.type[0] != '\0'
                  ? app->ui_state_bridge.pin_editor_draft.type
                  : "general");
-    app_pin_metadata_draw_button(app, &app->ui_state_bridge.pin_pane_type_rect, line, false);
+    app_pin_metadata_draw_button(app, &app->ui_state_bridge.pin_pane_type_rect, coords, false);
 
-    snprintf(line,
-             sizeof(line),
+    snprintf(coords,
+             sizeof(coords),
              "COLOR: %s",
              app->ui_state_bridge.pin_editor_draft.color[0] != '\0'
                  ? app->ui_state_bridge.pin_editor_draft.color
                  : "blue");
-    app_pin_metadata_draw_button(app, &app->ui_state_bridge.pin_pane_color_rect, line, false);
+    app_pin_metadata_draw_button(app, &app->ui_state_bridge.pin_pane_color_rect, coords, false);
 
-    snprintf(line,
-             sizeof(line),
+    snprintf(coords,
+             sizeof(coords),
              "PRIVATE: %s",
              app->ui_state_bridge.pin_editor_draft.private_flag ? "ON" : "OFF");
     app_pin_metadata_draw_button(app,
                                  &app->ui_state_bridge.pin_pane_private_rect,
-                                 line,
+                                 coords,
                                  app->ui_state_bridge.pin_editor_draft.private_flag);
 
-    snprintf(line,
-             sizeof(line),
-             "Coords: %.5f, %.5f",
+    snprintf(coords,
+             sizeof(coords),
+             "%.5f, %.5f",
              app->ui_state_bridge.pin_editor_draft.lat,
              app->ui_state_bridge.pin_editor_draft.lon);
-    ui_draw_text_clipped(&app->renderer,
-                         (int)app->ui_state_bridge.pin_pane_type_rect.x,
-                         (int)(app->ui_state_bridge.pin_pane_type_rect.y + app->ui_state_bridge.pin_pane_type_rect.h + 8.0f),
-                         line,
-                         muted,
-                         0.82f,
-                         (int)app->ui_state_bridge.pin_pane_content_rect.w - 8);
+    app_pin_metadata_draw_fact(app, fact_y, "Coords", coords, muted, text);
 
     if (app->ui_state_bridge.pin_editor_draft.created_at[0] != '\0') {
-        snprintf(line,
-                 sizeof(line),
-                 "Updated: %s",
+        snprintf(updated,
+                 sizeof(updated),
+                 "%s",
                  app->ui_state_bridge.pin_editor_draft.updated_at[0] != '\0'
                      ? app->ui_state_bridge.pin_editor_draft.updated_at
                      : app->ui_state_bridge.pin_editor_draft.created_at);
-        ui_draw_text_clipped(&app->renderer,
-                             (int)app->ui_state_bridge.pin_pane_type_rect.x,
-                             (int)(app->ui_state_bridge.pin_pane_type_rect.y + app->ui_state_bridge.pin_pane_type_rect.h + 24.0f),
-                             line,
-                             muted,
-                             0.82f,
-                             (int)app->ui_state_bridge.pin_pane_content_rect.w - 8);
+        app_pin_metadata_draw_fact(app, fact_y + 18, "Updated", updated, muted, text);
     }
 }
 

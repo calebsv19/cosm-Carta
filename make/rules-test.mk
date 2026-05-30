@@ -4,7 +4,7 @@ test-%: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
-run-headless-smoke: app test-worker-contract test-route-service test-route-preview-contract test-headless-playback test-headless-route-job test-headless-runtime-pins test-headless-saved-pin-script test-headless-saved-pin-skill-contract test-headless-route-frames test-headless-route-video-helper test-headless-visualizer-drop-stage test-headless-saved-pin-visualizer-publish-wrapper test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-d-throughput test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
+run-headless-smoke: app test-worker-contract test-route-service test-route-preview-contract test-headless-playback test-headless-route-job test-headless-route-job-bundle test-headless-runtime-pins test-headless-saved-pin-script test-headless-saved-pin-skill-contract test-headless-route-frames test-headless-route-video-helper test-headless-visualizer-drop-stage test-headless-saved-pin-visualizer-publish-wrapper test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-d-throughput test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
 	@echo "map_forge headless smoke passed (non-interactive)"
 
 visual-harness: app
@@ -92,6 +92,9 @@ test-headless-playback: $(APP_HEADLESS_PLAYBACK_TEST_TARGET)
 
 test-headless-route-job: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_job.sh
+
+test-headless-route-job-bundle: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_job_bundle.sh
 
 test-headless-runtime-pins: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_runtime_pins.sh

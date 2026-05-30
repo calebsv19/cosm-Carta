@@ -67,12 +67,24 @@ typedef enum MapForgeHeadlessRenderMode {
     MAPFORGE_HEADLESS_RENDER_MODE_MAP_ONLY = 2
 } MapForgeHeadlessRenderMode;
 
+typedef enum MapForgeHeadlessQualityProfile {
+    MAPFORGE_HEADLESS_QUALITY_PROFILE_RUNTIME = 0,
+    MAPFORGE_HEADLESS_QUALITY_PROFILE_FINAL = 1
+} MapForgeHeadlessQualityProfile;
+
 typedef struct MapForgeHeadlessOutputConfig {
     bool preview_png;
     bool frames;
     bool video_manifest;
     char frame_format[32];
     MapForgeHeadlessRenderMode render_mode;
+    int pixel_scale;
+    bool stabilize_visible_zoom;
+    bool stabilize_tile_bands;
+    bool allow_tile_fallback;
+    bool simplify_route_screen_space;
+    MapForgeHeadlessQualityProfile quality_profile;
+    bool has_pixel_scale;
 } MapForgeHeadlessOutputConfig;
 
 typedef struct MapForgeHeadlessPlaybackHeadingState {
@@ -143,6 +155,10 @@ bool map_forge_headless_job_load(const char *job_path,
                                  MapForgeHeadlessJob *out_job,
                                  char *out_error,
                                  size_t out_error_size);
+bool map_forge_headless_job_write(const char *job_path,
+                                  const MapForgeHeadlessJob *job,
+                                  char *out_error,
+                                  size_t out_error_size);
 void map_forge_headless_playback_reset_heading_state(MapForgeHeadlessPlaybackHeadingState *state);
 bool map_forge_headless_playback_plan(const MapForgeHeadlessPlaybackConfig *config,
                                       const RoutePath *path,

@@ -1,4 +1,6 @@
 #include "app/app_internal.h"
+#include "app/app_map_viewport_internal.h"
+#include "app/app_runtime_ingest_internal.h"
 
 #include "../camera/camera_viewport_bridge.h"
 #include "ui/shared_theme_font_adapter.h"

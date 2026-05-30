@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_tile_render_internal.h"
 
 #include "core/time.h"
 #include "core/log.h"
@@ -54,6 +55,29 @@ static bool app_has_custom_layer_opacity(const AppState *app) {
         }
     }
     return false;
+}
+
+static const MftTile *app_resolve_visible_tile_for_draw(AppState *app,
+                                                        TileLayerKind kind,
+                                                        TileCoord coord,
+                                                        double now_sec,
+                                                        TileZoomBand *io_band,
+                                                        TileCoord *out_draw_coord) {
+    const MftTile *tile = NULL;
+    if (!app || !io_band || !out_draw_coord) {
+        return NULL;
+    }
+    *out_draw_coord = coord;
+    if (app->tile_state_bridge.headless_export_policy_active &&
+        !app->tile_state_bridge.headless_allow_tile_fallback) {
+        tile = tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, *io_band);
+        return tile;
+    }
+    app_tile_presenter_resolve_tile_for_present(app, kind, coord, now_sec, &tile, io_band);
+    if (tile) {
+        *out_draw_coord = tile->coord;
+    }
+    return tile;
 }
 
 static void app_init_vk_poly_fill_budget(AppState *app, VkPolyFillBudget *budget) {
@@ -630,20 +654,24 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
             const MftTile *local = NULL;
             TileCoord local_draw_coord = coord;
             if (app_layer_active_runtime(app, TILE_LAYER_ROAD_LOCAL) && local_ready) {
-                app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_ROAD_LOCAL, coord, now_sec, &local, &local_band);
-                if (local) {
-                    local_draw_coord = local->coord;
-                }
+                local = app_resolve_visible_tile_for_draw(app,
+                                                          TILE_LAYER_ROAD_LOCAL,
+                                                          coord,
+                                                          now_sec,
+                                                          &local_band,
+                                                          &local_draw_coord);
             }
             const MftTile *contour = (app_layer_active_runtime(app, TILE_LAYER_CONTOUR) &&
                 contour_ready)
                 ? tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[TILE_LAYER_CONTOUR], coord, contour_band) : NULL;
             const MftTile *artery = NULL;
             TileCoord artery_draw_coord = coord;
-            app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_ROAD_ARTERY, coord, now_sec, &artery, &artery_band);
-            if (artery) {
-                artery_draw_coord = artery->coord;
-            }
+            artery = app_resolve_visible_tile_for_draw(app,
+                                                       TILE_LAYER_ROAD_ARTERY,
+                                                       coord,
+                                                       now_sec,
+                                                       &artery_band,
+                                                       &artery_draw_coord);
             if (local && (local_band != app->tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL] ||
                           local_draw_coord.z != coord.z ||
                           local_draw_coord.x != coord.x ||
@@ -719,28 +747,36 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
             TileZoomBand landuse_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_LANDUSE];
             TileZoomBand building_band = app->tile_state_bridge.layer_target_band[TILE_LAYER_POLY_BUILDING];
             if (app_layer_active_runtime(app, TILE_LAYER_POLY_WATER)) {
-                app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_POLY_WATER, coord, now_sec, &water, &water_band);
-                if (water) {
-                    water_draw_coord = water->coord;
-                }
+                water = app_resolve_visible_tile_for_draw(app,
+                                                          TILE_LAYER_POLY_WATER,
+                                                          coord,
+                                                          now_sec,
+                                                          &water_band,
+                                                          &water_draw_coord);
             }
             if (app_layer_active_runtime(app, TILE_LAYER_POLY_PARK)) {
-                app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_POLY_PARK, coord, now_sec, &park, &park_band);
-                if (park) {
-                    park_draw_coord = park->coord;
-                }
+                park = app_resolve_visible_tile_for_draw(app,
+                                                         TILE_LAYER_POLY_PARK,
+                                                         coord,
+                                                         now_sec,
+                                                         &park_band,
+                                                         &park_draw_coord);
             }
             if (app_layer_active_runtime(app, TILE_LAYER_POLY_LANDUSE)) {
-                app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_POLY_LANDUSE, coord, now_sec, &landuse, &landuse_band);
-                if (landuse) {
-                    landuse_draw_coord = landuse->coord;
-                }
+                landuse = app_resolve_visible_tile_for_draw(app,
+                                                            TILE_LAYER_POLY_LANDUSE,
+                                                            coord,
+                                                            now_sec,
+                                                            &landuse_band,
+                                                            &landuse_draw_coord);
             }
             if (app_layer_active_runtime(app, TILE_LAYER_POLY_BUILDING)) {
-                app_tile_presenter_resolve_tile_for_present(app, TILE_LAYER_POLY_BUILDING, coord, now_sec, &building, &building_band);
-                if (building) {
-                    building_draw_coord = building->coord;
-                }
+                building = app_resolve_visible_tile_for_draw(app,
+                                                             TILE_LAYER_POLY_BUILDING,
+                                                             coord,
+                                                             now_sec,
+                                                             &building_band,
+                                                             &building_draw_coord);
             }
             if (water) {
                 float building_zoom_bias = app->view_state_bridge.zoom_logic_enabled ? app->view_state_bridge.building_zoom_bias : -1000.0f;

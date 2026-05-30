@@ -1,6 +1,7 @@
 #include "app_headless_render_internal.h"
 
 #include "app/app_tile_pipeline_helpers.h"
+#include "app/app_tile_render_internal.h"
 #include "map/layer_policy.h"
 
 #include <string.h>
@@ -28,6 +29,11 @@ static bool map_forge_headless_compute_visible_tile_bounds(AppState *app,
     }
 
     uint16_t z = app_zoom_to_tile_level(app->view_state_bridge.camera.zoom, &app->region);
+    if (app->tile_state_bridge.headless_export_policy_active &&
+        app->tile_state_bridge.headless_stabilize_visible_zoom &&
+        app->tile_state_bridge.headless_locked_visible_zoom_valid) {
+        z = app->tile_state_bridge.headless_locked_visible_zoom;
+    }
     TileCoord top_left = tile_from_meters(z, (MercatorMeters){min_x, max_y});
     TileCoord bottom_right = tile_from_meters(z, (MercatorMeters){max_x, min_y});
     uint32_t count = tile_count(z);
@@ -75,20 +81,30 @@ static bool map_forge_headless_compute_visible_tile_bounds(AppState *app,
     return true;
 }
 
-static void map_forge_headless_seed_layer_defaults(AppState *app) {
+static void map_forge_headless_seed_layer_defaults(AppState *app,
+                                                   const MapForgeHeadlessOutputConfig *output) {
+    bool final_quality = output && output->quality_profile == MAPFORGE_HEADLESS_QUALITY_PROFILE_FINAL;
     if (!app) {
         return;
     }
 
     app->view_state_bridge.show_landuse = true;
     app->view_state_bridge.building_zoom_bias = app_building_zoom_bias_for_region(&app->region);
-    app->view_state_bridge.building_fill_enabled = false;
+    app->view_state_bridge.building_fill_enabled = final_quality;
     app->view_state_bridge.road_zoom_bias = app_road_zoom_bias_for_region(&app->region);
-    app->view_state_bridge.polygon_outline_only = true;
+    app->view_state_bridge.polygon_outline_only = !final_quality;
     app->view_state_bridge.zoom_logic_enabled = true;
-    app->single_line = true;
-    app->tile_state_bridge.presenter_invariants_enabled = false;
+    app->single_line = !final_quality;
+    app->tile_state_bridge.presenter_invariants_enabled = final_quality;
     app->tile_state_bridge.contour_runtime_enabled = false;
+    app->tile_state_bridge.headless_export_policy_active = output != NULL;
+    app->tile_state_bridge.headless_stabilize_visible_zoom = output && output->stabilize_visible_zoom;
+    app->tile_state_bridge.headless_stabilize_tile_bands = output && output->stabilize_tile_bands;
+    app->tile_state_bridge.headless_allow_tile_fallback = !output || output->allow_tile_fallback;
+    app->tile_state_bridge.headless_route_simplify_screen_space = !output || output->simplify_route_screen_space;
+    app->tile_state_bridge.headless_locked_visible_zoom_valid = false;
+    app->tile_state_bridge.headless_locked_bands_valid = false;
+    app->tile_state_bridge.headless_locked_visible_zoom = 0u;
     app_runtime_budget_policy_init(app);
     app_runtime_budget_reset_frame(app);
 
@@ -186,7 +202,8 @@ bool map_forge_headless_map_layers_init(AppState *app,
                                         const Renderer *renderer,
                                         const RegionInfo *region,
                                         int width,
-                                        int height) {
+                                        int height,
+                                        const MapForgeHeadlessOutputConfig *output) {
     if (!app || !renderer || !region || width <= 0 || height <= 0) {
         return false;
     }
@@ -196,7 +213,7 @@ bool map_forge_headless_map_layers_init(AppState *app,
     app->region = *region;
     app->width = width;
     app->height = height;
-    map_forge_headless_seed_layer_defaults(app);
+    map_forge_headless_seed_layer_defaults(app, output);
 
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
         if (!tile_manager_init_with_source_for_layer(&app->tile_state_bridge.tile_managers[i],
@@ -222,7 +239,9 @@ void map_forge_headless_map_layers_shutdown(AppState *app) {
 
 bool map_forge_headless_map_layers_prepare_frame(AppState *app,
                                                  const Renderer *renderer,
-                                                 const Camera *camera) {
+                                                 const Camera *camera,
+                                                 const MapForgeHeadlessOutputConfig *output) {
+    (void)output;
     if (!app || !renderer || !camera) {
         return false;
     }
@@ -238,6 +257,12 @@ bool map_forge_headless_map_layers_prepare_frame(AppState *app,
     }
 
     app->tile_state_bridge.visible_valid = true;
+    if (app->tile_state_bridge.headless_export_policy_active &&
+        app->tile_state_bridge.headless_stabilize_visible_zoom &&
+        !app->tile_state_bridge.headless_locked_visible_zoom_valid) {
+        app->tile_state_bridge.headless_locked_visible_zoom = app->tile_state_bridge.visible_zoom;
+        app->tile_state_bridge.headless_locked_visible_zoom_valid = true;
+    }
     app->tile_state_bridge.visible_tile_count =
         (app->tile_state_bridge.visible_bottom_right.x - app->tile_state_bridge.visible_top_left.x + 1u) *
         (app->tile_state_bridge.visible_bottom_right.y - app->tile_state_bridge.visible_top_left.y + 1u);
@@ -254,17 +279,24 @@ bool map_forge_headless_map_layers_prepare_frame(AppState *app,
         }
         {
             TileZoomBand policy_band = app_layer_target_band(app, kind);
-            TileZoomBand effective_band =
-                map_forge_headless_effective_band_for_visible_zoom(app,
-                                                                  kind,
-                                                                  policy_band,
-                                                                  app->tile_state_bridge.visible_zoom);
+            TileZoomBand effective_band = app->tile_state_bridge.headless_locked_bands_valid &&
+                                          app->tile_state_bridge.headless_stabilize_tile_bands
+                ? app->tile_state_bridge.stable_target_band[i]
+                : map_forge_headless_effective_band_for_visible_zoom(app,
+                                                                     kind,
+                                                                     policy_band,
+                                                                     app->tile_state_bridge.visible_zoom);
             app->tile_state_bridge.previous_target_band[i] = policy_band;
             app->tile_state_bridge.stable_target_band[i] = effective_band;
             app->tile_state_bridge.layer_target_band[i] = effective_band;
             app->tile_state_bridge.queue_band[i] = effective_band;
             app->tile_state_bridge.layer_state[i] = LAYER_READINESS_READY;
         }
+    }
+    if (app->tile_state_bridge.headless_export_policy_active &&
+        app->tile_state_bridge.headless_stabilize_tile_bands &&
+        !app->tile_state_bridge.headless_locked_bands_valid) {
+        app->tile_state_bridge.headless_locked_bands_valid = true;
     }
 
     for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {

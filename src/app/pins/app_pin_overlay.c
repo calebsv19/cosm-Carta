@@ -1,4 +1,6 @@
 #include "app/app_internal.h"
+#include "app/app_map_viewport_internal.h"
+#include "app/app_pin_panel_internal.h"
 
 #include "map/mercator.h"
 

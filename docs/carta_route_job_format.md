@@ -4,8 +4,7 @@
 
 ## Version
 
-- current version: `1`
-- next supported version: `2`
+- current supported versions: `1`, `2`
 - current type: `route_playback_render`
 
 ## Shape
@@ -15,7 +14,6 @@
   "version": 2,
   "type": "route_playback_render",
   "map_region": "seattle",
-  "pins_file": "data/pins/examples/demo.seattle.pins.json",
   "from_pin": "demo_start",
   "to_pin": "demo_goal",
   "route": {
@@ -45,7 +43,13 @@
     "frames": false,
     "frame_format": "bmp",
     "video_manifest": false,
-    "render_mode": "map_route_marker"
+    "render_mode": "map_route_marker",
+    "quality_profile": "final",
+    "pixel_scale": 2,
+    "stabilize_visible_zoom": true,
+    "stabilize_tile_bands": true,
+    "allow_tile_fallback": false,
+    "simplify_route_screen_space": false
   }
 }
 ```
@@ -55,9 +59,25 @@
 - `version`
 - `type`
 - `map_region`
-- `pins_file`
 - `from_pin`
 - `to_pin`
+
+## Pin Source Resolution
+
+- `pins_file`
+  - optional explicit override
+  - when set, the job loads pins from that exact path after resolving it relative to the job file
+- omitted `pins_file`
+  - headless uses the same region-local/private pin policy as the interactive app
+  - default runtime/private path: `MAPFORGE_RUNTIME_DIR/pins/<region>.pins.local.json`
+  - local/dev fallback path: `data/pins/private/<region>.pins.local.json`
+  - when `MAPFORGE_RUNTIME_DIR` is active and only the legacy local/dev file exists, headless loads it and reports a warning
+
+Pin endpoint lookup order:
+
+- exact pin `id`
+- exact pin `name`
+- ambiguous exact-name matches fail explicitly instead of silently picking one row
 
 ## Supported Fields In The Foundation Patch
 
@@ -81,6 +101,21 @@
     - `map_route_marker`
     - `map_route`
     - `map_only`
+  - `quality_profile`
+    - `runtime`
+    - `final`
+  - `pixel_scale`
+    - integer internal supersample factor
+    - `1` preserves the legacy output size
+    - `2` or higher renders at a larger internal resolution and downsamples back to the requested output size
+  - `stabilize_visible_zoom`
+    - locks the export tile zoom after the first frame so minor camera motion does not churn the layer zoom choice
+  - `stabilize_tile_bands`
+    - locks each layer's effective export band after the first frame
+  - `allow_tile_fallback`
+    - when `false`, export refuses presenter fallback during draw and uses only the exact chosen band/coord tiles
+  - `simplify_route_screen_space`
+    - when `false`, route rendering skips the screen-space point simplifier to avoid per-frame line shimmer
   - `preview_png: true` currently emits a headless `preview.bmp`
   - `frames: true` is supported only when both `playback.duration_seconds` and `playback.fps` are set
   - only `frame_format: "bmp"` is supported in the current slice
@@ -104,7 +139,11 @@ produces:
 - `preview.bmp` when `output.preview_png` is `true`
 - `frames/` with `frame_000001.bmp` style outputs when `output.frames` is `true` and playback settings are present
 
-The current headless image lane now applies follow-camera playback framing and boots the region tile source for export, but it still does not fully match the interactive renderer or packaged video output path.
+The current headless image lane now applies follow-camera playback framing, supports supersampled deterministic downsampling, and can lock export zoom/bands for more stable route imagery. It still remains a separate offscreen export lane rather than a full interactive renderer capture path.
+
+For direct saved-pin runs that intentionally omit `pins_file`, see:
+
+- `docs/headless_saved_pin_usage.md`
 
 ## Committed Example Jobs
 

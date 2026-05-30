@@ -83,7 +83,7 @@ void map_forge_headless_args_usage(const char *program_name,
              out_text_size,
              "Usage:\n"
              "  %s\n"
-             "  %s --headless --job <job.json> --out <run_dir>\n"
+             "  %s --headless --job <job.json|bundle.json> --out <run_dir>\n"
              "  %s --help\n",
              name,
              name,

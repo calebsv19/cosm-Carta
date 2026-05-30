@@ -1,9 +1,13 @@
 #include "app/app_headless.h"
 
 #include <json-c/json.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 
 static bool map_forge_headless_error(char *out_error,
                                      size_t out_error_size,
@@ -12,6 +16,61 @@ static bool map_forge_headless_error(char *out_error,
         snprintf(out_error, out_error_size, "%s", message ? message : "unknown error");
     }
     return false;
+}
+
+static bool map_forge_headless_ensure_dir_recursive_local(const char *path) {
+    char tmp[PATH_MAX];
+    size_t len = 0u;
+    if (!path || path[0] == '\0') {
+        return false;
+    }
+    len = strnlen(path, sizeof(tmp) - 1u);
+    if (len == 0u || len >= sizeof(tmp)) {
+        return false;
+    }
+    memcpy(tmp, path, len);
+    tmp[len] = '\0';
+    for (char *p = tmp + 1; *p; ++p) {
+        if (*p != '/') {
+            continue;
+        }
+        *p = '\0';
+        if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+            return false;
+        }
+        *p = '/';
+    }
+    if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    return true;
+}
+
+static bool map_forge_headless_parent_dir_local(const char *path,
+                                                char *out_dir,
+                                                size_t out_size) {
+    const char *slash = NULL;
+    if (!path || !out_dir || out_size == 0u) {
+        return false;
+    }
+    slash = strrchr(path, '/');
+    if (!slash) {
+        snprintf(out_dir, out_size, ".");
+        return true;
+    }
+    if (slash == path) {
+        snprintf(out_dir, out_size, "/");
+        return true;
+    }
+    {
+        size_t len = (size_t)(slash - path);
+        if (len >= out_size) {
+            return false;
+        }
+        memcpy(out_dir, path, len);
+        out_dir[len] = '\0';
+    }
+    return true;
 }
 
 static bool json_get_required_string(struct json_object *obj,
@@ -173,6 +232,31 @@ static bool map_forge_headless_parse_render_mode(struct json_object *output_obj,
                                     "output.render_mode must be map_route_marker, map_route, or map_only");
 }
 
+static bool map_forge_headless_parse_quality_profile(struct json_object *output_obj,
+                                                     MapForgeHeadlessQualityProfile *out_profile,
+                                                     char *out_error,
+                                                     size_t out_error_size) {
+    char profile[64] = {0};
+    if (!out_profile) {
+        return map_forge_headless_error(out_error, out_error_size, "missing quality profile output");
+    }
+    *out_profile = MAPFORGE_HEADLESS_QUALITY_PROFILE_RUNTIME;
+    if (!output_obj || !json_get_optional_string(output_obj, "quality_profile", profile, sizeof(profile))) {
+        return true;
+    }
+    if (strcmp(profile, "runtime") == 0) {
+        *out_profile = MAPFORGE_HEADLESS_QUALITY_PROFILE_RUNTIME;
+        return true;
+    }
+    if (strcmp(profile, "final") == 0) {
+        *out_profile = MAPFORGE_HEADLESS_QUALITY_PROFILE_FINAL;
+        return true;
+    }
+    return map_forge_headless_error(out_error,
+                                    out_error_size,
+                                    "output.quality_profile must be runtime or final");
+}
+
 static bool map_forge_headless_parse_mode(struct json_object *route_obj,
                                           RouteTravelMode *out_mode,
                                           char *out_error,
@@ -218,6 +302,10 @@ bool map_forge_headless_job_load(const char *job_path,
     snprintf(job.output.frame_format, sizeof(job.output.frame_format), "bmp");
     job.playback.heading.mode = MAPFORGE_HEADLESS_HEADING_MODE_BLENDED;
     job.output.render_mode = MAPFORGE_HEADLESS_RENDER_MODE_MAP_ROUTE_MARKER;
+    job.output.pixel_scale = 1;
+    job.output.allow_tile_fallback = true;
+    job.output.simplify_route_screen_space = true;
+    job.output.quality_profile = MAPFORGE_HEADLESS_QUALITY_PROFILE_RUNTIME;
 
     root = json_object_from_file(job_path);
     if (!root || !json_object_is_type(root, json_type_object)) {
@@ -230,12 +318,12 @@ bool map_forge_headless_job_load(const char *job_path,
     if (!json_get_required_u32(root, "version", &job.version, out_error, out_error_size) ||
         !json_get_required_string(root, "type", job.type, sizeof(job.type), out_error, out_error_size) ||
         !json_get_required_string(root, "map_region", job.map_region, sizeof(job.map_region), out_error, out_error_size) ||
-        !json_get_required_string(root, "pins_file", job.pins_file, sizeof(job.pins_file), out_error, out_error_size) ||
         !json_get_required_string(root, "from_pin", job.from_pin, sizeof(job.from_pin), out_error, out_error_size) ||
         !json_get_required_string(root, "to_pin", job.to_pin, sizeof(job.to_pin), out_error, out_error_size)) {
         json_object_put(root);
         return false;
     }
+    (void)json_get_optional_string(root, "pins_file", job.pins_file, sizeof(job.pins_file));
     if (job.version != 1u && job.version != 2u) {
         json_object_put(root);
         return map_forge_headless_error(out_error, out_error_size, "job version must be 1 or 2");
@@ -310,6 +398,11 @@ bool map_forge_headless_job_load(const char *job_path,
         (void)json_get_optional_bool(output_obj, "frames", &job.output.frames);
         (void)json_get_optional_bool(output_obj, "video_manifest", &job.output.video_manifest);
         (void)json_get_optional_string(output_obj, "frame_format", job.output.frame_format, sizeof(job.output.frame_format));
+        job.output.has_pixel_scale = json_get_optional_int(output_obj, "pixel_scale", &job.output.pixel_scale);
+        (void)json_get_optional_bool(output_obj, "stabilize_visible_zoom", &job.output.stabilize_visible_zoom);
+        (void)json_get_optional_bool(output_obj, "stabilize_tile_bands", &job.output.stabilize_tile_bands);
+        (void)json_get_optional_bool(output_obj, "allow_tile_fallback", &job.output.allow_tile_fallback);
+        (void)json_get_optional_bool(output_obj, "simplify_route_screen_space", &job.output.simplify_route_screen_space);
         if (!map_forge_headless_parse_render_mode(output_obj,
                                                   &job.output.render_mode,
                                                   out_error,
@@ -317,9 +410,175 @@ bool map_forge_headless_job_load(const char *job_path,
             json_object_put(root);
             return false;
         }
+        if (!map_forge_headless_parse_quality_profile(output_obj,
+                                                      &job.output.quality_profile,
+                                                      out_error,
+                                                      out_error_size)) {
+            json_object_put(root);
+            return false;
+        }
+        if (job.output.pixel_scale < 1) {
+            json_object_put(root);
+            return map_forge_headless_error(out_error, out_error_size, "output.pixel_scale must be >= 1");
+        }
     }
 
     json_object_put(root);
     *out_job = job;
+    return true;
+}
+
+bool map_forge_headless_job_write(const char *job_path,
+                                  const MapForgeHeadlessJob *job,
+                                  char *out_error,
+                                  size_t out_error_size) {
+    struct json_object *root = NULL;
+    struct json_object *route = NULL;
+    struct json_object *camera = NULL;
+    struct json_object *playback = NULL;
+    struct json_object *heading = NULL;
+    struct json_object *output = NULL;
+    FILE *file = NULL;
+    char parent_dir[PATH_MAX];
+
+    if (!job_path || !job) {
+        return map_forge_headless_error(out_error, out_error_size, "missing job output path");
+    }
+    if (!map_forge_headless_parent_dir_local(job_path, parent_dir, sizeof(parent_dir))) {
+        return map_forge_headless_error(out_error, out_error_size, "failed to resolve job output directory");
+    }
+    if (!map_forge_headless_ensure_dir_recursive_local(parent_dir)) {
+        return map_forge_headless_error(out_error, out_error_size, "failed to create job output directory");
+    }
+
+    root = json_object_new_object();
+    json_object_object_add(root, "version", json_object_new_int((int)job->version));
+    json_object_object_add(root, "type", json_object_new_string(job->type));
+    json_object_object_add(root, "map_region", json_object_new_string(job->map_region));
+    if (job->map_data[0] != '\0') {
+        json_object_object_add(root, "map_data", json_object_new_string(job->map_data));
+    }
+    if (job->pins_file[0] != '\0') {
+        json_object_object_add(root, "pins_file", json_object_new_string(job->pins_file));
+    }
+    json_object_object_add(root, "from_pin", json_object_new_string(job->from_pin));
+    json_object_object_add(root, "to_pin", json_object_new_string(job->to_pin));
+
+    route = json_object_new_object();
+    json_object_object_add(route,
+                           "mode",
+                           json_object_new_string(job->route_mode == ROUTE_MODE_CAR ? "car" : "walking"));
+    json_object_object_add(root, "route", route);
+
+    camera = json_object_new_object();
+    if (job->camera.has_width) {
+        json_object_object_add(camera, "width", json_object_new_int(job->camera.width));
+    }
+    if (job->camera.has_height) {
+        json_object_object_add(camera, "height", json_object_new_int(job->camera.height));
+    }
+    if (job->camera.has_zoom) {
+        json_object_object_add(camera, "zoom", json_object_new_double(job->camera.zoom));
+    }
+    json_object_object_add(camera, "follow_route", json_object_new_boolean(job->camera.follow_route));
+    json_object_object_add(camera, "rotate_with_heading", json_object_new_boolean(job->camera.rotate_with_heading));
+    json_object_object_add(root, "camera", camera);
+
+    playback = json_object_new_object();
+    if (job->playback.has_duration_seconds) {
+        json_object_object_add(playback,
+                               "duration_seconds",
+                               json_object_new_double(job->playback.duration_seconds));
+    }
+    if (job->playback.has_fps) {
+        json_object_object_add(playback, "fps", json_object_new_int(job->playback.fps));
+    }
+    json_object_object_add(playback, "start_paused", json_object_new_boolean(job->playback.start_paused));
+    heading = json_object_new_object();
+    switch (job->playback.heading.mode) {
+        case MAPFORGE_HEADLESS_HEADING_MODE_LOOKAHEAD:
+            json_object_object_add(heading, "mode", json_object_new_string("lookahead"));
+            break;
+        case MAPFORGE_HEADLESS_HEADING_MODE_PATH_TANGENT:
+            json_object_object_add(heading, "mode", json_object_new_string("path_tangent"));
+            break;
+        case MAPFORGE_HEADLESS_HEADING_MODE_BLENDED:
+        default:
+            json_object_object_add(heading, "mode", json_object_new_string("blended"));
+            break;
+    }
+    if (job->playback.heading.has_smoothing_tau_seconds) {
+        json_object_object_add(heading,
+                               "smoothing_tau_seconds",
+                               json_object_new_double(job->playback.heading.smoothing_tau_seconds));
+    }
+    if (job->playback.heading.has_lookahead_seconds) {
+        json_object_object_add(heading,
+                               "lookahead_seconds",
+                               json_object_new_double(job->playback.heading.lookahead_seconds));
+    }
+    if (job->playback.heading.has_measurement_window_seconds) {
+        json_object_object_add(heading,
+                               "measurement_window_seconds",
+                               json_object_new_double(job->playback.heading.measurement_window_seconds));
+    }
+    if (job->playback.heading.has_max_turn_rate_deg_per_sec) {
+        json_object_object_add(heading,
+                               "max_turn_rate_deg_per_sec",
+                               json_object_new_double(job->playback.heading.max_turn_rate_deg_per_sec));
+    }
+    json_object_object_add(playback, "heading", heading);
+    json_object_object_add(root, "playback", playback);
+
+    output = json_object_new_object();
+    json_object_object_add(output, "preview_png", json_object_new_boolean(job->output.preview_png));
+    json_object_object_add(output, "frames", json_object_new_boolean(job->output.frames));
+    json_object_object_add(output, "video_manifest", json_object_new_boolean(job->output.video_manifest));
+    json_object_object_add(output, "frame_format", json_object_new_string(job->output.frame_format));
+    switch (job->output.render_mode) {
+        case MAPFORGE_HEADLESS_RENDER_MODE_MAP_ROUTE:
+            json_object_object_add(output, "render_mode", json_object_new_string("map_route"));
+            break;
+        case MAPFORGE_HEADLESS_RENDER_MODE_MAP_ONLY:
+            json_object_object_add(output, "render_mode", json_object_new_string("map_only"));
+            break;
+        case MAPFORGE_HEADLESS_RENDER_MODE_MAP_ROUTE_MARKER:
+        default:
+            json_object_object_add(output, "render_mode", json_object_new_string("map_route_marker"));
+            break;
+    }
+    json_object_object_add(output, "pixel_scale", json_object_new_int(job->output.pixel_scale));
+    json_object_object_add(output,
+                           "stabilize_visible_zoom",
+                           json_object_new_boolean(job->output.stabilize_visible_zoom));
+    json_object_object_add(output,
+                           "stabilize_tile_bands",
+                           json_object_new_boolean(job->output.stabilize_tile_bands));
+    json_object_object_add(output,
+                           "allow_tile_fallback",
+                           json_object_new_boolean(job->output.allow_tile_fallback));
+    json_object_object_add(output,
+                           "simplify_route_screen_space",
+                           json_object_new_boolean(job->output.simplify_route_screen_space));
+    switch (job->output.quality_profile) {
+        case MAPFORGE_HEADLESS_QUALITY_PROFILE_FINAL:
+            json_object_object_add(output, "quality_profile", json_object_new_string("final"));
+            break;
+        case MAPFORGE_HEADLESS_QUALITY_PROFILE_RUNTIME:
+        default:
+            json_object_object_add(output, "quality_profile", json_object_new_string("runtime"));
+            break;
+    }
+    json_object_object_add(root, "output", output);
+
+    file = fopen(job_path, "wb");
+    if (!file) {
+        json_object_put(root);
+        return map_forge_headless_error(out_error, out_error_size, "failed to open job output path");
+    }
+    fputs(json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY), file);
+    fputc('\n', file);
+    fclose(file);
+    json_object_put(root);
     return true;
 }

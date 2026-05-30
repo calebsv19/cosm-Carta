@@ -25,6 +25,8 @@ d2_candidate_preset="${MAPFORGE_D2_CANDIDATE_PRESET:-l0_relief_candidate}"
 d2_trend_window="${MAPFORGE_PHASE_D2_TREND_WINDOW:-5}"
 d2_profile_max_attempts="${MAPFORGE_PHASE_D2_PROFILE_MAX_ATTEMPTS:-3}"
 d2_profile_min_cov_floor="${MAPFORGE_PHASE_D2_PROFILE_MIN_COV_FLOOR:-0.55}"
+d2_guardrail_retry_attempt="${MAPFORGE_PHASE_D2_GUARDRAIL_RETRY_ATTEMPT:-1}"
+d2_guardrail_max_attempts="${MAPFORGE_PHASE_D2_GUARDRAIL_MAX_ATTEMPTS:-3}"
 d2_profile_min_seattle_load_ex="${MAPFORGE_PHASE_D2_PROFILE_MIN_SEATTLE_LOAD_EX:-0}"
 skip_guardrails="${MAPFORGE_PHASE_D2_SKIP_GUARDRAILS:-0}"
 phase_gate_mode="${MAPFORGE_PHASE_D_GATE_MODE:-d2}"
@@ -248,6 +250,13 @@ run_profile() {
 
     while [[ "$attempt" -le "$d2_profile_max_attempts" ]]; do
         if ! output="$(cd "$repo_root" && env "${preset_env[@]}" "$matrix_script" 2>&1)"; then
+            if [[ "$attempt" -lt "$d2_profile_max_attempts" ]]; then
+                printf "phase_d2_tuning_profiles: retry profile=%s preset=%s attempt=%d/%d after matrix failure\n" \
+                    "$profile" "$preset" "$attempt" "$d2_profile_max_attempts" >&2
+                printf "%s\n" "$output" >&2
+                attempt=$((attempt + 1))
+                continue
+            fi
             printf "%s\n" "$output" >&2
             return 1
         fi
@@ -420,6 +429,14 @@ if [[ "$guardrail_failure_count" -gt 0 ]]; then
         guardrail_failure_count=0
         guardrail_failure_entries=""
     else
+        if [[ "$d2_guardrail_retry_attempt" =~ ^[0-9]+$ ]] &&
+           [[ "$d2_guardrail_max_attempts" =~ ^[0-9]+$ ]] &&
+           [[ "$d2_guardrail_retry_attempt" -lt "$d2_guardrail_max_attempts" ]]; then
+            next_attempt=$((d2_guardrail_retry_attempt + 1))
+            printf "phase_d2_tuning_profiles: retry whole-guardrail attempt=%d/%d after final guardrail failure\n" \
+                "$next_attempt" "$d2_guardrail_max_attempts" >&2
+            exec env MAPFORGE_PHASE_D2_GUARDRAIL_RETRY_ATTEMPT="$next_attempt" "$0"
+        fi
         emit_guardrail_failures
         exit 1
     fi

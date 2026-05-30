@@ -137,12 +137,17 @@ static void map_forge_headless_render_camera_fit(Camera *camera,
 
 static void map_forge_headless_render_playback_marker(Renderer *renderer,
                                                       const Camera *camera,
-                                                      const MapForgeHeadlessPlaybackSample *sample) {
+                                                      const MapForgeHeadlessPlaybackSample *sample,
+                                                      float screen_scale) {
     SDL_FRect rect;
+    float radius = 5.0f;
     float sx = 0.0f;
     float sy = 0.0f;
     if (!renderer || !camera || !sample || !sample->valid) {
         return;
+    }
+    if (screen_scale > 0.0f) {
+        radius *= screen_scale;
     }
     camera_world_to_screen(camera,
                            (float)sample->world_x,
@@ -152,11 +157,74 @@ static void map_forge_headless_render_playback_marker(Renderer *renderer,
                            &sx,
                            &sy);
     renderer_set_draw_color(renderer, 255, 230, 80, 240);
-    rect.x = sx - 5.0f;
-    rect.y = sy - 5.0f;
-    rect.w = 10.0f;
-    rect.h = 10.0f;
+    rect.x = sx - radius;
+    rect.y = sy - radius;
+    rect.w = radius * 2.0f;
+    rect.h = radius * 2.0f;
     renderer_fill_rect(renderer, &rect);
+}
+
+static float map_forge_headless_render_zoom_bias_for_pixel_scale(int pixel_scale) {
+    if (pixel_scale <= 1) {
+        return 0.0f;
+    }
+    return (float)log2((double)pixel_scale);
+}
+
+static bool map_forge_headless_render_downsample_argb8888(const SDL_Surface *src,
+                                                          SDL_Surface *dst,
+                                                          int pixel_scale) {
+    if (!src || !dst || pixel_scale <= 1) {
+        return false;
+    }
+    if (src->format->format != SDL_PIXELFORMAT_ARGB8888 || dst->format->format != SDL_PIXELFORMAT_ARGB8888) {
+        return false;
+    }
+    if (src->w != dst->w * pixel_scale || src->h != dst->h * pixel_scale) {
+        return false;
+    }
+    if (SDL_LockSurface((SDL_Surface *)src) != 0) {
+        return false;
+    }
+    if (SDL_LockSurface(dst) != 0) {
+        SDL_UnlockSurface((SDL_Surface *)src);
+        return false;
+    }
+
+    const uint8_t *src_pixels = (const uint8_t *)src->pixels;
+    uint8_t *dst_pixels = (uint8_t *)dst->pixels;
+    const int src_pitch = src->pitch;
+    const int dst_pitch = dst->pitch;
+    const uint32_t sample_count = (uint32_t)(pixel_scale * pixel_scale);
+
+    for (int y = 0; y < dst->h; ++y) {
+        uint32_t *dst_row = (uint32_t *)(dst_pixels + y * dst_pitch);
+        for (int x = 0; x < dst->w; ++x) {
+            uint64_t a_sum = 0u;
+            uint64_t r_sum = 0u;
+            uint64_t g_sum = 0u;
+            uint64_t b_sum = 0u;
+            for (int sy = 0; sy < pixel_scale; ++sy) {
+                const uint32_t *src_row = (const uint32_t *)(src_pixels + (y * pixel_scale + sy) * src_pitch);
+                for (int sx = 0; sx < pixel_scale; ++sx) {
+                    uint32_t pixel = src_row[x * pixel_scale + sx];
+                    a_sum += (pixel >> 24) & 0xffu;
+                    r_sum += (pixel >> 16) & 0xffu;
+                    g_sum += (pixel >> 8) & 0xffu;
+                    b_sum += pixel & 0xffu;
+                }
+            }
+            uint32_t a = (uint32_t)(a_sum / sample_count);
+            uint32_t r = (uint32_t)(r_sum / sample_count);
+            uint32_t g = (uint32_t)(g_sum / sample_count);
+            uint32_t b = (uint32_t)(b_sum / sample_count);
+            dst_row[x] = (a << 24) | (r << 16) | (g << 8) | b;
+        }
+    }
+
+    SDL_UnlockSurface(dst);
+    SDL_UnlockSurface((SDL_Surface *)src);
+    return true;
 }
 
 static const char *map_forge_headless_layer_name(TileLayerKind kind) {
@@ -285,9 +353,12 @@ static void map_forge_headless_render_frame(Renderer *renderer,
                                             const RouteState *route_state,
                                             const MapForgeHeadlessPlaybackSample *sample) {
     bool alt_visible[ROUTE_ALTERNATIVE_MAX];
+    RouteRenderOptions route_options = {0};
     if (!renderer || !camera || !job || !route_state) {
         return;
     }
+    route_options.screen_scale = job->output.pixel_scale > 0 ? (float)job->output.pixel_scale : 1.0f;
+    route_options.simplify_screen_space = job->output.simplify_route_screen_space;
     for (uint32_t i = 0; i < ROUTE_ALTERNATIVE_MAX; ++i) {
         alt_visible[i] = true;
     }
@@ -304,7 +375,7 @@ static void map_forge_headless_render_frame(Renderer *renderer,
     }
     renderer_begin_frame(renderer);
     renderer_clear(renderer, 18, 22, 28, 255);
-    if (layer_app && map_forge_headless_map_layers_prepare_frame(layer_app, renderer, camera)) {
+    if (layer_app && map_forge_headless_map_layers_prepare_frame(layer_app, renderer, camera, &job->output)) {
         map_forge_headless_map_layers_draw(layer_app, layer_stats);
     }
     if (job->output.render_mode != MAPFORGE_HEADLESS_RENDER_MODE_MAP_ONLY) {
@@ -328,11 +399,12 @@ static void map_forge_headless_render_frame(Renderer *renderer,
                           to_pin ? (float)to_pin->world_x : 0.0f,
                           to_pin ? (float)to_pin->world_y : 0.0f,
                           route_state->has_transfer,
-                          route_state->transfer_node);
+                          route_state->transfer_node,
+                          &route_options);
     }
     if (job->output.render_mode == MAPFORGE_HEADLESS_RENDER_MODE_MAP_ROUTE_MARKER &&
         sample && sample->valid) {
-        map_forge_headless_render_playback_marker(renderer, camera, sample);
+        map_forge_headless_render_playback_marker(renderer, camera, sample, route_options.screen_scale);
     }
 }
 
@@ -346,13 +418,17 @@ bool map_forge_headless_render_route_images(const char *out_dir,
                                             const MapForgeHeadlessPlaybackSample *frame_samples,
                                             uint32_t frame_count,
                                             MapForgeHeadlessImageExportResult *out_result) {
-    SDL_Surface *surface = NULL;
+    SDL_Surface *render_surface = NULL;
+    SDL_Surface *output_surface = NULL;
     Renderer renderer;
     Camera camera;
     AppState layer_app;
     AppVisibleTileRenderStats debug_tile_stats;
     int width = 1280;
     int height = 720;
+    int pixel_scale = 1;
+    int render_width = 1280;
+    int render_height = 720;
     bool sdl_video_ready = false;
     bool layer_app_ready = false;
     MapForgeHeadlessImageExportResult result;
@@ -373,6 +449,11 @@ bool map_forge_headless_render_route_images(const char *out_dir,
     if (job->camera.has_height && job->camera.height > 0) {
         height = job->camera.height;
     }
+    if (job->output.pixel_scale > 0) {
+        pixel_scale = job->output.pixel_scale;
+    }
+    render_width = width * pixel_scale;
+    render_height = height * pixel_scale;
 
     if ((job->output.preview_png || job->output.frames) &&
         strcmp(job->output.frame_format, "bmp") != 0) {
@@ -390,23 +471,36 @@ bool map_forge_headless_render_route_images(const char *out_dir,
 
     memset(&renderer, 0, sizeof(renderer));
     renderer_set_backend(&renderer, RENDERER_BACKEND_SDL);
-    surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888);
-    if (!surface) {
+    render_surface = SDL_CreateRGBSurfaceWithFormat(0, render_width, render_height, 32, SDL_PIXELFORMAT_ARGB8888);
+    if (!render_surface) {
         if (sdl_video_ready) {
             SDL_QuitSubSystem(SDL_INIT_VIDEO);
         }
         return false;
     }
-    renderer.sdl = SDL_CreateSoftwareRenderer(surface);
+    if (pixel_scale > 1) {
+        output_surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888);
+        if (!output_surface) {
+            SDL_FreeSurface(render_surface);
+            if (sdl_video_ready) {
+                SDL_QuitSubSystem(SDL_INIT_VIDEO);
+            }
+            return false;
+        }
+    }
+    renderer.sdl = SDL_CreateSoftwareRenderer(render_surface);
     if (!renderer.sdl) {
-        SDL_FreeSurface(surface);
+        if (output_surface) {
+            SDL_FreeSurface(output_surface);
+        }
+        SDL_FreeSurface(render_surface);
         if (sdl_video_ready) {
             SDL_QuitSubSystem(SDL_INIT_VIDEO);
         }
         return false;
     }
-    renderer.width = width;
-    renderer.height = height;
+    renderer.width = render_width;
+    renderer.height = render_height;
     SDL_SetRenderDrawBlendMode(renderer.sdl, SDL_BLENDMODE_BLEND);
 
     camera_init(&camera);
@@ -414,7 +508,12 @@ bool map_forge_headless_render_route_images(const char *out_dir,
     if (job->camera.has_zoom) {
         camera.zoom = camera.zoom_target = job->camera.zoom;
     }
-    layer_app_ready = map_forge_headless_map_layers_init(&layer_app, &renderer, region, width, height);
+    if (pixel_scale > 1) {
+        float zoom_bias = map_forge_headless_render_zoom_bias_for_pixel_scale(pixel_scale);
+        camera.zoom += zoom_bias;
+        camera.zoom_target += zoom_bias;
+    }
+    layer_app_ready = map_forge_headless_map_layers_init(&layer_app, &renderer, region, render_width, render_height, &job->output);
 
     if (job->output.preview_png) {
         char preview_path[1024];
@@ -427,20 +526,36 @@ bool map_forge_headless_render_route_images(const char *out_dir,
                                         to_pin,
                                         route_state,
                                         preview_sample);
+        renderer_end_frame(&renderer);
+        if (output_surface) {
+            if (!map_forge_headless_render_downsample_argb8888(render_surface, output_surface, pixel_scale)) {
+                if (layer_app_ready) {
+                    map_forge_headless_map_layers_shutdown(&layer_app);
+                }
+                renderer_shutdown(&renderer);
+                SDL_FreeSurface(output_surface);
+                SDL_FreeSurface(render_surface);
+                if (sdl_video_ready) {
+                    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+                }
+                return false;
+            }
+        }
         snprintf(preview_path, sizeof(preview_path), "%s/preview.bmp", out_dir);
-        if (SDL_SaveBMP(surface, preview_path) != 0) {
-            renderer_end_frame(&renderer);
+        if (SDL_SaveBMP(output_surface ? output_surface : render_surface, preview_path) != 0) {
             if (layer_app_ready) {
                 map_forge_headless_map_layers_shutdown(&layer_app);
             }
             renderer_shutdown(&renderer);
-            SDL_FreeSurface(surface);
+            if (output_surface) {
+                SDL_FreeSurface(output_surface);
+            }
+            SDL_FreeSurface(render_surface);
             if (sdl_video_ready) {
                 SDL_QuitSubSystem(SDL_INIT_VIDEO);
             }
             return false;
         }
-        renderer_end_frame(&renderer);
         result.preview_written = true;
         snprintf(result.preview_artifact, sizeof(result.preview_artifact), "preview.bmp");
         if (layer_app_ready &&
@@ -455,7 +570,10 @@ bool map_forge_headless_render_route_images(const char *out_dir,
         snprintf(frames_dir, sizeof(frames_dir), "%s/frames", out_dir);
         if (!map_forge_headless_render_ensure_dir(frames_dir)) {
             renderer_shutdown(&renderer);
-            SDL_FreeSurface(surface);
+            if (output_surface) {
+                SDL_FreeSurface(output_surface);
+            }
+            SDL_FreeSurface(render_surface);
             if (sdl_video_ready) {
                 SDL_QuitSubSystem(SDL_INIT_VIDEO);
             }
@@ -472,20 +590,35 @@ bool map_forge_headless_render_route_images(const char *out_dir,
                                             to_pin,
                                             route_state,
                                             &frame_samples[i]);
-            snprintf(frame_path, sizeof(frame_path), "%s/frame_%06u.bmp", frames_dir, i + 1u);
-            if (SDL_SaveBMP(surface, frame_path) != 0) {
-                renderer_end_frame(&renderer);
+            renderer_end_frame(&renderer);
+            if (output_surface &&
+                !map_forge_headless_render_downsample_argb8888(render_surface, output_surface, pixel_scale)) {
                 if (layer_app_ready) {
                     map_forge_headless_map_layers_shutdown(&layer_app);
                 }
                 renderer_shutdown(&renderer);
-                SDL_FreeSurface(surface);
+                SDL_FreeSurface(output_surface);
+                SDL_FreeSurface(render_surface);
                 if (sdl_video_ready) {
                     SDL_QuitSubSystem(SDL_INIT_VIDEO);
                 }
                 return false;
             }
-            renderer_end_frame(&renderer);
+            snprintf(frame_path, sizeof(frame_path), "%s/frame_%06u.bmp", frames_dir, i + 1u);
+            if (SDL_SaveBMP(output_surface ? output_surface : render_surface, frame_path) != 0) {
+                if (layer_app_ready) {
+                    map_forge_headless_map_layers_shutdown(&layer_app);
+                }
+                renderer_shutdown(&renderer);
+                if (output_surface) {
+                    SDL_FreeSurface(output_surface);
+                }
+                SDL_FreeSurface(render_surface);
+                if (sdl_video_ready) {
+                    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+                }
+                return false;
+            }
             result.frames_written_count += 1u;
         }
         result.frames_written = result.frames_written_count > 0u;
@@ -498,7 +631,10 @@ bool map_forge_headless_render_route_images(const char *out_dir,
         map_forge_headless_map_layers_shutdown(&layer_app);
     }
     renderer_shutdown(&renderer);
-    SDL_FreeSurface(surface);
+    if (output_surface) {
+        SDL_FreeSurface(output_surface);
+    }
+    SDL_FreeSurface(render_surface);
     if (sdl_video_ready) {
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
     }

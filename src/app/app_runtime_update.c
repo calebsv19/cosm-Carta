@@ -1,4 +1,7 @@
 #include "app/app_internal.h"
+#include "app/app_map_viewport_internal.h"
+#include "app/app_pin_panel_internal.h"
+#include "app/app_ui_internal.h"
 
 #include "core/time.h"
 
@@ -341,13 +344,14 @@ void app_runtime_update_frame(AppState *app,
                app->ui_state_bridge.input.mouse_y <= (int)APP_HEADER_HEIGHT) {
         consumed_click = true;
     }
-    if (app->ui_state_bridge.input.pin_panel_toggle_pressed) {
+    if (app_pin_panel_handle_runtime_inputs(app)) {
+        consumed_click = true;
+    }
+    if (!consumed_click && app->ui_state_bridge.input.pin_panel_toggle_pressed) {
         app->ui_state_bridge.left_pane_open = !app->ui_state_bridge.left_pane_open;
         app_pin_panel_layout(app);
         app->tile_state_bridge.queue_valid = false;
         app->tile_state_bridge.visible_valid = false;
-    }
-    if (app_pin_panel_handle_runtime_inputs(app)) {
         consumed_click = true;
     }
     if (!consumed_click &&
