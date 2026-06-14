@@ -10,6 +10,7 @@ include make/objects.mk
 include make/rules-build.mk
 include make/rules-tools.mk
 include make/rules-test.mk
+include make/rules-memory-check.mk
 include make/rules-ops.mk
 include make/package-macos.mk
 include make/release.mk

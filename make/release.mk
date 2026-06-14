@@ -129,6 +129,9 @@ release-verify-internal:
 		if [ $$spctl_status -ne 0 ]; then \
 			if printf '%s\n' "$$spctl_output" | /usr/bin/grep -qi "internal error in Code Signing subsystem"; then \
 				echo "release-verify note: spctl internal subsystem error on this host; codesign verification remains authoritative"; \
+			elif printf '%s\n' "$$spctl_output" | /usr/bin/grep -qi "source=Unnotarized Developer ID"; then \
+				printf '%s\n' "$$spctl_output"; \
+				echo "release-verify passed (pre-notary signed state)."; \
 			else \
 				printf '%s\n' "$$spctl_output"; \
 				exit $$spctl_status; \
@@ -142,7 +145,7 @@ release-verify-internal:
 release-verify-signed-internal: release-sign-internal release-verify-internal
 	@echo "release-verify-signed passed."
 
-release-notarize-internal: release-sign-internal
+release-notarize-internal: release-verify-signed-internal
 	@if [ -z "$(APPLE_NOTARY_PROFILE)" ]; then \
 		echo "APPLE_NOTARY_PROFILE is required for release-notarize"; \
 		exit 1; \
@@ -167,7 +170,7 @@ release-notarize-internal: release-sign-internal
 	fi
 	@echo "release-notarize passed."
 
-release-staple-internal:
+release-staple-internal: release-notarize-internal
 	@attempt=1; \
 	while [ $$attempt -le "$(STAPLE_MAX_ATTEMPTS)" ]; do \
 		if xcrun stapler staple "$(PACKAGE_APP_DIR)"; then \
@@ -184,11 +187,11 @@ release-staple-internal:
 	@xcrun stapler validate "$(PACKAGE_APP_DIR)"
 	@echo "release-staple passed."
 
-release-verify-notarized-internal: release-verify-internal
+release-verify-notarized-internal: release-staple-internal
 	@xcrun stapler validate "$(PACKAGE_APP_DIR)"
 	@echo "release-verify-notarized passed."
 
-release-artifact-internal:
+release-artifact-internal: release-verify-notarized-internal
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
 	@shasum -a 256 "$(RELEASE_APP_ZIP)" > "$(RELEASE_APP_ZIP).sha256"
@@ -200,8 +203,11 @@ release-artifact-internal:
 		echo "platform=$(RELEASE_PLATFORM)"; \
 		echo "arch=$(RELEASE_ARCH)"; \
 		echo "channel=$(RELEASE_CHANNEL)"; \
+		echo "signed=1"; \
+		echo "notarized=1"; \
 		echo "artifact=$(RELEASE_APP_ZIP)"; \
 		echo "sha256_file=$(RELEASE_APP_ZIP).sha256"; \
+		echo "notary_json=$(RELEASE_DIR)/notary_submit.json"; \
 	} > "$(RELEASE_MANIFEST)"
 	@echo "release-artifact complete: $(RELEASE_APP_ZIP)"
 
@@ -218,4 +224,3 @@ release-desktop-refresh-internal: package-desktop
 	@rm -rf "$(DESKTOP_APP_DIR)"
 	@cp -R "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@echo "Release app refreshed at $(DESKTOP_APP_DIR)"
-

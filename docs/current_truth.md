@@ -43,9 +43,16 @@ Last updated: 2026-05-21
   - `make -C map_forge test`
 - Primary smoke/stability gates:
   - `make -C map_forge run-headless-smoke`
-  - `make -C map_forge test-route-preview-contract`
-  - runs the focused route-preview unit lane plus the phase-B continuity stress
-    gate as one explicit follow-preview contract surface
+    - routine non-interactive smoke; aliases `run-headless-smoke-core`
+    - excludes saved-pin/video/visualizer artifact lanes and Phase-D throughput
+  - `make -C map_forge run-headless-smoke-artifacts`
+    - saved-pin, frame, video, visualizer staging, and publish-wrapper lanes
+  - `make -C map_forge run-headless-smoke-continuity`
+    - route-preview unit lane plus the phase-B continuity stress gate
+  - `make -C map_forge run-headless-smoke-throughput`
+    - Phase-D throughput guardrails
+  - `make -C map_forge run-headless-smoke-full`
+    - explicit full aggregate for all smoke tiers
   - `make -C map_forge test-phase-a-viewport-scenario`
   - `make -C map_forge test-phase-b-continuity-stress`
   - `make -C map_forge test-tile-manager-residency`

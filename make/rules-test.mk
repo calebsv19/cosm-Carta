@@ -1,11 +1,25 @@
-test run-headless-smoke: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
+test run-headless-smoke run-headless-smoke-core run-headless-smoke-artifacts run-headless-smoke-continuity run-headless-smoke-throughput run-headless-smoke-full: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
 test-%: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
 
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
-run-headless-smoke: app test-worker-contract test-route-service test-route-preview-contract test-headless-playback test-headless-route-job test-headless-route-job-bundle test-headless-runtime-pins test-headless-saved-pin-script test-headless-saved-pin-skill-contract test-headless-route-frames test-headless-route-video-helper test-headless-visualizer-drop-stage test-headless-saved-pin-visualizer-publish-wrapper test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-phase-d-throughput test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
-	@echo "map_forge headless smoke passed (non-interactive)"
+run-headless-smoke: run-headless-smoke-core
+
+run-headless-smoke-core: app test-worker-contract test-route-service test-route-preview test-headless-playback test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
+	@echo "map_forge core headless smoke passed (non-interactive)"
+
+run-headless-smoke-artifacts: app test-headless-route-job test-headless-route-job-bundle test-headless-runtime-pins test-headless-saved-pin-script test-headless-saved-pin-skill-contract test-headless-route-frames test-headless-route-video-helper test-headless-visualizer-drop-stage test-headless-saved-pin-visualizer-publish-wrapper
+	@echo "map_forge artifact headless smoke passed"
+
+run-headless-smoke-continuity: app test-route-preview-contract
+	@echo "map_forge continuity headless smoke passed"
+
+run-headless-smoke-throughput: app test-phase-d-throughput
+	@echo "map_forge throughput headless smoke passed"
+
+run-headless-smoke-full: run-headless-smoke-core run-headless-smoke-artifacts run-headless-smoke-continuity run-headless-smoke-throughput
+	@echo "map_forge full headless smoke passed"
 
 visual-harness: app
 	@echo "visual harness binary ready: $(TARGET)"

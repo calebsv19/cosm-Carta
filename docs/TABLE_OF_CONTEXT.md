@@ -21,7 +21,8 @@ Use this file as the primary navigation map for project context.
 - `docs/future_intent.md`: scaffold convergence intent and pending migration slices.
 - `docs/desktop_packaging.md`: `.app` packaging targets, launcher contract, and desktop sync flow.
 - `make test-presentation-stability`: focused non-GUI presenter stability regression gate.
-- `make run-headless-smoke`: non-interactive smoke gate for scaffold migration slices.
+- `make run-headless-smoke`: routine non-interactive core smoke gate.
+- `make run-headless-smoke-full`: explicit full smoke aggregate, including artifact and throughput tiers.
 - `make test-phase-b-continuity-stress`: phase-b viewport continuity/churn stress gate.
 - `make test-tile-manager-residency`: tile-manager trim-policy residency contract gate.
 

@@ -37,6 +37,7 @@ Repository and source-level identifiers still use `map_forge`.
 - `docs/OSM_ROAD_CLASSES.md`: OSM tag-to-road-class mapping used by the tooling.
 - `docs/carta_route_job_format.md`: headless route-job JSON contract.
 - `docs/carta_pin_format.md`: persistent pin JSON contract.
+- `docs/memory_check_audit.md`: default-off fisiCs memory-check audit lane.
 
 ## Context And Navigation
 
@@ -65,8 +66,18 @@ If you are new to the runtime code, read in this order:
 ## Non-GUI Stability Checks
 
 - `make test-presentation-stability`
-- `make test`
+- `make memory-check-audit`
 - `make run-headless-smoke`
+  - routine core non-interactive smoke gate
+- `make run-headless-smoke-artifacts`
+  - saved-pin, frame, video, visualizer staging, and publish-wrapper lanes
+- `make run-headless-smoke-continuity`
+  - route-preview plus phase-B continuity stress
+- `make run-headless-smoke-throughput`
+  - Phase-D throughput guardrails
+- `make run-headless-smoke-full`
+  - explicit full aggregate for all smoke tiers
+- `make test`
 - `make test-phase-a-viewport-scenario`
 - `make test-phase-b-continuity-stress`
 - `make test-tile-manager-residency`

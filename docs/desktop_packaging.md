@@ -60,6 +60,13 @@ Default local icon store:
 
 Plain `make -C map_forge package-desktop-refresh` and `package-desktop-self-test` now look in that local store first. The local icon store is gitignored so refreshed icon copies do not dirty the normal repo worktree.
 
+Canonical local icon source:
+
+- `/Users/<user>/Desktop/icns/carta.icns`
+- sync into the packaging lane with:
+  - `bin/sync_desktop_icns.sh carta`
+  - `bin/sync_desktop_icns.sh --refresh carta`
+
 Default desktop destination:
 
 - `$(HOME)/Desktop/Carta.app`
