@@ -19,6 +19,18 @@
 - Implementation: `src/core_data.c`
 - Tests: `tests/core_data_test.c`
 
+## Current Implementation Status
+- Implemented now:
+  - copied dataset/item ownership for scalar, array, field, metadata, and table additions
+  - item-name and metadata-key uniqueness enforcement
+  - zero-count float arrays
+  - zero-row float and typed tables with validated column definitions
+  - guarded allocation math for dataset growth and large field/table payloads
+- Not implemented yet:
+  - schema descriptors
+  - semantic validators for units/meaning/ranges
+  - non-owning dataset views or transforms
+
 ## Product-Level Behavior Goals
 - Predictable memory ownership rules for all dataset additions.
 - Type-safe metadata/table handling with clear failure behavior.
@@ -30,6 +42,9 @@
 - Preserve and harden existing dataset add/find/free APIs.
 - Extend tests for invalid shape/type combinations and capacity growth.
 - Document strict ownership and lifetime behavior for all value kinds.
+- Keep duplicate-name/key policy explicit and stable.
+- Keep size and allocation math checked before every internal copy/alloc path.
+- Preserve zero-size semantics explicitly rather than leaving them as allocator side effects.
 
 ### Layer 2: Schema and Semantics
 - Introduce optional schema descriptors for datasets/items.

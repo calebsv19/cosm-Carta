@@ -25,6 +25,13 @@ Versioned, chunk-based binary container (`.pack`) for offline interchange.
 - `.pack` v1 freeze contract is documented in `PACK_V1_SPEC.md`.
 - Shared SemVer policy is documented in `../VERSIONING.md`.
 
+## Current Contract Notes
+- Reader and writer behavior is stable for current v1 files and current `none` / `rle8` codec handling only.
+- Reader open validates footer/index ranges when an index is present and rejects malformed chunk ranges before readback.
+- Partial reads and decoded reads are bounded by current stdio-backed file positioning and destination-buffer size checks.
+- Conversion helpers own only legacy/raw-frame to pack translation; JSON parsing, app runtime mutation, and higher-level schema meaning remain outside `core_pack`.
+- Integrity reporting, checksums, and richer validation tooling are still roadmap work, not current surface guarantees.
+
 ## CLI
 `tools/pack_cli.c` commands:
 - `write <pack_path>`
@@ -34,5 +41,5 @@ Versioned, chunk-based binary container (`.pack`) for offline interchange.
 
 ## Version
 - Module version source: `VERSION`
-- Current module version: `1.1.0`
+- Current module version: `1.1.1`
 - Current target format: `PACK_FORMAT_VERSION_MAJOR=1`, `PACK_FORMAT_VERSION_MINOR=0`

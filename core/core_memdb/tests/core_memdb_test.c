@@ -236,6 +236,11 @@ static void test_invalid_args(void) {
 
     result = core_memdb_run_migrations(&db, 0, 0, 0);
     assert(result.code == CORE_ERR_INVALID_ARG);
+
+    db.native_db = (void *)0x1;
+    result = core_memdb_open(0, &db);
+    assert(result.code == CORE_ERR_INVALID_ARG);
+    assert(db.native_db == 0);
 }
 
 static void test_schema_bootstrap_and_versioning(void) {
@@ -469,9 +474,100 @@ static void test_v2_to_v6_upgrade(void) {
     remove_test_db();
 }
 
+static void test_closed_handle_and_output_clearing(void) {
+    CoreMemDb db;
+    CoreMemStmt stmt;
+    CoreResult result;
+    int has_row = -1;
+    int64_t i64_value = -1;
+    CoreStr text_value = { (const char *)0x1, 7u };
+
+    remove_test_db();
+
+    result = core_memdb_open(kTestDbPath, &db);
+    assert(result.code == CORE_OK);
+
+    result = core_memdb_prepare(&db, "SELECT NULL;", &stmt);
+    assert(result.code == CORE_OK);
+
+    result = core_memdb_stmt_step(&stmt, &has_row);
+    assert(result.code == CORE_OK);
+    assert(has_row == 1);
+
+    result = core_memdb_stmt_column_text(&stmt, 0, &text_value);
+    assert(result.code == CORE_OK);
+    assert(text_value.data == 0);
+    assert(text_value.len == 0u);
+
+    result = core_memdb_stmt_finalize(&stmt);
+    assert(result.code == CORE_OK);
+
+    has_row = -1;
+    result = core_memdb_stmt_step(&stmt, &has_row);
+    assert(result.code == CORE_ERR_NOT_FOUND);
+    assert(has_row == 0);
+
+    i64_value = -1;
+    result = core_memdb_stmt_column_i64(&stmt, 0, &i64_value);
+    assert(result.code == CORE_ERR_NOT_FOUND);
+    assert(i64_value == 0);
+
+    text_value.data = (const char *)0x1;
+    text_value.len = 7u;
+    result = core_memdb_stmt_column_text(&stmt, 0, &text_value);
+    assert(result.code == CORE_ERR_NOT_FOUND);
+    assert(text_value.data == 0);
+    assert(text_value.len == 0u);
+
+    result = core_memdb_stmt_finalize(&stmt);
+    assert(result.code == CORE_OK);
+
+    result = core_memdb_close(&db);
+    assert(result.code == CORE_OK);
+    assert(db.native_db == 0);
+
+    result = core_memdb_prepare(&db, "SELECT 1;", &stmt);
+    assert(result.code == CORE_ERR_NOT_FOUND);
+    assert(stmt.native_stmt == 0);
+    assert(stmt.db == 0);
+
+    result = core_memdb_exec(&db, "SELECT 1;");
+    assert(result.code == CORE_ERR_NOT_FOUND);
+
+    result = core_memdb_tx_begin(&db);
+    assert(result.code == CORE_ERR_NOT_FOUND);
+
+    result = core_memdb_close(&db);
+    assert(result.code == CORE_OK);
+
+    remove_test_db();
+}
+
+static void test_future_target_version_without_custom_migration(void) {
+    CoreMemDb db;
+    CoreResult result;
+
+    remove_test_db();
+
+    result = core_memdb_open(kTestDbPath, &db);
+    assert(result.code == CORE_OK);
+    assert_schema_version(&db, "6");
+
+    result = core_memdb_run_migrations(&db, 7u, 0, 0);
+    assert(result.code == CORE_ERR_NOT_FOUND);
+    assert_schema_version(&db, "6");
+
+    result = core_memdb_close(&db);
+    assert(result.code == CORE_OK);
+
+    remove_test_db();
+}
+
 int main(void) {
     test_invalid_args();
     test_schema_bootstrap_and_versioning();
     test_v2_to_v6_upgrade();
+    test_closed_handle_and_output_clearing();
+    test_future_target_version_without_custom_migration();
     return 0;
 }

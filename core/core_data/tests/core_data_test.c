@@ -1,8 +1,10 @@
 #include "core_data.h"
 
 #include <assert.h>
+#include <stdio.h>
+#include <stdint.h>
 
-int main(void) {
+static void test_happy_path(void) {
     CoreDataset ds;
     core_dataset_init(&ds);
 
@@ -16,7 +18,7 @@ int main(void) {
     assert(meta->type == CORE_META_I64);
     assert(meta->as.i64_value == 7);
 
-    assert(core_dataset_add_scalar_f64(&ds, "time_seconds", 1.25).code == CORE_OK);
+    assert(core_dataset_add_scalar_f64(&ds, "time_seconds_scalar", 1.25).code == CORE_OK);
 
     float arr[4] = {1.0f, 2.0f, 3.0f, 4.0f};
     assert(core_dataset_add_array_f32(&ds, "samples", arr, 4).code == CORE_OK);
@@ -77,5 +79,137 @@ int main(void) {
     assert(typed->as.table_typed.columns[3].as.u32_values[1] == 4u);
 
     core_dataset_free(&ds);
+}
+
+static void test_duplicate_policy(void) {
+    CoreDataset ds;
+    CoreResult r;
+    float values[2] = {1.0f, 2.0f};
+
+    core_dataset_init(&ds);
+
+    r = core_dataset_add_metadata_string(&ds, "source", "first");
+    assert(r.code == CORE_OK);
+    r = core_dataset_add_metadata_string(&ds, "source", "second");
+    assert(r.code == CORE_ERR_INVALID_ARG);
+
+    r = core_dataset_add_scalar_f64(&ds, "series", 1.0);
+    assert(r.code == CORE_OK);
+    r = core_dataset_add_array_f32(&ds, "series", values, 2);
+    assert(r.code == CORE_ERR_INVALID_ARG);
+
+    core_dataset_free(&ds);
+}
+
+static void test_invalid_inputs(void) {
+    CoreDataset ds;
+    CoreResult r;
+    float table_rows[2] = {1.0f, 2.0f};
+    const char *table_cols_ok[2] = {"a", "b"};
+    const char *table_cols_bad[2] = {"a", ""};
+    const char *typed_cols_ok[2] = {"a", "b"};
+    const char *typed_cols_bad[2] = {"a", NULL};
+    CoreTableColumnType typed_types_ok[2] = {CORE_TABLE_COL_I64, CORE_TABLE_COL_BOOL};
+    CoreTableColumnType typed_types_bad[2] = {CORE_TABLE_COL_I64, (CoreTableColumnType)999};
+    int64_t typed_steps[1] = {1};
+    bool typed_flags[1] = {true};
+    const void *typed_data_ok[2] = {typed_steps, typed_flags};
+    const void *typed_data_missing[2] = {typed_steps, NULL};
+
+    core_dataset_init(&ds);
+
+    r = core_dataset_add_metadata_string(&ds, "", "bad");
+    assert(r.code == CORE_ERR_INVALID_ARG);
+    r = core_dataset_add_scalar_f64(&ds, "", 1.0);
+    assert(r.code == CORE_ERR_INVALID_ARG);
+    r = core_dataset_add_array_f32(&ds, "", table_rows, 2);
+    assert(r.code == CORE_ERR_INVALID_ARG);
+
+    r = core_dataset_add_table_f32(&ds, "table_bad_name", table_cols_bad, 2, 1, table_rows);
+    assert(r.code == CORE_ERR_INVALID_ARG);
+
+    r = core_dataset_add_table_typed(&ds, "typed_bad_col_name", typed_cols_bad, typed_types_ok, 2, 1, typed_data_ok);
+    assert(r.code == CORE_ERR_INVALID_ARG);
+
+    r = core_dataset_add_table_typed(&ds, "typed_bad_type", typed_cols_ok, typed_types_bad, 2, 1, typed_data_ok);
+    assert(r.code == CORE_ERR_INVALID_ARG);
+
+    r = core_dataset_add_table_typed(&ds, "typed_missing_data", typed_cols_ok, typed_types_ok, 2, 1, typed_data_missing);
+    assert(r.code == CORE_ERR_INVALID_ARG);
+
+    r = core_dataset_add_table_f32(&ds, "table_ok", table_cols_ok, 2, 1, table_rows);
+    assert(r.code == CORE_OK);
+
+    core_dataset_free(&ds);
+}
+
+static void test_zero_size_policy(void) {
+    CoreDataset ds;
+    CoreResult r;
+    const char *cols_f32[2] = {"x", "y"};
+    const char *cols_typed[2] = {"count", "enabled"};
+    CoreTableColumnType typed_types[2] = {CORE_TABLE_COL_U32, CORE_TABLE_COL_BOOL};
+    const void *typed_data[2] = {NULL, NULL};
+
+    core_dataset_init(&ds);
+
+    r = core_dataset_add_array_f32(&ds, "empty_array", NULL, 0);
+    assert(r.code == CORE_OK);
+
+    r = core_dataset_add_table_f32(&ds, "empty_table", cols_f32, 2, 0, NULL);
+    assert(r.code == CORE_OK);
+
+    r = core_dataset_add_table_typed(&ds, "empty_typed_table", cols_typed, typed_types, 2, 0, typed_data);
+    assert(r.code == CORE_OK);
+
+    assert(ds.item_count == 3);
+    assert(ds.items[0].as.array_f32.values == NULL);
+    assert(ds.items[1].as.table_f32.columns[0].values == NULL);
+    assert(ds.items[2].as.table_typed.columns[0].as.raw == NULL);
+
+    core_dataset_free(&ds);
+}
+
+static void test_capacity_growth_and_overflow_guards(void) {
+    CoreDataset ds;
+    CoreResult r;
+    float sample = 1.0f;
+    CoreField2DDesc huge_field = {UINT32_MAX, UINT32_MAX, 0.0f, 0.0f, 1.0f};
+
+    core_dataset_init(&ds);
+
+    for (int i = 0; i < 20; ++i) {
+        char key[32];
+        char name[32];
+
+        (void)snprintf(key, sizeof(key), "meta_%d", i);
+        (void)snprintf(name, sizeof(name), "scalar_%d", i);
+
+        r = core_dataset_add_metadata_i64(&ds, key, i);
+        assert(r.code == CORE_OK);
+        r = core_dataset_add_scalar_f64(&ds, name, (double)i);
+        assert(r.code == CORE_OK);
+    }
+
+    assert(ds.metadata_count == 20);
+    assert(ds.item_count == 20);
+    assert(ds.metadata_capacity >= ds.metadata_count);
+    assert(ds.item_capacity >= ds.item_count);
+
+    r = core_dataset_add_field2d_f32(&ds, "huge_field", huge_field, &sample);
+    assert(r.code == CORE_ERR_INVALID_ARG);
+
+    r = core_dataset_add_field2d_vec2f32(&ds, "huge_vec_field", huge_field, &sample, &sample);
+    assert(r.code == CORE_ERR_INVALID_ARG);
+
+    core_dataset_free(&ds);
+}
+
+int main(void) {
+    test_happy_path();
+    test_duplicate_policy();
+    test_invalid_inputs();
+    test_zero_size_policy();
+    test_capacity_growth_and_overflow_guards();
     return 0;
 }

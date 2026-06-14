@@ -2,7 +2,7 @@
 
 Canonical in-memory data representation shared by apps.
 
-## Scope (Phase 1 continuation)
+## Implemented Surface
 - Scalar values (f64)
 - 1D float arrays
 - 2D scalar and vector fields
@@ -15,4 +15,18 @@ Canonical in-memory data representation shared by apps.
 - `core_base`
 
 ## Status
-- Minimal implementation with unit tests.
+- Baseline copied-dataset carrier with contract-hardening tests.
+
+## Current Contract
+- All dataset additions copy caller-owned input into `CoreDataset` storage.
+- Metadata keys must be non-empty and unique within a dataset.
+- Item names must be non-empty and unique within a dataset.
+- Zero-count float arrays are allowed and store `count == 0` with `values == NULL`.
+- Zero-row float and typed tables are allowed when column definitions are valid.
+- 2D field dimensions must both be non-zero.
+- Dimension and allocation math is guarded against `size_t` overflow before allocation.
+
+## Current Limits
+- Whole dataset growth is still bounded by available contiguous memory.
+- Table column names are validated, but schema descriptors and semantic validation are not implemented yet.
+- `core_data` owns in-memory copied containers only; persistence and interchange remain outside this module.

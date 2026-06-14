@@ -7,6 +7,7 @@
 
 #include "core_pack.h"
 
+#include <limits.h>
 #include <string.h>
 
 static const uint32_t CORE_PACK_MAGIC = ('C' << 24) | ('P' << 16) | ('A' << 8) | ('K');
@@ -110,6 +111,58 @@ static uint64_t from_le64(uint64_t v) {
     return bswap64(v);
 }
 
+static bool u64_fits_size_t(uint64_t value) {
+    return value <= (uint64_t)SIZE_MAX;
+}
+
+static bool u64_fits_long(uint64_t value) {
+    return value <= (uint64_t)LONG_MAX;
+}
+
+static bool add_overflow_u64(uint64_t a, uint64_t b, uint64_t *out) {
+    if (a > UINT64_MAX - b) {
+        return true;
+    }
+    *out = a + b;
+    return false;
+}
+
+static CoreResult get_file_size(FILE *file, uint64_t *out_size) {
+    if (!file || !out_size) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+
+    long saved_pos = ftell(file);
+    if (saved_pos < 0) {
+        CoreResult r = { CORE_ERR_IO, "failed to query file position" };
+        return r;
+    }
+
+    if (fseek(file, 0, SEEK_END) != 0) {
+        CoreResult r = { CORE_ERR_IO, "failed to seek file end" };
+        return r;
+    }
+
+    long end_pos = ftell(file);
+    if (end_pos < 0) {
+        if (fseek(file, saved_pos, SEEK_SET) != 0) {
+            CoreResult restore = { CORE_ERR_IO, "failed to restore file position" };
+            return restore;
+        }
+        CoreResult r = { CORE_ERR_IO, "failed to get file size" };
+        return r;
+    }
+
+    if (fseek(file, saved_pos, SEEK_SET) != 0) {
+        CoreResult r = { CORE_ERR_IO, "failed to restore file position" };
+        return r;
+    }
+
+    *out_size = (uint64_t)end_pos;
+    return core_result_ok();
+}
+
 static CoreResult rle8_encode(const uint8_t *src, uint64_t src_size, uint8_t **out_data, uint64_t *out_size) {
     if (!src || !out_data || !out_size) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
@@ -121,8 +174,13 @@ static CoreResult rle8_encode(const uint8_t *src, uint64_t src_size, uint8_t **o
         return core_result_ok();
     }
 
-    uint64_t cap = src_size * 2;
-    uint8_t *dst = (uint8_t *)core_alloc((size_t)cap);
+    if (src_size > (uint64_t)(SIZE_MAX / 2)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "rle input too large" };
+        return r;
+    }
+
+    size_t cap = (size_t)(src_size * 2u);
+    uint8_t *dst = (uint8_t *)core_alloc(cap);
     if (!dst) {
         CoreResult r = { CORE_ERR_OUT_OF_MEMORY, "out of memory" };
         return r;
@@ -180,7 +238,17 @@ static CoreResult ensure_index_capacity(CorePackChunkInfo **entries, size_t *cap
     if (needed <= *capacity) return core_result_ok();
 
     size_t cap = (*capacity == 0) ? 16 : (*capacity * 2);
-    while (cap < needed) cap *= 2;
+    while (cap < needed) {
+        if (cap > (SIZE_MAX / 2)) {
+            CoreResult r = { CORE_ERR_OUT_OF_MEMORY, "pack index too large" };
+            return r;
+        }
+        cap *= 2;
+    }
+    if (cap > (SIZE_MAX / sizeof(CorePackChunkInfo))) {
+        CoreResult r = { CORE_ERR_OUT_OF_MEMORY, "pack index too large" };
+        return r;
+    }
 
     CorePackChunkInfo *next = (CorePackChunkInfo *)core_realloc(*entries, cap * sizeof(CorePackChunkInfo));
     if (!next) {
@@ -218,6 +286,10 @@ static CoreResult reader_index_push(CorePackReader *reader, const char type[4], 
 }
 
 static CoreResult reader_scan_chunks(CorePackReader *reader) {
+    uint64_t file_size = 0;
+    CoreResult size_r = get_file_size(reader->file, &file_size);
+    if (size_r.code != CORE_OK) return size_r;
+
     if (fseek(reader->file, (long)sizeof(CorePackHeader), SEEK_SET) != 0) {
         CoreResult r = { CORE_ERR_IO, "failed to seek chunk scan start" };
         return r;
@@ -243,11 +315,17 @@ static CoreResult reader_scan_chunks(CorePackReader *reader) {
             CoreResult r = { CORE_ERR_IO, "failed to query chunk offset" };
             return r;
         }
+        uint64_t payload_start = (uint64_t)pos;
+        uint64_t payload_end = 0;
+        if (add_overflow_u64(payload_start, size, &payload_end) || payload_end > file_size) {
+            CoreResult r = { CORE_ERR_FORMAT, "truncated chunk payload" };
+            return r;
+        }
 
-        CoreResult push = reader_index_push(reader, ch.type, (uint64_t)pos, size);
+        CoreResult push = reader_index_push(reader, ch.type, payload_start, size);
         if (push.code != CORE_OK) return push;
 
-        if (fseek(reader->file, (long)size, SEEK_CUR) != 0) {
+        if (!u64_fits_long(payload_end) || fseek(reader->file, (long)payload_end, SEEK_SET) != 0) {
             CoreResult r = { CORE_ERR_FORMAT, "truncated chunk payload" };
             return r;
         }
@@ -321,6 +399,16 @@ static CoreResult reader_load_index_from_footer(CorePackReader *reader) {
         CoreResult r = { CORE_ERR_FORMAT, "index too large" };
         return r;
     }
+    {
+        uint64_t footer_offset = (uint64_t)file_size - sizeof(CorePackFooter);
+        uint64_t index_region_size = footer_offset - index_offset;
+        uint64_t max_entries_region = index_region_size - sizeof(CorePackIndexHeader);
+        uint64_t max_entries = max_entries_region / sizeof(CorePackIndexEntryDisk);
+        if (index_region_size < sizeof(CorePackIndexHeader) || idx_count > max_entries) {
+            CoreResult r = { CORE_ERR_FORMAT, "index count exceeds file bounds" };
+            return r;
+        }
+    }
 
     reader->index_count = 0;
     reader->next_index = 0;
@@ -332,7 +420,18 @@ static CoreResult reader_load_index_from_footer(CorePackReader *reader) {
             return r;
         }
 
-        CoreResult push = reader_index_push(reader, de.type, from_le64(de.data_offset), from_le64(de.size));
+        uint64_t data_offset = from_le64(de.data_offset);
+        uint64_t data_size = from_le64(de.size);
+        uint64_t data_end = 0;
+        if (data_offset < sizeof(CorePackHeader) ||
+            data_offset > index_offset ||
+            add_overflow_u64(data_offset, data_size, &data_end) ||
+            data_end > index_offset) {
+            CoreResult r = { CORE_ERR_FORMAT, "invalid index entry range" };
+            return r;
+        }
+
+        CoreResult push = reader_index_push(reader, de.type, data_offset, data_size);
         if (push.code != CORE_OK) return push;
     }
 
@@ -387,6 +486,10 @@ CoreResult core_pack_writer_add_chunk_encoded(CorePackWriter *writer,
         CoreResult r = { CORE_ERR_INVALID_ARG, "unsupported codec" };
         return r;
     }
+    if (size > 0 && !u64_fits_size_t(size)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "chunk payload too large" };
+        return r;
+    }
 
     const uint8_t *payload = (const uint8_t *)data;
     uint64_t payload_size = size;
@@ -396,8 +499,12 @@ CoreResult core_pack_writer_add_chunk_encoded(CorePackWriter *writer,
     if (codec == CORE_PACK_CODEC_RLE8 && size > 0) {
         CoreResult enc = rle8_encode((const uint8_t *)data, size, &owned_payload, &encoded_size);
         if (enc.code != CORE_OK) return enc;
+        if (add_overflow_u64(sizeof(CorePackCodecHeader), encoded_size, &payload_size)) {
+            core_free(owned_payload);
+            CoreResult r = { CORE_ERR_INVALID_ARG, "encoded payload too large" };
+            return r;
+        }
         payload = owned_payload;
-        payload_size = sizeof(CorePackCodecHeader) + encoded_size;
     } else if (codec == CORE_PACK_CODEC_NONE && size > 0) {
         payload_size = size;
     } else if (size == 0) {
@@ -435,6 +542,11 @@ CoreResult core_pack_writer_add_chunk_encoded(CorePackWriter *writer,
         if (fwrite(&hdr, sizeof(hdr), 1, writer->file) != 1) {
             core_free(owned_payload);
             CoreResult r = { CORE_ERR_IO, "failed to write codec header" };
+            return r;
+        }
+        if (!u64_fits_size_t(encoded_size)) {
+            core_free(owned_payload);
+            CoreResult r = { CORE_ERR_INVALID_ARG, "encoded payload too large" };
             return r;
         }
         if (encoded_size > 0 && fwrite(owned_payload, 1, (size_t)encoded_size, writer->file) != (size_t)encoded_size) {
@@ -719,6 +831,10 @@ CoreResult core_pack_reader_read_chunk_decoded(CorePackReader *reader,
     }
     if (codec_u32 == CORE_PACK_CODEC_RLE8) {
         uint8_t *enc = NULL;
+        if (!u64_fits_size_t(encoded_size)) {
+            CoreResult r = { CORE_ERR_FORMAT, "encoded payload too large" };
+            return r;
+        }
         if (encoded_size > 0) {
             enc = (uint8_t *)core_alloc((size_t)encoded_size);
             if (!enc) {
@@ -755,9 +871,26 @@ CoreResult core_pack_reader_read_chunk_slice(CorePackReader *reader,
         CoreResult r = { CORE_ERR_INVALID_ARG, "slice out of bounds" };
         return r;
     }
+    if (size > 0 && !u64_fits_size_t(size)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "read size too large" };
+        return r;
+    }
 
-    uint64_t start = chunk->data_offset + offset;
-    if (fseek(reader->file, (long)start, SEEK_SET) != 0) {
+    uint64_t start = 0;
+    uint64_t end = 0;
+    uint64_t file_size = 0;
+    if (add_overflow_u64(chunk->data_offset, offset, &start) ||
+        add_overflow_u64(start, size, &end)) {
+        CoreResult r = { CORE_ERR_FORMAT, "invalid chunk range" };
+        return r;
+    }
+    CoreResult size_r = get_file_size(reader->file, &file_size);
+    if (size_r.code != CORE_OK) return size_r;
+    if (start < sizeof(CorePackHeader) || end > file_size) {
+        CoreResult r = { CORE_ERR_FORMAT, "invalid chunk range" };
+        return r;
+    }
+    if (!u64_fits_long(start) || fseek(reader->file, (long)start, SEEK_SET) != 0) {
         CoreResult r = { CORE_ERR_IO, "failed to seek chunk data" };
         return r;
     }

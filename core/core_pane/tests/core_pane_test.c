@@ -179,6 +179,47 @@ static void test_validation_reports_duplicate_child(void) {
     assert(report.node_index == 0u);
 }
 
+static void test_validation_reports_invalid_arg_when_nodes_null(void) {
+    CorePaneValidationReport report = {0};
+
+    assert(!core_pane_validate_graph(NULL,
+                                     1u,
+                                     0u,
+                                     (CorePaneRect){ 0.0f, 0.0f, 120.0f, 80.0f },
+                                     &report));
+    assert(report.code == CORE_PANE_VALIDATION_ERR_INVALID_ARG);
+    assert(report.node_index == UINT32_MAX);
+}
+
+static void test_validation_reports_empty_graph(void) {
+    CorePaneNode nodes[1] = {
+        { CORE_PANE_NODE_LEAF, 1u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneValidationReport report = {0};
+
+    assert(!core_pane_validate_graph(nodes,
+                                     0u,
+                                     0u,
+                                     (CorePaneRect){ 0.0f, 0.0f, 120.0f, 80.0f },
+                                     &report));
+    assert(report.code == CORE_PANE_VALIDATION_ERR_EMPTY_GRAPH);
+}
+
+static void test_validation_reports_invalid_root(void) {
+    CorePaneNode nodes[1] = {
+        { CORE_PANE_NODE_LEAF, 1u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneValidationReport report = {0};
+
+    assert(!core_pane_validate_graph(nodes,
+                                     1u,
+                                     1u,
+                                     (CorePaneRect){ 0.0f, 0.0f, 120.0f, 80.0f },
+                                     &report));
+    assert(report.code == CORE_PANE_VALIDATION_ERR_INVALID_ROOT);
+    assert(report.node_index == 1u);
+}
+
 static void test_validation_reports_invalid_bounds(void) {
     CorePaneNode nodes[1] = {
         { CORE_PANE_NODE_LEAF, 1u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
@@ -192,6 +233,45 @@ static void test_validation_reports_invalid_bounds(void) {
                                      &report));
     assert(report.code == CORE_PANE_VALIDATION_ERR_INVALID_BOUNDS);
     assert(strcmp(core_pane_validation_code_string(report.code), "invalid_bounds") == 0);
+}
+
+static void test_validation_reports_self_child(void) {
+    CorePaneNode nodes[2] = {
+        { CORE_PANE_NODE_SPLIT, 14u, CORE_PANE_AXIS_HORIZONTAL, 0.5f, 0u, 1u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 2u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneValidationReport report = {0};
+
+    assert(!core_pane_validate_graph(nodes,
+                                     2u,
+                                     0u,
+                                     (CorePaneRect){ 0.0f, 0.0f, 120.0f, 80.0f },
+                                     &report));
+    assert(report.code == CORE_PANE_VALIDATION_ERR_SELF_CHILD);
+    assert(report.node_index == 0u);
+    assert(report.related_index == 0u);
+}
+
+static void test_validation_reports_child_out_of_range(void) {
+    CorePaneNode nodes[2] = {
+        { CORE_PANE_NODE_SPLIT, 15u, CORE_PANE_AXIS_HORIZONTAL, 0.5f, 1u, 2u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 2u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneValidationReport report = {0};
+
+    assert(!core_pane_validate_graph(nodes,
+                                     2u,
+                                     0u,
+                                     (CorePaneRect){ 0.0f, 0.0f, 120.0f, 80.0f },
+                                     &report));
+    assert(report.code == CORE_PANE_VALIDATION_ERR_NODE_INDEX_OUT_OF_RANGE);
+    assert(report.node_index == 0u);
+}
+
+static void test_validation_code_strings_cover_extra_surface(void) {
+    assert(strcmp(core_pane_validation_code_string(CORE_PANE_VALIDATION_ERR_SELF_CHILD), "self_child") == 0);
+    assert(strcmp(core_pane_validation_code_string(CORE_PANE_VALIDATION_ERR_OUTPUT_CAPACITY), "output_capacity") == 0);
+    assert(strcmp(core_pane_validation_code_string((CorePaneValidationCode)9999), "unknown") == 0);
 }
 
 static void test_collect_splitter_hits_matches_tree_hit_testing(void) {
@@ -274,6 +354,81 @@ static void test_collect_splitter_hits_reports_capacity_shortfall(void) {
     assert(hit_count == 3u);
 }
 
+static void test_solve_output_capacity_failure_clears_leaf_count(void) {
+    CorePaneNode nodes[3] = {
+        { CORE_PANE_NODE_SPLIT, 16u, CORE_PANE_AXIS_HORIZONTAL, 0.4f, 1u, 2u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 5u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 6u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneLeafRect leaves[1] = {0};
+    uint32_t leaf_count = 99u;
+
+    assert(!core_pane_solve(nodes,
+                            3u,
+                            0u,
+                            (CorePaneRect){ 0.0f, 0.0f, 100.0f, 60.0f },
+                            leaves,
+                            1u,
+                            &leaf_count));
+    assert(leaf_count == 0u);
+
+    leaf_count = 77u;
+    assert(!core_pane_solve(nodes,
+                            3u,
+                            0u,
+                            (CorePaneRect){ 0.0f, 0.0f, 100.0f, 60.0f },
+                            NULL,
+                            0u,
+                            &leaf_count));
+    assert(leaf_count == 0u);
+}
+
+static void test_hit_test_splitter_hits_handles_invalid_inputs_deterministically(void) {
+    CorePaneSplitterHit hits[1] = {0};
+    CorePaneSplitterHit out_hit = {0};
+
+    out_hit.active = true;
+    assert(!core_pane_hit_test_splitter_hits(NULL, 0u, 10.0f, 10.0f, &out_hit));
+    assert(!out_hit.active);
+
+    out_hit.active = true;
+    assert(!core_pane_hit_test_splitter_hits(NULL, 1u, 10.0f, 10.0f, &out_hit));
+    assert(!out_hit.active);
+
+    hits[0].active = false;
+    out_hit.active = true;
+    assert(!core_pane_hit_test_splitter_hits(hits, 1u, NAN, 10.0f, &out_hit));
+    assert(!out_hit.active);
+
+    out_hit.active = true;
+    assert(!core_pane_hit_test_splitter_hits(hits, 1u, 10.0f, 10.0f, &out_hit));
+    assert(!out_hit.active);
+}
+
+static void test_apply_splitter_drag_rejects_malformed_hits(void) {
+    CorePaneNode nodes[3] = {
+        { CORE_PANE_NODE_SPLIT, 30u, CORE_PANE_AXIS_HORIZONTAL, 0.5f, 1u, 2u, { 20.0f, 20.0f } },
+        { CORE_PANE_NODE_LEAF, 1u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } },
+        { CORE_PANE_NODE_LEAF, 2u, CORE_PANE_AXIS_HORIZONTAL, 0.0f, 0u, 0u, { 0.0f, 0.0f } }
+    };
+    CorePaneSplitterHit hit = {0};
+
+    hit.active = true;
+    hit.node_index = 0u;
+    hit.axis = CORE_PANE_AXIS_VERTICAL;
+    hit.parent_span = 200.0f;
+    hit.min_ratio_01 = 0.1f;
+    hit.max_ratio_01 = 0.9f;
+
+    assert(!core_pane_apply_splitter_drag(nodes, 3u, &hit, 0.0f, 10.0f));
+    assert(nearf(nodes[0].ratio_01, 0.5f, 0.0001f));
+
+    hit.axis = CORE_PANE_AXIS_HORIZONTAL;
+    hit.parent_span = INFINITY;
+    assert(!core_pane_apply_splitter_drag(nodes, 3u, &hit, 10.0f, 0.0f));
+    assert(nearf(nodes[0].ratio_01, 0.5f, 0.0001f));
+}
+
 int main(void) {
     test_solve_basic_horizontal_split();
     test_solve_respects_min_constraints();
@@ -282,9 +437,18 @@ int main(void) {
     test_solve_rejects_duplicate_child_reference();
     test_solve_handles_non_finite_ratio_with_stable_fallback();
     test_drag_sequence_is_deterministic();
+    test_validation_reports_invalid_arg_when_nodes_null();
+    test_validation_reports_empty_graph();
+    test_validation_reports_invalid_root();
     test_validation_reports_duplicate_child();
     test_validation_reports_invalid_bounds();
+    test_validation_reports_self_child();
+    test_validation_reports_child_out_of_range();
+    test_validation_code_strings_cover_extra_surface();
     test_collect_splitter_hits_matches_tree_hit_testing();
     test_collect_splitter_hits_reports_capacity_shortfall();
+    test_solve_output_capacity_failure_clears_leaf_count();
+    test_hit_test_splitter_hits_handles_invalid_inputs_deterministically();
+    test_apply_splitter_drag_rejects_malformed_hits();
     return 0;
 }

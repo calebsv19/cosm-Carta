@@ -4,20 +4,13 @@
 Provide a deterministic, policy-driven runtime loop that orchestrates timers, jobs, workers, and wake behavior with no UI coupling.
 
 ## Immediate Steps
-1. Implement full phase order:
-   - drain external events
-   - drain worker messages
-   - fire due timers
-   - run budgeted jobs
-   - module update notifications
-   - render-needed signal aggregation
-   - idle/block policy execution
-2. Add policy-driven idle modes (`BLOCK`, `SPIN`, `BACKOFF`) with tests.
-3. Integrate `core_workers` completion queue and `core_wake` wait/signal path.
-4. Add deterministic shutdown and lifecycle failure handling.
+1. Keep renderer and platform event adapters outside `core_kernel`; only the borrowed queue/module orchestration boundary belongs here.
+2. Revisit whether currently stored policy fields (`frame_cap_hz`, `worker_thread_count`, `coalesce_input_events`) should gain behavior or remain higher-layer configuration inputs.
+3. Decide later whether richer shutdown/result reporting belongs here without taking ownership of adjacent queue/scheduler/worker lifecycles.
+4. Add trace integration only as a separate additive seam after the base lifecycle contract stays stable.
 
 ## Future Steps
-1. Add pluggable adapter interfaces for app event and render integration.
+1. Add pluggable adapter interfaces for app event and render integration if multiple hosts need the same abstraction.
 2. Add trace hooks to integrate kernel phase timing with `core_trace`.
-3. Add headless harness and long-run stability/perf tests.
-4. Freeze lifecycle contracts once adoption begins in IDE/runtime apps.
+3. Add broader long-run stability/perf coverage if adoption exposes real scheduler-pressure regressions.
+4. Revisit fixed scheduler `max_fires` only if hosts need policy control over that boundary.

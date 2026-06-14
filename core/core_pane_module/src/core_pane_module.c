@@ -107,6 +107,9 @@ CorePaneModuleResult core_pane_module_find_by_type_id(const CorePaneModuleRegist
                                                       uint32_t module_type_id,
                                                       const CorePaneModuleDescriptor **out_descriptor) {
     uint32_t i;
+    if (out_descriptor) {
+        *out_descriptor = NULL;
+    }
     if (!registry || !out_descriptor || module_type_id == 0u) {
         return CORE_PANE_MODULE_ERR_INVALID_ARG;
     }
@@ -123,6 +126,9 @@ CorePaneModuleResult core_pane_module_find_by_key(const CorePaneModuleRegistry *
                                                   const char *module_key,
                                                   const CorePaneModuleDescriptor **out_descriptor) {
     uint32_t i;
+    if (out_descriptor) {
+        *out_descriptor = NULL;
+    }
     if (!registry || !module_key || !out_descriptor) {
         return CORE_PANE_MODULE_ERR_INVALID_ARG;
     }
@@ -142,7 +148,13 @@ CorePaneModuleResult core_pane_module_validate_bindings(const CorePaneModuleRegi
                                                         uint32_t leaf_pane_count) {
     uint32_t i;
     uint32_t j;
-    if (!registry || !bindings || (binding_count > 0u && (!leaf_pane_ids || leaf_pane_count == 0u))) {
+    if (!registry || !registry->entries) {
+        return CORE_PANE_MODULE_ERR_INVALID_ARG;
+    }
+    if (binding_count == 0u) {
+        return CORE_PANE_MODULE_OK;
+    }
+    if (!bindings || !leaf_pane_ids || leaf_pane_count == 0u) {
         return CORE_PANE_MODULE_ERR_INVALID_ARG;
     }
 

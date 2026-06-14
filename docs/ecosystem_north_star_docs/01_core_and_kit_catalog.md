@@ -105,6 +105,61 @@ This is not an implementation guide.
 
 ---
 
+### core_mesh_asset (BOOTSTRAP)
+**Role:** Shared reusable mesh-asset contract owner.
+**Responsibilities:**
+- `mesh_asset_authoring_v1` contract helpers
+- `mesh_asset_runtime_v1` contract helpers
+- Primitive-seed authoring payload validation
+- Imported-mesh/STL source metadata validation
+- Runtime vertex, triangle, surface-group, bounds, and topology validation
+- Runtime mesh asset JSON load/save helpers
+
+**Boundary:**
+- Owns reusable object and runtime mesh asset meaning
+- Does not own scene placement, editing UX, triangulation, render acceleration,
+  solver voxelization, collision proxies, or SDF generation
+
+---
+
+### core_mesh_compile (BOOTSTRAP)
+**Role:** Shared compile-boundary owner for mesh asset authoring to runtime mesh handoff.
+**Responsibilities:**
+- Staged `mesh_asset_instance` scene-reference helpers
+- Authored-source compile responsibility validation
+- Bounded ASCII and binary STL imported-mesh to runtime-mesh compile proof
+  with a `250000` triangle proof-scale ceiling
+- File-backed runtime mesh output for bounded imported-mesh proofs
+- Runtime mesh emission contract flags
+- Surface-group preservation contract
+- Imported-mesh source metadata requirement checks
+
+**Boundary:**
+- Owns app-neutral compile responsibility semantics only
+- Owns bounded STL parsing, triangle-count rejection, and indexed weld lookup
+  for imported-mesh compile proofs
+- Does not own mesh repair, retopo, LOD/streaming, host import UX, scene
+  envelopes, render meshes, or solver runtime-form derivation
+
+---
+
+### core_mesh_preview (BOOTSTRAP)
+**Role:** Shared viewport-safe runtime mesh preview contract owner.
+**Responsibilities:**
+- `core_mesh_preview_runtime_v1` sidecar payload helpers
+- Bounded feature-edge preview generation from `mesh_asset_runtime_v1`
+- Runtime mesh preview metadata for source counts, local bounds, source asset
+  ids, preview mode, and sampled drawable edge payloads
+- File-backed preview save/load helpers
+
+**Boundary:**
+- Owns app-neutral preview data meaning and bounded payload generation
+- Does not own UI selection, hitboxes, camera projection, renderer state,
+  scene placement, mesh repair, retopo, GPU buffers, BVHs, solver proxies,
+  collision meshes, or SDF generation
+
+---
+
 ### core_space (ACTIVE)
 **Role:** Shared spatial conversion contract.
 **Responsibilities:**
@@ -157,6 +212,23 @@ This is not an implementation guide.
 - No full scene container ownership (`core_scene` owns scene envelope)
 - No app namespace overlay ownership
 - No solver/render runtime ownership
+
+---
+
+### core_authored_texture (BOOTSTRAP)
+**Role:** Shared authored-texture manifest contract owner for cross-app texture export/runtime handoff.
+**Responsibilities:**
+- Authored-texture schema-version vocabulary
+- Binding-kind and emitted-output-kind vocabulary
+- Supported primitive and face-role vocabulary
+- Primitive-specific face completeness rules
+- JSON-free manifest-contract validation helpers
+
+**Boundary:**
+- Owns authored-texture manifest meaning only
+- No JSON parsing or file/image IO
+- No scene-envelope ownership (`core_scene` owns scene/object semantics)
+- No renderer/editor/runtime UI behavior
 
 ---
 
@@ -232,6 +304,20 @@ This is not an implementation guide.
 
 ---
 
+### core_headless_job (BOOTSTRAP)
+**Role:** Shared outer headless job-envelope/report contract for cross-program worker bundles.
+**Responsibilities:**
+- Shared schema-family/schema-variant vocabulary for bundle/report roots
+- Typed outer-envelope, payload-ref, outputs, metadata, artifact, and report structs
+- JSON-free validation helpers for required identity/schema/path/output fields
+
+**Boundary:**
+- Owns only outer worker-job semantic meaning
+- No JSON parsing/writing, filesystem creation, or scheduler dispatch
+- No program-specific scene payload semantics
+
+---
+
 ### core_action (BOOTSTRAP)
 **Role:** Action identity and trigger-binding registry.
 **Responsibilities (initial):**
@@ -259,6 +345,24 @@ This is not an implementation guide.
 
 ---
 
+### core_sim_trace (BOOTSTRAP)
+**Role:** Optional `core_sim` to `core_trace` control-plane adapter.
+**Responsibilities (initial):**
+- Standard `core_sim.*` trace lanes for frame index, frame dt, tick count,
+  pass count, reason bits, accumulator, and advanced simulation time
+- Standard frame/reason markers for tick, render, clamp, single-step, and pass
+  failure outcomes
+- Headless/agent-analysis vocabulary that simulation hosts can reuse before
+  adding app-specific domain lanes
+
+**Boundary:**
+- Does not add a `core_trace` dependency to base `core_sim`
+- Does not own app entity/world snapshots, solver metrics, replay execution,
+  UI, `core_data`, or `core_pack`
+- Apps add domain-specific lanes beside the shared control-plane lanes
+
+---
+
 ### core_sim (BOOTSTRAP)
 **Role:** Shared simulation control-plane foundation.
 **Responsibilities (initial):**
@@ -268,11 +372,15 @@ This is not an implementation guide.
 - Ordered simulation pass execution
 - Deterministic per-frame outcome reporting
 - Host adapter diagnostics: status names, pass-order validation, pass-outcome initialization, and frame reason bits
+- UI-free frame summaries, reason-name extraction, and stage-timing derivation for optional diagnostics/artifact adapters
+- Step 3 artifact records: public version string, deterministic pass-order hash,
+  artifact run-header initialization, and frame-record extraction
 
 **Boundary:**
 - Owns simulation orchestration semantics only
 - Does not own physics equations, entity/world storage, scenario formats, rendering, UI, platform input, or worker/job/scheduler ownership
-- May layer with `core_time`, `core_kernel`, `core_sched`, `core_jobs`, `core_workers`, `core_queue`, `core_wake`, and `core_trace` through later adapters
+- Current proving-host shapes are fixed-step (`gravity_orbit_sim`), entity/group pass order (`behavior_sim`), solver/substep (`physics_sim`), and progressive/render-frame orchestration (`ray_tracing`)
+- May layer with `core_time`, `core_kernel`, `core_sched`, `core_jobs`, `core_workers`, `core_queue`, `core_wake`, and optional sibling adapters such as `core_sim_trace`
 
 ---
 
@@ -459,13 +567,25 @@ This is not an implementation guide.
 
 ### kit_render (ACTIVE)
 **Role:** Rendering abstraction (`vk_renderer` seed path).
+**Notes:**
+- Owns backend-agnostic command-frame recording/submission, backend attach/adopt
+  boundaries, shared theme/font text policy resolution, and renderer-adjacent
+  external text helpers.
+- Does not own widget behavior, app hit testing, event loops, persistence, or
+  optional plain-SDL UI bridge drawing.
 
 ### kit_ui (ACTIVE)
 **Role:** Shared UI primitives (`timer_hud` seed path).
 **Notes:**
 - Primary consumer of `core_theme` and `core_font` contracts.
-- Owns renderer adapters that convert theme/font tokens into backend-specific calls.
-- Current shared controls include buttons, checkboxes, sliders, scrollbars, and segmented selectors.
+- Owns immediate-mode layout, evaluation, and draw helpers layered onto
+  `kit_render`; it does not own renderer lifecycle.
+- Current shared controls include buttons, checkboxes, sliders, scrollbars,
+  segmented selectors, rounded/compact button appearances, HUD button-row
+  layout, alpha-aware HUD style fields, nested corner/inset math, and optional
+  SDL rounded-surface adapters for plain SDL hosts.
+- App-specific actions, playback/session behavior, active theme persistence,
+  and host text/cache ownership stay app-owned.
 
 ### kit_pane (BOOTSTRAP)
 **Role:** Shared pane-shell presentation kit for `core_pane`-driven workspaces.
@@ -502,6 +622,11 @@ This is not an implementation guide.
 
 ### kit_sim (PLANNED)
 **Role:** Shared simulation-loop and replay helpers.
+**Notes:**
+- Should remain a kit-level optional layer above `core_sim` for diagnostics,
+  replay presentation, scaffold examples, and tooling helpers.
+- Should not own the core loop ABI or pull renderer/UI dependencies into
+  `core_sim`.
 
 ---
 

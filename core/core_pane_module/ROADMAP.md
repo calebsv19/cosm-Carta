@@ -7,8 +7,8 @@ Provide a shared, deterministic pane-module contract surface that can be reused 
 ## Immediate Steps
 
 1. Add registry metadata export helpers for snapshot/debug tooling.
-2. Add stricter config-variant validation against per-module declarations.
-3. Add host-facing error detail codes for diagnostics UX.
+2. Add stricter config-variant and focus-required validation only after hosts need behavior beyond the current pass-through contract.
+3. Add host-facing error detail codes for diagnostics UX if boolean/result-code boundaries become insufficient.
 
 ## Future Steps
 

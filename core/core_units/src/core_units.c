@@ -8,21 +8,23 @@
 #include "core_units.h"
 
 #include <ctype.h>
+#include <math.h>
 #include <string.h>
 
 typedef struct CoreUnitInfo {
     CoreUnitKind kind;
-    const char *name;
+    const char *canonical_name;
+    const char *legacy_name;
     const char *symbol;
     double meters_per_unit;
 } CoreUnitInfo;
 
 static const CoreUnitInfo k_units[] = {
-    { CORE_UNIT_METER, "meters", "m", 1.0 },
-    { CORE_UNIT_CENTIMETER, "centimeters", "cm", 0.01 },
-    { CORE_UNIT_MILLIMETER, "millimeters", "mm", 0.001 },
-    { CORE_UNIT_INCH, "inches", "in", 0.0254 },
-    { CORE_UNIT_FOOT, "feet", "ft", 0.3048 }
+    { CORE_UNIT_METER, "meter", "meters", "m", 1.0 },
+    { CORE_UNIT_CENTIMETER, "centimeter", "centimeters", "cm", 0.01 },
+    { CORE_UNIT_MILLIMETER, "millimeter", "millimeters", "mm", 0.001 },
+    { CORE_UNIT_INCH, "inch", "inches", "in", 0.0254 },
+    { CORE_UNIT_FOOT, "foot", "feet", "ft", 0.3048 }
 };
 
 static const CoreUnitInfo *core_units_info(CoreUnitKind kind) {
@@ -51,7 +53,7 @@ static int text_equals_ci(const char *a, const char *b) {
 
 const char *core_units_kind_name(CoreUnitKind kind) {
     const CoreUnitInfo *info = core_units_info(kind);
-    return info ? info->name : "unknown";
+    return info ? info->canonical_name : "unknown";
 }
 
 const char *core_units_kind_symbol(CoreUnitKind kind) {
@@ -61,6 +63,9 @@ const char *core_units_kind_symbol(CoreUnitKind kind) {
 
 CoreResult core_units_parse_kind(const char *text, CoreUnitKind *out_kind) {
     size_t i;
+    if (out_kind) {
+        *out_kind = CORE_UNIT_UNKNOWN;
+    }
     if (!text || !out_kind) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
         return r;
@@ -68,7 +73,9 @@ CoreResult core_units_parse_kind(const char *text, CoreUnitKind *out_kind) {
 
     for (i = 0; i < sizeof(k_units) / sizeof(k_units[0]); ++i) {
         const CoreUnitInfo *info = &k_units[i];
-        if (text_equals_ci(text, info->name) || text_equals_ci(text, info->symbol)) {
+        if (text_equals_ci(text, info->canonical_name) ||
+            text_equals_ci(text, info->legacy_name) ||
+            text_equals_ci(text, info->symbol)) {
             *out_kind = info->kind;
             return core_result_ok();
         }
@@ -86,8 +93,15 @@ CoreResult core_units_convert(double value,
                               double *out_value) {
     const CoreUnitInfo *from_info = core_units_info(from_kind);
     const CoreUnitInfo *to_info = core_units_info(to_kind);
+    if (out_value) {
+        *out_value = 0.0;
+    }
     if (!out_value) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "out_value is null" };
+        return r;
+    }
+    if (!isfinite(value)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "value must be finite" };
         return r;
     }
     if (!from_info || !to_info) {
@@ -103,8 +117,8 @@ CoreResult core_units_convert(double value,
 }
 
 CoreResult core_units_validate_world_scale(double world_scale) {
-    if (world_scale <= 0.0) {
-        CoreResult r = { CORE_ERR_INVALID_ARG, "world_scale must be > 0" };
+    if (!isfinite(world_scale) || world_scale <= 0.0) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "world_scale must be finite and > 0" };
         return r;
     }
     return core_result_ok();
@@ -116,6 +130,9 @@ CoreResult core_units_unit_to_world(double value,
                                     double *out_world_value) {
     double meters = 0.0;
     CoreResult scale_r = core_units_validate_world_scale(world_scale);
+    if (out_world_value) {
+        *out_world_value = 0.0;
+    }
     if (!out_world_value) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "out_world_value is null" };
         return r;
@@ -141,6 +158,9 @@ CoreResult core_units_world_to_unit(double world_value,
                                     double *out_value) {
     double meters = 0.0;
     CoreResult scale_r = core_units_validate_world_scale(world_scale);
+    if (out_value) {
+        *out_value = 0.0;
+    }
     if (!out_value) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "out_value is null" };
         return r;

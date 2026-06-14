@@ -7,6 +7,7 @@
 
 #include "core_data.h"
 
+#include <limits.h>
 #include <string.h>
 
 static char *core_strdup(const char *s) {
@@ -18,14 +19,66 @@ static char *core_strdup(const char *s) {
     return out;
 }
 
+static bool core_data_has_name(const char *name) {
+    return name && name[0] != '\0';
+}
+
+static bool checked_add_size(size_t a, size_t b, size_t *out) {
+    if (SIZE_MAX - a < b) return false;
+    *out = a + b;
+    return true;
+}
+
+static bool checked_mul_size(size_t a, size_t b, size_t *out) {
+    if (a != 0 && b > SIZE_MAX / a) return false;
+    *out = a * b;
+    return true;
+}
+
+static bool dataset_has_item_name(const CoreDataset *dataset, const char *name) {
+    if (!dataset || !name) return false;
+    for (size_t i = 0; i < dataset->item_count; ++i) {
+        if (dataset->items[i].name && strcmp(dataset->items[i].name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool dataset_has_metadata_key(const CoreDataset *dataset, const char *key) {
+    if (!dataset || !key) return false;
+    for (size_t i = 0; i < dataset->metadata_count; ++i) {
+        if (dataset->metadata[i].key && strcmp(dataset->metadata[i].key, key) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static CoreResult ensure_item_capacity(CoreDataset *dataset, size_t extra) {
-    size_t needed = dataset->item_count + extra;
+    size_t needed = 0;
+    if (!checked_add_size(dataset->item_count, extra, &needed)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "item capacity overflow" };
+        return r;
+    }
     if (needed <= dataset->item_capacity) return core_result_ok();
 
-    size_t cap = dataset->item_capacity ? dataset->item_capacity * 2 : 8;
-    while (cap < needed) cap *= 2;
+    size_t cap = dataset->item_capacity ? dataset->item_capacity : 8;
+    while (cap < needed) {
+        if (cap > SIZE_MAX / 2) {
+            cap = needed;
+            break;
+        }
+        cap *= 2;
+    }
 
-    CoreDataItem *next = (CoreDataItem *)core_realloc(dataset->items, cap * sizeof(CoreDataItem));
+    size_t bytes = 0;
+    if (!checked_mul_size(cap, sizeof(CoreDataItem), &bytes)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "item capacity overflow" };
+        return r;
+    }
+
+    CoreDataItem *next = (CoreDataItem *)core_realloc(dataset->items, bytes);
     if (!next) {
         CoreResult r = { CORE_ERR_OUT_OF_MEMORY, "out of memory" };
         return r;
@@ -37,13 +90,29 @@ static CoreResult ensure_item_capacity(CoreDataset *dataset, size_t extra) {
 }
 
 static CoreResult ensure_meta_capacity(CoreDataset *dataset, size_t extra) {
-    size_t needed = dataset->metadata_count + extra;
+    size_t needed = 0;
+    if (!checked_add_size(dataset->metadata_count, extra, &needed)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "metadata capacity overflow" };
+        return r;
+    }
     if (needed <= dataset->metadata_capacity) return core_result_ok();
 
-    size_t cap = dataset->metadata_capacity ? dataset->metadata_capacity * 2 : 8;
-    while (cap < needed) cap *= 2;
+    size_t cap = dataset->metadata_capacity ? dataset->metadata_capacity : 8;
+    while (cap < needed) {
+        if (cap > SIZE_MAX / 2) {
+            cap = needed;
+            break;
+        }
+        cap *= 2;
+    }
 
-    CoreMetadataItem *next = (CoreMetadataItem *)core_realloc(dataset->metadata, cap * sizeof(CoreMetadataItem));
+    size_t bytes = 0;
+    if (!checked_mul_size(cap, sizeof(CoreMetadataItem), &bytes)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "metadata capacity overflow" };
+        return r;
+    }
+
+    CoreMetadataItem *next = (CoreMetadataItem *)core_realloc(dataset->metadata, bytes);
     if (!next) {
         CoreResult r = { CORE_ERR_OUT_OF_MEMORY, "out of memory" };
         return r;
@@ -116,8 +185,12 @@ void core_dataset_free(CoreDataset *dataset) {
 }
 
 static CoreResult add_metadata_item(CoreDataset *dataset, const char *key, CoreMetaType type, const void *value) {
-    if (!dataset || !key || !value) {
+    if (!dataset || !core_data_has_name(key) || !value) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    if (dataset_has_metadata_key(dataset, key)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "duplicate metadata key" };
         return r;
     }
 
@@ -178,8 +251,12 @@ CoreResult core_dataset_add_metadata_bool(CoreDataset *dataset, const char *key,
 }
 
 CoreResult core_dataset_add_scalar_f64(CoreDataset *dataset, const char *name, double value) {
-    if (!dataset || !name) {
+    if (!dataset || !core_data_has_name(name)) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    if (dataset_has_item_name(dataset, name)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "duplicate item name" };
         return r;
     }
 
@@ -200,8 +277,17 @@ CoreResult core_dataset_add_scalar_f64(CoreDataset *dataset, const char *name, d
 }
 
 CoreResult core_dataset_add_array_f32(CoreDataset *dataset, const char *name, const float *values, uint32_t count) {
-    if (!dataset || !name || (!values && count > 0)) {
+    size_t bytes = 0;
+    if (!dataset || !core_data_has_name(name) || (!values && count > 0)) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    if (dataset_has_item_name(dataset, name)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "duplicate item name" };
+        return r;
+    }
+    if (!checked_mul_size(sizeof(float), (size_t)count, &bytes)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "array size overflow" };
         return r;
     }
 
@@ -215,14 +301,14 @@ CoreResult core_dataset_add_array_f32(CoreDataset *dataset, const char *name, co
     item->as.array_f32.count = count;
 
     if (count > 0) {
-        item->as.array_f32.values = (float *)core_alloc(sizeof(float) * count);
+        item->as.array_f32.values = (float *)core_alloc(bytes);
         if (!item->as.array_f32.values || !item->name) {
             free_item(item);
             dataset->item_count--;
             CoreResult r = { CORE_ERR_OUT_OF_MEMORY, "out of memory" };
             return r;
         }
-        memcpy(item->as.array_f32.values, values, sizeof(float) * count);
+        memcpy(item->as.array_f32.values, values, bytes);
     } else if (!item->name) {
         dataset->item_count--;
         CoreResult r = { CORE_ERR_OUT_OF_MEMORY, "out of memory" };
@@ -233,21 +319,31 @@ CoreResult core_dataset_add_array_f32(CoreDataset *dataset, const char *name, co
 }
 
 CoreResult core_dataset_add_field2d_f32(CoreDataset *dataset, const char *name, CoreField2DDesc desc, const float *values) {
-    if (!dataset || !name || !values || desc.width == 0 || desc.height == 0) {
+    size_t count = 0;
+    size_t bytes = 0;
+    if (!dataset || !core_data_has_name(name) || !values || desc.width == 0 || desc.height == 0) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    if (dataset_has_item_name(dataset, name)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "duplicate item name" };
+        return r;
+    }
+    if (!checked_mul_size((size_t)desc.width, (size_t)desc.height, &count) ||
+        !checked_mul_size(sizeof(float), count, &bytes)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "field size overflow" };
         return r;
     }
 
     CoreResult cap = ensure_item_capacity(dataset, 1);
     if (cap.code != CORE_OK) return cap;
 
-    size_t count = (size_t)desc.width * (size_t)desc.height;
     CoreDataItem *item = &dataset->items[dataset->item_count++];
     memset(item, 0, sizeof(*item));
     item->name = core_strdup(name);
     item->kind = CORE_DATA_FIELD2D_F32;
     item->as.field2d_f32.desc = desc;
-    item->as.field2d_f32.values = (float *)core_alloc(sizeof(float) * count);
+    item->as.field2d_f32.values = (float *)core_alloc(bytes);
 
     if (!item->name || !item->as.field2d_f32.values) {
         free_item(item);
@@ -256,27 +352,37 @@ CoreResult core_dataset_add_field2d_f32(CoreDataset *dataset, const char *name, 
         return r;
     }
 
-    memcpy(item->as.field2d_f32.values, values, sizeof(float) * count);
+    memcpy(item->as.field2d_f32.values, values, bytes);
     return core_result_ok();
 }
 
 CoreResult core_dataset_add_field2d_vec2f32(CoreDataset *dataset, const char *name, CoreField2DDesc desc, const float *x, const float *y) {
-    if (!dataset || !name || !x || !y || desc.width == 0 || desc.height == 0) {
+    size_t count = 0;
+    size_t bytes = 0;
+    if (!dataset || !core_data_has_name(name) || !x || !y || desc.width == 0 || desc.height == 0) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    if (dataset_has_item_name(dataset, name)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "duplicate item name" };
+        return r;
+    }
+    if (!checked_mul_size((size_t)desc.width, (size_t)desc.height, &count) ||
+        !checked_mul_size(sizeof(float), count, &bytes)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "field size overflow" };
         return r;
     }
 
     CoreResult cap = ensure_item_capacity(dataset, 1);
     if (cap.code != CORE_OK) return cap;
 
-    size_t count = (size_t)desc.width * (size_t)desc.height;
     CoreDataItem *item = &dataset->items[dataset->item_count++];
     memset(item, 0, sizeof(*item));
     item->name = core_strdup(name);
     item->kind = CORE_DATA_FIELD2D_VEC2F32;
     item->as.field2d_vec2f32.desc = desc;
-    item->as.field2d_vec2f32.x = (float *)core_alloc(sizeof(float) * count);
-    item->as.field2d_vec2f32.y = (float *)core_alloc(sizeof(float) * count);
+    item->as.field2d_vec2f32.x = (float *)core_alloc(bytes);
+    item->as.field2d_vec2f32.y = (float *)core_alloc(bytes);
 
     if (!item->name || !item->as.field2d_vec2f32.x || !item->as.field2d_vec2f32.y) {
         free_item(item);
@@ -285,8 +391,8 @@ CoreResult core_dataset_add_field2d_vec2f32(CoreDataset *dataset, const char *na
         return r;
     }
 
-    memcpy(item->as.field2d_vec2f32.x, x, sizeof(float) * count);
-    memcpy(item->as.field2d_vec2f32.y, y, sizeof(float) * count);
+    memcpy(item->as.field2d_vec2f32.x, x, bytes);
+    memcpy(item->as.field2d_vec2f32.y, y, bytes);
     return core_result_ok();
 }
 
@@ -296,8 +402,26 @@ CoreResult core_dataset_add_table_f32(CoreDataset *dataset,
                                       uint32_t column_count,
                                       uint32_t row_count,
                                       const float *values_row_major) {
-    if (!dataset || !name || !column_names || !values_row_major || column_count == 0) {
+    size_t row_stride = 0;
+    size_t column_bytes = 0;
+    if (!dataset || !core_data_has_name(name) || !column_names || column_count == 0 ||
+        (row_count > 0 && !values_row_major)) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    if (dataset_has_item_name(dataset, name)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "duplicate item name" };
+        return r;
+    }
+    for (uint32_t c = 0; c < column_count; ++c) {
+        if (!core_data_has_name(column_names[c])) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "invalid column name" };
+            return r;
+        }
+    }
+    if (!checked_mul_size((size_t)row_count, (size_t)column_count, &row_stride) ||
+        !checked_mul_size(sizeof(float), (size_t)row_count, &column_bytes)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "table size overflow" };
         return r;
     }
 
@@ -321,8 +445,10 @@ CoreResult core_dataset_add_table_f32(CoreDataset *dataset,
 
     for (uint32_t c = 0; c < column_count; ++c) {
         item->as.table_f32.columns[c].name = core_strdup(column_names[c]);
-        item->as.table_f32.columns[c].values = (float *)core_alloc(sizeof(float) * row_count);
-        if (!item->as.table_f32.columns[c].name || !item->as.table_f32.columns[c].values) {
+        if (row_count > 0) {
+            item->as.table_f32.columns[c].values = (float *)core_alloc(column_bytes);
+        }
+        if (!item->as.table_f32.columns[c].name || (row_count > 0 && !item->as.table_f32.columns[c].values)) {
             free_item(item);
             dataset->item_count--;
             CoreResult r = { CORE_ERR_OUT_OF_MEMORY, "out of memory" };
@@ -330,7 +456,7 @@ CoreResult core_dataset_add_table_f32(CoreDataset *dataset,
         }
 
         for (uint32_t row = 0; row < row_count; ++row) {
-            item->as.table_f32.columns[c].values[row] = values_row_major[(size_t)row * column_count + c];
+            item->as.table_f32.columns[c].values[row] = values_row_major[(size_t)row * (size_t)column_count + c];
         }
     }
 
@@ -344,9 +470,26 @@ CoreResult core_dataset_add_table_typed(CoreDataset *dataset,
                                         uint32_t column_count,
                                         uint32_t row_count,
                                         const void *const *column_data) {
-    if (!dataset || !name || !column_names || !column_types || !column_data || column_count == 0) {
+    if (!dataset || !core_data_has_name(name) || !column_names || !column_types || !column_data || column_count == 0) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
         return r;
+    }
+    if (dataset_has_item_name(dataset, name)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "duplicate item name" };
+        return r;
+    }
+    for (uint32_t c = 0; c < column_count; ++c) {
+        size_t elem = 0;
+        size_t column_bytes = 0;
+        if (!core_data_has_name(column_names[c])) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "invalid column name" };
+            return r;
+        }
+        elem = column_type_size(column_types[c]);
+        if (elem == 0 || (row_count > 0 && !column_data[c]) || !checked_mul_size(elem, (size_t)row_count, &column_bytes)) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "invalid column type or data" };
+            return r;
+        }
     }
 
     CoreResult cap = ensure_item_capacity(dataset, 1);
@@ -369,25 +512,24 @@ CoreResult core_dataset_add_table_typed(CoreDataset *dataset,
 
     for (uint32_t c = 0; c < column_count; ++c) {
         size_t elem = column_type_size(column_types[c]);
-        if (elem == 0 || !column_data[c] || !column_names[c]) {
-            free_item(item);
-            dataset->item_count--;
-            CoreResult r = { CORE_ERR_INVALID_ARG, "invalid column type or data" };
-            return r;
-        }
+        size_t column_bytes = elem * (size_t)row_count;
 
         item->as.table_typed.columns[c].name = core_strdup(column_names[c]);
         item->as.table_typed.columns[c].type = column_types[c];
-        item->as.table_typed.columns[c].as.raw = core_alloc(elem * row_count);
+        if (row_count > 0) {
+            item->as.table_typed.columns[c].as.raw = core_alloc(column_bytes);
+        }
 
-        if (!item->as.table_typed.columns[c].name || !item->as.table_typed.columns[c].as.raw) {
+        if (!item->as.table_typed.columns[c].name || (row_count > 0 && !item->as.table_typed.columns[c].as.raw)) {
             free_item(item);
             dataset->item_count--;
             CoreResult r = { CORE_ERR_OUT_OF_MEMORY, "out of memory" };
             return r;
         }
 
-        memcpy(item->as.table_typed.columns[c].as.raw, column_data[c], elem * row_count);
+        if (row_count > 0) {
+            memcpy(item->as.table_typed.columns[c].as.raw, column_data[c], column_bytes);
+        }
     }
 
     return core_result_ok();

@@ -146,6 +146,24 @@ static void kit_render_external_text_font_cache_destroy_entry(
     memset(entry, 0, sizeof(*entry));
 }
 
+static void kit_render_external_text_font_cache_invalidate_source(const char *path,
+                                                                  int kerning_enabled) {
+    int i = 0;
+    if (!path || !path[0]) {
+        return;
+    }
+    for (i = 0; i < KIT_RENDER_EXTERNAL_TEXT_FONT_CACHE_CAPACITY; ++i) {
+        KitRenderExternalTextFontCacheEntry *entry = &g_font_cache[i];
+        if (!entry->font) {
+            continue;
+        }
+        if (entry->kerning_enabled == (kerning_enabled ? 1 : 0) &&
+            strcmp(entry->path, path) == 0) {
+            kit_render_external_text_font_cache_destroy_entry(entry);
+        }
+    }
+}
+
 static void kit_render_external_text_texture_cache_destroy_entry(
     KitRenderExternalTextTextureCacheEntry *entry) {
     if (!entry || !entry->valid) {
@@ -523,11 +541,32 @@ void kit_render_external_text_unregister_font_source(TTF_Font *font) {
     }
     for (i = 0; i < KIT_RENDER_EXTERNAL_TEXT_FONT_SOURCE_CAPACITY; ++i) {
         if (g_font_sources[i].font == font) {
+            char source_path[sizeof(g_font_sources[i].path)];
+            int kerning_enabled = g_font_sources[i].kerning_enabled;
+            strncpy(source_path, g_font_sources[i].path, sizeof(source_path) - 1);
+            source_path[sizeof(source_path) - 1] = '\0';
             kit_render_external_text_texture_cache_invalidate_font(font);
+            kit_render_external_text_font_cache_invalidate_source(source_path, kerning_enabled);
             memset(&g_font_sources[i], 0, sizeof(g_font_sources[i]));
             return;
         }
     }
+}
+
+int kit_render_external_text_has_font_source(TTF_Font *font) {
+    return kit_render_external_text_find_font_source(font) != NULL;
+}
+
+void kit_render_external_text_reset_font_system(void) {
+    int i = 0;
+
+    for (i = 0; i < KIT_RENDER_EXTERNAL_TEXT_FONT_CACHE_CAPACITY; ++i) {
+        if (g_font_cache[i].font) {
+            kit_render_external_text_font_cache_destroy_entry(&g_font_cache[i]);
+        }
+    }
+    memset(g_font_sources, 0, sizeof(g_font_sources));
+    g_font_cache_tick = 1u;
 }
 
 void kit_render_external_text_reset_renderer(SDL_Renderer *renderer) {

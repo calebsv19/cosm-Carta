@@ -4,10 +4,9 @@
 Provide a stable, deterministic monotonic time foundation used by all higher execution cores.
 
 ## Immediate Steps
-1. Add provider injection for deterministic tests.
-2. Split platform internals into `*_mac.c`, `*_posix.c`, `*_win.c`.
-3. Add trace timestamp conversion helpers aligned with `core_trace` contracts.
-4. Define explicit overflow/saturation behavior for arithmetic helpers.
+1. Truth-lock provider failure sentinel and absolute-difference semantics in docs/tests.
+2. Keep platform overflow handling aligned across macOS, POSIX, and Windows backends.
+3. Expand helper edge coverage for reset behavior, compare ordering, and conversion boundaries.
 
 ## Future Steps
 1. Add optional simulation time scaling hooks.

@@ -1,6 +1,6 @@
 # Program Library Connective Tissue State
 
-Last updated: 2026-03-11
+Last updated: 2026-06-02
 
 Purpose:
 - Provide a single current-state reference for shared-library connections across active programs.
@@ -14,33 +14,34 @@ Source of truth used for this snapshot:
 ## Current Shared Module Versions
 
 Core:
-- `core_base`: `1.0.0`
-- `core_io`: `1.0.0`
-- `core_data`: `1.0.0`
-- `core_pack`: `1.0.0`
-- `core_scene`: `1.0.0`
-- `core_space`: `1.0.0`
-- `core_trace`: `1.0.0`
-- `core_math`: `1.0.0`
-- `core_theme`: `2.0.0`
-- `core_font`: `1.0.1`
-- `core_time`: `1.0.0`
-- `core_queue`: `1.0.0`
-- `core_sched`: `1.0.0`
-- `core_jobs`: `1.0.0`
-- `core_workers`: `1.0.0`
-- `core_wake`: `1.0.1`
-- `core_kernel`: `1.0.0`
-- `core_pane`: `0.1.1`
-- `core_memdb`: `0.24.10`
+- `core_base`: `1.0.1`
+- `core_io`: `1.1.1`
+- `core_data`: `1.0.1`
+- `core_pack`: `1.1.1`
+- `core_scene`: `1.2.0`
+- `core_space`: `1.0.1`
+- `core_viewport2d`: `0.2.2`
+- `core_trace`: `1.0.2`
+- `core_math`: `1.0.1`
+- `core_theme`: `2.0.1`
+- `core_font`: `1.0.2`
+- `core_time`: `1.0.1`
+- `core_queue`: `1.0.1`
+- `core_sched`: `1.0.1`
+- `core_jobs`: `1.0.1`
+- `core_workers`: `1.0.1`
+- `core_wake`: `1.0.2`
+- `core_kernel`: `1.0.1`
+- `core_pane`: `0.3.1`
+- `core_memdb`: `0.28.2`
 
 Kits:
-- `kit_viz`: `1.0.0`
-- `kit_render`: `0.10.0`
-- `kit_ui`: `0.8.0`
-- `kit_graph_timeseries`: `0.2.1`
-- `kit_graph_struct`: `0.8.0`
-- `kit_pane`: `0.1.0`
+- `kit_viz`: `1.0.1`
+- `kit_render`: `0.14.3`
+- `kit_ui`: `0.9.1`
+- `kit_graph_timeseries`: `0.2.2`
+- `kit_graph_struct`: `0.8.1`
+- `kit_pane`: `0.3.1`
 
 ## Program Integration Snapshot
 
@@ -51,17 +52,18 @@ Legend:
 
 | Program | base | io | data | pack | scene | space | trace | math | theme | font | time | queue | sched | jobs | workers | wake | kernel | memdb | pane | kit_viz | kit_render | kit_ui | kit_graph_ts | kit_graph_struct | sys_shims |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| datalab | A | A | A | A | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | A | - | - | P | - | - |
+| datalab | A | A | A | A | - | - | - | - | - | A | - | - | - | - | - | - | - | - | - | A | - | - | P | - | - |
+| behavior_sim | - | - | - | - | - | - | - | - | - | A | - | - | - | - | - | - | - | - | A | - | - | - | - | - | - |
 | daw | A | A | P | P | - | - | P | - | A | A | A | A | A | A | P | A | A | - | - | A | - | - | - | - | - |
+| drawing_program | A | - | - | A | - | - | - | - | A | A | - | - | - | - | - | - | - | - | A | - | - | - | - | - | - |
 | ide | A | A | A | A | - | - | - | - | A | A | A | A | A | A | A | A | A | - | - | - | - | - | - | - | - |
-| line_drawing | A | P | P | P | P | - | P | P | A | A | A | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| line_drawing3d | A | P | P | P | P | - | P | P | A | A | A | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| line_drawing | A | P | P | P | P | - | P | P | A | A | A | - | - | - | - | - | - | - | - | - | A | - | - | - | - |
 | map_forge | A | A | P | P | - | A | P | - | A | A | A | A | A | A | A | A | A | - | - | - | - | - | - | - | - |
-| physics_sim | A | A | P | A | A | - | P | - | A | A | - | - | - | - | - | - | - | - | - | A | - | - | - | - | P |
-| ray_tracing | A | A | P | P | A | A | P | - | A | A | A | - | - | - | - | - | - | - | - | A | - | - | - | - | - |
+| physics_sim | A | A | P | A | A | - | P | - | A | A | - | - | - | - | - | - | - | - | A | A | A | - | - | - | P |
+| ray_tracing | A | A | P | P | A | A | P | - | A | A | A | P | - | - | P | - | - | - | A | A | A | - | - | - | - |
 | fisiCs | P | P | P | P | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | A |
 | mem_console (host) | A | - | - | A | - | - | - | - | A | A | A | A | A | A | A | A | A | A | A | - | A | A | - | A | - |
-| workspace_sandbox (host) | A | - | - | A | - | - | - | - | - | - | - | - | - | - | - | - | - | - | A | - | - | - | - | - | - |
+| workspace_sandbox (host) | A | - | - | A | - | - | - | - | A | A | - | - | - | - | - | - | - | - | A | - | A | - | - | - | - |
 
 ## Program Migration State And Next Connections
 
@@ -69,6 +71,8 @@ Legend:
 Implemented now:
 - strong `core_base/core_io/core_data/core_pack` integration
 - `kit_viz` integration
+- shared `core_font` baseline now drives the centralized SDL text lane
+- shared `core_viewport2d` now drives sketch/image fit-reset, cursor-anchor zoom, and drag-pan math
 - first `kit_graph_timeseries` adoption slice (`recommended_stride`) in trace rendering
 
 Next migration slices:
@@ -76,6 +80,16 @@ Next migration slices:
 2. route hover inspection through `kit_graph_ts_hover_inspect`
 3. migrate one concrete trace draw lane to `kit_graph_ts_draw_plot`
 4. optional follow-on: align UI controls with `core_theme/core_font`
+
+### `behavior_sim`
+Implemented now:
+- shared `core_font` baseline is active for shell text
+- shared `core_pane` owns top-level shell geometry through the vendored subtree host
+- managed subtree refresh is complete and the post-refresh runtime regression is fixed
+
+Next:
+1. keep the centralized SDL text lane local unless a future pass justifies extracting a thinner bridge/helper seam
+2. defer broader domain/runtime shared promotion until the local sim model stabilizes further
 
 ### `daw`
 Implemented now:
@@ -99,7 +113,17 @@ Next:
 1. continue ad-hoc diagnostics/file-path cleanup into shared contracts
 2. execution-core hardening and shutdown/idle behavior tests
 
-### `line_drawing` + `line_drawing3d`
+### `drawing_program`
+Implemented now:
+- vendored `third_party/codework_shared` host is now the default build/package/shared-font root
+- centralized SDL text lane keeps the shared `ide` font baseline
+- runtime font-path fallback no longer prefers live workspace-local shared font paths
+
+Next:
+1. keep the centralized SDL text/runtime lane stable unless a future visual/runtime pass proves clear value in shared `kit_render`
+2. defer broader shared-core promotion until a concrete app lane needs it
+
+### `line_drawing`
 Implemented now:
 - shared base/scene/math/time + theme/font
 - partial data/pack/trace tooling integration
@@ -107,7 +131,7 @@ Implemented now:
 
 Next:
 1. import contract parity locked: JSON-only runtime import (`.pack` diagnostics-tooling only)
-2. standardize data/pack output schemas between 2D/3D apps (data and pack parity now aligned)
+2. keep the shared dataset/pack/trace parity already achieved with the retired legacy 3D lane documented as historical background, not as an active host
 3. defer remaining directory/export helper IO migration until shared `core_io` directory/create APIs are available
 4. evaluate execution-core only when asynchronous/background orchestration becomes material
 
@@ -119,6 +143,7 @@ Implemented now:
 - diagnostics contract Slice 4 complete: deterministic `test_build_safety.sh` assertions now lock required `meta.dataset.json` schema/table keys, and deterministic `map_trace_contract_test` now locks shared trace pack chunk contract (`TRHD/TRSM/TREV`) plus canonical runtime lane/marker vocabulary (including lifecycle `trace_start/trace_end`)
 - diagnostics contract Slice 5 complete: deterministic `map_trace_contract_test` now locks strict shared trace pack parity (exact chunk count/order and deterministic payload sizes for `TRSM`/`TREV`)
 - theme/font integrated
+- first `core_viewport2d` camera bridge slice is now in place: cursor-anchor zoom and drag-pan target math reuse the shared viewport contract while Mercator semantics, hot `screen<->world` render transforms, region-fit logic, and smoothing remain local
 
 Next:
 1. stabilize/expand execution-core usage beyond current tile-loader + vk-asset-ready + vk-poly-prep queue lanes where app-local pthread/cond queues still exist
@@ -141,8 +166,10 @@ Next:
 
 ### `ray_tracing`
 Implemented now:
-- broad shared adoption (`base/io/scene/space/time`, theme/font, `kit_viz`)
-- partial data/pack/trace
+- broad shared adoption (`base/io/scene/space/time`, theme/font, `core_pane`,
+  `kit_viz`, `kit_render`)
+- partial data/pack/trace plus bounded `core_queue` / `core_workers`
+  execution-core usage in the native `3D` tile scheduler
 - Slice 1 complete: `fluid_import` low-risk file/manifest helpers now use shared `core_io`
 - Slice 2 complete: render metrics dataset includes additive `schema_family`/`schema_variant` metadata keys
 - Slice 3 complete: shared theme preset persistence adapter now uses shared `core_io` path/read/write helpers
@@ -154,7 +181,8 @@ Next:
 4. deterministic trace contract smoke checks now verify emitted lanes/markers (`test-manifest-to-trace-export`)
 5. deterministic `core_pack` import parity guard now verifies `VFHD/DENS/VELX/VELY` contract (`test-fluid-pack-contract-parity`)
 6. promote trace lanes from tooling-first to standardized runtime contracts
-7. evaluate execution-core adoption beyond `core_time` only where useful
+7. evaluate whether the current `core_queue` / `core_workers` tile-scheduler
+   slice should widen into broader execution-core adoption
 
 ### `fisiCs`
 Implemented now:

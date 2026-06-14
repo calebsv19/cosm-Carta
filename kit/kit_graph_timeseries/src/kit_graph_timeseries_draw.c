@@ -7,7 +7,14 @@
 
 #include "kit_graph_timeseries.h"
 
+#include <math.h>
 #include <stdio.h>
+
+#define KIT_GRAPH_TS_HOVER_LABEL_RING_SLOTS 8
+#define KIT_GRAPH_TS_HOVER_LABEL_CAP 96
+
+static char g_ts_hover_label_ring[KIT_GRAPH_TS_HOVER_LABEL_RING_SLOTS][KIT_GRAPH_TS_HOVER_LABEL_CAP];
+static unsigned int g_ts_hover_label_ring_index = 0u;
 
 static CoreResult kit_graph_ts_invalid(const char *message) {
     CoreResult r = { CORE_ERR_INVALID_ARG, message };
@@ -25,6 +32,24 @@ static int ts_has_valid_view(const KitGraphTsView *view) {
     if (!(view->x_max > view->x_min)) return 0;
     if (!(view->y_max > view->y_min)) return 0;
     return 1;
+}
+
+static int ts_is_finite_value(float value) {
+    return isfinite(value) ? 1 : 0;
+}
+
+static int ts_is_finite_rect(KitRenderRect rect) {
+    return ts_is_finite_value(rect.x) &&
+           ts_is_finite_value(rect.y) &&
+           ts_is_finite_value(rect.width) &&
+           ts_is_finite_value(rect.height);
+}
+
+static char *ts_next_hover_label_buffer(void) {
+    char *buffer = g_ts_hover_label_ring[g_ts_hover_label_ring_index];
+    g_ts_hover_label_ring_index = (g_ts_hover_label_ring_index + 1u) % KIT_GRAPH_TS_HOVER_LABEL_RING_SLOTS;
+    buffer[0] = '\0';
+    return buffer;
 }
 
 static void ts_plot_inner_rect(KitRenderRect bounds,
@@ -60,7 +85,7 @@ CoreResult kit_graph_ts_draw_hover_overlay(KitRenderFrame *frame,
     KitRenderRect inner;
     CoreResult result;
 
-    if (!frame || !hover || !ts_has_valid_view(view)) {
+    if (!frame || !hover || !ts_has_valid_view(view) || !ts_is_finite_rect(bounds)) {
         return kit_graph_ts_invalid("invalid hover overlay");
     }
     if (!hover->active) {
@@ -116,8 +141,11 @@ CoreResult kit_graph_ts_draw_hover_overlay(KitRenderFrame *frame,
     if (result.code != CORE_OK) return result;
 
     if (style->show_hover_label) {
-        char label[96];
-        snprintf(label, sizeof(label), "x %.2f  y %.2f", hover->nearest_x, hover->nearest_y);
+        char *label = ts_next_hover_label_buffer();
+        if (!ts_is_finite_value(hover->nearest_x) || !ts_is_finite_value(hover->nearest_y)) {
+            return kit_graph_ts_invalid("invalid hover label data");
+        }
+        (void)snprintf(label, KIT_GRAPH_TS_HOVER_LABEL_CAP, "x %.2f  y %.2f", hover->nearest_x, hover->nearest_y);
         result = kit_render_push_text(frame,
                                       &(KitRenderTextCommand){
                                           {bounds.x + style->padding, bounds.y + bounds.height - 12.0f},
@@ -144,7 +172,7 @@ CoreResult kit_graph_ts_draw_plot(KitRenderFrame *frame,
     CoreResult result;
     uint32_t i;
 
-    if (!frame || !series || series_count == 0 || !ts_has_valid_view(view)) {
+    if (!frame || !series || series_count == 0 || !ts_has_valid_view(view) || !ts_is_finite_rect(bounds)) {
         return kit_graph_ts_invalid("invalid plot draw");
     }
     if (!style) {
@@ -233,6 +261,10 @@ CoreResult kit_graph_ts_draw_plot(KitRenderFrame *frame,
         stride = kit_graph_ts_recommended_stride(s->point_count, inner.width, style->max_render_points);
         for (j = 0; j + stride < s->point_count; j += stride) {
             float x0, y0, x1, y1;
+            if (!ts_is_finite_value(s->xs[j]) || !ts_is_finite_value(s->ys[j]) ||
+                !ts_is_finite_value(s->xs[j + stride]) || !ts_is_finite_value(s->ys[j + stride])) {
+                return kit_graph_ts_invalid("non-finite plot series data");
+            }
             ts_map_point(inner, view, s->xs[j], s->ys[j], &x0, &y0);
             ts_map_point(inner, view, s->xs[j + stride], s->ys[j + stride], &x1, &y1);
             result = kit_render_push_line(frame,
@@ -246,6 +278,10 @@ CoreResult kit_graph_ts_draw_plot(KitRenderFrame *frame,
             float x0, y0, x1, y1;
             uint32_t last = s->point_count - 1u;
             uint32_t prev = last > stride ? last - stride : 0u;
+            if (!ts_is_finite_value(s->xs[prev]) || !ts_is_finite_value(s->ys[prev]) ||
+                !ts_is_finite_value(s->xs[last]) || !ts_is_finite_value(s->ys[last])) {
+                return kit_graph_ts_invalid("non-finite plot series data");
+            }
             ts_map_point(inner, view, s->xs[prev], s->ys[prev], &x0, &y0);
             ts_map_point(inner, view, s->xs[last], s->ys[last], &x1, &y1);
             result = kit_render_push_line(frame,
@@ -259,12 +295,6 @@ CoreResult kit_graph_ts_draw_plot(KitRenderFrame *frame,
 
     result = kit_render_push_clear_clip(frame);
     if (result.code != CORE_OK) return result;
-
-    result = kit_render_push_rect(frame,
-                                  &(KitRenderRectCommand){
-                                      inner, 0.0f, {0, 0, 0, 0}, {0.0f, 0.0f, 1.0f, 1.0f}
-                                  });
-    (void)result;
 
     if (style->show_legend) {
         float legend_x = bounds.x + style->padding;

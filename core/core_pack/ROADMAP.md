@@ -14,6 +14,10 @@
 - Implementation: `src/core_pack.c`, `src/core_pack_vf2d.c`, `src/core_pack_vf3d.c`
 - CLI: `tools/pack_cli.c`
 - Tests: `tests/core_pack_test.c`
+- Hardened current-state boundary:
+  - malformed footer/index ranges are rejected during reader open
+  - chunk slice and decoded read paths now enforce explicit range/overflow checks
+  - vf2d/vf3d conversion helpers now reject dimension math overflow before allocation
 
 ## Product-Level Behavior Goals
 - Reliable writer lifecycle (`open -> add chunks -> close`).

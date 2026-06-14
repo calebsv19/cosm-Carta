@@ -77,7 +77,6 @@ Current policy:
 - DAW: `DAW_*`
 - IDE: `IDE_*`
 - line_drawing: `LINE_DRAWING_*`
-- line_drawing3d: `LINE_DRAWING3D_*`
 - ray_tracing: `RAY_TRACING_*`
 - physics_sim: `PHYSICS_SIM_*`
 - map_forge: `MAPFORGE_*`

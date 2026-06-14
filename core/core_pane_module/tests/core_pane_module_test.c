@@ -74,17 +74,61 @@ static void test_registry_rejects_duplicates(void) {
 static void test_registry_rejects_invalid_descriptor_paths(void) {
     CorePaneModuleDescriptor entries[4];
     CorePaneModuleRegistry registry;
+    CorePaneModuleDescriptor empty_key = make_valid_descriptor(1000u, "");
     CorePaneModuleDescriptor bad_key = make_valid_descriptor(1001u, "Bad-Key");
     CorePaneModuleDescriptor bad_provider = make_valid_descriptor(1002u, "list_panel");
     CorePaneModuleDescriptor bad_capability = make_valid_descriptor(1003u, "inspector_panel");
+    CorePaneModuleDescriptor valid_key = make_valid_descriptor(1004u, "panel_2");
 
     bad_provider.provider_kind = CORE_PANE_MODULE_PROVIDER_EXTERNAL;
     bad_capability.handle_keyboard = NULL;
 
     assert(core_pane_module_registry_init(&registry, entries, 4u) == CORE_PANE_MODULE_OK);
+    assert(core_pane_module_register(&registry, &empty_key) == CORE_PANE_MODULE_ERR_INVALID_DESCRIPTOR);
     assert(core_pane_module_register(&registry, &bad_key) == CORE_PANE_MODULE_ERR_INVALID_DESCRIPTOR);
     assert(core_pane_module_register(&registry, &bad_provider) == CORE_PANE_MODULE_ERR_PROVIDER_NOT_ALLOWED);
     assert(core_pane_module_register(&registry, &bad_capability) == CORE_PANE_MODULE_ERR_CAPABILITY_HOOK_MISMATCH);
+    assert(core_pane_module_register(&registry, &valid_key) == CORE_PANE_MODULE_OK);
+}
+
+static void test_registry_invalid_args_and_full_capacity(void) {
+    CorePaneModuleDescriptor entries[1];
+    CorePaneModuleRegistry registry = {0};
+    CorePaneModuleDescriptor descriptor = make_valid_descriptor(1001u, "text_panel");
+    CorePaneModuleDescriptor other = make_valid_descriptor(1002u, "other_panel");
+
+    assert(core_pane_module_registry_init(NULL, entries, 1u) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_registry_init(&registry, NULL, 1u) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_registry_init(&registry, entries, 0u) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+
+    assert(core_pane_module_registry_init(&registry, entries, 1u) == CORE_PANE_MODULE_OK);
+    assert(core_pane_module_register(NULL, &descriptor) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_register(&registry, NULL) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_register(&registry, &descriptor) == CORE_PANE_MODULE_OK);
+    assert(core_pane_module_register(&registry, &other) == CORE_PANE_MODULE_ERR_REGISTRY_FULL);
+}
+
+static void test_lookup_invalid_args_and_not_found(void) {
+    CorePaneModuleDescriptor entries[2];
+    CorePaneModuleRegistry registry;
+    const CorePaneModuleDescriptor *found = (const CorePaneModuleDescriptor *)0x1;
+    CorePaneModuleDescriptor descriptor = make_valid_descriptor(1001u, "text_panel");
+
+    assert(core_pane_module_registry_init(&registry, entries, 2u) == CORE_PANE_MODULE_OK);
+    assert(core_pane_module_register(&registry, &descriptor) == CORE_PANE_MODULE_OK);
+
+    assert(core_pane_module_find_by_type_id(NULL, 1001u, &found) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_find_by_type_id(&registry, 0u, &found) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_find_by_type_id(&registry, 1001u, NULL) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_find_by_type_id(&registry, 9999u, &found) == CORE_PANE_MODULE_ERR_NOT_FOUND);
+    assert(found == NULL);
+
+    found = (const CorePaneModuleDescriptor *)0x1;
+    assert(core_pane_module_find_by_key(NULL, "text_panel", &found) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_find_by_key(&registry, NULL, &found) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_find_by_key(&registry, "text_panel", NULL) == CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_find_by_key(&registry, "missing_panel", &found) == CORE_PANE_MODULE_ERR_NOT_FOUND);
+    assert(found == NULL);
 }
 
 static void test_binding_validation(void) {
@@ -112,15 +156,29 @@ static void test_binding_validation(void) {
         { 42u, 1u, 1001u, 0u, 0u },
         { 42u, 2u, 1002u, 0u, 0u }
     };
+    CorePaneModuleBinding bad_zero_ids[1] = {
+        { 0u, 1u, 1001u, 0u, 0u }
+    };
+    CorePaneModuleBinding focus_flags_passthrough[1] = {
+        { 21u, 3u, 1003u, 7u, 99u }
+    };
 
     descriptor_a = make_valid_descriptor(1001u, "text_panel");
     descriptor_b = make_valid_descriptor(1002u, "list_panel");
+    {
+        CorePaneModuleDescriptor focus_descriptor = make_valid_descriptor(1003u, "focus_panel");
+        focus_descriptor.capabilities |= CORE_PANE_MODULE_CAP_FOCUS_REQUIRED;
 
-    assert(core_pane_module_registry_init(&registry, entries, 8u) == CORE_PANE_MODULE_OK);
-    assert(core_pane_module_register(&registry, &descriptor_a) == CORE_PANE_MODULE_OK);
-    assert(core_pane_module_register(&registry, &descriptor_b) == CORE_PANE_MODULE_OK);
+        assert(core_pane_module_registry_init(&registry, entries, 8u) == CORE_PANE_MODULE_OK);
+        assert(core_pane_module_register(&registry, &descriptor_a) == CORE_PANE_MODULE_OK);
+        assert(core_pane_module_register(&registry, &descriptor_b) == CORE_PANE_MODULE_OK);
+        assert(core_pane_module_register(&registry, &focus_descriptor) == CORE_PANE_MODULE_OK);
+    }
 
+    assert(core_pane_module_validate_bindings(&registry, NULL, 0u, NULL, 0u) == CORE_PANE_MODULE_OK);
     assert(core_pane_module_validate_bindings(&registry, good, 2u, pane_ids, 3u) == CORE_PANE_MODULE_OK);
+    assert(core_pane_module_validate_bindings(&registry, focus_flags_passthrough, 1u, pane_ids, 3u) ==
+           CORE_PANE_MODULE_OK);
     assert(core_pane_module_validate_bindings(&registry, bad_unknown_pane, 1u, pane_ids, 3u) ==
            CORE_PANE_MODULE_ERR_UNKNOWN_PANE_ID);
     assert(core_pane_module_validate_bindings(&registry, bad_unknown_module, 1u, pane_ids, 3u) ==
@@ -129,12 +187,33 @@ static void test_binding_validation(void) {
            CORE_PANE_MODULE_ERR_DUP_PANE_ID);
     assert(core_pane_module_validate_bindings(&registry, bad_dup_instance, 2u, pane_ids, 3u) ==
            CORE_PANE_MODULE_ERR_DUP_INSTANCE_ID);
+    assert(core_pane_module_validate_bindings(&registry, bad_zero_ids, 1u, pane_ids, 3u) ==
+           CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_validate_bindings(NULL, good, 2u, pane_ids, 3u) ==
+           CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_validate_bindings(&registry, good, 2u, NULL, 0u) ==
+           CORE_PANE_MODULE_ERR_INVALID_ARG);
+    assert(core_pane_module_validate_bindings(&registry, NULL, 1u, pane_ids, 3u) ==
+           CORE_PANE_MODULE_ERR_INVALID_ARG);
+}
+
+static void test_registry_with_invalid_entry_storage_rejects_validation(void) {
+    CorePaneModuleRegistry registry = {0};
+
+    registry.entries = NULL;
+    registry.count = 0u;
+    registry.capacity = 4u;
+    assert(core_pane_module_validate_bindings(&registry, NULL, 0u, NULL, 0u) ==
+           CORE_PANE_MODULE_ERR_INVALID_ARG);
 }
 
 int main(void) {
     test_registry_register_and_lookup();
     test_registry_rejects_duplicates();
     test_registry_rejects_invalid_descriptor_paths();
+    test_registry_invalid_args_and_full_capacity();
+    test_lookup_invalid_args_and_not_found();
     test_binding_validation();
+    test_registry_with_invalid_entry_storage_rejects_validation();
     return 0;
 }

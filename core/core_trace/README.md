@@ -9,6 +9,13 @@ Current scope (v0 foundation):
 - finalize and inspect in-memory records
 - export/import trace sessions as `.pack` chunks (`TRHD`, `TRSM`, `TREV`)
 
+Current contract notes:
+- lane/label validation happens before any bounded-buffer eviction, so failed emits do not mutate retained samples/markers
+- finalize is the artifact boundary: `.pack` export requires a finalized session, and imported sessions are loaded as finalized snapshots
+- import accepts unknown extra chunks but rejects malformed required trace chunks and oversized count/payload claims
+- `phase7-check` now generates a scratch fixture under `build/` for inspection and does not rewrite the tracked fixture file
+- `make fixtures` is the explicit path for refreshing the checked-in fixture at `tests/fixtures/trace_v1_sample.pack`
+
 Build/test:
 
 ```sh

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codework.local/shared/packages/schemas/releases-index.schema.json",
+  "title": "CodeWork Shared Package Releases Index",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at_utc",
+    "release_date",
+    "packages"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "generated_at_utc": {
+      "type": "string"
+    },
+    "release_date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "packages": {
+      "type": "array",
+      "items": {
+        "$ref": "package-manifest.schema.json"
+      }
+    }
+  },
+  "additionalProperties": false
+}

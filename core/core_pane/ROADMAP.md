@@ -8,7 +8,7 @@ Provide a renderer-agnostic pane-tree contract that can be adopted by multiple C
 
 1. Add richer hit metadata for cursor-feedback adapters in app/kit layers.
 2. Add collapse-state semantics and constraint-aware restoration behavior.
-3. Add structured diagnostics detail payloads for validation and solve failures.
+3. Add structured diagnostics detail payloads for solve and cached-hit failure lanes beyond the current `core_pane_validate_graph(...)` report surface.
 
 ## Future Steps
 

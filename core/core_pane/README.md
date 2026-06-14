@@ -17,9 +17,22 @@ Shared pane-layout primitives for split-pane geometry and drag updates.
 
 ## Status
 
-Bootstrap foundation for Phase 15C pane standardization (`v0.3.0`).
+Bootstrap foundation for Phase 15C pane standardization (`v0.3.1`).
 
-## Recent Changes (`v0.3.0`)
+## Contract Notes
+
+1. `core_pane_validate_graph(...)` is the only structured diagnostics surface today. `core_pane_solve(...)`, hit-testing, and drag application remain boolean-only.
+2. `core_pane_solve(...)` requires a caller-owned output buffer and resets `*out_leaf_count` to `0` before validation or solve failures.
+3. `core_pane_collect_splitter_hits(...)` and `core_pane_hit_test_splitter_hits(...)` are geometry helpers over caller-owned hit registries; they do not validate renderer state or cursor policy.
+4. `core_pane_apply_splitter_drag(...)` expects a live splitter hit produced for the same node/axis and rejects malformed or stale hit metadata.
+
+## Recent Changes (`v0.3.1`)
+
+1. Truth-locked the current validation-versus-solve contract so diagnostics ownership is explicit.
+2. Hardened `core_pane_solve(...)` to clear leaf counts on entry/failure and reject malformed cached-hit drag metadata safely.
+3. Expanded tests across validation reports, cached-hit edge cases, and deterministic solve failure behavior.
+
+## Previous Changes (`v0.3.0`)
 
 1. Added deterministic splitter-hit enumeration via `core_pane_collect_splitter_hits(...)`.
 2. Added cached-hit testing via `core_pane_hit_test_splitter_hits(...)` so hosts can keep explicit divider-hitbox registries like IDE.

@@ -6,9 +6,9 @@ Provide reusable pane-shell visuals and authoring overlays for any `core_pane`-d
 
 ## Immediate Steps
 
-1. stabilize chrome and splitter draw contracts,
+1. stabilize chrome and splitter draw contracts beyond the current borrowed-title and ring-buffer label boundary,
 2. add explicit authoring overlay primitives (labels/constraints),
-3. add compact/dense style profile variants.
+3. add compact/dense style profile variants after real host pressure appears.
 
 ## Future Steps
 

@@ -18,6 +18,16 @@ static const CoreKernelPolicy k_default_policy = {
     true
 };
 
+static CoreKernelPolicy sanitize_policy(const CoreKernelPolicy *policy) {
+    CoreKernelPolicy resolved = policy ? *policy : k_default_policy;
+    if (resolved.idle_mode != CORE_KERNEL_IDLE_BLOCK &&
+        resolved.idle_mode != CORE_KERNEL_IDLE_SPIN &&
+        resolved.idle_mode != CORE_KERNEL_IDLE_BACKOFF) {
+        resolved.idle_mode = k_default_policy.idle_mode;
+    }
+    return resolved;
+}
+
 bool core_kernel_init(
     CoreKernel *kernel,
     const CoreKernelPolicy *policy,
@@ -30,7 +40,7 @@ bool core_kernel_init(
         return false;
     }
 
-    kernel->policy = policy ? *policy : k_default_policy;
+    kernel->policy = sanitize_policy(policy);
     kernel->sched = sched;
     kernel->jobs = jobs;
     kernel->wake = wake;
@@ -58,13 +68,18 @@ bool core_kernel_register_module(
     CoreKernel *kernel,
     CoreKernelModuleHooks hooks,
     void *module_ctx) {
-    if (!kernel || kernel->module_count >= kernel->module_capacity) return false;
+    if (!kernel || !kernel->running || kernel->module_count >= kernel->module_capacity) {
+        return false;
+    }
     CoreKernelModule *m = &kernel->modules[kernel->module_count++];
     m->hooks = hooks;
     m->module_ctx = module_ctx;
 
     if (m->hooks.on_init) {
-        return m->hooks.on_init(module_ctx);
+        if (!m->hooks.on_init(module_ctx)) {
+            kernel->module_count--;
+            return false;
+        }
     }
     return true;
 }

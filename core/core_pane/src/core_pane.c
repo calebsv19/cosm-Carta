@@ -421,16 +421,20 @@ static bool solve_node_recursive(const CorePaneNode *nodes,
 
 bool core_pane_solve(const CorePaneNode *nodes,
                      uint32_t node_count,
-    uint32_t root_index,
-    CorePaneRect bounds,
-    CorePaneLeafRect *out_leaf_rects,
-    uint32_t out_leaf_cap,
-    uint32_t *out_leaf_count) {
+                     uint32_t root_index,
+                     CorePaneRect bounds,
+                     CorePaneLeafRect *out_leaf_rects,
+                     uint32_t out_leaf_cap,
+                     uint32_t *out_leaf_count) {
     uint32_t count = 0u;
     uint8_t *visit_state = 0;
     bool ok = false;
 
-    if (!out_leaf_rects || out_leaf_cap == 0u || !out_leaf_count) {
+    if (!out_leaf_count) {
+        return false;
+    }
+    *out_leaf_count = 0u;
+    if (!out_leaf_rects || out_leaf_cap == 0u) {
         return false;
     }
     if (!core_pane_validate_graph(nodes, node_count, root_index, bounds, 0)) {
@@ -734,10 +738,16 @@ bool core_pane_hit_test_splitter_hits(const CorePaneSplitterHit *hits,
                                       CorePaneSplitterHit *out_hit) {
     uint32_t i;
 
-    if (!hits || !out_hit || !pane_isfinite(point_x) || !pane_isfinite(point_y)) {
+    if (!out_hit) {
         return false;
     }
     *out_hit = (CorePaneSplitterHit){ 0 };
+    if (!pane_isfinite(point_x) || !pane_isfinite(point_y)) {
+        return false;
+    }
+    if (!hits && hit_count > 0u) {
+        return false;
+    }
 
     for (i = 0u; i < hit_count; ++i) {
         if (!hits[i].active) {
@@ -769,8 +779,11 @@ bool core_pane_apply_splitter_drag(CorePaneNode *nodes,
     if (node->type != CORE_PANE_NODE_SPLIT) {
         return false;
     }
+    if (hit->axis != node->axis) {
+        return false;
+    }
 
-    if (hit->parent_span <= 0.0f) {
+    if (!pane_isfinite(hit->parent_span) || hit->parent_span <= 0.0f) {
         return false;
     }
     if (!pane_isfinite(delta_x) || !pane_isfinite(delta_y) || !pane_isfinite(node->ratio_01)) {

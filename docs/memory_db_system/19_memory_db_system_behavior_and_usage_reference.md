@@ -109,6 +109,7 @@ Live commands:
 - `pin`
 - `canonical`
 - `item-retag`
+- `item-archive`
 - `rollup`
 - `link-add`
 - `link-list`
@@ -125,6 +126,7 @@ Operational semantics:
   - optional session budget guardrails: `--session-id`, `--session-max-writes`
   - successful writes append an audit row to `mem_audit`
   - preserves stable-id upgrade semantics on dedupe updates (only fills when existing stable_id is empty)
+  - output includes the authoritative target row id (`added id=<rowid>` or `updated id=<rowid>`); agents must capture and reuse that exact row id for follow-up commands
 - `batch-add`:
   - TSV ingest (`title\tbody` or `stable_id\ttitle\tbody[\tworkspace\tproject\tkind]`)
   - reuses `add` semantics row-by-row
@@ -148,6 +150,7 @@ Operational semantics:
   - supports `--format text|tsv|json`
 - `show`:
   - focused detail read for one memory row
+  - hides archived rows by default; direct archived inspection requires `--include-archived`
   - supports `--format text|tsv|json`
 - `health`:
   - checks schema version, required tables/indexes, FTS availability, and SQLite integrity
@@ -167,18 +170,27 @@ Operational semantics:
   - validates full-field source-vs-target parity and reports drift counts
 - `event-backfill`:
   - seeds/repairs legacy baseline events so replay parity can pass on long-lived DBs
+  - accepts optional session budget guardrails when used with `--session-id`, except for `--dry-run`
   - supports `--dry-run` and writes an audit entry when applying
 - `pin` / `canonical`:
   - boolean lane toggles for active rows
+  - accept the same optional session budget guardrails as `add` when `--session-id` is already in use
   - event-first write path: append `NodePinnedSet`/`NodeCanonicalSet`, then apply projection update from payload in the same transaction
   - writes append audit entries (action=`pin`/`canonical`)
 - `item-retag`:
   - metadata retag for an existing row (`workspace_key`, `project_key`, and/or `kind`)
   - supports `--include-archived` for migration-safe bucket normalization on archived rows
+  - accepts optional session budget guardrails when used with `--session-id`
   - event-first write path: appends `NodeMetadataPatched` with full row snapshot payload, then applies projection update in the same transaction
   - writes append audit entries (action=`item-retag`)
+- `item-archive`:
+  - archives one active row by `id` (idempotent for already-archived rows)
+  - accepts optional session budget guardrails when used with `--session-id`
+  - event-first write path: appends `NodeMetadataPatched` with `archived_ns`, then applies projection update in the same transaction
+  - writes append audit entries (action=`item-archive`)
 - `rollup`:
   - one transaction
+  - accepts optional session budget guardrails when used with `--session-id`
   - selects eligible non-pinned, non-canonical, non-archived rows before cutoff
   - default selection excludes prior `kind=rollup` rows unless `--kind` is explicitly set
   - event-first write path: append `NodeMerged` (summary row) and per-row `NodeMetadataPatched` archive events first, then apply projection in-transaction
@@ -187,6 +199,7 @@ Operational semantics:
   - write appends audit entry (action=`rollup`)
 - `link-*`:
   - CRUD over `mem_link`
+  - accept optional session budget guardrails when used with `--session-id`
   - validates active endpoint items for add/list workflows
   - enforces canonical link-kind set at CLI write surface (`supports`, `depends_on`, `references`, `summarizes`, `implements`, `blocks`, `contradicts`, `related`)
   - rejects self-loop writes (`from_item_id == to_item_id`)
@@ -212,7 +225,11 @@ Mappings:
 - `retrieve-recent` -> `mem_cli query` (default `--limit 24`)
 - `retrieve-search` -> `mem_cli query` with required `--query` (default `--limit 24`)
 - `write` -> `mem_cli add`
-- `write-linked` -> `mem_cli add` then one-or-more `mem_cli link-add` calls (uses created id; supports repeated `--link-from`/`--link-to`)
+- `write-linked` -> `mem_cli add` then one-or-more `mem_cli link-add` calls using the row id parsed from the add output; no guessed ids are allowed
+
+Validation helper policy:
+- `skills/memory-db-ops/scripts/validate_memory_db_ops.sh` must default to the demo DB (`mem_console/demo/demo_mem_console.sqlite`) unless an explicit DB path or `CODEWORK_MEMDB_PATH` override is provided
+- validation helpers must never reset the live workspace DB by default
 - `write-hier-linked` -> `mem_cli add` then bounded hierarchy-first `link-add` selection:
   - resolves project pillar anchors by stable id (`scope/plans/decisions/issues/misc`)
   - orders candidates parent-first, then pillar anchors, then explicit related ids
@@ -376,6 +393,24 @@ Hierarchy-first active-link policy (Phase 1 contract direction):
   - `write-hier-linked` encodes this policy as a bounded default path for active memory writes
 - allow cross-project links only for explicit shared implementation/dependency bridges
 - for first recategorization passes, prefer additive pillar linking before removing historical links
+- host/site/project routing guidance:
+  - `project` is not limited to application programs
+  - first-class project buckets may represent:
+    - programs/apps
+    - deployed websites
+    - host environments such as `vps_server` or `home_server`
+    - cross-cutting coordination lanes such as `websites` or `workspace`
+  - choose host buckets when the durable truth is mainly about:
+    - machine/runtime state
+    - service health or service-control policy
+    - deploy-environment configuration
+    - shared host audits across multiple sites/programs
+  - choose site/program buckets when the durable truth is mainly about:
+    - implementation work
+    - site-specific deploy outcomes
+    - app-specific packaging, feature, or issue state
+  - use explicit links when one memory depends on both a host bucket and a
+    site/program bucket; do not duplicate the same row across multiple projects
 
 Maintenance:
 - run `rollup` in explicit maintenance windows, not inside every agent turn
@@ -385,7 +420,7 @@ Maintenance:
 The system is functional now, but these additions will materially improve reliability for always-on Codex usage:
 
 1. write-budget enforcement helper:
-   - now implemented in `add` via `--session-id` + `--session-max-writes`
+   - now implemented across the existing mutation lanes that already accept `--session-id`, using one shared successful-mutation count per session
 2. deterministic audit log stream:
    - now implemented via append-only `mem_audit` + `audit-list`
 3. batch ingest/update operations:

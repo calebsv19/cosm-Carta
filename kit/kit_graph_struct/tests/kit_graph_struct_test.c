@@ -341,6 +341,51 @@ static int test_layered_layout_reduces_simple_crossing(void) {
     return 0;
 }
 
+static int test_layout_rejects_null_edges_and_duplicate_node_ids(void) {
+    KitGraphStructNode valid_nodes[2] = {
+        {1u, "A"},
+        {2u, "B"}
+    };
+    KitGraphStructNode duplicate_nodes[2] = {
+        {1u, "A"},
+        {1u, "B"}
+    };
+    KitGraphStructNodeLayout layouts[2];
+    CoreResult result;
+
+    result = kit_graph_struct_compute_layered_tree_layout(valid_nodes,
+                                                          2u,
+                                                          0,
+                                                          1u,
+                                                          (KitRenderRect){0.0f, 0.0f, 320.0f, 240.0f},
+                                                          0,
+                                                          0,
+                                                          layouts);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    result = kit_graph_struct_compute_layered_dag_layout(valid_nodes,
+                                                         2u,
+                                                         0,
+                                                         1u,
+                                                         (KitRenderRect){0.0f, 0.0f, 320.0f, 240.0f},
+                                                         0,
+                                                         0,
+                                                         layouts);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    result = kit_graph_struct_compute_layered_dag_layout(duplicate_nodes,
+                                                         2u,
+                                                         0,
+                                                         0u,
+                                                         (KitRenderRect){0.0f, 0.0f, 320.0f, 240.0f},
+                                                         0,
+                                                         0,
+                                                         layouts);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    return 0;
+}
+
 static int test_edge_routes_modes_and_boundary_attach(void) {
     KitGraphStructEdge edges[2] = {
         {1u, 2u},
@@ -462,6 +507,21 @@ static int test_routed_edge_label_layouts_with_density_controls(void) {
     if (result.code != CORE_OK) return 1;
     if (!(label_layouts[0].rect.width == 0.0f && label_layouts[0].rect.height == 0.0f)) return 1;
     if (!(label_layouts[1].rect.width == 0.0f && label_layouts[1].rect.height == 0.0f)) return 1;
+
+    options.min_zoom_for_labels = 0.0f;
+    options.current_zoom = 1.0f;
+    options.density_mode = (KitGraphStructEdgeLabelDensityMode)99;
+    result = kit_graph_struct_compute_edge_label_layouts_routed(layouts,
+                                                                3u,
+                                                                routes,
+                                                                2u,
+                                                                0,
+                                                                labels,
+                                                                2u,
+                                                                &options,
+                                                                label_layouts);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
     return 0;
 }
 
@@ -491,6 +551,13 @@ static int test_edge_and_label_hit_helpers_and_viewport_helpers(void) {
     if (result.code != CORE_OK) return 1;
     if (!label_hit.active || label_hit.edge_index != 0u) return 1;
 
+    result = kit_graph_struct_hit_test(layouts, 2u, 100.0f, 70.0f, &(KitGraphStructHit){0});
+    if (result.code != CORE_OK) return 1;
+
+    result = kit_graph_struct_hit_test_edge_labels(labels, 2u, 204.0f, 124.0f, &label_hit);
+    if (result.code != CORE_OK) return 1;
+    if (!label_hit.active || label_hit.edge_index != 0u) return 1;
+
     kit_graph_struct_viewport_default(&viewport);
     result = kit_graph_struct_viewport_pan_by(&viewport, 12.0f, -6.0f);
     if (result.code != CORE_OK) return 1;
@@ -507,6 +574,81 @@ static int test_edge_and_label_hit_helpers_and_viewport_helpers(void) {
                                                      &viewport);
     if (result.code != CORE_OK) return 1;
     if (!(viewport.pan_x > 12.0f)) return 1;
+    return 0;
+}
+
+static int test_viewport_and_draw_reject_non_finite_or_ambiguous_input(void) {
+    KitGraphStructNode duplicate_nodes[2] = {
+        {1u, "A"},
+        {1u, "B"}
+    };
+    KitGraphStructNode valid_nodes[2] = {
+        {1u, "A"},
+        {2u, "B"}
+    };
+    KitGraphStructEdge edges[1] = {
+        {1u, 2u}
+    };
+    KitGraphStructNodeLayout layouts[2] = {
+        {1u, {20.0f, 30.0f, 80.0f, 40.0f}, 0u},
+        {2u, {180.0f, 150.0f, 90.0f, 44.0f}, 1u}
+    };
+    KitRenderContext render_ctx;
+    KitRenderCommand commands[16];
+    KitRenderCommandBuffer buffer;
+    KitRenderFrame frame;
+    KitGraphStructViewport viewport;
+    CoreResult result;
+
+    kit_graph_struct_viewport_default(&viewport);
+    viewport.pan_x = NAN;
+    result = kit_graph_struct_viewport_pan_by(&viewport, 1.0f, 0.0f);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    kit_graph_struct_viewport_default(&viewport);
+    result = kit_graph_struct_viewport_zoom_by(&viewport, INFINITY, 0.5f, 2.0f);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    result = kit_render_context_init(&render_ctx,
+                                     KIT_RENDER_BACKEND_NULL,
+                                     CORE_THEME_PRESET_DAW_DEFAULT,
+                                     CORE_FONT_PRESET_DAW_DEFAULT);
+    if (result.code != CORE_OK) return 1;
+
+    buffer.commands = commands;
+    buffer.capacity = 16;
+    buffer.count = 0;
+    result = kit_render_begin_frame(&render_ctx, 320u, 240u, &buffer, &frame);
+    if (result.code != CORE_OK) return 1;
+
+    result = kit_graph_struct_draw(&frame,
+                                   (KitRenderRect){0.0f, 0.0f, 300.0f, 200.0f},
+                                   duplicate_nodes,
+                                   2u,
+                                   0,
+                                   0u,
+                                   layouts,
+                                   0u,
+                                   0,
+                                   0u,
+                                   0);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    result = kit_graph_struct_draw(&frame,
+                                   (KitRenderRect){NAN, 0.0f, 300.0f, 200.0f},
+                                   valid_nodes,
+                                   2u,
+                                   edges,
+                                   1u,
+                                   layouts,
+                                   0u,
+                                   0,
+                                   0u,
+                                   0);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    result = kit_render_end_frame(&render_ctx, &frame);
+    if (result.code != CORE_OK) return 1;
     return 0;
 }
 
@@ -565,6 +707,10 @@ int main(void) {
         fprintf(stderr, "test_layered_layout_reduces_simple_crossing failed\n");
         return 1;
     }
+    if (test_layout_rejects_null_edges_and_duplicate_node_ids() != 0) {
+        fprintf(stderr, "test_layout_rejects_null_edges_and_duplicate_node_ids failed\n");
+        return 1;
+    }
     if (test_edge_routes_modes_and_boundary_attach() != 0) {
         fprintf(stderr, "test_edge_routes_modes_and_boundary_attach failed\n");
         return 1;
@@ -575,6 +721,10 @@ int main(void) {
     }
     if (test_edge_and_label_hit_helpers_and_viewport_helpers() != 0) {
         fprintf(stderr, "test_edge_and_label_hit_helpers_and_viewport_helpers failed\n");
+        return 1;
+    }
+    if (test_viewport_and_draw_reject_non_finite_or_ambiguous_input() != 0) {
+        fprintf(stderr, "test_viewport_and_draw_reject_non_finite_or_ambiguous_input failed\n");
         return 1;
     }
     if (test_layout_uses_measure_text_callback() != 0) {

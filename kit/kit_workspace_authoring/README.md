@@ -13,6 +13,8 @@ It standardizes:
 8. shared render composition helpers (surface clear token resolve, splitter preview draw),
 9. shared derive/submit adapter seam helpers for host render loop wiring.
 
+The kit is now broadly adopted. Its job is to standardize shared authoring interaction seams and overlay primitives, not to absorb host-specific preview mutation, persistence, or shell behavior.
+
 ## Host Integration Contract (Theme + Font)
 
 For host programs wiring this kit:
@@ -23,6 +25,7 @@ For host programs wiring this kit:
 5. Apply/cancel semantics should be baseline-driven at host boundary:
    - `Apply` commits current text/theme as new entry baseline
    - `Cancel` restores entry baseline
+6. Any caller-supplied overlay labels remain borrowed text and must outlive frame submission because `kit_render` text commands borrow the pointer.
 
 Recommended minimum host checklist:
 1. authoring overlay controls are interactive (`text +/-/reset`, theme preset selection),
@@ -47,6 +50,17 @@ Public cross-host adoption reference:
 2. app-specific module-picker data models
 3. pane topology/runtime persistence semantics
 4. host persistence or live renderer state mutation for theme/font changes
+5. top-level shell parity or visual acceptance policy
+6. custom theme editor UX beyond the current shared status stubs
+
+## Current Contract Notes
+
+1. Entry-chord semantics stay `Alt+C` then `Alt+V`, with `Shift`, `Ctrl`, and `GUI` excluded from the entry chord itself.
+2. Non-entry pane trigger mapping currently suppresses `Shift` and `Alt` for pane-action keys; `Ctrl` and `GUI` are currently passed through and are now truth-locked as the shared contract.
+3. Overlay hit tests, drop-intent hit tests, and font/theme button hit tests treat right and bottom rect boundaries as inclusive.
+4. `kit_workspace_authoring_root_bounds(...)` clamps negative dimensions to zero-sized bounds.
+5. Shared custom-theme buttons are status stubs only; create/edit behavior remains host-owned.
+6. Splitter-preview and overlay draw helpers are immediate-mode helpers only; they do not own retained overlay state or persistence.
 
 ## Internal source lanes
 Current internal source layout is split by role:

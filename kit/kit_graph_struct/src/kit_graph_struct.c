@@ -7,12 +7,17 @@
 
 #include "kit_graph_struct.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
 static CoreResult kit_graph_struct_invalid(const char *message) {
     CoreResult r = { CORE_ERR_INVALID_ARG, message };
     return r;
+}
+
+static int graph_float_is_finite(float value) {
+    return isfinite(value) ? 1 : 0;
 }
 
 static int find_node_index(const KitGraphStructNode *nodes,
@@ -37,6 +42,140 @@ static int find_layout_index(const KitGraphStructNodeLayout *layouts,
         }
     }
     return -1;
+}
+
+static CoreResult validate_unique_node_ids(const KitGraphStructNode *nodes,
+                                           uint32_t node_count) {
+    uint32_t i;
+    uint32_t j;
+
+    if (!nodes || node_count == 0u) {
+        return kit_graph_struct_invalid("invalid node set");
+    }
+
+    for (i = 0u; i < node_count; ++i) {
+        for (j = i + 1u; j < node_count; ++j) {
+            if (nodes[i].id == nodes[j].id) {
+                return kit_graph_struct_invalid("duplicate node id");
+            }
+        }
+    }
+
+    return core_result_ok();
+}
+
+static CoreResult validate_unique_layout_ids(const KitGraphStructNodeLayout *layouts,
+                                             uint32_t layout_count) {
+    uint32_t i;
+    uint32_t j;
+
+    if (!layouts || layout_count == 0u) {
+        return kit_graph_struct_invalid("invalid layout set");
+    }
+
+    for (i = 0u; i < layout_count; ++i) {
+        for (j = i + 1u; j < layout_count; ++j) {
+            if (layouts[i].node_id == layouts[j].node_id) {
+                return kit_graph_struct_invalid("duplicate layout node id");
+            }
+        }
+    }
+
+    return core_result_ok();
+}
+
+static CoreResult validate_edge_array(const KitGraphStructEdge *edges,
+                                      uint32_t edge_count) {
+    if (edge_count > 0u && !edges) {
+        return kit_graph_struct_invalid("invalid edge array");
+    }
+    return core_result_ok();
+}
+
+static CoreResult validate_viewport_state(const KitGraphStructViewport *viewport) {
+    if (!viewport) {
+        return kit_graph_struct_invalid("invalid viewport state");
+    }
+    if (!graph_float_is_finite(viewport->pan_x) ||
+        !graph_float_is_finite(viewport->pan_y) ||
+        !graph_float_is_finite(viewport->zoom) ||
+        viewport->zoom <= 0.0f) {
+        return kit_graph_struct_invalid("invalid viewport state");
+    }
+    return core_result_ok();
+}
+
+static CoreResult validate_bounds_rect(KitRenderRect bounds,
+                                       const char *message) {
+    if (!graph_float_is_finite(bounds.x) ||
+        !graph_float_is_finite(bounds.y) ||
+        !graph_float_is_finite(bounds.width) ||
+        !graph_float_is_finite(bounds.height) ||
+        bounds.width <= 0.0f ||
+        bounds.height <= 0.0f) {
+        return kit_graph_struct_invalid(message);
+    }
+    return core_result_ok();
+}
+
+static CoreResult validate_layout_style_values(const KitGraphStructLayoutStyle *style) {
+    if (!style) {
+        return core_result_ok();
+    }
+    if (!graph_float_is_finite(style->padding) ||
+        !graph_float_is_finite(style->level_gap) ||
+        !graph_float_is_finite(style->sibling_gap) ||
+        !graph_float_is_finite(style->node_width) ||
+        !graph_float_is_finite(style->node_height) ||
+        !graph_float_is_finite(style->node_min_width) ||
+        !graph_float_is_finite(style->node_max_width) ||
+        !graph_float_is_finite(style->node_padding_x) ||
+        !graph_float_is_finite(style->label_char_width) ||
+        !graph_float_is_finite(style->edge_label_padding_x) ||
+        !graph_float_is_finite(style->edge_label_height) ||
+        !graph_float_is_finite(style->edge_label_lane_gap)) {
+        return kit_graph_struct_invalid("invalid layout style");
+    }
+    return core_result_ok();
+}
+
+static CoreResult validate_edge_label_options_values(const KitGraphStructEdgeLabelOptions *options) {
+    if (!options) {
+        return core_result_ok();
+    }
+    if (options->density_mode != KIT_GRAPH_STRUCT_EDGE_LABEL_DENSITY_ALL &&
+        options->density_mode != KIT_GRAPH_STRUCT_EDGE_LABEL_DENSITY_CULL_OVERLAP) {
+        return kit_graph_struct_invalid("invalid edge label density mode");
+    }
+    if (!graph_float_is_finite(options->current_zoom) ||
+        !graph_float_is_finite(options->min_zoom_for_labels)) {
+        return kit_graph_struct_invalid("invalid edge label options");
+    }
+    return core_result_ok();
+}
+
+static CoreResult validate_route_points(const KitGraphStructEdgeRoute *routes,
+                                        uint32_t route_count) {
+    uint32_t i;
+    uint32_t p;
+
+    if (!routes) {
+        return kit_graph_struct_invalid("invalid edge route input");
+    }
+
+    for (i = 0u; i < route_count; ++i) {
+        if (routes[i].point_count > KIT_GRAPH_STRUCT_EDGE_ROUTE_MAX_POINTS) {
+            return kit_graph_struct_invalid("invalid edge route point count");
+        }
+        for (p = 0u; p < routes[i].point_count; ++p) {
+            if (!graph_float_is_finite(routes[i].points[p].x) ||
+                !graph_float_is_finite(routes[i].points[p].y)) {
+                return kit_graph_struct_invalid("invalid edge route point");
+            }
+        }
+    }
+
+    return core_result_ok();
 }
 
 static KitGraphStructLayoutStyle layout_style_or_default(const KitGraphStructLayoutStyle *style) {
@@ -96,6 +235,9 @@ static CoreResult compute_depths_longest_path(const KitGraphStructNode *nodes,
     uint32_t visited = 0u;
 
     if (!nodes || !out_depths) {
+        return kit_graph_struct_invalid("invalid depth computation");
+    }
+    if (validate_edge_array(edges, edge_count).code != CORE_OK) {
         return kit_graph_struct_invalid("invalid depth computation");
     }
 
@@ -308,13 +450,16 @@ static CoreResult apply_layered_layout(const KitGraphStructNode *nodes,
     if (!nodes || !depths || !out_layouts) {
         return kit_graph_struct_invalid("invalid layout application");
     }
-    if (bounds.width <= 0.0f || bounds.height <= 0.0f) {
+    if (validate_bounds_rect(bounds, "invalid layout bounds").code != CORE_OK) {
         return kit_graph_struct_invalid("invalid layout bounds");
+    }
+    if (validate_layout_style_values(style).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid layout style");
     }
 
     local_style = layout_style_or_default(style);
     local_viewport = viewport_or_default(viewport);
-    if (local_viewport.zoom <= 0.0f) {
+    if (validate_viewport_state(&local_viewport).code != CORE_OK) {
         return kit_graph_struct_invalid("invalid viewport zoom");
     }
 
@@ -603,6 +748,14 @@ CoreResult kit_graph_struct_compute_layered_tree_layout(const KitGraphStructNode
     if (!nodes || node_count == 0u || !out_layouts) {
         return kit_graph_struct_invalid("invalid layout input");
     }
+    result = validate_unique_node_ids(nodes, node_count);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+    result = validate_edge_array(edges, edge_count);
+    if (result.code != CORE_OK) {
+        return result;
+    }
 
     depths = (uint32_t *)calloc(node_count, sizeof(uint32_t));
     if (!depths) {
@@ -647,6 +800,14 @@ CoreResult kit_graph_struct_compute_layered_dag_layout(const KitGraphStructNode 
     if (!nodes || node_count == 0u || !out_layouts) {
         return kit_graph_struct_invalid("invalid layout input");
     }
+    result = validate_unique_node_ids(nodes, node_count);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+    result = validate_edge_array(edges, edge_count);
+    if (result.code != CORE_OK) {
+        return result;
+    }
 
     depths = (uint32_t *)calloc(node_count, sizeof(uint32_t));
     if (!depths) {
@@ -678,6 +839,9 @@ CoreResult kit_graph_struct_hit_test(const KitGraphStructNodeLayout *layouts,
     uint32_t i;
 
     if (!layouts || !out_hit) {
+        return kit_graph_struct_invalid("invalid hit test");
+    }
+    if (!graph_float_is_finite(mouse_x) || !graph_float_is_finite(mouse_y)) {
         return kit_graph_struct_invalid("invalid hit test");
     }
 
@@ -747,8 +911,14 @@ CoreResult kit_graph_struct_hit_test_edge_routes(const KitGraphStructEdgeRoute *
     if (!routes || !out_hit) {
         return kit_graph_struct_invalid("invalid edge route hit test");
     }
-    if (threshold_px < 0.0f) {
+    if (!graph_float_is_finite(mouse_x) ||
+        !graph_float_is_finite(mouse_y) ||
+        !graph_float_is_finite(threshold_px) ||
+        threshold_px < 0.0f) {
         return kit_graph_struct_invalid("invalid edge route hit threshold");
+    }
+    if (validate_route_points(routes, route_count).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid edge route input");
     }
 
     out_hit->active = 0;
@@ -797,6 +967,9 @@ CoreResult kit_graph_struct_hit_test_edge_labels(const KitGraphStructEdgeLabelLa
     if (!label_layouts || !out_hit) {
         return kit_graph_struct_invalid("invalid edge label hit test");
     }
+    if (!graph_float_is_finite(mouse_x) || !graph_float_is_finite(mouse_y)) {
+        return kit_graph_struct_invalid("invalid edge label hit test");
+    }
 
     out_hit->active = 0;
     out_hit->edge_index = 0u;
@@ -828,8 +1001,17 @@ CoreResult kit_graph_struct_focus_on_node(const KitGraphStructNodeLayout *layout
     if (!layouts || !viewport) {
         return kit_graph_struct_invalid("invalid focus input");
     }
-    if (bounds.width <= 0.0f || bounds.height <= 0.0f) {
+    if (validate_unique_layout_ids(layouts, node_count).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid focus input");
+    }
+    if (validate_viewport_state(viewport).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid focus input");
+    }
+    if (validate_bounds_rect(bounds, "invalid focus bounds").code != CORE_OK) {
         return kit_graph_struct_invalid("invalid focus bounds");
+    }
+    if (!graph_float_is_finite(safe_padding)) {
+        return kit_graph_struct_invalid("invalid focus input");
     }
     if (safe_padding < 0.0f) {
         safe_padding = 0.0f;
@@ -856,6 +1038,11 @@ CoreResult kit_graph_struct_viewport_pan_by(KitGraphStructViewport *viewport,
     if (!viewport) {
         return kit_graph_struct_invalid("invalid viewport pan");
     }
+    if (validate_viewport_state(viewport).code != CORE_OK ||
+        !graph_float_is_finite(delta_x) ||
+        !graph_float_is_finite(delta_y)) {
+        return kit_graph_struct_invalid("invalid viewport pan");
+    }
     viewport->pan_x += delta_x;
     viewport->pan_y += delta_y;
     return core_result_ok();
@@ -872,7 +1059,11 @@ CoreResult kit_graph_struct_viewport_zoom_by(KitGraphStructViewport *viewport,
     if (!viewport) {
         return kit_graph_struct_invalid("invalid viewport zoom");
     }
-    if (factor <= 0.0f) {
+    if (validate_viewport_state(viewport).code != CORE_OK ||
+        !graph_float_is_finite(factor) ||
+        !graph_float_is_finite(min_zoom) ||
+        !graph_float_is_finite(max_zoom) ||
+        factor <= 0.0f) {
         return kit_graph_struct_invalid("invalid zoom factor");
     }
     if (clamped_min_zoom <= 0.0f) {
@@ -911,8 +1102,14 @@ CoreResult kit_graph_struct_viewport_center_layout(const KitGraphStructNodeLayou
     if (!layouts || node_count == 0u || !viewport) {
         return kit_graph_struct_invalid("invalid viewport center input");
     }
-    if (bounds.width <= 0.0f || bounds.height <= 0.0f) {
+    if (validate_viewport_state(viewport).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid viewport center input");
+    }
+    if (validate_bounds_rect(bounds, "invalid viewport center bounds").code != CORE_OK) {
         return kit_graph_struct_invalid("invalid viewport center bounds");
+    }
+    if (!graph_float_is_finite(safe_padding)) {
+        return kit_graph_struct_invalid("invalid viewport center input");
     }
     if (safe_padding < 0.0f) {
         safe_padding = 0.0f;
@@ -994,6 +1191,15 @@ CoreResult kit_graph_struct_compute_edge_label_layouts(const KitGraphStructNode 
     float lane_gap;
 
     if (!nodes || !edges || !layouts || !out_layouts) {
+        return kit_graph_struct_invalid("invalid edge label layout input");
+    }
+    if (validate_unique_node_ids(nodes, node_count).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid edge label layout input");
+    }
+    if (validate_edge_array(edges, edge_count).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid edge label layout input");
+    }
+    if (validate_layout_style_values(style).code != CORE_OK) {
         return kit_graph_struct_invalid("invalid edge label layout input");
     }
 
@@ -1147,6 +1353,10 @@ CoreResult kit_graph_struct_compute_edge_routes(const KitGraphStructEdge *edges,
     if (!edges || !layouts || !out_routes) {
         return kit_graph_struct_invalid("invalid edge route input");
     }
+    if (validate_edge_array(edges, edge_count).code != CORE_OK ||
+        validate_unique_layout_ids(layouts, layout_count).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid edge route input");
+    }
     if (route_mode != KIT_GRAPH_STRUCT_ROUTE_STRAIGHT &&
         route_mode != KIT_GRAPH_STRUCT_ROUTE_ORTHOGONAL) {
         return kit_graph_struct_invalid("invalid route mode");
@@ -1219,6 +1429,12 @@ CoreResult kit_graph_struct_compute_edge_label_layouts_routed(const KitGraphStru
     uint32_t i;
 
     if (!layouts || !routes || !out_layouts) {
+        return kit_graph_struct_invalid("invalid routed edge label layout input");
+    }
+    if (validate_unique_layout_ids(layouts, node_count).code != CORE_OK ||
+        validate_route_points(routes, route_count).code != CORE_OK ||
+        validate_layout_style_values(style).code != CORE_OK ||
+        validate_edge_label_options_values(options).code != CORE_OK) {
         return kit_graph_struct_invalid("invalid routed edge label layout input");
     }
 
@@ -1354,6 +1570,15 @@ CoreResult kit_graph_struct_draw(KitRenderFrame *frame,
     CoreResult result;
 
     if (!frame || !nodes || !layouts) {
+        return kit_graph_struct_invalid("invalid draw input");
+    }
+    if (validate_unique_node_ids(nodes, node_count).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid draw input");
+    }
+    if (validate_edge_array(edges, edge_count).code != CORE_OK) {
+        return kit_graph_struct_invalid("invalid draw input");
+    }
+    if (validate_bounds_rect(bounds, "invalid draw input").code != CORE_OK) {
         return kit_graph_struct_invalid("invalid draw input");
     }
 

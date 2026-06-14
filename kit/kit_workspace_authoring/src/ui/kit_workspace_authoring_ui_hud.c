@@ -2,6 +2,8 @@
 
 #include "kit_render.h"
 
+#include <math.h>
+
 static uint8_t kit_workspace_authoring_ui_u8_clamp(int value) {
     if (value < 0) {
         return 0u;
@@ -79,6 +81,15 @@ CoreResult kit_workspace_authoring_ui_draw_overlay_buttons(KitRenderContext *ren
         KitRenderRect rect = { b->rect.x, b->rect.y, b->rect.width, b->rect.height };
         if (!b->visible) {
             continue;
+        }
+        if (!b->label ||
+            !isfinite(rect.x) ||
+            !isfinite(rect.y) ||
+            !isfinite(rect.width) ||
+            !isfinite(rect.height) ||
+            rect.width <= 0.0f ||
+            rect.height <= 0.0f) {
+            return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid hud overlay draw request" };
         }
         if (!b->enabled) {
             fill = kit_workspace_authoring_ui_color_with_alpha(surface_0, 190u);

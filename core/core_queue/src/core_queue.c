@@ -10,6 +10,11 @@
 #include <errno.h>
 #include <time.h>
 
+static bool core_queue_overflow_policy_valid(CoreQueueOverflowPolicy overflow_policy) {
+    return overflow_policy == CORE_QUEUE_OVERFLOW_REJECT ||
+           overflow_policy == CORE_QUEUE_OVERFLOW_DROP_OLDEST;
+}
+
 bool core_queue_ring_init(CoreQueueRing *q, void **backing, size_t capacity) {
     return core_queue_ring_init_ex(q, backing, capacity, CORE_QUEUE_OVERFLOW_REJECT);
 }
@@ -19,7 +24,7 @@ bool core_queue_ring_init_ex(
     void **backing,
     size_t capacity,
     CoreQueueOverflowPolicy overflow_policy) {
-    if (!q || !backing || capacity == 0) return false;
+    if (!q || !backing || capacity == 0 || !core_queue_overflow_policy_valid(overflow_policy)) return false;
     q->items = backing;
     q->capacity = capacity;
     q->head = 0;
@@ -85,7 +90,7 @@ bool core_queue_mutex_init_ex(
     void **backing,
     size_t capacity,
     CoreQueueOverflowPolicy overflow_policy) {
-    if (!q) return false;
+    if (!q || !core_queue_overflow_policy_valid(overflow_policy)) return false;
     if (pthread_mutex_init(&q->mu, NULL) != 0) return false;
     if (pthread_cond_init(&q->cv, NULL) != 0) {
         pthread_mutex_destroy(&q->mu);

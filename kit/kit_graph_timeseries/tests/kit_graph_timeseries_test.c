@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 static int nearf(float a, float b) {
     return fabsf(a - b) < 1e-5f;
@@ -31,6 +32,43 @@ static int test_compute_view(void) {
     if (result.code != CORE_OK) return 1;
     if (!nearf(view.x_min, -1.0f) || !nearf(view.x_max, 4.0f)) return 1;
     if (!nearf(view.y_min, -1.0f) || !nearf(view.y_max, 3.0f)) return 1;
+    return 0;
+}
+
+static int test_compute_view_edges(void) {
+    const float xs_single[1] = {4.0f};
+    const float ys_single[1] = {2.0f};
+    const float xs_bad[2] = {0.0f, NAN};
+    const float ys_bad[2] = {1.0f, 2.0f};
+    KitGraphTsSeries series[2];
+    KitGraphTsView view = {99.0f, 100.0f, 101.0f, 102.0f};
+    CoreResult result;
+
+    result = kit_graph_ts_compute_view(0, 1u, &view);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    series[0].xs = 0;
+    series[0].ys = 0;
+    series[0].point_count = 0;
+    series[0].label = 0;
+    series[0].color = (KitRenderColor){0, 0, 0, 255};
+    result = kit_graph_ts_compute_view(series, 1u, &view);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    series[0].xs = xs_single;
+    series[0].ys = ys_single;
+    series[0].point_count = 1;
+    result = kit_graph_ts_compute_view(series, 1u, &view);
+    if (result.code != CORE_OK) return 1;
+    if (!nearf(view.x_min, 3.0f) || !nearf(view.x_max, 5.0f)) return 1;
+    if (!nearf(view.y_min, 1.0f) || !nearf(view.y_max, 3.0f)) return 1;
+
+    series[0].xs = xs_bad;
+    series[0].ys = ys_bad;
+    series[0].point_count = 2;
+    result = kit_graph_ts_compute_view(series, 1u, &view);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
     return 0;
 }
 
@@ -65,6 +103,59 @@ static int test_stride_zoom_and_hover(void) {
     if (hover.nearest_index != 1u) return 1;
     if (!(hover.plot_x > 0.0f)) return 1;
     if (!(hover.plot_y > 0.0f)) return 1;
+    return 0;
+}
+
+static int test_zoom_and_hover_edges(void) {
+    const float xs[3] = {0.0f, 1.0f, 2.0f};
+    const float ys[3] = {0.0f, 1.0f, 0.0f};
+    const float ys_bad[3] = {0.0f, INFINITY, 0.0f};
+    KitGraphTsSeries series;
+    KitGraphTsView view = {0.0f, 2.0f, 0.0f, 1.0f};
+    KitGraphTsHover hover;
+    CoreResult result;
+
+    if (kit_graph_ts_recommended_stride(0u, 300.0f, 0u) != 1u) return 1;
+
+    result = kit_graph_ts_zoom_view(&view, 0.0f);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+    if (!nearf(view.x_min, 0.0f) || !nearf(view.x_max, 2.0f)) return 1;
+
+    result = kit_graph_ts_zoom_view(&view, NAN);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    series.xs = xs;
+    series.ys = ys;
+    series.point_count = 3;
+    series.label = "Edge";
+    series.color = (KitRenderColor){255, 255, 255, 255};
+
+    result = kit_graph_ts_hover_inspect(&series,
+                                        &view,
+                                        (KitRenderRect){0.0f, 0.0f, 120.0f, 80.0f},
+                                        -20.0f,
+                                        -20.0f,
+                                        &hover);
+    if (result.code != CORE_OK) return 1;
+    if (hover.active) return 1;
+
+    result = kit_graph_ts_hover_inspect(&series,
+                                        &view,
+                                        (KitRenderRect){0.0f, 0.0f, 120.0f, 80.0f},
+                                        NAN,
+                                        10.0f,
+                                        &hover);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    series.ys = ys_bad;
+    result = kit_graph_ts_hover_inspect(&series,
+                                        &view,
+                                        (KitRenderRect){0.0f, 0.0f, 120.0f, 80.0f},
+                                        10.0f,
+                                        10.0f,
+                                        &hover);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
     return 0;
 }
 
@@ -144,10 +235,154 @@ static int test_draw_plot_commands(void) {
     return 0;
 }
 
+static int test_draw_edges_and_failures(void) {
+    const float xs[3] = {0.0f, 1.0f, 2.0f};
+    const float ys[3] = {0.0f, 1.0f, 0.0f};
+    const float ys_bad[3] = {0.0f, NAN, 0.0f};
+    KitGraphTsSeries series;
+    KitGraphTsView view = {0.0f, 2.0f, 0.0f, 1.0f};
+    KitGraphTsStyle style;
+    KitGraphTsHover hover0 = {1, 0u, 0u, 1.25f, 2.50f, 40.0f, 30.0f};
+    KitGraphTsHover hover1 = {1, 0u, 0u, 9.75f, 8.50f, 70.0f, 40.0f};
+    KitRenderContext render_ctx;
+    KitRenderCommand commands[64];
+    KitRenderCommand tiny_commands[2];
+    KitRenderCommandBuffer buffer;
+    KitRenderCommandBuffer tiny_buffer;
+    KitRenderFrame frame;
+    KitRenderFrame tiny_frame;
+    const char *first_text = 0;
+    const char *second_text = 0;
+    CoreResult result;
+    size_t i;
+
+    result = kit_render_context_init(&render_ctx,
+                                     KIT_RENDER_BACKEND_NULL,
+                                     CORE_THEME_PRESET_DAW_DEFAULT,
+                                     CORE_FONT_PRESET_DAW_DEFAULT);
+    if (result.code != CORE_OK) return 1;
+
+    series.xs = xs;
+    series.ys = ys;
+    series.point_count = 3;
+    series.label = "Series";
+    series.color = (KitRenderColor){255, 0, 0, 255};
+
+    kit_graph_ts_style_default(&style);
+
+    buffer.commands = commands;
+    buffer.capacity = 64;
+    buffer.count = 0;
+    result = kit_render_begin_frame(&render_ctx, 320, 200, &buffer, &frame);
+    if (result.code != CORE_OK) return 1;
+
+    result = kit_graph_ts_draw_hover_overlay(&frame,
+                                             (KitRenderRect){0.0f, 0.0f, 120.0f, 80.0f},
+                                             &view,
+                                             &style,
+                                             &hover0);
+    if (result.code != CORE_OK) return 1;
+    result = kit_graph_ts_draw_hover_overlay(&frame,
+                                             (KitRenderRect){0.0f, 0.0f, 120.0f, 80.0f},
+                                             &view,
+                                             &style,
+                                             &hover1);
+    if (result.code != CORE_OK) return 1;
+
+    for (i = 0; i < buffer.count; ++i) {
+        if (buffer.commands[i].kind == KIT_RENDER_CMD_TEXT) {
+            if (!first_text) {
+                first_text = buffer.commands[i].data.text.text;
+            } else {
+                second_text = buffer.commands[i].data.text.text;
+                break;
+            }
+        }
+    }
+    if (!first_text || !second_text) return 1;
+    if (first_text == second_text) return 1;
+    if (strcmp(first_text, "x 1.25  y 2.50") != 0) return 1;
+    if (strcmp(second_text, "x 9.75  y 8.50") != 0) return 1;
+
+    result = kit_render_end_frame(&render_ctx, &frame);
+    if (result.code != CORE_OK) return 1;
+
+    tiny_buffer.commands = tiny_commands;
+    tiny_buffer.capacity = 2;
+    tiny_buffer.count = 0;
+    result = kit_render_begin_frame(&render_ctx, 320, 200, &tiny_buffer, &tiny_frame);
+    if (result.code != CORE_OK) return 1;
+
+    result = kit_graph_ts_draw_plot(&tiny_frame,
+                                    (KitRenderRect){0.0f, 0.0f, 120.0f, 80.0f},
+                                    &series,
+                                    1u,
+                                    &view,
+                                    &style);
+    if (result.code == CORE_OK) return 1;
+
+    result = kit_render_end_frame(&render_ctx, &tiny_frame);
+    if (result.code != CORE_OK) return 1;
+
+    result = kit_graph_ts_draw_hover_overlay(0,
+                                             (KitRenderRect){0.0f, 0.0f, 120.0f, 80.0f},
+                                             &view,
+                                             &style,
+                                             &hover0);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+
+    result = kit_render_begin_frame(&render_ctx, 320, 200, &buffer, &frame);
+    if (result.code != CORE_OK) return 1;
+    result = kit_graph_ts_draw_hover_overlay(&frame,
+                                             (KitRenderRect){0.0f, 0.0f, 120.0f, 80.0f},
+                                             &view,
+                                             &style,
+                                             &(KitGraphTsHover){1, 0u, 0u, NAN, 1.0f, 20.0f, 20.0f});
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+    result = kit_render_end_frame(&render_ctx, &frame);
+    if (result.code != CORE_OK) return 1;
+
+    series.ys = ys_bad;
+    result = kit_render_begin_frame(&render_ctx, 320, 200, &buffer, &frame);
+    if (result.code != CORE_OK) return 1;
+    result = kit_graph_ts_draw_plot(&frame,
+                                    (KitRenderRect){0.0f, 0.0f, 120.0f, 80.0f},
+                                    &series,
+                                    1u,
+                                    &view,
+                                    &style);
+    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+    result = kit_render_end_frame(&render_ctx, &frame);
+    if (result.code != CORE_OK) return 1;
+
+    return 0;
+}
+
 int main(void) {
-    if (test_compute_view() != 0) return 1;
-    if (test_stride_zoom_and_hover() != 0) return 1;
-    if (test_draw_plot_commands() != 0) return 1;
+    if (test_compute_view() != 0) {
+        fprintf(stderr, "test_compute_view failed\n");
+        return 1;
+    }
+    if (test_compute_view_edges() != 0) {
+        fprintf(stderr, "test_compute_view_edges failed\n");
+        return 1;
+    }
+    if (test_stride_zoom_and_hover() != 0) {
+        fprintf(stderr, "test_stride_zoom_and_hover failed\n");
+        return 1;
+    }
+    if (test_zoom_and_hover_edges() != 0) {
+        fprintf(stderr, "test_zoom_and_hover_edges failed\n");
+        return 1;
+    }
+    if (test_draw_plot_commands() != 0) {
+        fprintf(stderr, "test_draw_plot_commands failed\n");
+        return 1;
+    }
+    if (test_draw_edges_and_failures() != 0) {
+        fprintf(stderr, "test_draw_edges_and_failures failed\n");
+        return 1;
+    }
 
     puts("kit_graph_timeseries tests passed");
     return 0;

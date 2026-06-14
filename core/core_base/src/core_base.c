@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define CORE_HASH64_FNV1A_BASIS 1469598103934665603ULL
+#define CORE_HASH32_FNV1A_BASIS 2166136261u
+
 void *core_alloc(size_t size) {
     if (size == 0) return NULL;
     return malloc(size);
@@ -53,7 +56,10 @@ bool core_str_eq(CoreStr a, CoreStr b) {
 
 uint64_t core_hash64_fnv1a(const void *data, size_t len) {
     const uint8_t *p = (const uint8_t *)data;
-    uint64_t h = 1469598103934665603ULL;
+    uint64_t h = CORE_HASH64_FNV1A_BASIS;
+    if (!p) {
+        return (len == 0u) ? h : 0u;
+    }
     for (size_t i = 0; i < len; ++i) {
         h ^= p[i];
         h *= 1099511628211ULL;
@@ -63,7 +69,10 @@ uint64_t core_hash64_fnv1a(const void *data, size_t len) {
 
 uint32_t core_hash32_fnv1a(const void *data, size_t len) {
     const uint8_t *p = (const uint8_t *)data;
-    uint32_t h = 2166136261u;
+    uint32_t h = CORE_HASH32_FNV1A_BASIS;
+    if (!p) {
+        return (len == 0u) ? h : 0u;
+    }
     for (size_t i = 0; i < len; ++i) {
         h ^= p[i];
         h *= 16777619u;

@@ -51,8 +51,8 @@ $(LIB_OBJ): src/core_scene_compile.c | $(OBJ_DIR)
 $(LIB): $(LIB_OBJ)
 	ar rcs $@ $^
 
-$(TEST_BIN): tests/core_scene_compile_test.c $(LIB) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a $(CORE_SCENE_DIR)/build/libcore_scene.a $(CORE_OBJECT_DIR)/build/libcore_object.a $(CORE_UNITS_DIR)/build/libcore_units.a | $(OBJ_DIR)
-	$(CC) $(CFLAGS) $(INC) $< $(LIB) $(CORE_SCENE_DIR)/build/libcore_scene.a $(CORE_OBJECT_DIR)/build/libcore_object.a $(CORE_UNITS_DIR)/build/libcore_units.a $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a -o $@
+$(TEST_BIN): tests/core_scene_compile_test.c $(LIB) $(DIFF_BIN) $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a $(CORE_SCENE_DIR)/build/libcore_scene.a $(CORE_OBJECT_DIR)/build/libcore_object.a $(CORE_UNITS_DIR)/build/libcore_units.a | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(JSON_CFLAGS) $(INC) $< $(LIB) $(CORE_SCENE_DIR)/build/libcore_scene.a $(CORE_OBJECT_DIR)/build/libcore_object.a $(CORE_UNITS_DIR)/build/libcore_units.a $(CORE_IO_DIR)/build/libcore_io.a $(CORE_BASE_DIR)/build/libcore_base.a $(JSON_LIBS) -o $@
 
 test: $(TEST_BIN)
 	./$(TEST_BIN)

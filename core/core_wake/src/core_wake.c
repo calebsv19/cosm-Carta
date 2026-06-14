@@ -53,6 +53,10 @@ bool core_wake_signal(CoreWake *wake) {
     }
 
     pthread_mutex_lock(&wake->mu);
+    if (wake->pending_signals == UINT64_MAX) {
+        pthread_mutex_unlock(&wake->mu);
+        return false;
+    }
     wake->pending_signals++;
     pthread_cond_signal(&wake->cv);
     pthread_mutex_unlock(&wake->mu);
@@ -123,5 +127,10 @@ void core_wake_shutdown(CoreWake *wake) {
         pthread_mutex_destroy(&wake->mu);
     }
 
+    wake->backend = 0;
+    wake->pending_signals = 0;
+    wake->external_signal = NULL;
+    wake->external_wait = NULL;
+    wake->external_ctx = NULL;
     wake->initialized = false;
 }

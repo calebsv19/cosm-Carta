@@ -271,6 +271,7 @@ int cmd_link_add(int argc, char **argv) {
     const char *weight_text = find_flag_value(argc, argv, "--weight");
     const char *note = find_flag_value(argc, argv, "--note");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
+    const char *session_max_writes_text = find_flag_value(argc, argv, "--session-max-writes");
     int64_t from_item_id = 0;
     int64_t to_item_id = 0;
     int64_t link_id = 0;
@@ -281,6 +282,9 @@ int cmd_link_add(int argc, char **argv) {
     int from_exists = 0;
     int to_exists = 0;
     int exit_code = 1;
+    int enforce_session_budget = 0;
+    int64_t session_max_writes = 0;
+    int64_t session_write_count = 0;
     char stable_id[128];
     char workspace_key[128];
     char project_key[128];
@@ -295,6 +299,13 @@ int cmd_link_add(int argc, char **argv) {
         !parse_i64_arg(from_text, &from_item_id) ||
         !parse_i64_arg(to_text, &to_item_id)) {
         print_usage(argv[0]);
+        return 1;
+    }
+    if (!parse_session_budget_arg("link-add",
+                                  session_id,
+                                  session_max_writes_text,
+                                  &session_max_writes,
+                                  &enforce_session_budget)) {
         return 1;
     }
     if (!is_allowed_link_kind(kind)) {
@@ -316,18 +327,38 @@ int cmd_link_add(int argc, char **argv) {
         return 1;
     }
 
+    result = item_exists_active(&db, from_item_id, &from_exists);
+    if (result.code != CORE_OK) {
+        print_core_error("link-add", result);
+        goto cleanup;
+    }
+    if (enforce_session_budget) {
+        result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
+        if (result.code != CORE_OK) {
+            print_core_error("link-add", result);
+            goto cleanup;
+        }
+        if (session_write_count >= session_max_writes) {
+            (void)report_session_budget_exceeded(&db,
+                                                 "link-add",
+                                                 session_id,
+                                                 session_write_count,
+                                                 session_max_writes,
+                                                 from_item_id,
+                                                 stable_id[0] != '\0' ? stable_id : 0,
+                                                 workspace_key,
+                                                 project_key,
+                                                 item_kind);
+            goto cleanup;
+        }
+    }
+
     result = core_memdb_tx_begin(&db);
     if (result.code != CORE_OK) {
         print_core_error("link-add", result);
         goto cleanup;
     }
     tx_started = 1;
-
-    result = item_exists_active(&db, from_item_id, &from_exists);
-    if (result.code != CORE_OK) {
-        print_core_error("link-add", result);
-        goto cleanup;
-    }
     if (!from_exists) {
         fprintf(stderr, "link-add: from item %lld not found\n", (long long)from_item_id);
         goto cleanup;
@@ -594,6 +625,7 @@ int cmd_link_update(int argc, char **argv) {
     const char *weight_text = find_flag_value(argc, argv, "--weight");
     const char *note = find_flag_value(argc, argv, "--note");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
+    const char *session_max_writes_text = find_flag_value(argc, argv, "--session-max-writes");
     int64_t link_id = 0;
     int64_t from_item_id = 0;
     int64_t to_item_id = 0;
@@ -603,6 +635,9 @@ int cmd_link_update(int argc, char **argv) {
     int has_row = 0;
     int tx_started = 0;
     int exit_code = 1;
+    int enforce_session_budget = 0;
+    int64_t session_max_writes = 0;
+    int64_t session_write_count = 0;
     char stable_id[128];
     char workspace_key[128];
     char project_key[128];
@@ -615,6 +650,13 @@ int cmd_link_update(int argc, char **argv) {
 
     if (!db_path || !id_text || !kind || !parse_i64_arg(id_text, &link_id)) {
         print_usage(argv[0]);
+        return 1;
+    }
+    if (!parse_session_budget_arg("link-update",
+                                  session_id,
+                                  session_max_writes_text,
+                                  &session_max_writes,
+                                  &enforce_session_budget)) {
         return 1;
     }
     if (!is_allowed_link_kind(kind)) {
@@ -632,18 +674,38 @@ int cmd_link_update(int argc, char **argv) {
         return 1;
     }
 
+    result = fetch_link_endpoints(&db, link_id, &from_item_id, &to_item_id);
+    if (result.code != CORE_OK) {
+        print_core_error("link-update", result);
+        goto cleanup;
+    }
+    if (enforce_session_budget) {
+        result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
+        if (result.code != CORE_OK) {
+            print_core_error("link-update", result);
+            goto cleanup;
+        }
+        if (session_write_count >= session_max_writes) {
+            (void)report_session_budget_exceeded(&db,
+                                                 "link-update",
+                                                 session_id,
+                                                 session_write_count,
+                                                 session_max_writes,
+                                                 from_item_id,
+                                                 stable_id[0] != '\0' ? stable_id : 0,
+                                                 workspace_key,
+                                                 project_key,
+                                                 item_kind);
+            goto cleanup;
+        }
+    }
+
     result = core_memdb_tx_begin(&db);
     if (result.code != CORE_OK) {
         print_core_error("link-update", result);
         goto cleanup;
     }
     tx_started = 1;
-
-    result = fetch_link_endpoints(&db, link_id, &from_item_id, &to_item_id);
-    if (result.code != CORE_OK) {
-        print_core_error("link-update", result);
-        goto cleanup;
-    }
     result = fetch_item_audit_metadata(&db,
                                        from_item_id,
                                        stable_id,
@@ -764,6 +826,7 @@ int cmd_link_remove(int argc, char **argv) {
     const char *db_path = find_flag_value(argc, argv, "--db");
     const char *id_text = find_flag_value(argc, argv, "--id");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
+    const char *session_max_writes_text = find_flag_value(argc, argv, "--session-max-writes");
     int64_t link_id = 0;
     int64_t from_item_id = 0;
     int64_t to_item_id = 0;
@@ -771,6 +834,9 @@ int cmd_link_remove(int argc, char **argv) {
     int has_row = 0;
     int tx_started = 0;
     int exit_code = 1;
+    int enforce_session_budget = 0;
+    int64_t session_max_writes = 0;
+    int64_t session_write_count = 0;
     char stable_id[128];
     char workspace_key[128];
     char project_key[128];
@@ -785,21 +851,49 @@ int cmd_link_remove(int argc, char **argv) {
         print_usage(argv[0]);
         return 1;
     }
+    if (!parse_session_budget_arg("link-remove",
+                                  session_id,
+                                  session_max_writes_text,
+                                  &session_max_writes,
+                                  &enforce_session_budget)) {
+        return 1;
+    }
     if (!open_db_or_fail(db_path, &db)) {
         return 1;
     }
-    result = core_memdb_tx_begin(&db);
-    if (result.code != CORE_OK) {
-        print_core_error("link-remove", result);
-        goto cleanup;
-    }
-    tx_started = 1;
 
     result = fetch_link_endpoints(&db, link_id, &from_item_id, &to_item_id);
     if (result.code != CORE_OK) {
         print_core_error("link-remove", result);
         goto cleanup;
     }
+    if (enforce_session_budget) {
+        result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
+        if (result.code != CORE_OK) {
+            print_core_error("link-remove", result);
+            goto cleanup;
+        }
+        if (session_write_count >= session_max_writes) {
+            (void)report_session_budget_exceeded(&db,
+                                                 "link-remove",
+                                                 session_id,
+                                                 session_write_count,
+                                                 session_max_writes,
+                                                 from_item_id,
+                                                 stable_id[0] != '\0' ? stable_id : 0,
+                                                 workspace_key,
+                                                 project_key,
+                                                 item_kind);
+            goto cleanup;
+        }
+    }
+
+    result = core_memdb_tx_begin(&db);
+    if (result.code != CORE_OK) {
+        print_core_error("link-remove", result);
+        goto cleanup;
+    }
+    tx_started = 1;
     result = fetch_item_audit_metadata(&db,
                                        from_item_id,
                                        stable_id,

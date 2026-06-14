@@ -2,6 +2,7 @@
 
 #include "core_io.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -45,6 +46,14 @@ typedef struct Vf2dHeaderCanonical {
 static const uint32_t VOLUME_MAGIC = ('V' << 24) | ('F' << 16) | ('R' << 8) | ('M');
 static const uint32_t VOLUME_VERSION_V2 = 2;
 static const uint32_t VOLUME_VERSION_V1 = 1;
+
+static bool mul_overflow_size_t(size_t a, size_t b, size_t *out) {
+    if (a != 0 && b > (SIZE_MAX / a)) {
+        return true;
+    }
+    *out = a * b;
+    return false;
+}
 
 CoreResult core_pack_convert_vf2d(const char *vf2d_path, const char *pack_path, const char *manifest_path_optional) {
     if (!vf2d_path || !pack_path) {
@@ -119,8 +128,14 @@ CoreResult core_pack_convert_vf2d(const char *vf2d_path, const char *pack_path, 
         return r;
     }
 
-    size_t count = (size_t)canon.grid_w * (size_t)canon.grid_h;
-    size_t bytes = count * sizeof(float);
+    size_t count = 0;
+    size_t bytes = 0;
+    if (mul_overflow_size_t((size_t)canon.grid_w, (size_t)canon.grid_h, &count) ||
+        mul_overflow_size_t(count, sizeof(float), &bytes)) {
+        fclose(f);
+        CoreResult r = { CORE_ERR_FORMAT, "vf2d dimensions too large" };
+        return r;
+    }
 
     float *density = (float *)core_alloc(bytes);
     float *velx = (float *)core_alloc(bytes);

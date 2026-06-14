@@ -2,6 +2,7 @@
 
 #include "core_io.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -45,6 +46,14 @@ typedef struct Vf3dHeaderCanonical {
 
 static const uint32_t VOLUME_VF3D_MAGIC = ('V' << 24) | ('F' << 16) | ('3' << 8) | ('D');
 static const uint32_t VOLUME_VF3D_VERSION_V1 = 1;
+
+static bool mul_overflow_size_t(size_t a, size_t b, size_t *out) {
+    if (a != 0 && b > (SIZE_MAX / a)) {
+        return true;
+    }
+    *out = a * b;
+    return false;
+}
 
 CoreResult core_pack_convert_vf3d(const char *vf3d_path, const char *pack_path, const char *manifest_path_optional) {
     if (!vf3d_path || !pack_path) {
@@ -115,9 +124,14 @@ CoreResult core_pack_convert_vf3d(const char *vf3d_path, const char *pack_path, 
     canon.scene_up_z = h.scene_up_z;
     canon.solid_mask_crc32 = h.solid_mask_crc32;
 
-    count = (size_t)canon.grid_w * (size_t)canon.grid_h * (size_t)canon.grid_d;
-    float_bytes = count * sizeof(float);
-    solid_bytes = count * sizeof(uint8_t);
+    if (mul_overflow_size_t((size_t)canon.grid_w, (size_t)canon.grid_h, &count) ||
+        mul_overflow_size_t(count, (size_t)canon.grid_d, &count) ||
+        mul_overflow_size_t(count, sizeof(float), &float_bytes) ||
+        mul_overflow_size_t(count, sizeof(uint8_t), &solid_bytes)) {
+        fclose(f);
+        CoreResult r = { CORE_ERR_FORMAT, "vf3d dimensions too large" };
+        return r;
+    }
     density = (float *)core_alloc(float_bytes);
     velx = (float *)core_alloc(float_bytes);
     vely = (float *)core_alloc(float_bytes);

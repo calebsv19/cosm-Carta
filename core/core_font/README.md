@@ -20,3 +20,14 @@ Shared font role and fallback policy contract.
 ## Status
 - Bootstrap implementation with unit tests.
 - Preset fallback paths now resolve to checked-in shared assets under `shared/assets/fonts/` for deterministic TTF availability in kit Vulkan UIs.
+
+## Current Contract
+- `core_font_choose_path` is a selection helper, not a filesystem validator.
+- When no `path_exists_fn` callback is supplied, `core_font_choose_path` returns the first non-empty configured candidate: primary first, then fallback.
+- Unknown manifest entry keys are tolerated for forward-compatible metadata growth.
+- Unknown non-entry manifest lines are rejected as format errors.
+- Manifest lines longer than the current parser buffer are rejected as invalid input.
+
+## Current Limits
+- The preset set is currently fixed to `daw_default` and `ide`.
+- Manifest parsing validates line structure and required fields, but does not own asset installation or synchronization policy.

@@ -12,6 +12,7 @@ LIB_OBJ = $(OBJ_DIR)/core_trace.o
 TEST_BIN = $(OBJ_DIR)/core_trace_test
 FIXTURE_BIN = $(OBJ_DIR)/core_trace_fixture_gen
 FIXTURE_PACK = tests/fixtures/trace_v1_sample.pack
+PHASE7_PACK = $(OBJ_DIR)/trace_v1_sample.generated.pack
 
 .PHONY: all clean test fixtures phase7-check
 
@@ -48,11 +49,14 @@ $(FIXTURE_PACK): $(FIXTURE_BIN)
 	@mkdir -p tests/fixtures
 	./$(FIXTURE_BIN) $(FIXTURE_PACK)
 
+$(PHASE7_PACK): $(FIXTURE_BIN) | $(OBJ_DIR)
+	./$(FIXTURE_BIN) $(PHASE7_PACK)
+
 fixtures: $(FIXTURE_PACK)
 
-phase7-check: test fixtures
+phase7-check: test $(PHASE7_PACK)
 	$(MAKE) -C $(CORE_PACK_DIR) tools
-	$(CORE_PACK_DIR)/build/pack_cli inspect $(FIXTURE_PACK) > /tmp/core_trace_fixture.inspect.txt
+	$(CORE_PACK_DIR)/build/pack_cli inspect $(PHASE7_PACK) > /tmp/core_trace_fixture.inspect.txt
 
 clean:
 	rm -rf $(OBJ_DIR)

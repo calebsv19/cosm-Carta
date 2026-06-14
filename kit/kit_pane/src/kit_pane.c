@@ -7,6 +7,7 @@
 
 #include "kit_pane.h"
 
+#include <math.h>
 #include <stdio.h>
 
 static CoreResult kit_pane_invalid(const char *message) {
@@ -23,6 +24,10 @@ static float pane_clampf(float value, float lo, float hi) {
     if (value < lo) return lo;
     if (value > hi) return hi;
     return value;
+}
+
+static int pane_isfinite(float value) {
+    return isfinite(value) ? 1 : 0;
 }
 
 static void pane_clear_splitter_hit(CorePaneSplitterHit *hit) {
@@ -179,7 +184,7 @@ CoreResult kit_pane_splitter_interaction_set_hover_from_hits(KitPaneSplitterInte
                                                              float point_y) {
     CorePaneSplitterHit hit = {0};
 
-    if (!interaction || !hits) {
+    if (!interaction || (!hits && hit_count > 0u)) {
         return kit_pane_invalid("invalid cached splitter hover request");
     }
     if (interaction->drag_active) {
@@ -237,7 +242,7 @@ CoreResult kit_pane_splitter_interaction_begin_drag_from_hits(KitPaneSplitterInt
                                                               float point_y) {
     CorePaneSplitterHit hit = {0};
 
-    if (!interaction || !hits) {
+    if (!interaction || (!hits && hit_count > 0u)) {
         return kit_pane_invalid("invalid cached splitter drag begin request");
     }
 
@@ -275,8 +280,18 @@ CoreResult kit_pane_splitter_interaction_update_drag(KitPaneSplitterInteraction 
     if (interaction->drag_hit.node_index >= node_count) {
         return kit_pane_invalid("splitter drag hit node out of range");
     }
+    if (!pane_isfinite(point_x) || !pane_isfinite(point_y)) {
+        return kit_pane_invalid("splitter drag update point must be finite");
+    }
 
     node = &nodes[interaction->drag_hit.node_index];
+    if (node->type != CORE_PANE_NODE_SPLIT) {
+        return kit_pane_invalid("splitter drag hit no longer targets a split node");
+    }
+    if (interaction->drag_hit.axis != node->axis || !pane_isfinite(interaction->drag_hit.parent_span) ||
+        interaction->drag_hit.parent_span <= 0.0f) {
+        return kit_pane_invalid("splitter drag hit metadata is stale");
+    }
     before_ratio = node->ratio_01;
     delta_x = point_x - interaction->drag_last_x;
     delta_y = point_y - interaction->drag_last_y;
@@ -424,6 +439,9 @@ CoreResult kit_pane_draw_chrome(KitRenderContext *render_ctx,
     }
 
     header_rect = inner_rect;
+    if (header_rect.height < local_style.header_height) {
+        local_style.header_height = header_rect.height;
+    }
     header_rect.height = local_style.header_height;
     rect_cmd.rect = header_rect;
     rect_cmd.corner_radius = local_style.corner_radius;

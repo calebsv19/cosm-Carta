@@ -18,6 +18,16 @@ static int test_stats(void) {
     return 0;
 }
 
+static int test_stats_invalid_inputs(void) {
+    const float bad_values[2] = {1.0f, NAN};
+    KitVizFieldStats stats = {7.0f, 8.0f, 9.0f};
+    CoreResult r = kit_viz_compute_field_stats(bad_values, 2, 1, &stats);
+    if (r.code != CORE_ERR_INVALID_ARG) return 1;
+    if (stats.min_value != 0.0f || stats.max_value != 0.0f || stats.mean_value != 0.0f) return 1;
+    if (kit_viz_compute_field_stats(NULL, 2, 1, &stats).code != CORE_ERR_INVALID_ARG) return 1;
+    return 0;
+}
+
 static int test_heatmap_rgba(void) {
     const float values[4] = { 0.0f, 1.0f, 2.0f, 3.0f };
     uint8_t rgba[16];
@@ -39,6 +49,42 @@ static int test_heatmap_rgba(void) {
     return 0;
 }
 
+static int test_heatmap_invalid_inputs(void) {
+    const float values[2] = {0.0f, NAN};
+    uint8_t rgba[8] = {0};
+    if (kit_viz_build_heatmap_rgba(values,
+                                   1,
+                                   2,
+                                   0.0f,
+                                   1.0f,
+                                   KIT_VIZ_COLORMAP_GRAYSCALE,
+                                   rgba,
+                                   sizeof(rgba)).code != CORE_ERR_INVALID_ARG) {
+        return 1;
+    }
+    if (kit_viz_build_heatmap_rgba((const float[]){0.0f, 1.0f},
+                                   1,
+                                   2,
+                                   0.0f,
+                                   1.0f,
+                                   (KitVizColormap)99,
+                                   rgba,
+                                   sizeof(rgba)).code != CORE_ERR_INVALID_ARG) {
+        return 1;
+    }
+    if (kit_viz_build_heatmap_rgba((const float[]){0.0f, 1.0f},
+                                   1,
+                                   2,
+                                   NAN,
+                                   1.0f,
+                                   KIT_VIZ_COLORMAP_GRAYSCALE,
+                                   rgba,
+                                   sizeof(rgba)).code != CORE_ERR_INVALID_ARG) {
+        return 1;
+    }
+    return 0;
+}
+
 static int test_vector_segments(void) {
     const float vx[9] = { 0.0f, 1.0f, 2.0f, -1.0f, 0.0f, 1.0f, -2.0f, -1.0f, 0.0f };
     const float vy[9] = { 0.0f, 0.5f, 0.0f, -0.5f, 0.0f, 0.5f, 0.0f, -0.5f, 0.0f };
@@ -55,6 +101,33 @@ static int test_vector_segments(void) {
     }
     if (fabsf(segs[0].x0 - 0.5f) > 1e-6f || fabsf(segs[0].y0 - 0.5f) > 1e-6f) return 1;
     if (fabsf(segs[3].x0 - 2.5f) > 1e-6f || fabsf(segs[3].y0 - 2.5f) > 1e-6f) return 1;
+    return 0;
+}
+
+static int test_vector_segments_invalid_inputs(void) {
+    const float vx[4] = {0.0f, 1.0f, 2.0f, 3.0f};
+    const float vy[4] = {0.0f, 1.0f, 2.0f, 3.0f};
+    KitVizVecSegment segs[1];
+    size_t seg_count = 99;
+    if (kit_viz_build_vector_segments(vx, vy, 2, 2, 1, NAN, segs, 1, &seg_count).code != CORE_ERR_INVALID_ARG) {
+        return 1;
+    }
+    if (seg_count != 0) return 1;
+    if (kit_viz_build_vector_segments((const float[]){0.0f, NAN, 0.0f, 0.0f},
+                                      vy,
+                                      2,
+                                      2,
+                                      1,
+                                      1.0f,
+                                      segs,
+                                      4,
+                                      &seg_count).code != CORE_ERR_INVALID_ARG) {
+        return 1;
+    }
+    if (kit_viz_build_vector_segments(vx, vy, 2, 2, 1, 1.0f, segs, 1, &seg_count).code != CORE_ERR_INVALID_ARG) {
+        return 1;
+    }
+    if (seg_count != 1) return 1;
     return 0;
 }
 
@@ -87,6 +160,38 @@ static int test_waveform_sampling(void) {
     return 0;
 }
 
+static int test_waveform_invalid_inputs(void) {
+    const float mins[3] = {-1.0f, -0.5f, 0.0f};
+    const float maxs[3] = {1.0f, 0.5f, 0.0f};
+    float out_mins[2] = {7.0f, 8.0f};
+    float out_maxs[2] = {9.0f, 10.0f};
+
+    if (kit_viz_sample_waveform_envelope(mins,
+                                         maxs,
+                                         3,
+                                         NAN,
+                                         1.0,
+                                         2,
+                                         out_mins,
+                                         out_maxs,
+                                         2).code != CORE_ERR_INVALID_ARG) {
+        return 1;
+    }
+    if (kit_viz_sample_waveform_envelope((const float[]){-1.0f, NAN, 0.0f},
+                                         maxs,
+                                         3,
+                                         0.0,
+                                         1.0,
+                                         2,
+                                         out_mins,
+                                         out_maxs,
+                                         2).code != CORE_ERR_INVALID_ARG) {
+        return 1;
+    }
+    if (out_mins[0] != 7.0f || out_maxs[0] != 9.0f) return 1;
+    return 0;
+}
+
 static int test_polyline_segments(void) {
     const float xs[4] = {0.0f, 1.0f, 2.5f, 2.5f};
     const float ys[4] = {0.0f, 0.5f, 0.5f, 1.0f};
@@ -104,12 +209,41 @@ static int test_polyline_segments(void) {
     return 0;
 }
 
+static int test_polyline_edge_cases(void) {
+    KitVizVecSegment segs[2];
+    size_t seg_count = 99;
+    if (kit_viz_build_polyline_segments((const float[]){0.0f},
+                                        (const float[]){1.0f},
+                                        1,
+                                        segs,
+                                        2,
+                                        &seg_count).code != CORE_OK) {
+        return 1;
+    }
+    if (seg_count != 0) return 1;
+    if (kit_viz_build_polyline_segments((const float[]){0.0f, NAN},
+                                        (const float[]){0.0f, 1.0f},
+                                        2,
+                                        segs,
+                                        2,
+                                        &seg_count).code != CORE_ERR_INVALID_ARG) {
+        return 1;
+    }
+    if (seg_count != 0) return 1;
+    return 0;
+}
+
 int main(void) {
     if (test_stats() != 0) return 1;
+    if (test_stats_invalid_inputs() != 0) return 1;
     if (test_heatmap_rgba() != 0) return 1;
+    if (test_heatmap_invalid_inputs() != 0) return 1;
     if (test_vector_segments() != 0) return 1;
+    if (test_vector_segments_invalid_inputs() != 0) return 1;
     if (test_waveform_sampling() != 0) return 1;
+    if (test_waveform_invalid_inputs() != 0) return 1;
     if (test_polyline_segments() != 0) return 1;
+    if (test_polyline_edge_cases() != 0) return 1;
 
     puts("kit_viz tests passed");
     return 0;

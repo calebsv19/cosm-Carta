@@ -653,11 +653,13 @@ CoreResult core_memdb_open(const char *path, CoreMemDb *out_db) {
     int sqlite_result;
     CoreResult result;
 
+    if (out_db) {
+        core_memdb_clear_db(out_db);
+    }
     if (!path || !out_db) {
         return core_memdb_result(CORE_ERR_INVALID_ARG, "invalid argument");
     }
 
-    core_memdb_clear_db(out_db);
     sqlite_result = sqlite3_open_v2(path,
                                     &handle,
                                     SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
@@ -726,16 +728,17 @@ CoreResult core_memdb_prepare(CoreMemDb *db, const char *sql, CoreMemStmt *out_s
     CoreResult result;
     int sqlite_result;
 
+    if (out_stmt) {
+        core_memdb_clear_stmt(out_stmt);
+    }
     if (!db || !sql || !out_stmt) {
         return core_memdb_result(CORE_ERR_INVALID_ARG, "invalid argument");
     }
     result = core_memdb_require_open_db(db, &handle);
     if (result.code != CORE_OK) {
-        core_memdb_clear_stmt(out_stmt);
         return result;
     }
 
-    core_memdb_clear_stmt(out_stmt);
     sqlite_result = sqlite3_prepare_v2(handle, sql, -1, &stmt_handle, 0);
     if (sqlite_result != SQLITE_OK) {
         if (stmt_handle) {
@@ -754,12 +757,14 @@ CoreResult core_memdb_stmt_step(CoreMemStmt *stmt, int *out_has_row) {
     CoreResult result;
     int sqlite_result;
 
+    if (out_has_row) {
+        *out_has_row = 0;
+    }
     if (!stmt || !out_has_row) {
         return core_memdb_result(CORE_ERR_INVALID_ARG, "invalid argument");
     }
     result = core_memdb_require_live_stmt(stmt, &handle);
     if (result.code != CORE_OK) {
-        *out_has_row = 0;
         return result;
     }
 
@@ -773,7 +778,6 @@ CoreResult core_memdb_stmt_step(CoreMemStmt *stmt, int *out_has_row) {
         return core_result_ok();
     }
 
-    *out_has_row = 0;
     return core_memdb_sqlite_stmt_error(handle, sqlite_result, "statement step failed");
 }
 
@@ -908,12 +912,14 @@ CoreResult core_memdb_stmt_column_i64(CoreMemStmt *stmt, int column_0based, int6
     sqlite3_stmt *handle = 0;
     CoreResult result;
 
+    if (out_value) {
+        *out_value = 0;
+    }
     if (!stmt || !out_value || column_0based < 0) {
         return core_memdb_result(CORE_ERR_INVALID_ARG, "invalid argument");
     }
     result = core_memdb_require_live_stmt(stmt, &handle);
     if (result.code != CORE_OK) {
-        *out_value = 0;
         return result;
     }
 
@@ -926,13 +932,15 @@ CoreResult core_memdb_stmt_column_text(CoreMemStmt *stmt, int column_0based, Cor
     const unsigned char *text_data = 0;
     CoreResult result;
 
+    if (out_text) {
+        out_text->data = 0;
+        out_text->len = 0;
+    }
     if (!stmt || !out_text || column_0based < 0) {
         return core_memdb_result(CORE_ERR_INVALID_ARG, "invalid argument");
     }
     result = core_memdb_require_live_stmt(stmt, &handle);
     if (result.code != CORE_OK) {
-        out_text->data = 0;
-        out_text->len = 0;
         return result;
     }
 

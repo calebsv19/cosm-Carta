@@ -1,6 +1,7 @@
 #include "kit_render.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static void test_release_callback(void *backend_handle, void *user) {
     int *release_count = (int *)user;
@@ -381,6 +382,190 @@ static int test_invalid_commands(void) {
     return 0;
 }
 
+static int test_frame_lifecycle_edges(void) {
+    KitRenderContext ctx;
+    KitRenderCommand storage[2];
+    KitRenderCommandBuffer buffer;
+    KitRenderFrame frame;
+    CoreResult result;
+
+    memset(&ctx, 0, sizeof(ctx));
+    memset(&frame, 0, sizeof(frame));
+    result = kit_render_end_frame(&ctx, &frame);
+    if (result.code != CORE_ERR_INVALID_ARG) {
+        fprintf(stderr, "expected invalid-arg for end_frame before init\n");
+        return 1;
+    }
+
+    result = kit_render_context_init(&ctx,
+                                     KIT_RENDER_BACKEND_NULL,
+                                     CORE_THEME_PRESET_DAW_DEFAULT,
+                                     CORE_FONT_PRESET_DAW_DEFAULT);
+    if (result.code != CORE_OK) return 1;
+
+    result = kit_render_begin_frame(&ctx, 0, 64, &buffer, &frame);
+    if (result.code != CORE_ERR_INVALID_ARG) {
+        fprintf(stderr, "expected invalid-arg for zero-width frame\n");
+        return 1;
+    }
+
+    buffer.commands = storage;
+    buffer.capacity = 0;
+    buffer.count = 0;
+    result = kit_render_begin_frame(&ctx, 64, 64, &buffer, &frame);
+    if (result.code != CORE_ERR_INVALID_ARG) {
+        fprintf(stderr, "expected invalid-arg for zero-capacity command buffer\n");
+        return 1;
+    }
+
+    buffer.commands = storage;
+    buffer.capacity = 2;
+    buffer.count = 88;
+    result = kit_render_begin_frame(&ctx, 64, 64, &buffer, &frame);
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "begin_frame failed unexpectedly: %d\n", (int)result.code);
+        return 1;
+    }
+    if (buffer.count != 0) {
+        fprintf(stderr, "begin_frame did not reset command count\n");
+        return 1;
+    }
+
+    result = kit_render_begin_frame(&ctx, 64, 64, &buffer, &frame);
+    if (result.code != CORE_ERR_INVALID_ARG) {
+        fprintf(stderr, "expected invalid-arg for double begin_frame\n");
+        return 1;
+    }
+
+    result = kit_render_end_frame(&ctx, &frame);
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "end_frame failed unexpectedly: %d\n", (int)result.code);
+        return 1;
+    }
+
+    result = kit_render_end_frame(&ctx, &frame);
+    if (result.code != CORE_ERR_INVALID_ARG) {
+        fprintf(stderr, "expected invalid-arg for end_frame without open frame\n");
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_zoom_controls(void) {
+    KitRenderContext ctx;
+    KitRenderCommand storage[2];
+    KitRenderCommandBuffer buffer;
+    KitRenderFrame frame;
+    CoreResult result;
+
+    result = kit_render_context_init(&ctx,
+                                     KIT_RENDER_BACKEND_NULL,
+                                     CORE_THEME_PRESET_DAW_DEFAULT,
+                                     CORE_FONT_PRESET_DAW_DEFAULT);
+    if (result.code != CORE_OK) return 1;
+
+    result = kit_render_set_text_zoom_step(&ctx, 99);
+    if (result.code != CORE_OK) return 1;
+    if (kit_render_text_zoom_step(&ctx) != 5 || kit_render_text_zoom_percent(&ctx) != 150) {
+        fprintf(stderr, "zoom upper clamp failed\n");
+        return 1;
+    }
+
+    result = kit_render_set_text_zoom_step(&ctx, -99);
+    if (result.code != CORE_OK) return 1;
+    if (kit_render_text_zoom_step(&ctx) != -4 || kit_render_text_zoom_percent(&ctx) != 60) {
+        fprintf(stderr, "zoom lower clamp failed\n");
+        return 1;
+    }
+
+    result = kit_render_adjust_text_zoom_step(&ctx, 3);
+    if (result.code != CORE_OK) return 1;
+    if (kit_render_text_zoom_step(&ctx) != -1) {
+        fprintf(stderr, "zoom adjust failed\n");
+        return 1;
+    }
+
+    result = kit_render_reset_text_zoom_step(&ctx);
+    if (result.code != CORE_OK) return 1;
+    if (kit_render_text_zoom_step(&ctx) != 0 || kit_render_text_zoom_percent(&ctx) != 100) {
+        fprintf(stderr, "zoom reset failed\n");
+        return 1;
+    }
+
+    buffer.commands = storage;
+    buffer.capacity = 2;
+    buffer.count = 0;
+    result = kit_render_begin_frame(&ctx, 64, 64, &buffer, &frame);
+    if (result.code != CORE_OK) return 1;
+    result = kit_render_set_text_zoom_step(&ctx, 1);
+    if (result.code != CORE_ERR_INVALID_ARG) {
+        fprintf(stderr, "expected zoom mutation rejection during frame\n");
+        return 1;
+    }
+    result = kit_render_end_frame(&ctx, &frame);
+    if (result.code != CORE_OK) return 1;
+
+    return 0;
+}
+
+static int test_borrowed_command_storage(void) {
+    KitRenderContext ctx;
+    KitRenderCommand storage[4];
+    KitRenderCommandBuffer buffer;
+    KitRenderFrame frame;
+    KitRenderTextCommand text_cmd;
+    KitRenderPolylineCommand polyline_cmd;
+    KitRenderVec2 points[3];
+    const char *label = "borrowed-label";
+    CoreResult result;
+
+    result = kit_render_context_init(&ctx,
+                                     KIT_RENDER_BACKEND_NULL,
+                                     CORE_THEME_PRESET_DAW_DEFAULT,
+                                     CORE_FONT_PRESET_DAW_DEFAULT);
+    if (result.code != CORE_OK) return 1;
+
+    buffer.commands = storage;
+    buffer.capacity = 4;
+    buffer.count = 0;
+    result = kit_render_begin_frame(&ctx, 128, 64, &buffer, &frame);
+    if (result.code != CORE_OK) return 1;
+
+    points[0] = (KitRenderVec2){0.0f, 0.0f};
+    points[1] = (KitRenderVec2){10.0f, 10.0f};
+    points[2] = (KitRenderVec2){20.0f, 5.0f};
+    polyline_cmd.points = points;
+    polyline_cmd.point_count = 3;
+    polyline_cmd.thickness = 2.0f;
+    polyline_cmd.color = (KitRenderColor){255, 255, 255, 255};
+    polyline_cmd.transform = kit_render_identity_transform();
+    result = kit_render_push_polyline(&frame, &polyline_cmd);
+    if (result.code != CORE_OK) return 1;
+
+    text_cmd.origin = (KitRenderVec2){4.0f, 8.0f};
+    text_cmd.text = label;
+    text_cmd.font_role = CORE_FONT_ROLE_UI_REGULAR;
+    text_cmd.text_tier = CORE_FONT_TEXT_SIZE_BASIC;
+    text_cmd.color_token = CORE_THEME_COLOR_TEXT_PRIMARY;
+    text_cmd.transform = kit_render_identity_transform();
+    result = kit_render_push_text(&frame, &text_cmd);
+    if (result.code != CORE_OK) return 1;
+
+    if (buffer.commands[0].data.polyline.points != points) {
+        fprintf(stderr, "polyline points were unexpectedly deep-copied\n");
+        return 1;
+    }
+    if (buffer.commands[1].data.text.text != label) {
+        fprintf(stderr, "text pointer was unexpectedly copied/rebased\n");
+        return 1;
+    }
+
+    result = kit_render_end_frame(&ctx, &frame);
+    if (result.code != CORE_OK) return 1;
+    return 0;
+}
+
 static int test_external_backend_attachment(void) {
     KitRenderContext null_ctx;
     KitRenderContext vk_ctx;
@@ -393,44 +578,138 @@ static int test_external_backend_attachment(void) {
                                      KIT_RENDER_BACKEND_NULL,
                                      CORE_THEME_PRESET_DAW_DEFAULT,
                                      CORE_FONT_PRESET_DAW_DEFAULT);
-    if (result.code != CORE_OK) return 1;
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "null init failed: %d\n", (int)result.code);
+        return 1;
+    }
     result = kit_render_attach_external_backend(&null_ctx, &fake_backend);
-    if (result.code != CORE_ERR_INVALID_ARG) return 1;
+    if (result.code != CORE_ERR_INVALID_ARG) {
+        fprintf(stderr, "null attach expected invalid-arg, got %d\n", (int)result.code);
+        return 1;
+    }
 
     result = kit_render_context_init(&vk_ctx,
                                      KIT_RENDER_BACKEND_VULKAN,
                                      CORE_THEME_PRESET_DAW_DEFAULT,
                                      CORE_FONT_PRESET_DAW_DEFAULT);
-    if (result.code != CORE_OK) return 1;
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "vk init 1 failed: %d\n", (int)result.code);
+        return 1;
+    }
     result = kit_render_attach_external_backend(&vk_ctx, &fake_backend);
-    if (result.code != CORE_OK) return 1;
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "vk attach 1 failed: %d\n", (int)result.code);
+        return 1;
+    }
     kit_render_context_shutdown(&vk_ctx);
 
     result = kit_render_context_init(&vk_ctx,
                                      KIT_RENDER_BACKEND_VULKAN,
                                      CORE_THEME_PRESET_DAW_DEFAULT,
                                      CORE_FONT_PRESET_DAW_DEFAULT);
-    if (result.code != CORE_OK) return 1;
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "vk init 2 failed: %d\n", (int)result.code);
+        return 1;
+    }
+    result = kit_render_attach_external_backend(&vk_ctx, &fake_backend);
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "vk attach 2 failed: %d\n", (int)result.code);
+        return 1;
+    }
+    {
+        KitRenderCommand storage[1];
+        KitRenderCommandBuffer buffer;
+        KitRenderFrame frame;
+        buffer.commands = storage;
+        buffer.capacity = 1;
+        buffer.count = 0;
+        result = kit_render_begin_frame(&vk_ctx, 32, 32, &buffer, &frame);
+        if (result.code != CORE_OK) {
+            fprintf(stderr, "vk begin_frame failed: %d\n", (int)result.code);
+            return 1;
+        }
+        result = kit_render_attach_external_backend(&vk_ctx, &fake_backend);
+        if (result.code != CORE_ERR_INVALID_ARG) {
+            fprintf(stderr, "expected attach rejection during frame\n");
+            return 1;
+        }
+        kit_render_context_shutdown(&vk_ctx);
+    }
+    result = kit_render_context_init(&vk_ctx,
+                                     KIT_RENDER_BACKEND_VULKAN,
+                                     CORE_THEME_PRESET_DAW_DEFAULT,
+                                     CORE_FONT_PRESET_DAW_DEFAULT);
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "vk init 3 failed: %d\n", (int)result.code);
+        return 1;
+    }
     result = kit_render_adopt_external_backend(&vk_ctx,
                                                &owned_backend,
                                                test_release_callback,
                                                &release_count);
-    if (result.code != CORE_OK) return 1;
-    if (release_count != 0) return 1;
+    if (result.code != CORE_OK) {
+        fprintf(stderr, "vk adopt failed: %d\n", (int)result.code);
+        return 1;
+    }
+    if (release_count != 0) {
+        fprintf(stderr, "release count changed too early: %d\n", release_count);
+        return 1;
+    }
     kit_render_context_shutdown(&vk_ctx);
-    if (release_count != 1) return 1;
+    if (release_count != 1) {
+        fprintf(stderr, "release count after owned shutdown = %d\n", release_count);
+        return 1;
+    }
+    kit_render_context_shutdown(&vk_ctx);
+    if (release_count != 1) {
+        fprintf(stderr, "shutdown idempotence failed\n");
+        return 1;
+    }
 
     return 0;
 }
 
 int main(void) {
-    if (test_frame_recording() != 0) return 1;
-    if (test_theme_color_resolution() != 0) return 1;
-    if (test_text_metrics() != 0) return 1;
-    if (test_text_run_resolution() != 0) return 1;
-    if (test_runtime_preset_switching() != 0) return 1;
-    if (test_invalid_commands() != 0) return 1;
-    if (test_external_backend_attachment() != 0) return 1;
+    if (test_frame_recording() != 0) {
+        fprintf(stderr, "test_frame_recording failed\n");
+        return 1;
+    }
+    if (test_theme_color_resolution() != 0) {
+        fprintf(stderr, "test_theme_color_resolution failed\n");
+        return 1;
+    }
+    if (test_text_metrics() != 0) {
+        fprintf(stderr, "test_text_metrics failed\n");
+        return 1;
+    }
+    if (test_text_run_resolution() != 0) {
+        fprintf(stderr, "test_text_run_resolution failed\n");
+        return 1;
+    }
+    if (test_frame_lifecycle_edges() != 0) {
+        fprintf(stderr, "test_frame_lifecycle_edges failed\n");
+        return 1;
+    }
+    if (test_zoom_controls() != 0) {
+        fprintf(stderr, "test_zoom_controls failed\n");
+        return 1;
+    }
+    if (test_borrowed_command_storage() != 0) {
+        fprintf(stderr, "test_borrowed_command_storage failed\n");
+        return 1;
+    }
+    if (test_runtime_preset_switching() != 0) {
+        fprintf(stderr, "test_runtime_preset_switching failed\n");
+        return 1;
+    }
+    if (test_invalid_commands() != 0) {
+        fprintf(stderr, "test_invalid_commands failed\n");
+        return 1;
+    }
+    if (test_external_backend_attachment() != 0) {
+        fprintf(stderr, "test_external_backend_attachment failed\n");
+        return 1;
+    }
 
     puts("kit_render tests passed");
     return 0;
