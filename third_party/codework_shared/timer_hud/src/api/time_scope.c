@@ -6,6 +6,8 @@
  */
 
 #include "timer_hud/time_scope.h"
+#include "timer_hud/settings_loader.h"
+#include "../core/session.h"
 #include "../events/event_tracker.h"
 #include "../logging/logger.h"
 #include "../core/timer_manager.h"
@@ -33,11 +35,6 @@
 #define TS_OUTPUT_DIR_NAME "timerhud"
 #define TS_DEFAULT_SETTINGS_FILE "settings.json"
 #define TS_DEFAULT_LOG_FILE "timing.json"
-
-static const TimerHUDBackend* g_backend = NULL;
-static char g_settings_path[PATH_MAX] = {0};
-static char g_output_root[PATH_MAX] = {0};
-static char g_program_name[64] = {0};
 
 static void ts_strlcpy(char* dst, size_t dst_cap, const char* src) {
     if (!dst || dst_cap == 0) return;
@@ -111,6 +108,52 @@ static int ensure_parent_dir(const char* filepath) {
     return ensure_dir_recursive(dir);
 }
 
+static int copy_file_contents(const char* src_path, const char* dst_path) {
+    FILE* in = NULL;
+    FILE* out = NULL;
+    char buffer[4096];
+    size_t n = 0;
+    int ok = 1;
+
+    if (!src_path || !src_path[0] || !dst_path || !dst_path[0]) {
+        return 0;
+    }
+
+    in = fopen(src_path, "rb");
+    if (!in) {
+        return 0;
+    }
+
+    if (!ensure_parent_dir(dst_path)) {
+        fclose(in);
+        return 0;
+    }
+
+    out = fopen(dst_path, "wb");
+    if (!out) {
+        fclose(in);
+        return 0;
+    }
+
+    while ((n = fread(buffer, 1, sizeof(buffer), in)) > 0) {
+        if (fwrite(buffer, 1, n, out) != n) {
+            ok = 0;
+            break;
+        }
+    }
+
+    if (ferror(in)) {
+        ok = 0;
+    }
+    if (fclose(in) != 0) {
+        ok = 0;
+    }
+    if (fclose(out) != 0) {
+        ok = 0;
+    }
+    return ok;
+}
+
 static void sanitize_program_name(const char* in, char* out, size_t out_cap) {
     if (!out || out_cap == 0) return;
     if (!in || !in[0]) {
@@ -177,11 +220,11 @@ static int resolve_executable_dir(char* out, size_t out_cap) {
     return 1;
 }
 
-static void resolve_program_name(char* out, size_t out_cap) {
+static void resolve_program_name(const TimerHUDSession* session, char* out, size_t out_cap) {
     if (!out || out_cap == 0) return;
 
-    if (g_program_name[0]) {
-        sanitize_program_name(g_program_name, out, out_cap);
+    if (session && session->program_name[0]) {
+        sanitize_program_name(session->program_name, out, out_cap);
         return;
     }
 
@@ -197,18 +240,18 @@ static void resolve_program_name(char* out, size_t out_cap) {
     ts_strlcpy(out, out_cap, TS_DEFAULT_PROGRAM_NAME);
 }
 
-static void resolve_output_root(char* out, size_t out_cap) {
+static void resolve_output_root(const TimerHUDSession* session, char* out, size_t out_cap) {
     if (!out || out_cap == 0) return;
 
-    if (g_output_root[0]) {
-        if (path_is_absolute(g_output_root)) {
-            ts_strlcpy(out, out_cap, g_output_root);
+    if (session && session->output_root[0]) {
+        if (path_is_absolute(session->output_root)) {
+            ts_strlcpy(out, out_cap, session->output_root);
             return;
         }
 
         char cwd[PATH_MAX];
         if (getcwd(cwd, sizeof(cwd))) {
-            join_path(out, out_cap, cwd, g_output_root);
+            join_path(out, out_cap, cwd, session->output_root);
             return;
         }
     }
@@ -222,14 +265,18 @@ static void resolve_output_root(char* out, size_t out_cap) {
     }
 }
 
-static void resolve_settings_path(char* out, size_t out_cap, const char* root, const char* program_dir) {
+static void resolve_settings_path(const TimerHUDSession* session,
+                                  char* out,
+                                  size_t out_cap,
+                                  const char* root,
+                                  const char* program_dir) {
     if (!out || out_cap == 0) return;
 
-    if (g_settings_path[0]) {
-        if (path_is_absolute(g_settings_path)) {
-            ts_strlcpy(out, out_cap, g_settings_path);
+    if (session && session->settings_path[0]) {
+        if (path_is_absolute(session->settings_path)) {
+            ts_strlcpy(out, out_cap, session->settings_path);
         } else {
-            join_path(out, out_cap, root, g_settings_path);
+            join_path(out, out_cap, root, session->settings_path);
         }
         return;
     }
@@ -237,10 +284,12 @@ static void resolve_settings_path(char* out, size_t out_cap, const char* root, c
     join_path(out, out_cap, program_dir, TS_DEFAULT_SETTINGS_FILE);
 }
 
-static void resolve_log_path(char* out, size_t out_cap, const char* program_dir) {
+static void resolve_log_path(const TimerHUDSession* session, char* out, size_t out_cap, const char* program_dir) {
+    const char* configured = NULL;
+
     if (!out || out_cap == 0) return;
 
-    const char* configured = ts_settings.log_filepath;
+    configured = ts_session_get_log_filepath(session);
     if (!configured || !configured[0]) {
         configured = TS_DEFAULT_LOG_FILE;
     }
@@ -253,34 +302,117 @@ static void resolve_log_path(char* out, size_t out_cap, const char* program_dir)
     join_path(out, out_cap, program_dir, configured);
 }
 
+TimerHUDSession* ts_session_create(void) {
+    return ts_session_create_internal();
+}
+
+void ts_session_destroy(TimerHUDSession* session) {
+    if (!session || session == ts_default_session_internal()) {
+        return;
+    }
+    ts_session_shutdown(session);
+    ts_session_destroy_internal(session);
+}
+
+TimerHUDSession* ts_default_session(void) {
+    return ts_default_session_internal();
+}
+
+void ts_session_register_backend(TimerHUDSession* session, const TimerHUDBackend* backend) {
+    if (!session) {
+        return;
+    }
+    hud_set_backend(session, backend);
+}
+
 void ts_register_backend(const TimerHUDBackend* backend) {
-    g_backend = backend;
-    hud_set_backend(backend);
+    ts_session_register_backend(ts_default_session_internal(), backend);
+}
+
+void ts_session_set_settings_path(TimerHUDSession* session, const char* path) {
+    if (!session) {
+        return;
+    }
+    ts_strlcpy(session->settings_path, sizeof(session->settings_path), path ? path : "");
 }
 
 void ts_set_settings_path(const char* path) {
-    ts_strlcpy(g_settings_path, sizeof(g_settings_path), path ? path : "");
+    ts_session_set_settings_path(ts_default_session_internal(), path);
+}
+
+void ts_session_set_output_root(TimerHUDSession* session, const char* path) {
+    if (!session) {
+        return;
+    }
+    ts_strlcpy(session->output_root, sizeof(session->output_root), path ? path : "");
 }
 
 void ts_set_output_root(const char* path) {
-    ts_strlcpy(g_output_root, sizeof(g_output_root), path ? path : "");
+    ts_session_set_output_root(ts_default_session_internal(), path);
+}
+
+void ts_session_set_program_name(TimerHUDSession* session, const char* name) {
+    if (!session) {
+        return;
+    }
+    ts_strlcpy(session->program_name, sizeof(session->program_name), name ? name : "");
 }
 
 void ts_set_program_name(const char* name) {
-    ts_strlcpy(g_program_name, sizeof(g_program_name), name ? name : "");
+    ts_session_set_program_name(ts_default_session_internal(), name);
 }
 
-void ts_set_hud_visual_mode(const char* mode) {
-    if (!mode) return;
-    if (strcmp(mode, "text_compact") != 0 &&
-        strcmp(mode, "history_graph") != 0 &&
-        strcmp(mode, "hybrid") != 0) {
-        return;
+bool ts_seed_settings_file(const char* default_settings_path, const char* runtime_settings_path) {
+    if (!runtime_settings_path || !runtime_settings_path[0]) {
+        return false;
     }
-    ts_strlcpy(ts_settings.hud_visual_mode, sizeof(ts_settings.hud_visual_mode), mode);
+    if (path_exists(runtime_settings_path)) {
+        return true;
+    }
+    if (!default_settings_path || !default_settings_path[0]) {
+        return true;
+    }
+    if (!path_exists(default_settings_path)) {
+        return true;
+    }
+    if (!copy_file_contents(default_settings_path, runtime_settings_path)) {
+        fprintf(stderr,
+                "[TimeScope] Failed to seed settings from %s to %s\n",
+                default_settings_path,
+                runtime_settings_path);
+        return false;
+    }
+    return true;
 }
 
-void ts_init(void) {
+bool ts_session_apply_init_config(TimerHUDSession* session, const TimerHUDInitConfig* config) {
+    if (!session || !config) {
+        return false;
+    }
+
+    if (config->program_name && config->program_name[0]) {
+        ts_session_set_program_name(session, config->program_name);
+    }
+    if (config->output_root && config->output_root[0]) {
+        ts_session_set_output_root(session, config->output_root);
+    }
+    if (config->seed_settings_if_missing &&
+        config->settings_path &&
+        config->settings_path[0] &&
+        !ts_seed_settings_file(config->default_settings_path, config->settings_path)) {
+        return false;
+    }
+    if (config->settings_path && config->settings_path[0]) {
+        ts_session_set_settings_path(session, config->settings_path);
+    }
+    return true;
+}
+
+bool ts_apply_init_config(const TimerHUDInitConfig* config) {
+    return ts_session_apply_init_config(ts_default_session_internal(), config);
+}
+
+void ts_session_init(TimerHUDSession* session) {
     char root_dir[PATH_MAX];
     char program_name[64];
     char output_dir[PATH_MAX];
@@ -288,8 +420,12 @@ void ts_init(void) {
     char settings_path[PATH_MAX];
     char log_path[PATH_MAX];
 
-    resolve_output_root(root_dir, sizeof(root_dir));
-    resolve_program_name(program_name, sizeof(program_name));
+    if (!session) {
+        return;
+    }
+
+    resolve_output_root(session, root_dir, sizeof(root_dir));
+    resolve_program_name(session, program_name, sizeof(program_name));
 
     join_path(output_dir, sizeof(output_dir), root_dir, TS_OUTPUT_DIR_NAME);
     join_path(program_dir, sizeof(program_dir), output_dir, program_name);
@@ -298,59 +434,194 @@ void ts_init(void) {
         fprintf(stderr, "[TimeScope] Failed to create output directory: %s\n", program_dir);
     }
 
-    resolve_settings_path(settings_path, sizeof(settings_path), root_dir, program_dir);
+    resolve_settings_path(session, settings_path, sizeof(settings_path), root_dir, program_dir);
 
     if (!path_exists(settings_path)) {
         join_path(log_path, sizeof(log_path), program_dir, TS_DEFAULT_LOG_FILE);
-        ts_strlcpy(ts_settings.log_filepath, sizeof(ts_settings.log_filepath), log_path);
-        if (!ts_settings.hud_position[0]) {
-            ts_strlcpy(ts_settings.hud_position, sizeof(ts_settings.hud_position), "top-left");
+        ts_strlcpy(session->settings.log_filepath, sizeof(session->settings.log_filepath), log_path);
+        if (!session->settings.hud_position[0]) {
+            ts_strlcpy(session->settings.hud_position, sizeof(session->settings.hud_position), "top-left");
         }
         if (!ensure_parent_dir(settings_path)) {
             fprintf(stderr, "[TimeScope] Failed to create settings parent directory for %s\n", settings_path);
         } else {
-            save_settings_to_file(settings_path);
+            ts_session_save_settings_to_file(session, settings_path);
         }
     }
 
-    if (!ts_load_settings(settings_path)) {
+    if (!ts_session_load_settings(session, settings_path)) {
         fprintf(stderr, "[TimeScope] Using default settings (load failed: %s).\n", settings_path);
     }
 
-    resolve_log_path(log_path, sizeof(log_path), program_dir);
+    resolve_log_path(session, log_path, sizeof(log_path), program_dir);
     if (!ensure_parent_dir(log_path)) {
         fprintf(stderr, "[TimeScope] Failed to create log parent directory for %s\n", log_path);
     }
-    ts_strlcpy(ts_settings.log_filepath, sizeof(ts_settings.log_filepath), log_path);
+    ts_strlcpy(session->settings.log_filepath, sizeof(session->settings.log_filepath), log_path);
 
     fprintf(stderr,
             "[TimeScope] root=%s program=%s settings=%s log=%s\n",
             root_dir,
             program_name,
             settings_path,
-            ts_settings.log_filepath);
+            session->settings.log_filepath);
 
-    if (ts_settings.log_enabled) {
+    if (ts_session_is_log_enabled(session)) {
         LogFormat format = LOG_FORMAT_JSON;
-        if (strcmp(ts_settings.log_format, "csv") == 0) {
+        if (strcmp(session->settings.log_format, "csv") == 0) {
             format = LOG_FORMAT_CSV;
         }
-        logger_init(ts_settings.log_filepath, format);
+        logger_init(session, session->settings.log_filepath, format);
     }
 
-    event_tracker_init();
-    tm_init();
-    hud_init();
-    (void)g_backend;
+    event_tracker_init(session);
+    tm_init(session);
+    hud_init(session);
+}
+
+void ts_init(void) {
+    ts_session_init(ts_default_session_internal());
+}
+
+void ts_session_shutdown(TimerHUDSession* session) {
+    if (!session) {
+        return;
+    }
+    logger_shutdown(session);
+    hud_shutdown(session);
 }
 
 void ts_shutdown(void) {
-    logger_shutdown();
-    hud_shutdown();
+    ts_session_shutdown(ts_default_session_internal());
+}
+
+void ts_session_emit_event(TimerHUDSession* session, const char* tag) {
+    if (ts_session_is_event_tagging_enabled(session)) {
+        event_tracker_add(session, tag);
+    }
 }
 
 void ts_emit_event(const char* tag) {
-    if (ts_settings.event_tagging_enabled) {
-        event_tracker_add(tag);
+    ts_session_emit_event(ts_default_session_internal(), tag);
+}
+
+void ts_session_start_timer(TimerHUDSession* session, const char* name) {
+    Timer* timer = tm_find_or_create_timer(session, name);
+    if (timer) {
+        timer_start(timer);
     }
+}
+
+void ts_start_timer(const char* name) {
+    ts_session_start_timer(ts_default_session_internal(), name);
+}
+
+void ts_session_stop_timer(TimerHUDSession* session, const char* name) {
+    Timer* timer = tm_find_timer(session, name);
+    if (!timer) {
+        fprintf(stderr, "[TimeScope] Ignoring stop for unknown timer '%s'\n", name ? name : "(null)");
+        return;
+    }
+    timer_stop(timer);
+}
+
+void ts_stop_timer(const char* name) {
+    ts_session_stop_timer(ts_default_session_internal(), name);
+}
+
+void ts_session_record_duration_ms(TimerHUDSession* session, const char* name, double duration_ms) {
+    Timer* timer = tm_find_or_create_timer(session, name);
+    if (timer) {
+        timer_record_duration_ms(timer, duration_ms);
+    }
+}
+
+void ts_record_duration_ms(const char* name, double duration_ms) {
+    ts_session_record_duration_ms(ts_default_session_internal(), name, duration_ms);
+}
+
+void ts_frame_start(void) {
+    ts_session_frame_start(ts_default_session_internal());
+}
+
+void ts_frame_end(void) {
+    ts_session_frame_end(ts_default_session_internal());
+}
+
+void ts_session_render(TimerHUDSession* session) {
+    hud_render(session);
+}
+
+void ts_render(void) {
+    ts_session_render(ts_default_session_internal());
+}
+
+static bool point_in_rect(int x, int y, int rx, int ry, int rw, int rh) {
+    return rw > 0 && rh > 0 && x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+}
+
+static TimerHUDVisualMode cycle_visual_mode(TimerHUDVisualMode mode, int delta) {
+    static const TimerHUDVisualMode modes[] = {
+        TIMER_HUD_VISUAL_MODE_HISTORY_GRAPH,
+        TIMER_HUD_VISUAL_MODE_STATS,
+        TIMER_HUD_VISUAL_MODE_SPIKES,
+        TIMER_HUD_VISUAL_MODE_COMPARE,
+    };
+    int count = (int)(sizeof(modes) / sizeof(modes[0]));
+    int index = 0;
+
+    for (int i = 0; i < count; ++i) {
+        if (modes[i] == mode || (mode == TIMER_HUD_VISUAL_MODE_HYBRID && modes[i] == TIMER_HUD_VISUAL_MODE_HISTORY_GRAPH)) {
+            index = i;
+            break;
+        }
+    }
+    index = (index + delta) % count;
+    if (index < 0) {
+        index += count;
+    }
+    return modes[index];
+}
+
+bool ts_session_handle_pointer_down(TimerHUDSession* session, int x, int y, int button) {
+    TimerHUDVisualMode mode = TIMER_HUD_VISUAL_MODE_INVALID;
+
+    if (!session || button != 1 || !ts_session_is_hud_enabled(session)) {
+        return false;
+    }
+
+    mode = ts_session_get_hud_visual_mode_kind(session);
+    if (point_in_rect(x,
+                      y,
+                      session->control_mode_prev_x,
+                      session->control_mode_prev_y,
+                      session->control_mode_prev_w,
+                      session->control_mode_prev_h)) {
+        (void)ts_session_set_hud_visual_mode_kind(session, cycle_visual_mode(mode, -1));
+        return true;
+    }
+    if (point_in_rect(x,
+                      y,
+                      session->control_mode_next_x,
+                      session->control_mode_next_y,
+                      session->control_mode_next_w,
+                      session->control_mode_next_h)) {
+        (void)ts_session_set_hud_visual_mode_kind(session, cycle_visual_mode(mode, 1));
+        return true;
+    }
+    if (point_in_rect(x,
+                      y,
+                      session->control_mode_history_x,
+                      session->control_mode_history_y,
+                      session->control_mode_history_w,
+                      session->control_mode_history_h)) {
+        (void)ts_session_set_hud_visual_mode_kind(session, TIMER_HUD_VISUAL_MODE_HISTORY_GRAPH);
+        return true;
+    }
+
+    return false;
+}
+
+bool ts_handle_pointer_down(int x, int y, int button) {
+    return ts_session_handle_pointer_down(ts_default_session_internal(), x, y, button);
 }

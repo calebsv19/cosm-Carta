@@ -27,6 +27,7 @@ typedef struct CoreBuffer {
 
 CoreResult core_io_read_all(const char *path, CoreBuffer *out);
 CoreResult core_io_write_all(const char *path, const void *data, size_t size);
+CoreResult core_io_write_all_atomic(const char *path, const void *data, size_t size);
 void core_io_buffer_free(CoreBuffer *buffer);
 bool core_io_path_exists(const char *path);
 

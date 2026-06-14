@@ -1,0 +1,207 @@
+{
+	"file":	{
+		"schemaVersion":	8,
+		"generator":	"LineDrawing",
+		"gridSize":	1
+	},
+	"scene3d":	{
+		"bounds":	{
+			"enabled":	true,
+			"clampOnEdit":	false,
+			"min":	{
+				"x":	-100,
+				"y":	-100,
+				"z":	-100
+			},
+			"max":	{
+				"x":	100,
+				"y":	100,
+				"z":	100
+			}
+		},
+		"constructionPlane":	{
+			"mode":	"axis_aligned",
+			"axis":	"xy",
+			"offset":	0,
+			"customFrame":	{
+				"origin":	{
+					"x":	0,
+					"y":	0,
+					"z":	0
+				},
+				"axisU":	{
+					"x":	0,
+					"y":	-1,
+					"z":	0
+				},
+				"axisV":	{
+					"x":	1,
+					"y":	0,
+					"z":	0
+				},
+				"normal":	{
+					"x":	0,
+					"y":	0,
+					"z":	1
+				}
+			}
+		}
+	},
+	"objects3d":	[{
+			"id":	1,
+			"kind":	"rect_prism",
+			"objectType":	"rect_prism_primitive",
+			"dimensionalMode":	"full_3d",
+			"lockedPlane":	"xy",
+			"transform":	{
+				"position":	{
+					"x":	0,
+					"y":	0,
+					"z":	0
+				},
+				"rotationDeg":	{
+					"x":	0,
+					"y":	0,
+					"z":	0
+				},
+				"scale":	{
+					"x":	1,
+					"y":	1,
+					"z":	1
+				}
+			},
+			"rectPrism":	{
+				"width":	4,
+				"height":	4,
+				"depth":	4,
+				"lockToConstructionPlane":	true,
+				"lockToBounds":	true,
+				"frame":	{
+					"origin":	{
+						"x":	0,
+						"y":	0,
+						"z":	0
+					},
+					"axisU":	{
+						"x":	0,
+						"y":	-1,
+						"z":	0
+					},
+					"axisV":	{
+						"x":	1,
+						"y":	0,
+						"z":	0
+					},
+					"normal":	{
+						"x":	0,
+						"y":	0,
+						"z":	1
+					}
+				}
+			}
+		}, {
+			"id":	2,
+			"kind":	"plane",
+			"objectType":	"plane_primitive",
+			"dimensionalMode":	"plane_locked",
+			"lockedPlane":	"xy",
+			"transform":	{
+				"position":	{
+					"x":	2.7845039367675781,
+					"y":	5.0016679763793945,
+					"z":	0
+				},
+				"rotationDeg":	{
+					"x":	90,
+					"y":	0,
+					"z":	0
+				},
+				"scale":	{
+					"x":	1,
+					"y":	1,
+					"z":	1
+				}
+			},
+			"plane":	{
+				"width":	12.757644653320312,
+				"height":	12.214584350585938,
+				"lockToConstructionPlane":	true,
+				"lockToBounds":	true,
+				"frame":	{
+					"origin":	{
+						"x":	2.7845039367675781,
+						"y":	5.0016679763793945,
+						"z":	0
+					},
+					"axisU":	{
+						"x":	-1.4670525860431695e-18,
+						"y":	4.37113918394516e-08,
+						"z":	-1
+					},
+					"axisV":	{
+						"x":	0.99999988079071045,
+						"y":	0.0005992385558784008,
+						"z":	2.6193549065856025e-11
+					},
+					"normal":	{
+						"x":	0.0005992385558784008,
+						"y":	-0.99999988079071045,
+						"z":	-4.371138473402425e-08
+					}
+				}
+			}
+		}, {
+			"id":	3,
+			"kind":	"plane",
+			"objectType":	"plane_primitive",
+			"dimensionalMode":	"plane_locked",
+			"lockedPlane":	"xy",
+			"transform":	{
+				"position":	{
+					"x":	9,
+					"y":	-1.7569677829742432,
+					"z":	0
+				},
+				"rotationDeg":	{
+					"x":	0,
+					"y":	90,
+					"z":	0
+				},
+				"scale":	{
+					"x":	1,
+					"y":	1,
+					"z":	1
+				}
+			},
+			"plane":	{
+				"width":	12.119426727294922,
+				"height":	13.9313268661499,
+				"lockToConstructionPlane":	true,
+				"lockToBounds":	true,
+				"frame":	{
+					"origin":	{
+						"x":	9,
+						"y":	-1.7569677829742432,
+						"z":	0
+					},
+					"axisU":	{
+						"x":	0,
+						"y":	-1,
+						"z":	0
+					},
+					"axisV":	{
+						"x":	-4.3711388286737929e-08,
+						"y":	0,
+						"z":	-1
+					},
+					"normal":	{
+						"x":	1,
+						"y":	0,
+						"z":	-4.3711388286737929e-08
+					}
+				}
+			}
+		}],
+	"anchors":	[],
+	"walls":	[]
+}

@@ -48,7 +48,7 @@ typedef struct NormalizedArray {
 
 static const char *k_schema_family = "codework_scene";
 static const char *k_authoring_variant = "scene_authoring_v1";
-static const char *k_compiler_version = "0.3.0";
+static const char *k_compiler_version = "0.4.0";
 
 static bool json_slice_is_string(const JsonSlice *slice);
 static bool json_slice_eq_string(const JsonSlice *slice, const char *text);
@@ -385,6 +385,18 @@ static bool key_matches_unescaped(const char *key_start, const char *key_end, co
     if (memchr(key_start, '\\', (size_t)(key_end - key_start)) != NULL) return false;
     key_len = (size_t)(key_end - key_start);
     return strlen(key) == key_len && strncmp(key_start, key, key_len) == 0;
+}
+
+static bool json_is_single_top_level_object(const char *json) {
+    const char *start;
+    const char *end;
+    if (!json) return false;
+    start = skip_ws(json);
+    if (!start || *start != '{') return false;
+    end = parse_json_value_end(start);
+    if (!end) return false;
+    end = skip_ws(end);
+    return end && *end == '\0';
 }
 
 static bool json_find_top_level_value(const char *json, const char *key, JsonSlice *out_slice) {
@@ -741,6 +753,120 @@ static CoreResult validate_object_primitive_contract(const JsonSlice *obj,
     return core_result_ok();
 }
 
+static CoreResult validate_object_geometry_ref_contract(const JsonSlice *obj,
+                                                        size_t index,
+                                                        const char *object_id_text,
+                                                        char *diagnostics,
+                                                        size_t diagnostics_size) {
+    JsonSlice object_type = {0};
+    JsonSlice dimensional_mode = {0};
+    JsonSlice geometry_ref = {0};
+    JsonSlice geometry_ref_kind = {0};
+    JsonSlice geometry_ref_id = {0};
+    char *object_type_text = NULL;
+    char *geometry_kind_text = NULL;
+    CoreSceneObjectKind kind = CORE_SCENE_OBJECT_KIND_UNKNOWN;
+    CoreSceneGeometryRefKind geometry_kind = CORE_SCENE_GEOMETRY_REF_KIND_UNKNOWN;
+    CoreSceneObjectContract contract;
+    CoreResult result = core_result_ok();
+    bool has_geometry_ref = false;
+
+    if (!obj || !object_id_text) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid geometry_ref validation arguments" };
+    }
+
+    has_geometry_ref = json_find_top_level_value(obj->begin, "geometry_ref", &geometry_ref);
+    if (!json_find_top_level_value(obj->begin, "object_type", &object_type)) {
+        return core_result_ok();
+    }
+    if (!json_slice_extract_string_copy(&object_type, &object_type_text)) {
+        diag_write(diagnostics, diagnostics_size, "objects[%zu] object_type must be string", index);
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid object_type" };
+    }
+
+    result = core_scene_object_kind_parse(object_type_text, &kind);
+    if (result.code != CORE_OK) {
+        core_free(object_type_text);
+        return core_result_ok();
+    }
+
+    if (!has_geometry_ref) {
+        if (kind == CORE_SCENE_OBJECT_KIND_MESH_ASSET_INSTANCE) {
+            diag_write(diagnostics, diagnostics_size,
+                       "objects[%zu] mesh_asset_instance requires geometry_ref", index);
+            core_free(object_type_text);
+            return (CoreResult){ CORE_ERR_FORMAT, "missing geometry_ref" };
+        }
+        core_free(object_type_text);
+        return core_result_ok();
+    }
+
+    if (!json_slice_is_object(&geometry_ref) ||
+        !json_find_top_level_value(geometry_ref.begin, "id", &geometry_ref_id) ||
+        !json_slice_is_string(&geometry_ref_id)) {
+        diag_write(diagnostics, diagnostics_size, "objects[%zu] has invalid geometry_ref.id", index);
+        core_free(object_type_text);
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid geometry_ref" };
+    }
+
+    if (json_find_top_level_value(geometry_ref.begin, "kind", &geometry_ref_kind)) {
+        if (!json_slice_extract_string_copy(&geometry_ref_kind, &geometry_kind_text)) {
+            diag_write(diagnostics, diagnostics_size, "objects[%zu] geometry_ref.kind must be string", index);
+            core_free(object_type_text);
+            return (CoreResult){ CORE_ERR_FORMAT, "invalid geometry_ref kind" };
+        }
+        result = core_scene_geometry_ref_kind_parse(geometry_kind_text, &geometry_kind);
+        if (result.code != CORE_OK) {
+            diag_write(diagnostics, diagnostics_size, "objects[%zu] geometry_ref.kind unknown: %s",
+                       index, geometry_kind_text);
+            core_free(geometry_kind_text);
+            core_free(object_type_text);
+            return (CoreResult){ CORE_ERR_FORMAT, "unknown geometry_ref kind" };
+        }
+        core_free(geometry_kind_text);
+        geometry_kind_text = NULL;
+    }
+
+    if (kind != CORE_SCENE_OBJECT_KIND_MESH_ASSET_INSTANCE) {
+        core_free(object_type_text);
+        return core_result_ok();
+    }
+
+    if (geometry_kind != CORE_SCENE_GEOMETRY_REF_KIND_MESH_ASSET) {
+        diag_write(diagnostics, diagnostics_size,
+                   "objects[%zu] mesh_asset_instance requires geometry_ref.kind mesh_asset", index);
+        core_free(object_type_text);
+        return (CoreResult){ CORE_ERR_FORMAT, "mesh asset geometry_ref kind mismatch" };
+    }
+
+    core_scene_object_contract_init(&contract);
+    result = core_scene_object_contract_prepare(&contract, object_id_text, kind);
+    if (result.code != CORE_OK) {
+        diag_write(diagnostics, diagnostics_size, "objects[%zu] mesh asset contract prepare failed", index);
+        core_free(object_type_text);
+        return result;
+    }
+
+    if (json_find_top_level_value(obj->begin, "dimensional_mode", &dimensional_mode) &&
+        !json_slice_eq_string(&dimensional_mode, "full_3d")) {
+        diag_write(diagnostics, diagnostics_size,
+                   "objects[%zu] mesh_asset_instance dimensional_mode must be full_3d", index);
+        core_free(object_type_text);
+        return (CoreResult){ CORE_ERR_FORMAT, "mesh asset dimensional_mode mismatch" };
+    }
+
+    result = core_scene_object_contract_validate(&contract);
+    if (result.code != CORE_OK) {
+        diag_write(diagnostics, diagnostics_size,
+                   "objects[%zu] invalid mesh asset contract: %s", index, result.message);
+        core_free(object_type_text);
+        return result;
+    }
+
+    core_free(object_type_text);
+    return core_result_ok();
+}
+
 static bool json_slice_eq_string(const JsonSlice *slice, const char *text) {
     size_t expected_len;
     if (!json_slice_is_string(slice) || !text) return false;
@@ -952,8 +1078,6 @@ static CoreResult normalize_objects_array(const JsonSlice *objects,
         JsonSlice object_id = {0};
         JsonSlice material_ref = {0};
         JsonSlice material_ref_id = {0};
-        JsonSlice geometry_ref = {0};
-        JsonSlice geometry_ref_id = {0};
         const char *value_end;
         entry.id_a = NULL;
         entry.id_b = NULL;
@@ -1012,17 +1136,11 @@ static CoreResult normalize_objects_array(const JsonSlice *objects,
             material_id_text = NULL;
         }
 
-        if (json_find_top_level_value(obj.begin, "geometry_ref", &geometry_ref)) {
-            if (!json_slice_is_object(&geometry_ref) ||
-                !json_find_top_level_value(geometry_ref.begin, "id", &geometry_ref_id) ||
-                !json_slice_is_string(&geometry_ref_id)) {
-                diag_write(diagnostics, diagnostics_size, "objects[%zu] has invalid geometry_ref.id", index);
-                out = (CoreResult){ CORE_ERR_FORMAT, "invalid geometry_ref" };
-                goto done;
-            }
-        }
-
         out = validate_object_primitive_contract(&obj, index, entry.id_a, diagnostics, diagnostics_size);
+        if (out.code != CORE_OK) {
+            goto done;
+        }
+        out = validate_object_geometry_ref_contract(&obj, index, entry.id_a, diagnostics, diagnostics_size);
         if (out.code != CORE_OK) {
             goto done;
         }
@@ -1212,6 +1330,11 @@ static CoreResult compile_inner(const char *authoring_json,
     }
     *out_runtime_json = NULL;
     if (diagnostics && diagnostics_size > 0) diagnostics[0] = '\0';
+
+    if (!json_is_single_top_level_object(authoring_json)) {
+        diag_write(diagnostics, diagnostics_size, "authoring JSON must be one complete top-level object");
+        return (CoreResult){ CORE_ERR_FORMAT, "invalid authoring JSON" };
+    }
 
     if (!json_find_top_level_value(authoring_json, "schema_family", &schema_family) ||
         !json_slice_eq_string(&schema_family, k_schema_family)) {

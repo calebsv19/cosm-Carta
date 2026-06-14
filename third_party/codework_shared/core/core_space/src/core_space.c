@@ -15,6 +15,10 @@ static float clamp01(float v) {
     return v;
 }
 
+static int core_space_is_finite(float v) {
+    return isfinite(v) ? 1 : 0;
+}
+
 CoreResult core_space_desc_validate(const CoreSpaceDesc *desc) {
     if (!desc) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "desc is null" };
@@ -24,7 +28,11 @@ CoreResult core_space_desc_validate(const CoreSpaceDesc *desc) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid grid size" };
         return r;
     }
-    if (desc->cell_size <= 0.0f) {
+    if (!core_space_is_finite(desc->origin_x) || !core_space_is_finite(desc->origin_y)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "origin must be finite" };
+        return r;
+    }
+    if (!core_space_is_finite(desc->cell_size) || desc->cell_size <= 0.0f) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "cell_size must be > 0" };
         return r;
     }
@@ -32,7 +40,7 @@ CoreResult core_space_desc_validate(const CoreSpaceDesc *desc) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid author window" };
         return r;
     }
-    if (desc->desired_fit <= 0.0f) {
+    if (!core_space_is_finite(desc->desired_fit) || desc->desired_fit <= 0.0f) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "desired_fit must be > 0" };
         return r;
     }
@@ -81,7 +89,8 @@ CoreResult core_space_compute_span_from_window(int window_w,
 }
 
 float core_space_import_pos_to_unit(float pos_raw, float span_cfg) {
-    if (span_cfg <= 0.0f) span_cfg = 1.0f;
+    if (!core_space_is_finite(pos_raw)) pos_raw = 0.5f;
+    if (!core_space_is_finite(span_cfg) || span_cfg <= 0.0f) span_cfg = 1.0f;
     {
         float min_v = 0.5f - span_cfg;
         float max_v = 0.5f + span_cfg;
@@ -93,6 +102,9 @@ float core_space_import_pos_to_unit(float pos_raw, float span_cfg) {
 float core_space_unit_to_world_x(const CoreSpaceDesc *desc, float unit_x) {
     if (!desc) return 0.0f;
     {
+        CoreResult vr = core_space_desc_validate(desc);
+        if (vr.code != CORE_OK) return 0.0f;
+        if (!core_space_is_finite(unit_x)) return 0.0f;
         float ux = clamp01(unit_x);
         float extent = (float)(desc->grid_w > 1 ? (desc->grid_w - 1) : 1) * desc->cell_size;
         return desc->origin_x + ux * extent;
@@ -102,6 +114,9 @@ float core_space_unit_to_world_x(const CoreSpaceDesc *desc, float unit_x) {
 float core_space_unit_to_world_y(const CoreSpaceDesc *desc, float unit_y) {
     if (!desc) return 0.0f;
     {
+        CoreResult vr = core_space_desc_validate(desc);
+        if (vr.code != CORE_OK) return 0.0f;
+        if (!core_space_is_finite(unit_y)) return 0.0f;
         float uy = clamp01(unit_y);
         float extent = (float)(desc->grid_h > 1 ? (desc->grid_h - 1) : 1) * desc->cell_size;
         return desc->origin_y + uy * extent;
@@ -111,6 +126,9 @@ float core_space_unit_to_world_y(const CoreSpaceDesc *desc, float unit_y) {
 float core_space_world_to_unit_x(const CoreSpaceDesc *desc, float world_x) {
     if (!desc) return 0.0f;
     {
+        CoreResult vr = core_space_desc_validate(desc);
+        if (vr.code != CORE_OK) return 0.0f;
+        if (!core_space_is_finite(world_x)) return 0.0f;
         float extent = (float)(desc->grid_w > 1 ? (desc->grid_w - 1) : 1) * desc->cell_size;
         if (extent <= 0.0f) return 0.0f;
         return clamp01((world_x - desc->origin_x) / extent);
@@ -120,6 +138,9 @@ float core_space_world_to_unit_x(const CoreSpaceDesc *desc, float world_x) {
 float core_space_world_to_unit_y(const CoreSpaceDesc *desc, float world_y) {
     if (!desc) return 0.0f;
     {
+        CoreResult vr = core_space_desc_validate(desc);
+        if (vr.code != CORE_OK) return 0.0f;
+        if (!core_space_is_finite(world_y)) return 0.0f;
         float extent = (float)(desc->grid_h > 1 ? (desc->grid_h - 1) : 1) * desc->cell_size;
         if (extent <= 0.0f) return 0.0f;
         return clamp01((world_y - desc->origin_y) / extent);
@@ -134,10 +155,10 @@ float core_space_fit_scale(float import_scale,
                            float cell_size) {
     float gmin = (float)((grid_w < grid_h) ? grid_w : grid_h);
     if (gmin <= 0.0f) gmin = 1.0f;
-    if (import_scale <= 0.0f) import_scale = 1.0f;
-    if (desired_fit <= 0.0f) desired_fit = 0.25f;
-    if (asset_max_dim <= 0.0001f) asset_max_dim = 1.0f;
-    if (cell_size <= 0.0f) cell_size = 1.0f;
+    if (!core_space_is_finite(import_scale) || import_scale <= 0.0f) import_scale = 1.0f;
+    if (!core_space_is_finite(desired_fit) || desired_fit <= 0.0f) desired_fit = 0.25f;
+    if (!core_space_is_finite(asset_max_dim) || asset_max_dim <= 0.0001f) asset_max_dim = 1.0f;
+    if (!core_space_is_finite(cell_size) || cell_size <= 0.0f) cell_size = 1.0f;
 
     {
         float norm = (import_scale * desired_fit) / asset_max_dim;
@@ -164,6 +185,15 @@ CoreResult core_space_import_to_world(const CoreSpaceDesc *desc,
                                              &span_x,
                                              &span_y);
     if (vr.code != CORE_OK) return vr;
+
+    if (!core_space_is_finite(in->pos_x_raw) ||
+        !core_space_is_finite(in->pos_y_raw) ||
+        !core_space_is_finite(in->rotation_deg) ||
+        !core_space_is_finite(in->scale) ||
+        !core_space_is_finite(in->asset_max_dim)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "import values must be finite" };
+        return r;
+    }
 
     {
         float unit_x = core_space_import_pos_to_unit(in->pos_x_raw, span_x);

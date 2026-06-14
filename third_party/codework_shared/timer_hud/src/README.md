@@ -14,3 +14,8 @@ be embedded piecemeal.
 | [`logging/`](logging/README.md) | Logging sinks (CSV/JSON). |
 
 Each subdirectory contains a README with file-level context.
+
+Current safety direction:
+- public hosts should consume `time_scope.h` + `timer_hud_config.h`
+- internal source files may still use `settings_loader.h` for JSON persistence
+- presenter/runtime split is still in progress; current code remains compatibility-first

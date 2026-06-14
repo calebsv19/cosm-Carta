@@ -4,12 +4,11 @@
 Provide predictable queue primitives for both single-thread and cross-thread execution paths.
 
 ## Immediate Steps
-1. Add SPSC contract and tests for wraparound/overflow behavior.
-2. Add MPSC queue API and contention tests.
-3. Document queue ownership and memory-lifetime rules.
-4. Add optional blocking pop behavior only where explicitly required.
+1. Truth-lock ring versus mutex queue usage guidance and borrowed-pointer lifetime rules.
+2. Expand null/invalid-argument, wraparound, overflow-stat, and timeout edge coverage.
+3. Keep overflow-policy validation explicit and bounded.
 
 ## Future Steps
-1. Add bounded overflow policies (reject/drop-oldest/custom).
-2. Add benchmark harness and throughput/latency baselines.
-3. Evaluate lock-free variants only after measurable need.
+1. Add benchmark harness and throughput/latency baselines.
+2. Evaluate lock-free variants only after measurable need.
+3. Revisit richer overflow/backpressure hooks only if multiple hosts need more than reject/drop-oldest behavior.

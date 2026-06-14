@@ -410,7 +410,7 @@ void core_font_manifest_reset(CoreFontManifest *manifest) {
 
 CoreResult core_font_manifest_parse_file(const char *path, CoreFontManifest *out_manifest) {
     FILE *fp;
-    char line[2048];
+    char line[4096];
     int saw_version = 0;
 
     if (!path || !path[0] || !out_manifest) {
@@ -427,7 +427,16 @@ CoreResult core_font_manifest_parse_file(const char *path, CoreFontManifest *out
     core_font_manifest_reset(out_manifest);
 
     while (fgets(line, sizeof(line), fp) != NULL) {
+        int has_newline = strchr(line, '\n') != NULL;
         char *entry_line = trim(line);
+
+        if (!has_newline && !feof(fp)) {
+            fclose(fp);
+            {
+                CoreResult r = {CORE_ERR_FORMAT, "manifest line too long"};
+                return r;
+            }
+        }
 
         if (!entry_line[0] || entry_line[0] == '#') {
             continue;

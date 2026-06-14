@@ -21,19 +21,24 @@ Required commands:
 - bounded retrieval:
   - `mem_cli query --db <path> [--query <fts>] [--limit <n>] [--offset <n>] [--pinned-only] [--canonical-only] [--include-archived] [--workspace <key>] [--project <key>] [--kind <value>] [--format text|tsv|json]`
 - focused detail read:
-  - `mem_cli show --db <path> --id <rowid> [--format text|tsv|json]`
+  - `mem_cli show --db <path> --id <rowid> [--include-archived] [--format text|tsv|json]`
 - write/update:
   - `mem_cli add --db <path> --title <text> --body <text> [--stable-id <id>] [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>]`
   - `mem_cli batch-add --db <path> --input <tsv_path> [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>] [--continue-on-error] [--max-errors <n>] [--retry-attempts <n>] [--retry-delay-ms <ms>]`
 - control lanes:
-  - `mem_cli pin --db <path> --id <rowid> --on|--off [--session-id <id>]`
-  - `mem_cli canonical --db <path> --id <rowid> --on|--off [--session-id <id>]`
-  - `mem_cli item-retag --db <path> --id <rowid> [--workspace <key>] [--project <key>] [--kind <value>] [--include-archived] [--session-id <id>]`
+  - `mem_cli pin --db <path> --id <rowid> --on|--off [--session-id <id>] [--session-max-writes <n>]`
+  - `mem_cli canonical --db <path> --id <rowid> --on|--off [--session-id <id>] [--session-max-writes <n>]`
+  - `mem_cli item-retag --db <path> --id <rowid> [--workspace <key>] [--project <key>] [--kind <value>] [--include-archived] [--session-id <id>] [--session-max-writes <n>]`
+  - `mem_cli item-archive --db <path> --id <rowid> [--session-id <id>] [--session-max-writes <n>]`
 - maintenance:
-  - `mem_cli rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>]`
+  - `mem_cli rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>] [--session-max-writes <n>]`
   - `mem_cli health --db <path> [--format text|json]`
   - `mem_cli audit-list --db <path> [--session-id <id>] [--limit <n>] [--format text|tsv|json]`
   - `mem_cli neighbors --db <path> --item-id <rowid> [--kind <value>] [--max-edges <n>] [--max-nodes <n>] [--format text|tsv|json]`
+  - `mem_cli link-add --db <path> --from <item_id> --to <item_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>] [--session-max-writes <n>]`
+  - `mem_cli link-update --db <path> --id <link_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>] [--session-max-writes <n>]`
+  - `mem_cli link-remove --db <path> --id <link_id> [--session-id <id>] [--session-max-writes <n>]`
+  - `mem_cli event-backfill --db <path> [--session-id <id>] [--session-max-writes <n>] [--dry-run]`
 
 ## Retrieval Policy (Bounded)
 
@@ -50,8 +55,11 @@ Recommended retrieval sequence:
    - `mem_cli query --db <path> --query "<fts>" --limit 24`
 4. scoped lane when session context is known:
    - `mem_cli query --db <path> --workspace "<workspace>" --project "<project>" --limit 24`
-5. detail read only for selected ids:
-   - `mem_cli show --db <path> --id <rowid>`
+5. after any same-lane `add`:
+   - capture the returned `id=<rowid>` from command output immediately
+   - treat that returned row id as the only valid target for follow-up commands in the lane
+6. detail read only for selected ids:
+   - `mem_cli show --db <path> --id <rowid> [--include-archived]`
 
 ## Write Policy (Controlled)
 
@@ -60,7 +68,8 @@ Agent write guardrails:
 - prefer `--stable-id` for durable concepts
 - dedupe behavior is update-over-insert by fingerprint
 - do not write if retrieval already returns a canonical equivalent
-- enforce caps with `--session-id <session>` + `--session-max-writes <n>` on `add`/`batch-add`
+- enforce caps with `--session-id <session>` + `--session-max-writes <n>` on `add`/`batch-add` and the mutation lanes that already accept `--session-id`
+- archived rows are hidden from `show` by default; use `--include-archived` only when direct archived inspection is intentional
 
 When to pin/canonical:
 - pin when memory must survive rollup/TTL cleanup
@@ -70,6 +79,10 @@ When to pin/canonical:
 Graph link policy:
 - use canonical kinds only: `supports`, `depends_on`, `references`, `summarizes`, `implements`, `blocks`, `contradicts`, `related`
 - links are explicit only; agents must run `link-add` (or `write-linked`) for graph connectivity
+- row-id source-of-truth rule:
+  - after every `mem_cli add`, agents must capture the returned `id=<rowid>` from command output
+  - use that returned row id for all same-turn follow-up commands (`show`, `pin`, `canonical`, `neighbors`, `link-add`)
+  - never infer row ids from insertion order, nearby ids, or stable-id text
 - keep neighbor retrieval bounded with explicit `--max-edges` and `--max-nodes`
 - hierarchy-first anchor model per project:
   - `scope-<project>`, `plans-<project>`, `decisions-<project>`, `issues-<project>`, `misc-<project>`
@@ -83,6 +96,20 @@ Graph link policy:
 - cross-project link gate:
   - allow only when explicit implementation/dependency bridge exists across projects
   - avoid broad fan-out cross-project linking
+- host/site routing policy:
+  - `project` is a general durable bucket key, not an app-program-only field
+  - host buckets such as `vps_server` and `home_server` are valid first-class
+    `project` values
+  - use host buckets for machine/runtime/service/deploy-environment state
+    broader than one app or site
+  - use site or program buckets for implementation and deploy outcomes specific
+    to one app/site
+  - for laptop-local authoring, packaging, docs, or repo prep, keep the memory
+    in the owning program/site bucket unless the point of the memory is the
+    host environment itself
+  - when host state and site/program state both matter, choose one primary
+    project bucket and express the relationship through explicit links rather
+    than duplicating rows
 - hierarchy-first helper behavior (`write-hier-linked`):
   - resolves pillar anchors by stable id within `(workspace, project)` scope
   - candidate ordering: `parent` -> `primary pillar` -> `scope pillar` -> explicit related ids -> `misc fallback`

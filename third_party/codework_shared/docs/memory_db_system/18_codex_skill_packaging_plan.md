@@ -33,6 +33,15 @@ Checklist:
    - retrieve before write
    - bounded limits only
    - enforce write cap per session
+   - treat `project` as a durable bucket key that may represent app, site,
+     host, or cross-cutting coordination lanes
+   - route VPS-wide or machine-wide state into host buckets such as
+     `vps_server` or `home_server`
+   - keep site/program-specific implementation memories in the owning
+     site/program bucket and link them to host buckets when environment context
+     matters
+   - capture the returned `id=<rowid>` after every `add` and use that exact row id for follow-up commands
+   - never guess row ids from insertion order, neighboring ids, or stable-id text
    - nightly rollup recommendation must remain policy-gated (`min_active_nodes_before_rollup`, `min_stale_candidates_before_rollup`)
    - preserve canonical connection-pass shape (including neighbor-link propagation bounds) when rollup is enabled
    - emit one suggestion memory node per codex nightly run so improvement ideas can be graph-clustered over time
@@ -49,11 +58,11 @@ Checklist:
 1. run:
    - `make -C shared/core/core_memdb test`
 2. reset demo DB:
-   - `./mem_console/demo/reset_demo_db.sh`
+   - `./mem_console/demo/reset_demo_db.sh ./mem_console/demo/demo_mem_console.sqlite`
 3. run representative command flow:
    - bounded query
-   - show
-   - add with stable-id
+   - add with stable-id and parse returned row id
+   - show using that returned row id
    - explicit link creation (`link-add` or `write-linked`)
    - pin/canonical toggle
    - health check

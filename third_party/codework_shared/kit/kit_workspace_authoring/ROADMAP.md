@@ -27,9 +27,17 @@
   - submit-frame helper for draw + rebuild-ack sequencing
   - conflict-matrix coverage extended in kit tests for modifier-suppressed pane triggers and chord collision cases
 
+This shared surface is already broadly adopted across the current proving hosts. The roadmap is no longer about first migration into one app; it is about keeping the shared boundary narrow and stable while hosts own persistence, preview mutation, shell parity, and app-specific pane/module behavior.
+
 ## Next (additive only)
-- move Workspace Sandbox to the shared font/theme panel model and remove its app-local duplicate definitions
-- publish reusable host attach checklist lane:
-  - codify host obligations for theme preset/text zoom state handoff and persistence
-  - codify top-level picker/shell theming parity requirement (not overlay-only reactivity)
-  - keep host adapters thin and callback-only around shared `ui` seam
+- keep host-adoption docs aligned as new apps roll onto the shared surface
+- add only generic authoring controls that repeated hosts actually share
+- keep host adapters thin and callback-only around the shared `ui` seam
+- defer any custom-theme editor, module insertion flow, or host persistence growth unless it proves generic across multiple adopters
+
+## Explicit Non-Goals For This Lane
+
+- no shared accepted-only persistence layer
+- no shared shell/theme parity enforcement
+- no shared custom-theme editor
+- no app-specific module topology or module insertion behavior

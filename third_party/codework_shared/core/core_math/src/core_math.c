@@ -41,7 +41,7 @@ CoreResult core_math_vec2_normalize(const CoreMathVec2f *in, CoreMathVec2f *out)
     }
 
     len = core_math_vec2_length(*in);
-    if (len <= 1e-20f) {
+    if (!isfinite(len) || len <= 1e-20f) {
         CoreResult r = {CORE_ERR_INVALID_ARG, "zero-length vector"};
         return r;
     }
@@ -92,7 +92,7 @@ CoreResult core_math_vec3_normalize(const CoreMathVec3f *in, CoreMathVec3f *out)
     }
 
     len = core_math_vec3_length(*in);
-    if (len <= 1e-20f) {
+    if (!isfinite(len) || len <= 1e-20f) {
         CoreResult r = {CORE_ERR_INVALID_ARG, "zero-length vector"};
         return r;
     }

@@ -2,6 +2,8 @@
 
 #include <math.h>
 
+static const float CORE_VIEWPORT2D_PI = 3.14159265358979323846f;
+
 static int core_viewport2d_isfinite2(float a, float b) {
     return isfinite(a) && isfinite(b);
 }
@@ -13,9 +15,9 @@ static float core_viewport2d_normalize_rotation(float rotation_rad) {
     }
 
     rotation_rad = fmodf(rotation_rad, tau);
-    if (rotation_rad <= (float)-M_PI) {
+    if (rotation_rad <= -CORE_VIEWPORT2D_PI) {
         rotation_rad += tau;
-    } else if (rotation_rad > (float)M_PI) {
+    } else if (rotation_rad > CORE_VIEWPORT2D_PI) {
         rotation_rad -= tau;
     }
     return rotation_rad;
@@ -83,10 +85,12 @@ float core_viewport2d_clamp_zoom(const CoreViewport2D *viewport, float zoom) {
         return 1.0f;
     }
     if (viewport) {
-        if (isfinite(viewport->min_zoom) && viewport->min_zoom > 0.0f) {
+        if (isfinite(viewport->min_zoom) &&
+            isfinite(viewport->max_zoom) &&
+            viewport->min_zoom > 0.0f &&
+            viewport->max_zoom > 0.0f &&
+            viewport->max_zoom >= viewport->min_zoom) {
             min_zoom = viewport->min_zoom;
-        }
-        if (isfinite(viewport->max_zoom) && viewport->max_zoom >= min_zoom) {
             max_zoom = viewport->max_zoom;
         }
     }

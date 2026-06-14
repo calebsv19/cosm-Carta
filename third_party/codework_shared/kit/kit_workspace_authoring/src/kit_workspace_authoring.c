@@ -6,8 +6,8 @@ CorePaneRect kit_workspace_authoring_root_bounds(int width, int height) {
     CorePaneRect bounds = {0};
     bounds.x = 0.0f;
     bounds.y = 0.0f;
-    bounds.width = (float)width;
-    bounds.height = (float)height;
+    bounds.width = (float)(width > 0 ? width : 0);
+    bounds.height = (float)(height > 0 ? height : 0);
     return bounds;
 }
 

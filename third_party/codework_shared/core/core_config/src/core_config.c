@@ -1,5 +1,6 @@
 #include "core_config.h"
 
+#include <math.h>
 #include <string.h>
 
 static size_t bounded_strlen(const char *s, size_t max_len) {
@@ -12,6 +13,12 @@ static size_t bounded_strlen(const char *s, size_t max_len) {
         i += 1u;
     }
     return i;
+}
+
+static void clear_value(CoreConfigValue *value) {
+    if (value) {
+        memset(value, 0, sizeof(*value));
+    }
 }
 
 static int key_is_valid(const char *key) {
@@ -54,8 +61,12 @@ static CoreConfigEntry *find_free_entry(CoreConfigTable *table) {
 
 static bool set_value(CoreConfigTable *table, const char *key, CoreConfigValue value) {
     CoreConfigEntry *entry;
+    size_t key_len;
 
     if (!table || !key_is_valid(key)) {
+        return false;
+    }
+    if (!table->entries || table->capacity == 0u) {
         return false;
     }
 
@@ -65,9 +76,10 @@ static bool set_value(CoreConfigTable *table, const char *key, CoreConfigValue v
         if (!entry) {
             return false;
         }
+        key_len = bounded_strlen(key, CORE_CONFIG_MAX_KEY_LENGTH);
         memset(entry, 0, sizeof(*entry));
-        memcpy(entry->key, key, bounded_strlen(key, CORE_CONFIG_MAX_KEY_LENGTH));
-        entry->key[bounded_strlen(key, CORE_CONFIG_MAX_KEY_LENGTH)] = '\0';
+        memcpy(entry->key, key, key_len);
+        entry->key[key_len] = '\0';
         entry->active = true;
         table->count += 1u;
     }
@@ -107,6 +119,9 @@ bool core_config_set_int(CoreConfigTable *table, const char *key, int64_t value)
 bool core_config_set_double(CoreConfigTable *table, const char *key, double value) {
     CoreConfigValue v;
 
+    if (!isfinite(value)) {
+        return false;
+    }
     v.type = CORE_CONFIG_TYPE_DOUBLE;
     v.data.as_double = value;
     return set_value(table, key, v);
@@ -134,7 +149,11 @@ bool core_config_set_string(CoreConfigTable *table, const char *key, const char 
 bool core_config_get(const CoreConfigTable *table, const char *key, CoreConfigValue *out_value) {
     size_t i;
 
+    clear_value(out_value);
     if (!table || !out_value || !key_is_valid(key)) {
+        return false;
+    }
+    if (!table->entries || table->capacity == 0u) {
         return false;
     }
 

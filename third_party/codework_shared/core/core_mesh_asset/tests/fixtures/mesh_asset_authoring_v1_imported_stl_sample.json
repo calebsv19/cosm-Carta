@@ -1,0 +1,38 @@
+{
+  "schema_family": "codework_geometry",
+  "schema_variant": "mesh_asset_authoring_v1",
+  "schema_version": 1,
+  "asset_id": "asset_imported_bracket_01",
+  "unit_system": "meter",
+  "world_scale": 1.0,
+  "asset_type": "solid_mesh",
+  "pivot": {
+    "origin": { "x": 0.0, "y": 0.0, "z": 0.0 },
+    "axis_u": { "x": 1.0, "y": 0.0, "z": 0.0 },
+    "axis_v": { "x": 0.0, "y": 1.0, "z": 0.0 },
+    "normal": { "x": 0.0, "y": 0.0, "z": 1.0 }
+  },
+  "authoring": {
+    "source_mode": "imported_mesh",
+    "imported_mesh": {
+      "import_id": "import_bracket_stl_01",
+      "source_format": "stl",
+      "source_uri": "imports/bracket.stl",
+      "source_unit_system": "millimeter",
+      "source_to_asset_scale": 0.001,
+      "orientation_policy": "source_axes",
+      "default_surface_group_id": "imported_surface",
+      "weld_vertices": true,
+      "weld_tolerance": 0.000001,
+      "preserve_source_normals": false,
+      "topology_closed_volume_observed": true,
+      "topology_manifold_observed": true
+    }
+  },
+  "surface_groups": [],
+  "compile_hints": {
+    "expect_closed_volume": true,
+    "expect_manifold": true
+  },
+  "extensions": {}
+}

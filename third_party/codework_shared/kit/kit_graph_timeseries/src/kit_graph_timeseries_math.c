@@ -2,6 +2,17 @@
 
 #include <math.h>
 
+static int ts_is_finite_value(float value) {
+    return isfinite(value) ? 1 : 0;
+}
+
+static int ts_is_finite_rect(KitRenderRect rect) {
+    return ts_is_finite_value(rect.x) &&
+           ts_is_finite_value(rect.y) &&
+           ts_is_finite_value(rect.width) &&
+           ts_is_finite_value(rect.height);
+}
+
 static CoreResult kit_graph_ts_invalid(const char *message) {
     CoreResult r = { CORE_ERR_INVALID_ARG, message };
     return r;
@@ -120,6 +131,9 @@ CoreResult kit_graph_ts_compute_view(const KitGraphTsSeries *series,
         for (j = 0; j < s->point_count; ++j) {
             float x = s->xs[j];
             float y = s->ys[j];
+            if (!ts_is_finite_value(x) || !ts_is_finite_value(y)) {
+                return kit_graph_ts_invalid("non-finite series data");
+            }
             if (!found) {
                 x_min = x_max = x;
                 y_min = y_max = y;
@@ -159,7 +173,7 @@ CoreResult kit_graph_ts_zoom_view(KitGraphTsView *view, float factor) {
     float x_half;
     float y_half;
 
-    if (!ts_has_valid_view(view) || !(factor > 0.0f)) {
+    if (!ts_has_valid_view(view) || !ts_is_finite_value(factor) || !(factor > 0.0f)) {
         return kit_graph_ts_invalid("invalid zoom");
     }
 
@@ -192,9 +206,17 @@ CoreResult kit_graph_ts_hover_inspect(const KitGraphTsSeries *series,
     if (!series || !out_hover || !ts_has_valid_view(view) || !series->xs || !series->ys || series->point_count == 0) {
         return kit_graph_ts_invalid("invalid hover inspect");
     }
+    if (!ts_is_finite_rect(bounds) ||
+        !ts_is_finite_value(mouse_x) ||
+        !ts_is_finite_value(mouse_y)) {
+        return kit_graph_ts_invalid("invalid hover inspect");
+    }
 
     kit_graph_ts_style_default(&style);
     ts_plot_inner_rect(bounds, &style, &inner);
+    if (inner.width <= 0.0f || inner.height <= 0.0f) {
+        return kit_graph_ts_invalid("invalid hover inspect bounds");
+    }
 
     out_hover->active = 0;
     out_hover->series_index = 0;
@@ -210,8 +232,14 @@ CoreResult kit_graph_ts_hover_inspect(const KitGraphTsSeries *series,
         float dx;
         float dy;
         float dist_sq;
+        float sample_x = series->xs[i];
+        float sample_y = series->ys[i];
 
-        ts_map_point(inner, view, series->xs[i], series->ys[i], &px, &py);
+        if (!ts_is_finite_value(sample_x) || !ts_is_finite_value(sample_y)) {
+            return kit_graph_ts_invalid("non-finite hover series data");
+        }
+
+        ts_map_point(inner, view, sample_x, sample_y, &px, &py);
         dx = px - mouse_x;
         dy = py - mouse_y;
         dist_sq = (dx * dx) + (dy * dy);
@@ -221,11 +249,17 @@ CoreResult kit_graph_ts_hover_inspect(const KitGraphTsSeries *series,
             out_hover->active = 1;
             out_hover->series_index = 0;
             out_hover->nearest_index = (uint32_t)i;
-            out_hover->nearest_x = series->xs[i];
-            out_hover->nearest_y = series->ys[i];
+            out_hover->nearest_x = sample_x;
+            out_hover->nearest_y = sample_y;
             out_hover->plot_x = px;
             out_hover->plot_y = py;
         }
+    }
+
+    if (mouse_x < inner.x || mouse_y < inner.y ||
+        mouse_x > inner.x + inner.width ||
+        mouse_y > inner.y + inner.height) {
+        out_hover->active = 0;
     }
 
     return core_result_ok();

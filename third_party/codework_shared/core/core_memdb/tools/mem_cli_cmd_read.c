@@ -1175,6 +1175,7 @@ cleanup:
 int cmd_show(int argc, char **argv) {
     const char *db_path = find_flag_value(argc, argv, "--db");
     const char *id_text = find_flag_value(argc, argv, "--id");
+    int include_archived = has_flag(argc, argv, "--include-archived");
     MemCliOutputFormat format = MEM_CLI_OUTPUT_TEXT;
     int64_t item_id = 0;
     CoreMemDb db = {0};
@@ -1206,7 +1207,8 @@ int cmd_show(int argc, char **argv) {
                                 "canonical, "
                                 "CASE WHEN ttl_until_ns IS NULL THEN '' ELSE CAST(ttl_until_ns AS TEXT) END, "
                                 "CASE WHEN archived_ns IS NULL THEN '' ELSE CAST(archived_ns AS TEXT) END "
-                                "FROM mem_item WHERE id = ?1;",
+                                "FROM mem_item WHERE id = ?1 "
+                                "AND (?2 <> 0 OR archived_ns IS NULL);",
                                 &stmt);
     if (result.code != CORE_OK) {
         print_core_error("show", result);
@@ -1218,6 +1220,11 @@ int cmd_show(int argc, char **argv) {
         print_core_error("show", result);
         goto cleanup;
     }
+    result = core_memdb_stmt_bind_i64(&stmt, 2, include_archived ? 1 : 0);
+    if (result.code != CORE_OK) {
+        print_core_error("show", result);
+        goto cleanup;
+    }
 
     result = core_memdb_stmt_step(&stmt, &has_row);
     if (result.code != CORE_OK) {
@@ -1225,7 +1232,12 @@ int cmd_show(int argc, char **argv) {
         goto cleanup;
     }
     if (!has_row) {
-        fprintf(stderr, "show: id %lld not found\n", (long long)item_id);
+        if (include_archived) {
+            fprintf(stderr, "show: id %lld not found\n", (long long)item_id);
+        } else {
+            fprintf(stderr, "show: id %lld not found (use --include-archived for archived rows)\n",
+                    (long long)item_id);
+        }
         goto cleanup;
     }
 

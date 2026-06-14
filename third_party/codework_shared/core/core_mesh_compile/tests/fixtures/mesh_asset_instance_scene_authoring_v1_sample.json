@@ -1,0 +1,39 @@
+{
+  "schema_family": "codework_scene",
+  "schema_variant": "scene_authoring_v1",
+  "schema_version": 1,
+  "scene_id": "scene_mesh_asset_preview",
+  "space_mode_default": "3d",
+  "unit_system": "meters",
+  "world_scale": 1.0,
+  "objects": [
+    {
+      "object_id": "obj_bookshelf_a",
+      "object_type": "mesh_asset_instance",
+      "dimensional_mode": "full_3d",
+      "transform": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "rotation": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+      },
+      "geometry_ref": {
+        "kind": "mesh_asset",
+        "id": "asset_bookshelf_01",
+        "variant": "runtime_default"
+      },
+      "material_ref": {
+        "id": "mat_default"
+      },
+      "flags": {
+        "visible": true,
+        "locked": false,
+        "selectable": true
+      }
+    }
+  ],
+  "materials": [
+    {
+      "material_id": "mat_default"
+    }
+  ]
+}

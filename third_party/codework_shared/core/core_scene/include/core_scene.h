@@ -48,8 +48,15 @@ typedef enum CoreSceneObjectKind {
     CORE_SCENE_OBJECT_KIND_POINT_SET = 2,
     CORE_SCENE_OBJECT_KIND_EDGE_SET = 3,
     CORE_SCENE_OBJECT_KIND_PLANE_PRIMITIVE = 4,
-    CORE_SCENE_OBJECT_KIND_RECT_PRISM_PRIMITIVE = 5
+    CORE_SCENE_OBJECT_KIND_RECT_PRISM_PRIMITIVE = 5,
+    CORE_SCENE_OBJECT_KIND_MESH_ASSET_INSTANCE = 6
 } CoreSceneObjectKind;
+
+typedef enum CoreSceneGeometryRefKind {
+    CORE_SCENE_GEOMETRY_REF_KIND_UNKNOWN = 0,
+    CORE_SCENE_GEOMETRY_REF_KIND_SHAPE_ASSET = 1,
+    CORE_SCENE_GEOMETRY_REF_KIND_MESH_ASSET = 2
+} CoreSceneGeometryRefKind;
 
 typedef struct CoreSceneFrame3 {
     CoreObjectVec3 origin;
@@ -102,6 +109,8 @@ const char *core_scene_space_mode_name(CoreSceneSpaceMode mode);
 CoreResult core_scene_space_mode_parse(const char *text, CoreSceneSpaceMode *out_mode);
 const char *core_scene_object_kind_name(CoreSceneObjectKind kind);
 CoreResult core_scene_object_kind_parse(const char *text, CoreSceneObjectKind *out_kind);
+const char *core_scene_geometry_ref_kind_name(CoreSceneGeometryRefKind kind);
+CoreResult core_scene_geometry_ref_kind_parse(const char *text, CoreSceneGeometryRefKind *out_kind);
 
 void core_scene_root_contract_init(CoreSceneRootContract *contract);
 CoreResult core_scene_root_contract_set_scene_id(CoreSceneRootContract *contract, const char *scene_id);

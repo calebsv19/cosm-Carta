@@ -25,23 +25,23 @@ void print_usage(const char *argv0) {
     fprintf(stderr, "  list --db <path> [--format text|tsv|json]\n");
     fprintf(stderr, "  find --db <path> --query <text> [--format text|tsv|json]\n");
     fprintf(stderr, "  query --db <path> [--query <text>] [--limit <n>] [--offset <n>] [--pinned-only] [--canonical-only] [--include-archived] [--workspace <key>] [--project <key>] [--kind <value>] [--format text|tsv|json]\n");
-    fprintf(stderr, "  show --db <path> --id <rowid> [--format text|tsv|json]\n");
+    fprintf(stderr, "  show --db <path> --id <rowid> [--include-archived] [--format text|tsv|json]\n");
     fprintf(stderr, "  health --db <path> [--format text|json]\n");
     fprintf(stderr, "  audit-list --db <path> [--session-id <id>] [--limit <n>] [--format text|tsv|json]\n");
     fprintf(stderr, "  event-list --db <path> [--session-id <id>] [--event-type <type>] [--limit <n>] [--format text|tsv|json]\n");
     fprintf(stderr, "  event-replay-check --db <path> [--limit-events <n>] [--format text|json]\n");
     fprintf(stderr, "  event-replay-apply --db <source_path> --out-db <target_path> [--limit-events <n>] [--format text|json]\n");
-    fprintf(stderr, "  event-backfill --db <path> [--session-id <id>] [--dry-run] [--format text|json]\n");
-    fprintf(stderr, "  pin --db <path> --id <rowid> --on|--off [--session-id <id>]\n");
-    fprintf(stderr, "  canonical --db <path> --id <rowid> --on|--off [--session-id <id>]\n");
-    fprintf(stderr, "  item-retag --db <path> --id <rowid> [--workspace <key>] [--project <key>] [--kind <value>] [--include-archived] [--session-id <id>]\n");
-    fprintf(stderr, "  item-archive --db <path> --id <rowid> [--session-id <id>]\n");
-    fprintf(stderr, "  rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>]\n");
-    fprintf(stderr, "  link-add --db <path> --from <item_id> --to <item_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>]\n");
+    fprintf(stderr, "  event-backfill --db <path> [--session-id <id>] [--session-max-writes <n>] [--dry-run] [--format text|json]\n");
+    fprintf(stderr, "  pin --db <path> --id <rowid> --on|--off [--session-id <id>] [--session-max-writes <n>]\n");
+    fprintf(stderr, "  canonical --db <path> --id <rowid> --on|--off [--session-id <id>] [--session-max-writes <n>]\n");
+    fprintf(stderr, "  item-retag --db <path> --id <rowid> [--workspace <key>] [--project <key>] [--kind <value>] [--include-archived] [--session-id <id>] [--session-max-writes <n>]\n");
+    fprintf(stderr, "  item-archive --db <path> --id <rowid> [--session-id <id>] [--session-max-writes <n>]\n");
+    fprintf(stderr, "  rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>] [--session-max-writes <n>]\n");
+    fprintf(stderr, "  link-add --db <path> --from <item_id> --to <item_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>] [--session-max-writes <n>]\n");
     fprintf(stderr, "  link-list --db <path> --item-id <item_id>\n");
     fprintf(stderr, "  neighbors --db <path> --item-id <item_id> [--kind <text>] [--max-edges <n>] [--max-nodes <n>] [--format text|tsv|json]\n");
-    fprintf(stderr, "  link-update --db <path> --id <link_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>]\n");
-    fprintf(stderr, "  link-remove --db <path> --id <link_id> [--session-id <id>]\n");
+    fprintf(stderr, "  link-update --db <path> --id <link_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>] [--session-max-writes <n>]\n");
+    fprintf(stderr, "  link-remove --db <path> --id <link_id> [--session-id <id>] [--session-max-writes <n>]\n");
     fprintf(stderr, "  help\n");
 }
 

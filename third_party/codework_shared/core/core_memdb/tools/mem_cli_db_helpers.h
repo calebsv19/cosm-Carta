@@ -12,6 +12,11 @@ const char *core_str_data_or_empty(CoreStr value);
 CoreResult bind_optional_text_or_null(CoreMemStmt *stmt, int index_1based, const char *value);
 int append_sql_fragment(char *sql, size_t sql_cap, const char *fragment);
 int64_t current_time_ns(void);
+int parse_session_budget_arg(const char *command_name,
+                             const char *session_id,
+                             const char *session_max_writes_text,
+                             int64_t *out_session_max_writes,
+                             int *out_enforce);
 
 CoreResult query_single_i64(CoreMemDb *db, const char *sql, int64_t *out_value);
 int open_db_or_fail(const char *db_path, CoreMemDb *db);
@@ -20,6 +25,19 @@ CoreResult item_exists_active(CoreMemDb *db, int64_t item_id, int *out_exists);
 CoreResult fetch_session_add_write_count(CoreMemDb *db,
                                          const char *session_id,
                                          int64_t *out_count);
+CoreResult fetch_session_mutation_write_count(CoreMemDb *db,
+                                              const char *session_id,
+                                              int64_t *out_count);
+int report_session_budget_exceeded(CoreMemDb *db,
+                                   const char *command_name,
+                                   const char *session_id,
+                                   int64_t session_write_count,
+                                   int64_t session_max_writes,
+                                   int64_t item_id,
+                                   const char *stable_id,
+                                   const char *workspace_key,
+                                   const char *project_key,
+                                   const char *item_kind);
 CoreResult append_audit_entry(CoreMemDb *db,
                               const char *session_id,
                               const char *action,

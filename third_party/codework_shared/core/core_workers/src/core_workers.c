@@ -105,7 +105,7 @@ bool core_workers_init(
 }
 
 bool core_workers_submit(CoreWorkers *workers, CoreWorkerTaskFn fn, void *task_ctx) {
-    if (!workers || !fn) return false;
+    if (!workers || !workers->initialized || !fn) return false;
 
     pthread_mutex_lock(&workers->mu);
     if (workers->task_count == workers->task_capacity || workers->stop) {

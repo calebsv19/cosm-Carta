@@ -1,6 +1,6 @@
 # core_sim Optional Trace/Data/Pack Adapter Plan
 
-Status: dependency-free adapter contract plan for `core_sim v0.3.0`.
+Status: dependency-free adapter contract plan for `core_sim v0.4.0`.
 
 `core_sim` should not require `core_trace`, `core_data`, or `core_pack`.
 Instead, hosts can use `core_sim` summaries and timing helpers as stable source
@@ -11,6 +11,8 @@ records, then map them into optional artifact lanes.
 The stable source records are:
 - `CoreSimFrameOutcome`
 - `CoreSimFrameSummary`
+- `CoreSimArtifactRunHeader`
+- `CoreSimFrameRecord`
 - pass ids and pass names from `CoreSimPassDescriptor`
 - `CoreSimStageMark`
 - `CoreSimStageTiming`
@@ -95,6 +97,10 @@ contract.
 
 ## Next Adapter Slice
 
-The first real optional adapter should be a small `core_sim_trace` helper only
-after at least one host needs a trace artifact. Until then, hosts should keep
-using `CoreSimFrameSummary` and `CoreSimStageTiming` directly.
+`shared/core/core_sim_trace v0.1.0` is now the first optional adapter slice. It
+maps `CoreSimFrameRecord` values into standard `core_sim.*` trace lanes and
+frame/reason markers.
+
+Hosts should use it for shared control-plane traces, then keep app-domain
+snapshots, solver metrics, entity state, and durable `core_data` / `core_pack`
+artifacts app-owned until those shapes are proven by multiple hosts.

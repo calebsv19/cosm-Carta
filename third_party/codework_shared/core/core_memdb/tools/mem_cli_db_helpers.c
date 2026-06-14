@@ -62,6 +62,36 @@ int64_t current_time_ns(void) {
     return ((int64_t)ts.tv_sec * 1000000000LL) + (int64_t)ts.tv_nsec;
 }
 
+int parse_session_budget_arg(const char *command_name,
+                             const char *session_id,
+                             const char *session_max_writes_text,
+                             int64_t *out_session_max_writes,
+                             int *out_enforce) {
+    if (!out_session_max_writes || !out_enforce) {
+        return 0;
+    }
+
+    *out_session_max_writes = 0;
+    *out_enforce = 0;
+
+    if (!session_max_writes_text) {
+        return 1;
+    }
+    if (!parse_i64_arg(session_max_writes_text, out_session_max_writes) ||
+        *out_session_max_writes <= 0 ||
+        *out_session_max_writes > 1000000) {
+        fprintf(stderr, "%s: --session-max-writes must be in range [1, 1000000]\n", command_name);
+        return 0;
+    }
+    if (!session_id || session_id[0] == '\0') {
+        fprintf(stderr, "%s: --session-id is required when --session-max-writes is used\n", command_name);
+        return 0;
+    }
+
+    *out_enforce = 1;
+    return 1;
+}
+
 CoreResult query_single_i64(CoreMemDb *db, const char *sql, int64_t *out_value) {
     CoreMemStmt stmt = {0};
     CoreResult result;
@@ -140,6 +170,84 @@ cleanup:
         }
     }
     return result;
+}
+
+CoreResult fetch_session_mutation_write_count(CoreMemDb *db,
+                                              const char *session_id,
+                                              int64_t *out_count) {
+    CoreMemStmt stmt = {0};
+    CoreResult result;
+    int has_row = 0;
+
+    if (!db || !session_id || !out_count) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid argument" };
+    }
+
+    *out_count = 0;
+    result = core_memdb_prepare(db,
+                                "SELECT COUNT(*) "
+                                "FROM mem_audit "
+                                "WHERE session_id = ?1 AND status = 'ok' AND action IN ("
+                                "'add', 'pin', 'canonical', 'item-retag', 'item-archive', "
+                                "'rollup', 'link-add', 'link-update', 'link-remove', 'event-backfill'"
+                                ");",
+                                &stmt);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+    result = core_memdb_stmt_bind_text(&stmt, 1, session_id);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    result = core_memdb_stmt_step(&stmt, &has_row);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    if (!has_row) {
+        result = (CoreResult){ CORE_ERR_FORMAT, "session write count returned no row" };
+        goto cleanup;
+    }
+    result = core_memdb_stmt_column_i64(&stmt, 0, out_count);
+
+cleanup:
+    {
+        CoreResult finalize_result = core_memdb_stmt_finalize(&stmt);
+        if (result.code == CORE_OK && finalize_result.code != CORE_OK) {
+            result = finalize_result;
+        }
+    }
+    return result;
+}
+
+int report_session_budget_exceeded(CoreMemDb *db,
+                                   const char *command_name,
+                                   const char *session_id,
+                                   int64_t session_write_count,
+                                   int64_t session_max_writes,
+                                   int64_t item_id,
+                                   const char *stable_id,
+                                   const char *workspace_key,
+                                   const char *project_key,
+                                   const char *item_kind) {
+    if (db && session_id && command_name) {
+        (void)append_audit_entry(db,
+                                 session_id,
+                                 command_name,
+                                 "fail",
+                                 item_id,
+                                 stable_id,
+                                 workspace_key,
+                                 project_key,
+                                 item_kind,
+                                 "session write budget exceeded");
+        fprintf(stderr,
+                "%s: session write budget exceeded (session=%s used=%lld max=%lld)\n",
+                command_name,
+                session_id,
+                (long long)session_write_count,
+                (long long)session_max_writes);
+    }
+    return 1;
 }
 
 CoreResult append_audit_entry(CoreMemDb *db,

@@ -1,0 +1,91 @@
+{
+  "schema_family": "codework_geometry",
+  "schema_variant": "mesh_asset_authoring_v1",
+  "schema_version": 1,
+  "asset_id": "asset_bookshelf_01",
+  "unit_system": "meter",
+  "world_scale": 1.0,
+  "asset_type": "solid_mesh",
+  "pivot": {
+    "origin": { "x": 0.0, "y": 0.0, "z": 0.0 },
+    "axis_u": { "x": 1.0, "y": 0.0, "z": 0.0 },
+    "axis_v": { "x": 0.0, "y": 1.0, "z": 0.0 },
+    "normal": { "x": 0.0, "y": 0.0, "z": 1.0 }
+  },
+  "authoring": {
+    "source_mode": "primitive_seed",
+    "primitive_seeds": [
+      {
+        "primitive_id": "primitive_1",
+        "kind": "plane",
+        "object": {
+          "object_id": "primitive_1",
+          "object_type": "plane_primitive",
+          "dimensional_mode": "plane_locked",
+          "locked_plane": "xy",
+          "transform": {
+            "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+            "rotation_deg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+            "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+          },
+          "flags": {
+            "visible": true,
+            "locked": false,
+            "selectable": true
+          }
+        },
+        "plane": {
+          "width": 3.0,
+          "height": 2.0,
+          "frame": {
+            "origin": { "x": 0.0, "y": 0.0, "z": 0.0 },
+            "axis_u": { "x": 1.0, "y": 0.0, "z": 0.0 },
+            "axis_v": { "x": 0.0, "y": 1.0, "z": 0.0 },
+            "normal": { "x": 0.0, "y": 0.0, "z": 1.0 }
+          },
+          "lock_to_construction_plane": true,
+          "lock_to_bounds": true
+        }
+      },
+      {
+        "primitive_id": "primitive_2",
+        "kind": "rect_prism",
+        "object": {
+          "object_id": "primitive_2",
+          "object_type": "rect_prism_primitive",
+          "dimensional_mode": "full_3d",
+          "locked_plane": "xy",
+          "transform": {
+            "position": { "x": 1.5, "y": 0.0, "z": 0.5 },
+            "rotation_deg": { "x": 0.0, "y": 0.0, "z": 0.0 },
+            "scale": { "x": 1.0, "y": 1.0, "z": 1.0 }
+          },
+          "flags": {
+            "visible": true,
+            "locked": false,
+            "selectable": true
+          }
+        },
+        "rect_prism": {
+          "width": 1.0,
+          "height": 0.5,
+          "depth": 1.0,
+          "frame": {
+            "origin": { "x": 1.5, "y": 0.0, "z": 0.5 },
+            "axis_u": { "x": 1.0, "y": 0.0, "z": 0.0 },
+            "axis_v": { "x": 0.0, "y": 1.0, "z": 0.0 },
+            "normal": { "x": 0.0, "y": 0.0, "z": 1.0 }
+          },
+          "lock_to_construction_plane": false,
+          "lock_to_bounds": true
+        }
+      }
+    ]
+  },
+  "surface_groups": [],
+  "compile_hints": {
+    "expect_closed_volume": true,
+    "expect_manifold": true
+  },
+  "extensions": {}
+}

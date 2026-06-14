@@ -7,6 +7,7 @@
 
 #include "kit_viz.h"
 
+#include <stdbool.h>
 #include <math.h>
 #include <string.h>
 
@@ -16,22 +17,50 @@ static float clamp01(float x) {
     return x;
 }
 
+static bool kit_viz_mul_overflow_size(size_t a, size_t b, size_t *out) {
+    if (a != 0u && b > SIZE_MAX / a) {
+        return true;
+    }
+    *out = a * b;
+    return false;
+}
+
+static bool kit_viz_float_finite(float v) {
+    return isfinite((double)v);
+}
+
 CoreResult kit_viz_compute_field_stats(const float *values,
                                        uint32_t width,
                                        uint32_t height,
                                        KitVizFieldStats *out_stats) {
+    if (out_stats) {
+        memset(out_stats, 0, sizeof(*out_stats));
+    }
     if (!values || !out_stats || width == 0 || height == 0) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
         return r;
     }
 
-    const size_t count = (size_t)width * (size_t)height;
+    size_t count = 0;
+    if (kit_viz_mul_overflow_size((size_t)width, (size_t)height, &count)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "field dimensions overflow" };
+        return r;
+    }
     float min_v = values[0];
     float max_v = values[0];
     double sum = 0.0;
 
+    if (!kit_viz_float_finite(min_v)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "non-finite field value" };
+        return r;
+    }
+
     for (size_t i = 0; i < count; ++i) {
         const float v = values[i];
+        if (!kit_viz_float_finite(v)) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "non-finite field value" };
+            return r;
+        }
         if (v < min_v) min_v = v;
         if (v > max_v) max_v = v;
         sum += (double)v;
@@ -93,9 +122,22 @@ CoreResult kit_viz_build_heatmap_rgba(const float *values,
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
         return r;
     }
+    if (colormap != KIT_VIZ_COLORMAP_GRAYSCALE && colormap != KIT_VIZ_COLORMAP_HEAT) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid colormap" };
+        return r;
+    }
+    if (!kit_viz_float_finite(min_value) || !kit_viz_float_finite(max_value)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid range" };
+        return r;
+    }
 
-    const size_t px_count = (size_t)width * (size_t)height;
-    const size_t needed = px_count * 4u;
+    size_t px_count = 0;
+    size_t needed = 0;
+    if (kit_viz_mul_overflow_size((size_t)width, (size_t)height, &px_count) ||
+        kit_viz_mul_overflow_size(px_count, 4u, &needed)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "image dimensions overflow" };
+        return r;
+    }
     if (out_rgba_size < needed) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "output buffer too small" };
         return r;
@@ -108,6 +150,10 @@ CoreResult kit_viz_build_heatmap_rgba(const float *values,
 
     for (size_t i = 0; i < px_count; ++i) {
         const float v = values[i];
+        if (!kit_viz_float_finite(v)) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "non-finite field value" };
+            return r;
+        }
         const float t = clamp01((v - min_value) / range);
 
         uint8_t r = 0;
@@ -138,8 +184,15 @@ CoreResult kit_viz_build_vector_segments(const float *vx,
                                          KitVizVecSegment *out_segments,
                                          size_t max_segments,
                                          size_t *out_segment_count) {
+    if (out_segment_count) {
+        *out_segment_count = 0u;
+    }
     if (!vx || !vy || !out_segments || !out_segment_count || width == 0 || height == 0) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
+        return r;
+    }
+    if (!kit_viz_float_finite(scale)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid scale" };
         return r;
     }
 
@@ -149,6 +202,10 @@ CoreResult kit_viz_build_vector_segments(const float *vx,
     for (uint32_t y = 0; y < height; y += stride) {
         for (uint32_t x = 0; x < width; x += stride) {
             const size_t idx = (size_t)y * (size_t)width + (size_t)x;
+            if (!kit_viz_float_finite(vx[idx]) || !kit_viz_float_finite(vy[idx])) {
+                CoreResult r = { CORE_ERR_INVALID_ARG, "non-finite vector value" };
+                return r;
+            }
             if (count >= max_segments) {
                 *out_segment_count = count;
                 CoreResult r = { CORE_ERR_INVALID_ARG, "segment buffer too small" };
@@ -178,6 +235,9 @@ CoreResult kit_viz_build_polyline_segments(const float *xs,
                                            KitVizVecSegment *out_segments,
                                            size_t max_segments,
                                            size_t *out_segment_count) {
+    if (out_segment_count) {
+        *out_segment_count = 0u;
+    }
     if (!xs || !ys || !out_segments || !out_segment_count) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid argument" };
         return r;
@@ -195,6 +255,11 @@ CoreResult kit_viz_build_polyline_segments(const float *xs,
     }
 
     for (uint32_t i = 0; i + 1u < point_count; ++i) {
+        if (!kit_viz_float_finite(xs[i]) || !kit_viz_float_finite(ys[i]) ||
+            !kit_viz_float_finite(xs[i + 1u]) || !kit_viz_float_finite(ys[i + 1u])) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "non-finite polyline point" };
+            return r;
+        }
         out_segments[i].x0 = xs[i];
         out_segments[i].y0 = ys[i];
         out_segments[i].x1 = xs[i + 1u];
@@ -221,6 +286,17 @@ CoreResult kit_viz_sample_waveform_envelope(const float *mins,
     if (!(bucket_scale > 0.0)) {
         CoreResult r = { CORE_ERR_INVALID_ARG, "invalid bucket scale" };
         return r;
+    }
+    if (!isfinite(bucket_start) || !isfinite(bucket_scale)) {
+        CoreResult r = { CORE_ERR_INVALID_ARG, "invalid bucket scale" };
+        return r;
+    }
+
+    for (uint32_t i = 0; i < bucket_count; ++i) {
+        if (!kit_viz_float_finite(mins[i]) || !kit_viz_float_finite(maxs[i])) {
+            CoreResult r = { CORE_ERR_INVALID_ARG, "non-finite waveform bucket" };
+            return r;
+        }
     }
 
     for (uint32_t px = 0; px < pixel_width; ++px) {

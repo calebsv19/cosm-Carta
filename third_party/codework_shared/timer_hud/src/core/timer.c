@@ -1,17 +1,17 @@
 #include "timer.h"
+#include "time_utils.h"
+
 #include <time.h>
 #include <math.h>
 #include <string.h>
 
-static uint64_t get_time_ns(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
-}
-
 void timer_init(Timer* timer, const char* name) {
     memset(timer, 0, sizeof(Timer));
-    timer->name = name;
+    if (!name) {
+        return;
+    }
+    strncpy(timer->name, name, sizeof(timer->name) - 1);
+    timer->name[sizeof(timer->name) - 1] = '\0';
 }
 
 void timer_start(Timer* timer) {
@@ -27,13 +27,20 @@ void timer_stop(Timer* timer) {
     uint64_t end_time = get_time_ns();
     double duration_ms = (end_time - timer->start_time) / 1e6;
 
+    timer_record_duration_ms(timer, duration_ms);
+    timer->running = false;
+}
+
+void timer_record_duration_ms(Timer* timer, double duration_ms) {
+    if (!timer || !isfinite(duration_ms) || duration_ms < 0.0) {
+        return;
+    }
     timer->durations[timer->index] = duration_ms;
     timer->index = (timer->index + 1) % TIMER_HISTORY_SIZE;
     if (timer->count < TIMER_HISTORY_SIZE) {
         timer->count++;
     }
 
-    timer->running = false;
     timer_update_stats(timer);
 }
 

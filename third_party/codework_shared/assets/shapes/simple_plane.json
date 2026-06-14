@@ -1,0 +1,156 @@
+{
+	"file":	{
+		"schemaVersion":	8,
+		"generator":	"LineDrawing",
+		"gridSize":	1
+	},
+	"scene3d":	{
+		"bounds":	{
+			"enabled":	true,
+			"clampOnEdit":	false,
+			"min":	{
+				"x":	-100,
+				"y":	-100,
+				"z":	-100
+			},
+			"max":	{
+				"x":	100,
+				"y":	100,
+				"z":	100
+			}
+		},
+		"constructionPlane":	{
+			"mode":	"axis_aligned",
+			"axis":	"xy",
+			"offset":	0,
+			"customFrame":	{
+				"origin":	{
+					"x":	0,
+					"y":	0,
+					"z":	0
+				},
+				"axisU":	{
+					"x":	0,
+					"y":	-1,
+					"z":	0
+				},
+				"axisV":	{
+					"x":	1,
+					"y":	0,
+					"z":	0
+				},
+				"normal":	{
+					"x":	0,
+					"y":	0,
+					"z":	1
+				}
+			}
+		}
+	},
+	"objects3d":	[{
+			"id":	1,
+			"kind":	"plane",
+			"objectType":	"plane_primitive",
+			"dimensionalMode":	"plane_locked",
+			"lockedPlane":	"xy",
+			"transform":	{
+				"position":	{
+					"x":	3.68867015838623,
+					"y":	3.5522351264953613,
+					"z":	0
+				},
+				"rotationDeg":	{
+					"x":	0,
+					"y":	0,
+					"z":	0
+				},
+				"scale":	{
+					"x":	1,
+					"y":	1,
+					"z":	1
+				}
+			},
+			"plane":	{
+				"width":	8.87606906890869,
+				"height":	8.3697738647460938,
+				"lockToConstructionPlane":	true,
+				"lockToBounds":	true,
+				"frame":	{
+					"origin":	{
+						"x":	3.68867015838623,
+						"y":	3.5522351264953613,
+						"z":	0
+					},
+					"axisU":	{
+						"x":	0,
+						"y":	-1,
+						"z":	0
+					},
+					"axisV":	{
+						"x":	1,
+						"y":	0,
+						"z":	0
+					},
+					"normal":	{
+						"x":	0,
+						"y":	0,
+						"z":	1
+					}
+				}
+			}
+		}, {
+			"id":	2,
+			"kind":	"rect_prism",
+			"objectType":	"rect_prism_primitive",
+			"dimensionalMode":	"full_3d",
+			"lockedPlane":	"xy",
+			"transform":	{
+				"position":	{
+					"x":	3.5,
+					"y":	3,
+					"z":	4
+				},
+				"rotationDeg":	{
+					"x":	0,
+					"y":	0,
+					"z":	0
+				},
+				"scale":	{
+					"x":	1,
+					"y":	1,
+					"z":	1
+				}
+			},
+			"rectPrism":	{
+				"width":	2,
+				"height":	1,
+				"depth":	4,
+				"lockToConstructionPlane":	true,
+				"lockToBounds":	true,
+				"frame":	{
+					"origin":	{
+						"x":	3.5,
+						"y":	3,
+						"z":	4
+					},
+					"axisU":	{
+						"x":	0,
+						"y":	-1,
+						"z":	0
+					},
+					"axisV":	{
+						"x":	1,
+						"y":	0,
+						"z":	0
+					},
+					"normal":	{
+						"x":	0,
+						"y":	0,
+						"z":	1
+					}
+				}
+			}
+		}],
+	"anchors":	[],
+	"walls":	[]
+}

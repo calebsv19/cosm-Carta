@@ -27,6 +27,7 @@ It separates stable reference docs and archived completed phase docs.
 | `41_kit_graph_struct_phase_g4_execution_plan.md` | Phase plan | Phase G4 execution checklist for additive edge/label hit testing, viewport helper utilities, and mem_console edge/label hit adoption. |
 | `42_kit_graph_struct_phase_g5_execution_plan.md` | Phase plan | Phase G5 execution checklist for mem_console viewport interaction adoption (wheel zoom, drag pan, drag-release click suppression). |
 | `43_kit_graph_struct_phase_g6_execution_plan.md` | Phase plan | Phase G6 execution checklist for extensibility hardening: expanded validation fixtures, perf instrumentation, and layout-strategy hooks. |
+| `45_core_viewport2d_s0_scaffold_plan.md` | Phase plan | S0 scaffold plan for a shared 2D viewport/camera math contract, with DataLab image inspection as the first proving host. |
 
 ## Completed Plan Docs (Archived)
 
@@ -51,7 +52,7 @@ These are kept for reference under `shared/docs/completed/`.
 | `../completed/ecosystem_north_star_docs/30_ide_theme_surface_completion_plan.md` | Phase 8 | IDE-specific shared-theme surface completion and runtime persistence follow-on. | Completed |
 | `../completed/ecosystem_north_star_docs/31_daw_theme_surface_completion_plan.md` | Phase 8 | DAW shared-theme surface completion across transport, timeline, inspector, and effects UI. | Completed |
 | `../completed/ecosystem_north_star_docs/32_map_forge_theme_surface_completion_plan.md` | Phase 8 | MapForge shared-theme default-on, persistence, and overlay/chrome completion. | Completed |
-| `../completed/ecosystem_north_star_docs/33_line_drawing_theme_surface_completion_plan.md` | Phase 8 | Combined line_drawing and line_drawing3d shared-theme completion and persistence follow-on. | Completed |
+| `../completed/ecosystem_north_star_docs/33_line_drawing_theme_surface_completion_plan.md` | Phase 8 | Legacy line_drawing theme-surface completion and persistence follow-on before the old 3D lane was retired. | Completed |
 | `../completed/ecosystem_north_star_docs/35_physics_sim_theme_menu_stability_plan.md` | Phase 8 | PhysicsSim shared-theme UI stability pass for menu and main scene editor shell. | Completed |
 | `../completed/rollout_history/07_project_core_adoption_matrix.md` | Legacy matrix | Earlier per-project core adoption matrix superseded by active gap/compat docs. | Archived |
 

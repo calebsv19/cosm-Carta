@@ -19,6 +19,21 @@
 - Implementation: `src/core_base.c`
 - Tests: `tests/core_base_test.c`
 
+## Current Implementation Status
+- Implemented now:
+  - result/error primitives
+  - borrowed `CoreStr` views and equality
+  - allocation wrappers with explicit zero-size semantics
+  - FNV-1a hash helpers
+  - basename/extension helpers that return borrowed pointers into the input path
+  - endianness detection
+- Not implemented yet:
+  - owned strings
+  - ID helpers
+  - allocator diagnostics/hooks
+  - overflow-aware array-allocation helpers
+  - broader path normalization helpers
+
 ## Product-Level Behavior Goals
 - Deterministic outcomes for all pure helpers.
 - Cross-platform behavior parity (macOS/Linux first).
@@ -31,6 +46,8 @@
 - Lock down `CoreResult` behavior and error code meaning.
 - Keep allocation wrappers (`core_alloc`, `core_calloc`, `core_realloc`, `core_free`) stable.
 - Guarantee helper behavior for edge inputs (empty strings, null pointers where allowed, zero lengths).
+- Keep borrowed-pointer semantics explicit for `CoreStr` and path helpers.
+- Keep hash invalid-input behavior deterministic and documented.
 
 ### Layer 2: Diagnostics and Debug Hooks
 - Optional allocator hooks for tracking and leak diagnostics.

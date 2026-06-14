@@ -1,13 +1,30 @@
 # core_memdb
 
-`core_memdb` is the shared-core boundary for the local-first Memory DB system.
+`core_memdb` is the shared-core storage boundary for the local-first Memory DB system.
+
+Contract layers:
+- shared C API:
+  - SQLite-backed DB lifecycle, statement helpers, transactions, and schema migration/bootstrap
+  - current schema target `v6`, with built-in upgrades from `v1` through `v5`
+  - borrowed text-column views remain valid only until the next step/reset/finalize on the same statement
+  - `core_memdb_open()` auto-runs built-in migrations to the module target version
+  - `core_memdb_close()` and `core_memdb_stmt_finalize()` are intentionally idempotent
+- higher layers in this subtree:
+  - `mem_cli` command policy, write budgeting, replay/apply commands, graph retrieval commands, and human/machine-readable output formats
+  - `mem_agent_flow.sh` wrapper policy for bounded agent retrieval and write flows
+  - nightly maintenance and hierarchy-migration scripts under `tools/`
+- out of the shared C API contract:
+  - Memory Console app-local mutation paths
+  - remote sync, VPS/service deployment, product UX, graph UI, and multi-user behavior
+
+This README keeps those layers in one place for operator convenience, but only the shared C API surface in `include/core_memdb.h` is the base library contract.
 
 Current state:
 - Phase 1 foundation complete
 - Phase 2 anti-bloat controls complete
 - SQLite amalgamation vendored and compiled into the module
 
-Implemented capabilities:
+Shared C API capabilities:
 - SQLite-backed lifecycle + statement API (`open`, `close`, `exec`, `prepare`, `step`, `reset`, `finalize`)
 - integer/text/f64/null bind helpers and integer/text column helpers
 - explicit transaction helpers
@@ -16,7 +33,7 @@ Implemented capabilities:
 - current schema target `v6` (with built-in upgrades from `v1` through `v5`)
 - baseline tables for items, tags, links, FTS, and append-only event rows
 
-Current status:
+Higher-layer status in this subtree:
 - the SQLite amalgamation is now vendored under `external/` and compiled into the module archive
 - the core DB API runs against real SQLite handles
 - `mem_cli` supports `add`, `list`, `find`, `show`, `pin`, `canonical`, `item-retag`, `item-archive`, and `rollup`
@@ -24,6 +41,7 @@ Current status:
 - `mem_cli add` now supports scoped metadata (`workspace_key`, `project_key`, `kind`)
 - `mem_cli query` now supports scoped filters (`--workspace`, `--project`, `--kind`)
 - `mem_cli add` now supports session write-budget flags (`--session-id`, `--session-max-writes`)
+- mutation commands that already accept `--session-id` now also support `--session-max-writes` against one shared successful-mutation budget per session
 - `mem_cli` now includes `batch-add`, `health`, `audit-list`, and `event-list`
 - `mem_cli` now includes `event-replay-check` for bounded replay/projection drift verification against event history
 - `event-replay-check` now validates full row parity (`mem_item` fields + `mem_link` fields), not only structural IDs/flags
@@ -39,6 +57,7 @@ Current status:
 - write commands now dual-write event records into `mem_event` (`Node*` and `Edge*` event classes)
 - `batch-add` now supports stricter failure/retry policy flags (`--max-errors`, `--retry-attempts`, `--retry-delay-ms`)
 - retrieval/read commands now support `--format text|tsv|json` for machine-readable agent parsing
+- `mem_cli show` now hides archived rows by default and requires `--include-archived` for direct archived-row inspection
 - `mem_cli` now also supports baseline `mem_link` workflows (`link-add`, `link-list`, `link-update`, `link-remove`)
 - `mem_cli` now supports bounded graph neighborhood retrieval via `neighbors`
 - nightly maintenance runner scripts now exist for manual/dry-run operations:
@@ -140,17 +159,18 @@ Planned outputs:
 - `build/core_memdb_test`
 
 Current gaps / next focus:
+- keep the shared C API boundary narrow; do not move CLI, agent-wrapper, nightly-maintenance, or host policy into `core_memdb` without a separate shared-boundary justification
 - decide whether to promote fingerprint dedupe from policy to hard unique constraint
-- decide if session-budget enforcement should expand beyond `add` into additional write commands
 - evaluate optional per-row failure classification for `batch-add` retries
 - evaluate whether graph neighbor retrieval should support optional depth-2 traversal with strict bounds
 - keep migration steps explicit as schema versions advance
-- decide long-term archived-row default behavior for `show`
 - maintain full-field replay parity as event schema evolves (additive compatibility checks per new event type)
 - formalize snapshot + cursor artifact flow on top of `event-replay-apply` (outside SQLite projection)
 - add CLI-level replay/apply fixtures for long-lived multi-session datasets
 
 Recent update notes:
+- `0.28.2`: expanded CLI session-budget enforcement across the existing mutation lanes that already use `--session-id`, made `show` hide archived rows unless `--include-archived` is passed, and added smoke coverage for archived visibility plus cross-command budget exhaustion.
+- `0.28.1`: truth-locked the shared C API versus CLI/tooling layers, documented idempotent close/finalize and auto-migration behavior, and expanded C-level edge coverage for closed/finalized handles and unsupported future migration targets.
 - `0.28.0`: additive `item-archive` CLI lane, manual rollup flow wrapper, stricter nightly/codex rollup script validation, and canonical `mem_console` naming across maintenance helpers.
 
 Current CLI surface:
@@ -159,20 +179,20 @@ Current CLI surface:
 - `mem_cli list --db <path> [--format text|tsv|json]`
 - `mem_cli find --db <path> --query <text> [--format text|tsv|json]`
 - `mem_cli query --db <path> [--query <text>] [--limit <n>] [--offset <n>] [--pinned-only] [--canonical-only] [--include-archived] [--workspace <key>] [--project <key>] [--kind <value>] [--format text|tsv|json]`
-- `mem_cli show --db <path> --id <rowid> [--format text|tsv|json]`
+- `mem_cli show --db <path> --id <rowid> [--include-archived] [--format text|tsv|json]`
 - `mem_cli health --db <path> [--format text|json]`
 - `mem_cli audit-list --db <path> [--session-id <id>] [--limit <n>] [--format text|tsv|json]`
 - `mem_cli event-list --db <path> [--session-id <id>] [--event-type <type>] [--limit <n>] [--format text|tsv|json]`
 - `mem_cli event-replay-check --db <path> [--limit-events <n>] [--format text|json]`
 - `mem_cli event-replay-apply --db <source_path> --out-db <target_path> [--limit-events <n>] [--format text|json]`
-- `mem_cli event-backfill --db <path> [--session-id <id>] [--dry-run] [--format text|json]`
-- `mem_cli pin --db <path> --id <rowid> --on|--off [--session-id <id>]`
-- `mem_cli canonical --db <path> --id <rowid> --on|--off [--session-id <id>]`
-- `mem_cli item-retag --db <path> --id <rowid> [--workspace <key>] [--project <key>] [--kind <value>] [--include-archived] [--session-id <id>]`
-- `mem_cli item-archive --db <path> --id <rowid> [--session-id <id>]`
-- `mem_cli rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>]`
-- `mem_cli link-add --db <path> --from <item_id> --to <item_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>]`
+- `mem_cli event-backfill --db <path> [--session-id <id>] [--session-max-writes <n>] [--dry-run] [--format text|json]`
+- `mem_cli pin --db <path> --id <rowid> --on|--off [--session-id <id>] [--session-max-writes <n>]`
+- `mem_cli canonical --db <path> --id <rowid> --on|--off [--session-id <id>] [--session-max-writes <n>]`
+- `mem_cli item-retag --db <path> --id <rowid> [--workspace <key>] [--project <key>] [--kind <value>] [--include-archived] [--session-id <id>] [--session-max-writes <n>]`
+- `mem_cli item-archive --db <path> --id <rowid> [--session-id <id>] [--session-max-writes <n>]`
+- `mem_cli rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>] [--session-max-writes <n>]`
+- `mem_cli link-add --db <path> --from <item_id> --to <item_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>] [--session-max-writes <n>]`
 - `mem_cli link-list --db <path> --item-id <item_id>`
 - `mem_cli neighbors --db <path> --item-id <item_id> [--kind <text>] [--max-edges <n>] [--max-nodes <n>] [--format text|tsv|json]`
-- `mem_cli link-update --db <path> --id <link_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>]`
-- `mem_cli link-remove --db <path> --id <link_id> [--session-id <id>]`
+- `mem_cli link-update --db <path> --id <link_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>] [--session-max-writes <n>]`
+- `mem_cli link-remove --db <path> --id <link_id> [--session-id <id>] [--session-max-writes <n>]`

@@ -109,6 +109,10 @@ static void test_root_bounds(void) {
     assert(bounds.y == 0.0f);
     assert(bounds.width == 1920.0f);
     assert(bounds.height == 1080.0f);
+
+    bounds = kit_workspace_authoring_root_bounds(-320, -40);
+    assert(bounds.width == 0.0f);
+    assert(bounds.height == 0.0f);
 }
 
 static void test_trigger_mapping(void) {
@@ -127,6 +131,12 @@ static void test_trigger_mapping(void) {
                                                     KIT_WORKSPACE_AUTHORING_MOD_SHIFT) == NULL);
     assert(kit_workspace_authoring_trigger_from_key(KIT_WORKSPACE_AUTHORING_KEY_DIGIT_3,
                                                     KIT_WORKSPACE_AUTHORING_MOD_ALT) == NULL);
+    assert(strcmp(kit_workspace_authoring_trigger_from_key(KIT_WORKSPACE_AUTHORING_KEY_H,
+                                                           KIT_WORKSPACE_AUTHORING_MOD_CTRL),
+                  "h") == 0);
+    assert(strcmp(kit_workspace_authoring_trigger_from_key(KIT_WORKSPACE_AUTHORING_KEY_DIGIT_4,
+                                                           KIT_WORKSPACE_AUTHORING_MOD_GUI),
+                  "4") == 0);
 }
 
 static void test_entry_chord(void) {
@@ -272,8 +282,24 @@ static void test_overlay_hit_and_drop_intent(void) {
         buttons[0].rect.x + 4.0f,
         buttons[0].rect.y + 4.0f);
     assert(hit == buttons[0].id);
+    hit = kit_workspace_authoring_ui_overlay_hit_test(
+        buttons,
+        count,
+        buttons[0].rect.x + buttons[0].rect.width,
+        buttons[0].rect.y + buttons[0].rect.height);
+    assert(hit == buttons[0].id);
     hit = kit_workspace_authoring_ui_overlay_hit_test(buttons, count, 2.0f, 2.0f);
     assert(hit == KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE);
+
+    buttons[0].enabled = 0u;
+    hit = kit_workspace_authoring_ui_overlay_hit_test(buttons,
+                                                      count,
+                                                      buttons[0].rect.x + 4.0f,
+                                                      buttons[0].rect.y + 4.0f);
+    assert(hit == KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE);
+
+    assert(kit_workspace_authoring_ui_overlay_hit_test(NULL, count, 1.0f, 1.0f) ==
+           KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE);
 
     intent = kit_workspace_authoring_ui_drop_intent_from_point(rect, rect.x + 3.0f, rect.y + 120.0f, &ghost);
     assert(intent == KIT_WORKSPACE_AUTHORING_DROP_INTENT_LEFT);
@@ -337,10 +363,17 @@ static void test_font_theme_layout_and_hit_test(void) {
         layout.custom_theme_buttons[0].y + 2.0f);
     assert(hit == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_CUSTOM_THEME_CREATE_STUB);
 
+    hit = kit_workspace_authoring_ui_font_theme_hit_button(
+        &layout,
+        layout.text_size_reset_button.x + layout.text_size_reset_button.width,
+        layout.text_size_reset_button.y + layout.text_size_reset_button.height);
+    assert(hit == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_TEXT_SIZE_RESET);
+
     hit = kit_workspace_authoring_ui_font_theme_hit_button(&layout, 2.0f, 2.0f);
     assert(hit == KIT_WORKSPACE_AUTHORING_FONT_THEME_BUTTON_NONE);
 
     assert(kit_workspace_authoring_ui_font_theme_build_layout(NULL, 40, 40, &layout) == 0);
+    assert(kit_workspace_authoring_ui_font_theme_build_layout(NULL, 220, 260, &layout) == 1);
 }
 
 static void test_font_theme_preset_and_action_mapping(void) {
@@ -448,6 +481,111 @@ static void test_render_derive_submit(void) {
                                             &outcome);
     assert(outcome.draw_result.code == CORE_ERR_IO);
     assert(outcome.rebuild_acknowledged == 0u);
+
+    memset(&outcome, 0, sizeof(outcome));
+    kit_workspace_authoring_ui_submit_frame(&submit_ctx,
+                                            NULL,
+                                            mock_submit_draw_scene,
+                                            mock_submit_rebuild_required,
+                                            mock_submit_acknowledge,
+                                            &outcome);
+    assert(outcome.draw_result.code == CORE_ERR_INVALID_ARG);
+
+    kit_workspace_authoring_ui_submit_frame(&submit_ctx,
+                                            &derive,
+                                            mock_submit_draw_scene,
+                                            mock_submit_rebuild_required,
+                                            mock_submit_acknowledge,
+                                            NULL);
+}
+
+static void test_overlay_draw_and_splitter_preview_edges(void) {
+    KitWorkspaceAuthoringOverlayButton buttons[2] = {
+        { KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_MODE, { 20.0f, 12.0f, 120.0f, 18.0f }, "Mode", 1u, 1u },
+        { KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_APPLY, { 148.0f, 12.0f, 56.0f, 18.0f }, "Apply", 1u, 1u }
+    };
+    KitRenderContext render_ctx;
+    KitRenderCommand commands[16];
+    KitRenderCommandBuffer buffer;
+    KitRenderFrame frame;
+    CoreResult result;
+
+    result = kit_render_context_init(&render_ctx,
+                                     KIT_RENDER_BACKEND_NULL,
+                                     CORE_THEME_PRESET_DAW_DEFAULT,
+                                     CORE_FONT_PRESET_DAW_DEFAULT);
+    assert(result.code == CORE_OK);
+
+    buffer.commands = commands;
+    buffer.capacity = 16;
+    buffer.count = 0;
+    result = kit_render_begin_frame(&render_ctx, 640u, 480u, &buffer, &frame);
+    assert(result.code == CORE_OK);
+
+    result = kit_workspace_authoring_ui_draw_overlay_buttons(&render_ctx,
+                                                             &frame,
+                                                             buttons,
+                                                             2u,
+                                                             KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_MODE,
+                                                             KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE);
+    assert(result.code == CORE_OK);
+
+    result = kit_workspace_authoring_ui_draw_splitter_preview(&render_ctx,
+                                                              &frame,
+                                                              0,
+                                                              1,
+                                                              100.0f,
+                                                              40.0f,
+                                                              160.0f);
+    assert(result.code == CORE_OK);
+    result = kit_workspace_authoring_ui_draw_splitter_preview(&render_ctx,
+                                                              &frame,
+                                                              1,
+                                                              1,
+                                                              100.0f,
+                                                              160.0f,
+                                                              160.0f);
+    assert(result.code == CORE_OK);
+    result = kit_workspace_authoring_ui_draw_splitter_preview(&render_ctx,
+                                                              &frame,
+                                                              1,
+                                                              1,
+                                                              NAN,
+                                                              40.0f,
+                                                              160.0f);
+    assert(result.code == CORE_ERR_INVALID_ARG);
+
+    result = kit_render_end_frame(&render_ctx, &frame);
+    assert(result.code == CORE_OK);
+
+    buffer.count = 0;
+    buffer.capacity = 4;
+    result = kit_render_begin_frame(&render_ctx, 640u, 480u, &buffer, &frame);
+    assert(result.code == CORE_OK);
+    result = kit_workspace_authoring_ui_draw_overlay_buttons(&render_ctx,
+                                                             &frame,
+                                                             buttons,
+                                                             2u,
+                                                             KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE,
+                                                             KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE);
+    assert(result.code != CORE_OK);
+    result = kit_render_end_frame(&render_ctx, &frame);
+    assert(result.code == CORE_OK);
+
+    buffer.count = 0;
+    buffer.capacity = 16;
+    result = kit_render_begin_frame(&render_ctx, 640u, 480u, &buffer, &frame);
+    assert(result.code == CORE_OK);
+    buttons[0].label = NULL;
+    result = kit_workspace_authoring_ui_draw_overlay_buttons(&render_ctx,
+                                                             &frame,
+                                                             buttons,
+                                                             1u,
+                                                             KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE,
+                                                             KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE);
+    assert(result.code == CORE_ERR_INVALID_ARG);
+    result = kit_render_end_frame(&render_ctx, &frame);
+    assert(result.code == CORE_OK);
 }
 
 int main(void) {
@@ -462,6 +600,7 @@ int main(void) {
     test_font_theme_layout_and_hit_test();
     test_font_theme_preset_and_action_mapping();
     test_render_derive_submit();
+    test_overlay_draw_and_splitter_preview_edges();
     puts("kit_workspace_authoring tests passed");
     return 0;
 }

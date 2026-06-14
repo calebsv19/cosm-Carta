@@ -1,46 +1,44 @@
 #include "timer_manager.h"
+#include "session.h"
 #include <string.h>
 #include <stdio.h>
 
-TimerManager g_timer_manager;
-
-void tm_init(void) {
-    g_timer_manager.count = 0;
+void tm_init(TimerHUDSession* session) {
+    if (!session) {
+        return;
+    }
+    session->timer_manager.count = 0;
 }
 
-static Timer* tm_find_existing(const char* name) {
-    for (int i = 0; i < g_timer_manager.count; i++) {
-        if (strcmp(g_timer_manager.timers[i].name, name) == 0) {
-            return &g_timer_manager.timers[i];
+Timer* tm_find_timer(TimerHUDSession* session, const char* name) {
+    if (!session || !name || !name[0]) {
+        return NULL;
+    }
+    for (int i = 0; i < session->timer_manager.count; i++) {
+        if (strcmp(session->timer_manager.timers[i].name, name) == 0) {
+            return &session->timer_manager.timers[i];
         }
     }
     return NULL;
 }
 
-static Timer* tm_create_timer(const char* name) {
-    if (g_timer_manager.count >= MAX_TIMERS) {
+static Timer* tm_create_timer(TimerHUDSession* session, const char* name) {
+    if (!session || !name || !name[0]) {
+        fprintf(stderr, "[TimeScope] Refusing to create timer with empty name.\n");
+        return NULL;
+    }
+    if (session->timer_manager.count >= MAX_TIMERS) {
         fprintf(stderr, "[TimeScope] Max timer limit reached (%d)\n", MAX_TIMERS);
         return NULL;
     }
 
-    Timer* timer = &g_timer_manager.timers[g_timer_manager.count++];
+    Timer* timer = &session->timer_manager.timers[session->timer_manager.count++];
     timer_init(timer, name);
     return timer;
 }
 
-Timer* tm_get_timer(const char* name) {
-    Timer* existing = tm_find_existing(name);
+Timer* tm_find_or_create_timer(TimerHUDSession* session, const char* name) {
+    Timer* existing = tm_find_timer(session, name);
     if (existing) return existing;
-    return tm_create_timer(name);
+    return tm_create_timer(session, name);
 }
-
-void ts_start_timer(const char* name) {
-    Timer* t = tm_get_timer(name);
-    if (t) timer_start(t);
-}
-
-void ts_stop_timer(const char* name) {
-    Timer* t = tm_get_timer(name);
-    if (t) timer_stop(t);
-}
-

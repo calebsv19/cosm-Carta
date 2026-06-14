@@ -38,7 +38,20 @@ Implemented now:
 4. reusable splitter interaction controller for hover/begin-drag/update-drag/end-drag,
 5. null-backend test coverage for command emission and splitter interaction state.
 
-## Recent Changes (`v0.3.0`)
+## Contract Notes
+
+1. `KitPaneChrome.title` is borrowed text; callers must keep the pointed string alive until queued frame commands are consumed.
+2. pane id labels are generated through a shared static ring buffer sized for ordinary per-frame command emission, not persistent storage.
+3. hover updates intentionally no-op while drag is active so hosts do not churn hover state mid-drag.
+4. cached-hit entry points only consume caller-supplied `CorePaneSplitterHit` geometry; topology validation stays in `core_pane`.
+
+## Recent Changes (`v0.3.1`)
+
+1. Truth-locked borrowed title, generated id-label, and drag-phase hover contracts.
+2. Hardened drag updates against non-finite points and stale cached-hit metadata so failed updates do not poison later drag state.
+3. Expanded tests across style clamping, chrome/splitter visual-state semantics, invalid draw requests, and cached-hit interaction edge cases.
+
+## Previous Changes (`v0.3.0`)
 
 1. Added cached-hit interaction entry points so hosts can drive hover/drag from explicit splitter registries (`kit_pane_splitter_interaction_set_hover_from_hits(...)` and `kit_pane_splitter_interaction_begin_drag_from_hits(...)`).
 2. This matches the IDE-style divider registry model without forcing editor-specific split-tree behavior into shared code.

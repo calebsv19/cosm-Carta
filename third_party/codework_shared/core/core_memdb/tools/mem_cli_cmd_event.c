@@ -1445,10 +1445,12 @@ cleanup:
 int cmd_event_backfill(int argc, char **argv) {
     const char *db_path = find_flag_value(argc, argv, "--db");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
+    const char *session_max_writes_text = find_flag_value(argc, argv, "--session-max-writes");
     int dry_run = has_flag(argc, argv, "--dry-run");
     int tx_started = 0;
     int has_row = 0;
     int exit_code = 1;
+    int enforce_session_budget = 0;
     int64_t item_candidate_count = 0;
     int64_t link_candidate_count = 0;
     int64_t node_events_needed = 0;
@@ -1456,6 +1458,8 @@ int cmd_event_backfill(int argc, char **argv) {
     int64_t canonical_events_needed = 0;
     int64_t edge_events_needed = 0;
     int64_t events_written = 0;
+    int64_t session_max_writes = 0;
+    int64_t session_write_count = 0;
     char detail[256];
     MemCliOutputFormat format = MEM_CLI_OUTPUT_TEXT;
     CoreMemDb db = {0};
@@ -1467,6 +1471,13 @@ int cmd_event_backfill(int argc, char **argv) {
         print_usage(argv[0]);
         return 1;
     }
+    if (!parse_session_budget_arg("event-backfill",
+                                  session_id,
+                                  session_max_writes_text,
+                                  &session_max_writes,
+                                  &enforce_session_budget)) {
+        return 1;
+    }
     if (!parse_output_format(argc, argv, &format)) {
         return 1;
     }
@@ -1476,6 +1487,27 @@ int cmd_event_backfill(int argc, char **argv) {
     }
     if (!open_db_or_fail(db_path, &db)) {
         return 1;
+    }
+
+    if (!dry_run && enforce_session_budget) {
+        result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
+        if (result.code != CORE_OK) {
+            print_core_error("event-backfill", result);
+            goto cleanup;
+        }
+        if (session_write_count >= session_max_writes) {
+            (void)report_session_budget_exceeded(&db,
+                                                 "event-backfill",
+                                                 session_id,
+                                                 session_write_count,
+                                                 session_max_writes,
+                                                 0,
+                                                 0,
+                                                 "",
+                                                 "",
+                                                 "maintenance");
+            goto cleanup;
+        }
     }
 
     if (!dry_run) {

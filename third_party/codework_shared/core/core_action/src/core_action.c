@@ -168,6 +168,8 @@ bool core_action_resolve_trigger(const CoreActionRegistry *registry, const char 
         return false;
     }
 
+    *out_action_id = 0;
+
     for (i = 0u; i < registry->binding_capacity; ++i) {
         const CoreActionBinding *binding = &registry->bindings[i];
 

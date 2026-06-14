@@ -1,5 +1,7 @@
 #include "kit_workspace_authoring_ui.h"
 
+#include <math.h>
+
 #define KIT_WORKSPACE_AUTHORING_SPLITTER_PREVIEW_THICKNESS_PX 3.0f
 
 static KitRenderColor kit_workspace_authoring_ui_color_with_alpha(KitRenderColor color, uint8_t alpha) {
@@ -45,6 +47,9 @@ CoreResult kit_workspace_authoring_ui_draw_splitter_preview(KitRenderContext *re
     }
     if (!active || span <= 0.0f) {
         return core_result_ok();
+    }
+    if (!isfinite(axis_coord) || !isfinite(range_start) || !isfinite(range_end)) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid splitter preview draw request" };
     }
 
     if (vertical_line) {

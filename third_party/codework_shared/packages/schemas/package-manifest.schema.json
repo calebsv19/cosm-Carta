@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codework.local/shared/packages/schemas/package-manifest.schema.json",
+  "title": "CodeWork Shared Package Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "name",
+    "kind",
+    "path",
+    "version",
+    "release_date",
+    "dependencies",
+    "files"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["core", "kit", "renderer", "bundle", "tooling"]
+    },
+    "path": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "release_date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "filename",
+          "format",
+          "sha256",
+          "size_bytes",
+          "url_path"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["tar.gz", "zip"]
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[A-Fa-f0-9]{64}$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "url_path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

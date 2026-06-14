@@ -4,10 +4,9 @@
 Provide predictable, bounded worker execution and completion signaling without introducing hidden scheduling policy.
 
 ## Immediate Steps
-1. Add explicit submit backpressure and queue-full telemetry.
-2. Add worker lifecycle stats (submitted/running/completed/dropped).
-3. Add deterministic shutdown modes (drain vs cancel outstanding).
-4. Validate no direct UI/shared-state mutation assumptions in docs/tests.
+1. Truth-lock background execution, borrowed payload lifetime, optional completion semantics, and shutdown behavior against the live pthread implementation.
+2. Expand invalid-init, submit rejection, completion-queue, and shutdown edge coverage.
+3. Keep post-shutdown safety and cancel accounting explicit and bounded.
 
 ## Future Steps
 1. Add task tagging and lightweight tracing hooks.

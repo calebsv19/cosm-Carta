@@ -90,6 +90,150 @@ typedef struct Vf3dHeaderCanonical {
     uint32_t solid_mask_crc32;
 } Vf3dHeaderCanonical;
 
+typedef struct TestPackHeader {
+    uint32_t magic;
+    uint32_t version;
+} TestPackHeader;
+
+typedef struct TestPackChunkHeader {
+    char type[4];
+    uint64_t size;
+} TestPackChunkHeader;
+
+typedef struct TestPackIndexHeader {
+    uint32_t magic;
+    uint32_t version;
+    uint64_t count;
+} TestPackIndexHeader;
+
+typedef struct TestPackIndexEntryDisk {
+    char type[4];
+    uint64_t data_offset;
+    uint64_t size;
+} TestPackIndexEntryDisk;
+
+typedef struct TestPackFooter {
+    uint32_t magic;
+    uint32_t version;
+    uint64_t index_offset;
+} TestPackFooter;
+
+typedef struct TestPackCodecHeader {
+    uint32_t magic;
+    uint32_t codec;
+    uint64_t decoded_size;
+    uint64_t encoded_size;
+} TestPackCodecHeader;
+
+static uint32_t test_bswap32(uint32_t v) {
+    return ((v & 0x000000ffu) << 24) |
+           ((v & 0x0000ff00u) << 8) |
+           ((v & 0x00ff0000u) >> 8) |
+           ((v & 0xff000000u) >> 24);
+}
+
+static uint64_t test_bswap64(uint64_t v) {
+    return ((v & 0x00000000000000ffULL) << 56) |
+           ((v & 0x000000000000ff00ULL) << 40) |
+           ((v & 0x0000000000ff0000ULL) << 24) |
+           ((v & 0x00000000ff000000ULL) << 8) |
+           ((v & 0x000000ff00000000ULL) >> 8) |
+           ((v & 0x0000ff0000000000ULL) >> 24) |
+           ((v & 0x00ff000000000000ULL) >> 40) |
+           ((v & 0xff00000000000000ULL) >> 56);
+}
+
+static uint32_t test_to_le32(uint32_t v) {
+    if (core_is_little_endian()) return v;
+    return test_bswap32(v);
+}
+
+static uint64_t test_to_le64(uint64_t v) {
+    if (core_is_little_endian()) return v;
+    return test_bswap64(v);
+}
+
+static uint64_t test_from_le64(uint64_t v) {
+    if (core_is_little_endian()) return v;
+    return test_bswap64(v);
+}
+
+static long file_size_bytes(const char *path) {
+    FILE *f = fopen(path, "rb");
+    assert(f != NULL);
+    assert(fseek(f, 0, SEEK_END) == 0);
+    long size = ftell(f);
+    assert(size >= 0);
+    fclose(f);
+    return size;
+}
+
+static void copy_file(const char *src_path, const char *dst_path) {
+    FILE *src = fopen(src_path, "rb");
+    FILE *dst = fopen(dst_path, "wb");
+    assert(src != NULL);
+    assert(dst != NULL);
+
+    unsigned char buf[4096];
+    for (;;) {
+        size_t n = fread(buf, 1, sizeof(buf), src);
+        if (n == 0) break;
+        assert(fwrite(buf, 1, n, dst) == n);
+    }
+
+    fclose(src);
+    fclose(dst);
+}
+
+static void copy_prefix_file(const char *src_path, const char *dst_path, long prefix_size) {
+    FILE *src = fopen(src_path, "rb");
+    FILE *dst = fopen(dst_path, "wb");
+    assert(src != NULL);
+    assert(dst != NULL);
+
+    unsigned char buf[4096];
+    long remaining = prefix_size;
+    while (remaining > 0) {
+        size_t want = (remaining > (long)sizeof(buf)) ? sizeof(buf) : (size_t)remaining;
+        size_t n = fread(buf, 1, want, src);
+        assert(n == want);
+        assert(fwrite(buf, 1, n, dst) == n);
+        remaining -= (long)n;
+    }
+
+    fclose(src);
+    fclose(dst);
+}
+
+static void overwrite_u32_at_offset(const char *path, long offset, uint32_t value) {
+    FILE *f = fopen(path, "rb+");
+    assert(f != NULL);
+    assert(fseek(f, offset, SEEK_SET) == 0);
+    value = test_to_le32(value);
+    assert(fwrite(&value, sizeof(value), 1, f) == 1);
+    fclose(f);
+}
+
+static void overwrite_u64_at_offset(const char *path, long offset, uint64_t value) {
+    FILE *f = fopen(path, "rb+");
+    assert(f != NULL);
+    assert(fseek(f, offset, SEEK_SET) == 0);
+    value = test_to_le64(value);
+    assert(fwrite(&value, sizeof(value), 1, f) == 1);
+    fclose(f);
+}
+
+static TestPackFooter read_pack_footer(const char *path) {
+    FILE *f = fopen(path, "rb");
+    TestPackFooter footer;
+    assert(f != NULL);
+    assert(fseek(f, -(long)sizeof(footer), SEEK_END) == 0);
+    assert(fread(&footer, sizeof(footer), 1, f) == 1);
+    fclose(f);
+    footer.index_offset = test_from_le64(footer.index_offset);
+    return footer;
+}
+
 static void write_test_vf2d(const char *path) {
     FILE *f = fopen(path, "wb");
     assert(f != NULL);
@@ -170,11 +314,7 @@ static void write_test_manifest(const char *path) {
 }
 
 static void overwrite_header_version_token(const char *path, uint32_t token) {
-    FILE *f = fopen(path, "rb+");
-    assert(f != NULL);
-    assert(fseek(f, 4L, SEEK_SET) == 0);
-    assert(fwrite(&token, sizeof(token), 1, f) == 1);
-    fclose(f);
+    overwrite_u32_at_offset(path, 4L, token);
 }
 
 int main(void) {
@@ -235,6 +375,8 @@ int main(void) {
     r = core_pack_reader_read_chunk_slice(&rd, &arr_chunk, sizeof(float), &mid, sizeof(float));
     assert(r.code == CORE_OK);
     assert(mid == 2.0f);
+    r = core_pack_reader_read_chunk_slice(&rd, &arr_chunk, arr_chunk.size, &mid, sizeof(float));
+    assert(r.code == CORE_ERR_INVALID_ARG);
 
     CorePackChunkInfo rcmp_chunk;
     r = core_pack_reader_find_chunk(&rd, "RCMP", 0, &rcmp_chunk);
@@ -265,6 +407,51 @@ int main(void) {
     assert(seen_rcmp == 1);
 
     r = core_pack_reader_close(&rd);
+    assert(r.code == CORE_OK);
+
+    const char *bad_index_offset = "/tmp/core_pack_bad_index_offset.pack";
+    copy_file(path, bad_index_offset);
+    long bad_index_offset_size = file_size_bytes(bad_index_offset);
+    overwrite_u64_at_offset(
+        bad_index_offset,
+        bad_index_offset_size - (long)sizeof(TestPackFooter) + (long)offsetof(TestPackFooter, index_offset),
+        (uint64_t)bad_index_offset_size);
+    CorePackReader bad_index_reader = {0};
+    r = core_pack_reader_open(bad_index_offset, &bad_index_reader);
+    assert(r.code == CORE_ERR_FORMAT);
+
+    const char *bad_index_entry = "/tmp/core_pack_bad_index_entry.pack";
+    copy_file(path, bad_index_entry);
+    TestPackFooter footer = read_pack_footer(bad_index_entry);
+    overwrite_u64_at_offset(
+        bad_index_entry,
+        (long)footer.index_offset + (long)sizeof(TestPackIndexHeader) + (long)offsetof(TestPackIndexEntryDisk, data_offset),
+        footer.index_offset + 1u);
+    CorePackReader bad_entry_reader = {0};
+    r = core_pack_reader_open(bad_index_entry, &bad_entry_reader);
+    assert(r.code == CORE_ERR_FORMAT);
+
+    const char *truncated_scan = "/tmp/core_pack_truncated_scan.pack";
+    copy_prefix_file(path, truncated_scan, (long)(sizeof(TestPackHeader) + sizeof(TestPackChunkHeader) + 4));
+    CorePackReader truncated_reader = {0};
+    r = core_pack_reader_open(truncated_scan, &truncated_reader);
+    assert(r.code == CORE_ERR_FORMAT);
+
+    const char *bad_codec = "/tmp/core_pack_bad_codec.pack";
+    copy_file(path, bad_codec);
+    overwrite_u64_at_offset(
+        bad_codec,
+        (long)rcmp_chunk.data_offset + (long)offsetof(TestPackCodecHeader, encoded_size),
+        1u);
+    CorePackReader bad_codec_reader = {0};
+    r = core_pack_reader_open(bad_codec, &bad_codec_reader);
+    assert(r.code == CORE_OK);
+    CorePackChunkInfo bad_codec_chunk = {0};
+    assert(core_pack_reader_find_chunk(&bad_codec_reader, "RCMP", 0, &bad_codec_chunk).code == CORE_OK);
+    unsigned char bad_decoded[32] = {0};
+    r = core_pack_reader_read_chunk_decoded(&bad_codec_reader, &bad_codec_chunk, bad_decoded, sizeof(bad_decoded), NULL);
+    assert(r.code == CORE_ERR_FORMAT);
+    r = core_pack_reader_close(&bad_codec_reader);
     assert(r.code == CORE_OK);
 
     const char *vf2d = "/tmp/core_pack_test.vf2d";
@@ -333,6 +520,33 @@ int main(void) {
     r = core_pack_reader_close(&rd3);
     assert(r.code == CORE_OK);
 
+    const char *huge_vf2d = "/tmp/core_pack_huge.vf2d";
+    const char *huge_vf3d = "/tmp/core_pack_huge.vf3d";
+    FILE *huge2 = fopen(huge_vf2d, "wb");
+    assert(huge2 != NULL);
+    VolumeFrameHeaderV2 huge_header2 = {0};
+    huge_header2.magic = ('V' << 24) | ('F' << 16) | ('R' << 8) | ('M');
+    huge_header2.version = 2u;
+    huge_header2.grid_w = UINT32_MAX;
+    huge_header2.grid_h = UINT32_MAX;
+    assert(fwrite(&huge_header2, sizeof(huge_header2), 1, huge2) == 1);
+    fclose(huge2);
+    r = core_pack_convert_vf2d(huge_vf2d, "/tmp/core_pack_huge_vf2d.pack", NULL);
+    assert(r.code == CORE_ERR_FORMAT);
+
+    FILE *huge3 = fopen(huge_vf3d, "wb");
+    assert(huge3 != NULL);
+    VolumeFrameHeaderVf3dV1 huge_header3 = {0};
+    huge_header3.magic = ('V' << 24) | ('F' << 16) | ('3' << 8) | ('D');
+    huge_header3.version = 1u;
+    huge_header3.grid_w = UINT32_MAX;
+    huge_header3.grid_h = UINT32_MAX;
+    huge_header3.grid_d = UINT32_MAX;
+    assert(fwrite(&huge_header3, sizeof(huge_header3), 1, huge3) == 1);
+    fclose(huge3);
+    r = core_pack_convert_vf3d(huge_vf3d, "/tmp/core_pack_huge_vf3d.pack", NULL);
+    assert(r.code == CORE_ERR_FORMAT);
+
     assert(core_pack_format_version_token() == 1u);
     assert(core_pack_format_version_major_from_token(1u) == 1u);
     assert(core_pack_format_version_minor_from_token(1u) == 0u);
@@ -340,18 +554,7 @@ int main(void) {
     assert(core_pack_format_version_minor_from_token(0x00010002u) == 2u);
 
     const char *future_minor = "/tmp/core_pack_future_minor.pack";
-    FILE *src = fopen(path, "rb");
-    assert(src != NULL);
-    FILE *dst = fopen(future_minor, "wb");
-    assert(dst != NULL);
-    unsigned char copy_buf[4096];
-    for (;;) {
-        size_t n = fread(copy_buf, 1, sizeof(copy_buf), src);
-        if (n == 0) break;
-        assert(fwrite(copy_buf, 1, n, dst) == n);
-    }
-    fclose(src);
-    fclose(dst);
+    copy_file(path, future_minor);
     overwrite_header_version_token(future_minor, 0x00010001u);
 
     CorePackReader bad = {0};

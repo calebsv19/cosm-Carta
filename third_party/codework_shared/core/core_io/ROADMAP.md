@@ -17,22 +17,44 @@
 - Implementation: `src/core_io.c`
 - Tests: `tests/core_io_test.c`
 
+Current implementation status:
+- implemented now:
+  - whole-file read/write
+  - atomic replace write helper
+  - buffer ownership release
+  - path existence checks
+  - incremental whole-file reads that are not `long`-size bounded
+- not implemented yet:
+  - stream helper functions using `CoreReader` / `CoreWriter`
+  - buffered or chunked transfer APIs
+  - durability-aware write helpers
+
 ## Product-Level Behavior Goals
 - Reliable handling of partial reads/writes and short writes.
 - Explicit ownership model for allocated buffers.
 - Stable behavior for empty files, large files, and invalid paths.
 
+Current limitation note:
+- the whole-file read path no longer relies on `fseek` / `ftell`, but it still
+  requires one contiguous in-memory buffer and is therefore bounded by
+  available memory and `size_t`
+
 ## Capability Layers
 
 ### Layer 1: Baseline Reliability
 - Harden `core_io_read_all` and `core_io_write_all` semantics.
-- Expand tests around truncation, zero-byte payloads, and permission failures.
+- Expand tests around empty files, zero-byte payloads, invalid arguments,
+  missing paths, truncation, and permission failures.
 - Ensure all paths return precise `CoreResult` messages.
 
 ### Layer 2: Safe Write Semantics
 - Add atomic write options (temp file + rename).
 - Add optional flush/fsync policies for durability-sensitive outputs.
 - Add file-existence and overwrite policies where needed.
+- Current state:
+  - baseline atomic replace helper is now implemented through
+    `core_io_write_all_atomic`
+  - durability/fsync policy and directory-sync behavior remain deferred
 
 ### Layer 3: Streaming and Performance
 - Add reusable buffered stream reader/writer utilities.

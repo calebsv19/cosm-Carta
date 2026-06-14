@@ -707,16 +707,12 @@ int cmd_add(int argc, char **argv) {
         print_usage(argv[0]);
         return 1;
     }
-    if (session_max_writes_text) {
-        if (!parse_i64_arg(session_max_writes_text, &session_max_writes) || session_max_writes <= 0 || session_max_writes > 1000000) {
-            fprintf(stderr, "add: --session-max-writes must be in range [1, 1000000]\n");
-            return 1;
-        }
-        if (!session_id || session_id[0] == '\0') {
-            fprintf(stderr, "add: --session-id is required when --session-max-writes is used\n");
-            return 1;
-        }
-        enforce_session_budget = 1;
+    if (!parse_session_budget_arg("add",
+                                  session_id,
+                                  session_max_writes_text,
+                                  &session_max_writes,
+                                  &enforce_session_budget)) {
+        return 1;
     }
     if (!build_fingerprint(title, body, fingerprint, sizeof(fingerprint))) {
         fprintf(stderr, "add: failed to build fingerprint\n");
@@ -726,27 +722,22 @@ int cmd_add(int argc, char **argv) {
         return 1;
     }
     if (enforce_session_budget) {
-        result = fetch_session_add_write_count(&db, session_id, &session_write_count);
+        result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
         if (result.code != CORE_OK) {
             print_core_error("add", result);
             goto cleanup;
         }
         if (session_write_count >= session_max_writes) {
-            (void)append_audit_entry(&db,
-                                     session_id,
-                                     "add",
-                                     "fail",
-                                     0,
-                                     stable_id,
-                                     workspace_key,
-                                     project_key,
-                                     item_kind,
-                                     "session write budget exceeded");
-            fprintf(stderr,
-                    "add: session write budget exceeded (session=%s used=%lld max=%lld)\n",
-                    session_id,
-                    (long long)session_write_count,
-                    (long long)session_max_writes);
+            (void)report_session_budget_exceeded(&db,
+                                                 "add",
+                                                 session_id,
+                                                 session_write_count,
+                                                 session_max_writes,
+                                                 0,
+                                                 stable_id,
+                                                 workspace_key,
+                                                 project_key,
+                                                 item_kind);
             goto cleanup;
         }
     }
@@ -1143,6 +1134,7 @@ int cmd_set_bool_field(int argc,
     const char *db_path = find_flag_value(argc, argv, "--db");
     const char *id_text = find_flag_value(argc, argv, "--id");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
+    const char *session_max_writes_text = find_flag_value(argc, argv, "--session-max-writes");
     int set_on = has_flag(argc, argv, "--on");
     int set_off = has_flag(argc, argv, "--off");
     int64_t item_id = 0;
@@ -1162,14 +1154,50 @@ int cmd_set_bool_field(int argc,
     int item_active = 0;
     int has_row = 0;
     int exit_code = 1;
+    int enforce_session_budget = 0;
+    int64_t session_max_writes = 0;
+    int64_t session_write_count = 0;
     char sql[256];
 
     if (!db_path || !id_text || !parse_i64_arg(id_text, &item_id) || set_on == set_off) {
         print_usage(argv[0]);
         return 1;
     }
+    if (!parse_session_budget_arg(command_name,
+                                  session_id,
+                                  session_max_writes_text,
+                                  &session_max_writes,
+                                  &enforce_session_budget)) {
+        return 1;
+    }
     if (!open_db_or_fail(db_path, &db)) {
         return 1;
+    }
+
+    result = item_exists_active(&db, item_id, &item_active);
+    if (result.code != CORE_OK) {
+        print_core_error(command_name, result);
+        goto cleanup;
+    }
+    if (enforce_session_budget) {
+        result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
+        if (result.code != CORE_OK) {
+            print_core_error(command_name, result);
+            goto cleanup;
+        }
+        if (session_write_count >= session_max_writes) {
+            (void)report_session_budget_exceeded(&db,
+                                                 command_name,
+                                                 session_id,
+                                                 session_write_count,
+                                                 session_max_writes,
+                                                 item_id,
+                                                 stable_id[0] != '\0' ? stable_id : 0,
+                                                 workspace_key,
+                                                 project_key,
+                                                 item_kind);
+            goto cleanup;
+        }
     }
 
     now_ns = current_time_ns();
@@ -1179,12 +1207,6 @@ int cmd_set_bool_field(int argc,
         goto cleanup;
     }
     tx_started = 1;
-
-    result = item_exists_active(&db, item_id, &item_active);
-    if (result.code != CORE_OK) {
-        print_core_error(command_name, result);
-        goto cleanup;
-    }
     if (!item_active) {
         fprintf(stderr, "%s: id %lld not found\n", command_name, (long long)item_id);
         goto cleanup;
@@ -1311,6 +1333,7 @@ int cmd_item_archive(int argc, char **argv) {
     const char *db_path = find_flag_value(argc, argv, "--db");
     const char *id_text = find_flag_value(argc, argv, "--id");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
+    const char *session_max_writes_text = find_flag_value(argc, argv, "--session-max-writes");
     int64_t item_id = 0;
     int64_t now_ns = 0;
     int64_t changed_rows = 0;
@@ -1319,6 +1342,9 @@ int cmd_item_archive(int argc, char **argv) {
     int has_row = 0;
     int tx_started = 0;
     int exit_code = 1;
+    int enforce_session_budget = 0;
+    int64_t session_max_writes = 0;
+    int64_t session_write_count = 0;
     char stable_id[128];
     char workspace_key[128];
     char project_key[128];
@@ -1331,6 +1357,13 @@ int cmd_item_archive(int argc, char **argv) {
 
     if (!db_path || !id_text || !parse_i64_arg(id_text, &item_id)) {
         print_usage(argv[0]);
+        return 1;
+    }
+    if (!parse_session_budget_arg("item-archive",
+                                  session_id,
+                                  session_max_writes_text,
+                                  &session_max_writes,
+                                  &enforce_session_budget)) {
         return 1;
     }
     if (!open_db_or_fail(db_path, &db)) {
@@ -1357,15 +1390,6 @@ int cmd_item_archive(int argc, char **argv) {
         exit_code = 0;
         goto cleanup;
     }
-
-    now_ns = current_time_ns();
-    result = core_memdb_tx_begin(&db);
-    if (result.code != CORE_OK) {
-        print_core_error("item-archive", result);
-        goto cleanup;
-    }
-    tx_started = 1;
-
     result = fetch_item_audit_metadata(&db,
                                        item_id,
                                        stable_id,
@@ -1380,6 +1404,34 @@ int cmd_item_archive(int argc, char **argv) {
         print_core_error("item-archive", result);
         goto cleanup;
     }
+    if (enforce_session_budget) {
+        result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
+        if (result.code != CORE_OK) {
+            print_core_error("item-archive", result);
+            goto cleanup;
+        }
+        if (session_write_count >= session_max_writes) {
+            (void)report_session_budget_exceeded(&db,
+                                                 "item-archive",
+                                                 session_id,
+                                                 session_write_count,
+                                                 session_max_writes,
+                                                 item_id,
+                                                 stable_id[0] != '\0' ? stable_id : 0,
+                                                 workspace_key,
+                                                 project_key,
+                                                 item_kind);
+            goto cleanup;
+        }
+    }
+
+    now_ns = current_time_ns();
+    result = core_memdb_tx_begin(&db);
+    if (result.code != CORE_OK) {
+        print_core_error("item-archive", result);
+        goto cleanup;
+    }
+    tx_started = 1;
 
     result = build_item_archive_event_payload_alloc(&db, item_id, now_ns, &event_payload);
     if (result.code != CORE_OK) {
@@ -1496,6 +1548,7 @@ int cmd_item_retag(int argc, char **argv) {
     const char *db_path = find_flag_value(argc, argv, "--db");
     const char *id_text = find_flag_value(argc, argv, "--id");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
+    const char *session_max_writes_text = find_flag_value(argc, argv, "--session-max-writes");
     const char *workspace_key_override = find_flag_value(argc, argv, "--workspace");
     const char *project_key_override = find_flag_value(argc, argv, "--project");
     const char *item_kind_override = find_flag_value(argc, argv, "--kind");
@@ -1522,23 +1575,25 @@ int cmd_item_retag(int argc, char **argv) {
     int item_active = 0;
     int has_row = 0;
     int exit_code = 1;
+    int enforce_session_budget = 0;
+    int64_t session_max_writes = 0;
+    int64_t session_write_count = 0;
 
     if (!db_path || !id_text || !parse_i64_arg(id_text, &item_id) ||
         (!workspace_key_override && !project_key_override && !item_kind_override)) {
         print_usage(argv[0]);
         return 1;
     }
+    if (!parse_session_budget_arg("item-retag",
+                                  session_id,
+                                  session_max_writes_text,
+                                  &session_max_writes,
+                                  &enforce_session_budget)) {
+        return 1;
+    }
     if (!open_db_or_fail(db_path, &db)) {
         return 1;
     }
-
-    now_ns = current_time_ns();
-    result = core_memdb_tx_begin(&db);
-    if (result.code != CORE_OK) {
-        print_core_error("item-retag", result);
-        goto cleanup;
-    }
-    tx_started = 1;
 
     if (include_archived) {
         result = item_exists_any(&db, item_id, &item_active);
@@ -1549,6 +1604,34 @@ int cmd_item_retag(int argc, char **argv) {
         print_core_error("item-retag", result);
         goto cleanup;
     }
+    if (enforce_session_budget) {
+        result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
+        if (result.code != CORE_OK) {
+            print_core_error("item-retag", result);
+            goto cleanup;
+        }
+        if (session_write_count >= session_max_writes) {
+            (void)report_session_budget_exceeded(&db,
+                                                 "item-retag",
+                                                 session_id,
+                                                 session_write_count,
+                                                 session_max_writes,
+                                                 item_id,
+                                                 stable_id[0] != '\0' ? stable_id : 0,
+                                                 old_workspace_key,
+                                                 old_project_key,
+                                                 old_item_kind);
+            goto cleanup;
+        }
+    }
+
+    now_ns = current_time_ns();
+    result = core_memdb_tx_begin(&db);
+    if (result.code != CORE_OK) {
+        print_core_error("item-retag", result);
+        goto cleanup;
+    }
+    tx_started = 1;
     if (!item_active) {
         fprintf(stderr, "item-retag: id %lld not found\n", (long long)item_id);
         goto cleanup;
@@ -1717,6 +1800,7 @@ int cmd_rollup(int argc, char **argv) {
     const char *db_path = find_flag_value(argc, argv, "--db");
     const char *before_text = find_flag_value(argc, argv, "--before");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
+    const char *session_max_writes_text = find_flag_value(argc, argv, "--session-max-writes");
     const char *workspace_filter = find_flag_value(argc, argv, "--workspace");
     const char *project_filter = find_flag_value(argc, argv, "--project");
     const char *kind_filter = find_flag_value(argc, argv, "--kind");
@@ -1732,6 +1816,9 @@ int cmd_rollup(int argc, char **argv) {
     int tx_started = 0;
     int exit_code = 1;
     int summary_visible_items = 0;
+    int enforce_session_budget = 0;
+    int64_t session_max_writes = 0;
+    int64_t session_write_count = 0;
     const size_t summary_char_budget = 2400u;
     char title[128];
     char fingerprint[17];
@@ -1769,8 +1856,35 @@ int cmd_rollup(int argc, char **argv) {
         print_usage(argv[0]);
         return 1;
     }
+    if (!parse_session_budget_arg("rollup",
+                                  session_id,
+                                  session_max_writes_text,
+                                  &session_max_writes,
+                                  &enforce_session_budget)) {
+        return 1;
+    }
     if (!open_db_or_fail(db_path, &db)) {
         return 1;
+    }
+    if (enforce_session_budget) {
+        result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
+        if (result.code != CORE_OK) {
+            print_core_error("rollup", result);
+            goto cleanup;
+        }
+        if (session_write_count >= session_max_writes) {
+            (void)report_session_budget_exceeded(&db,
+                                                 "rollup",
+                                                 session_id,
+                                                 session_write_count,
+                                                 session_max_writes,
+                                                 0,
+                                                 0,
+                                                 workspace_filter,
+                                                 project_filter,
+                                                 kind_filter);
+            goto cleanup;
+        }
     }
 
     result = core_memdb_tx_begin(&db);

@@ -513,7 +513,20 @@ case "$POST_ROLLUP_FIND_OUTPUT" in
     ;;
 esac
 
-SHOW_THREE_OUTPUT="$("$CLI_BIN" show --db "$DB_PATH" --id 3)"
+if "$CLI_BIN" show --db "$DB_PATH" --id 3 >"${DB_PATH}.show_archived.out" 2>&1; then
+  echo "show unexpectedly succeeded for archived row without --include-archived" >&2
+  exit 1
+fi
+case "$(cat "${DB_PATH}.show_archived.out")" in
+  *"--include-archived"* ) ;;
+  *)
+    echo "show archived failure output missing explicit archived hint: $(cat "${DB_PATH}.show_archived.out")" >&2
+    exit 1
+    ;;
+esac
+rm -f "${DB_PATH}.show_archived.out"
+
+SHOW_THREE_OUTPUT="$("$CLI_BIN" show --db "$DB_PATH" --id 3 --include-archived)"
 case "$SHOW_THREE_OUTPUT" in
   *"archived_ns: "* ) ;;
   *)
@@ -790,6 +803,53 @@ case "$AUDIT_SESSION_OUTPUT" in
     exit 1
     ;;
 esac
+
+PIN_BUDGET_OUTPUT="$("$CLI_BIN" pin --db "$DB_PATH" --id 2 --on --session-id pin-budget-session --session-max-writes 1)"
+case "$PIN_BUDGET_OUTPUT" in
+  *"pin id=2 on"* ) ;;
+  *)
+    echo "pin budget first mutation unexpectedly failed: $PIN_BUDGET_OUTPUT" >&2
+    exit 1
+    ;;
+esac
+if "$CLI_BIN" canonical --db "$DB_PATH" --id 1 --on --session-id pin-budget-session --session-max-writes 1 >"${DB_PATH}.pin_budget.out" 2>&1; then
+  echo "canonical unexpectedly succeeded despite exhausted pin-budget-session budget" >&2
+  exit 1
+fi
+case "$(cat "${DB_PATH}.pin_budget.out")" in
+  *"budget exceeded"* ) ;;
+  *)
+    echo "pin/canonical budget failure output missing expected marker: $(cat "${DB_PATH}.pin_budget.out")" >&2
+    exit 1
+    ;;
+esac
+rm -f "${DB_PATH}.pin_budget.out"
+
+LINK_BUDGET_ADD_OUTPUT="$("$CLI_BIN" link-add --db "$DB_PATH" --from 1 --to 2 --kind supports --session-id link-budget-session --session-max-writes 1)"
+case "$LINK_BUDGET_ADD_OUTPUT" in
+  *"link added id="* ) ;;
+  *)
+    echo "link budget first mutation unexpectedly failed: $LINK_BUDGET_ADD_OUTPUT" >&2
+    exit 1
+    ;;
+esac
+LINK_BUDGET_ID="$(printf '%s\n' "$LINK_BUDGET_ADD_OUTPUT" | sed -n 's/.*link added id=\([0-9][0-9]*\).*/\1/p' | tail -n1)"
+if [ -z "$LINK_BUDGET_ID" ]; then
+  echo "failed to parse link id from budgeted link-add output: $LINK_BUDGET_ADD_OUTPUT" >&2
+  exit 1
+fi
+if "$CLI_BIN" link-remove --db "$DB_PATH" --id "$LINK_BUDGET_ID" --session-id link-budget-session --session-max-writes 1 >"${DB_PATH}.link_budget.out" 2>&1; then
+  echo "link-remove unexpectedly succeeded despite exhausted link-budget-session budget" >&2
+  exit 1
+fi
+case "$(cat "${DB_PATH}.link_budget.out")" in
+  *"budget exceeded"* ) ;;
+  *)
+    echo "link budget failure output missing expected marker: $(cat "${DB_PATH}.link_budget.out")" >&2
+    exit 1
+    ;;
+esac
+rm -f "${DB_PATH}.link_budget.out"
 
 BATCH_INPUT_PATH="${DB_PATH}.batch.tsv"
 cat >"$BATCH_INPUT_PATH" <<'EOF'

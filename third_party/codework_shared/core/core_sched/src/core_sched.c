@@ -7,6 +7,8 @@
 
 #include "core_sched.h"
 
+#include <limits.h>
+
 static bool timer_less(const CoreSchedTimer *a, const CoreSchedTimer *b) {
     if (a->deadline_ns != b->deadline_ns) {
         return a->deadline_ns < b->deadline_ns;
@@ -84,6 +86,18 @@ static bool heap_remove_by_id(CoreSched *sched, CoreSchedTimerId id) {
     return false;
 }
 
+static bool advance_repeating_deadline(uint64_t *deadline_ns, uint64_t interval_ns, uint64_t now_ns) {
+    uint64_t next_deadline = *deadline_ns;
+    while (next_deadline <= now_ns) {
+        if (UINT64_MAX - next_deadline < interval_ns) {
+            return false;
+        }
+        next_deadline += interval_ns;
+    }
+    *deadline_ns = next_deadline;
+    return true;
+}
+
 bool core_sched_init(CoreSched *sched, CoreSchedTimer *backing, size_t capacity) {
     if (!sched || !backing || capacity == 0) return false;
     sched->heap = backing;
@@ -99,7 +113,7 @@ CoreSchedTimerId core_sched_add_timer(
     uint64_t interval_ns,
     CoreSchedTimerFn callback,
     void *user_ctx) {
-    if (!sched || !callback || sched->count >= sched->capacity) {
+    if (!sched || !callback || sched->count >= sched->capacity || sched->next_id == 0) {
         return 0;
     }
 
@@ -140,12 +154,9 @@ size_t core_sched_fire_due(CoreSched *sched, uint64_t now_ns, size_t max_fires) 
         fired++;
 
         if (top.interval_ns > 0) {
-            uint64_t next_deadline = top.deadline_ns;
-            do {
-                next_deadline += top.interval_ns;
-            } while (next_deadline <= now_ns);
-            top.deadline_ns = next_deadline;
-            heap_push(sched, top);
+            if (advance_repeating_deadline(&top.deadline_ns, top.interval_ns, now_ns)) {
+                heap_push(sched, top);
+            }
         }
     }
 

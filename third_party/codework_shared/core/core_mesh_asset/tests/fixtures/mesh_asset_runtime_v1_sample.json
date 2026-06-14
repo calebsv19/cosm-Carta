@@ -1,0 +1,40 @@
+{
+  "schema_family": "codework_geometry",
+  "schema_variant": "mesh_asset_runtime_v1",
+  "schema_version": 1,
+  "asset_id": "asset_bookshelf_01",
+  "source_asset_id": "asset_bookshelf_01",
+  "asset_type": "solid_mesh",
+  "compile_meta": {
+    "profile": "runtime_default"
+  },
+  "local_bounds": {
+    "min": { "x": -0.5, "y": -0.2, "z": 0.0 },
+    "max": { "x": 0.5, "y": 0.2, "z": 1.8 }
+  },
+  "mesh": {
+    "vertex_count": 4,
+    "triangle_count": 2,
+    "vertices": [
+      { "x": -0.5, "y": -0.2, "z": 0.0 },
+      { "x": 0.5, "y": -0.2, "z": 0.0 },
+      { "x": 0.5, "y": 0.2, "z": 0.0 },
+      { "x": -0.5, "y": 0.2, "z": 0.0 }
+    ],
+    "triangles": [
+      { "a": 0, "b": 1, "c": 2, "surface_group_id": "shelf_faces" },
+      { "a": 0, "b": 2, "c": 3, "surface_group_id": "shelf_faces" }
+    ]
+  },
+  "surface_groups": [
+    {
+      "group_id": "shelf_faces",
+      "triangle_span": { "start": 0, "count": 2 }
+    }
+  ],
+  "topology_flags": {
+    "closed_volume": true,
+    "manifold_expected": true
+  },
+  "extensions": {}
+}

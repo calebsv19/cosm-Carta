@@ -9,6 +9,21 @@
 
 #include "core_time.h"
 
+#include <limits.h>
+
+static bool core_jobs_overflow_policy_valid(CoreJobsOverflowPolicy overflow_policy) {
+    return overflow_policy == CORE_JOBS_OVERFLOW_REJECT ||
+           overflow_policy == CORE_JOBS_OVERFLOW_DROP_OLDEST;
+}
+
+static uint64_t core_jobs_budget_ms_to_ns(uint64_t max_budget_ms) {
+    const uint64_t max_ms = UINT64_MAX / 1000000ULL;
+    if (max_budget_ms > max_ms) {
+        return UINT64_MAX;
+    }
+    return max_budget_ms * 1000000ULL;
+}
+
 bool core_jobs_init(CoreJobs *jobs, CoreJob *backing, size_t capacity) {
     return core_jobs_init_ex(jobs, backing, capacity, CORE_JOBS_OVERFLOW_REJECT);
 }
@@ -18,7 +33,9 @@ bool core_jobs_init_ex(
     CoreJob *backing,
     size_t capacity,
     CoreJobsOverflowPolicy overflow_policy) {
-    if (!jobs || !backing || capacity == 0) return false;
+    if (!jobs || !backing || capacity == 0 || !core_jobs_overflow_policy_valid(overflow_policy)) {
+        return false;
+    }
     jobs->slots = backing;
     jobs->capacity = capacity;
     jobs->head = 0;
@@ -54,7 +71,7 @@ size_t core_jobs_run_budget(CoreJobs *jobs, uint64_t max_budget_ms) {
     if (!jobs) return 0;
 
     const bool unlimited = (max_budget_ms == 0);
-    const uint64_t budget_ns = max_budget_ms * 1000000ULL;
+    const uint64_t budget_ns = core_jobs_budget_ms_to_ns(max_budget_ms);
     const uint64_t start_ns = core_time_now_ns();
 
     size_t ran = 0;

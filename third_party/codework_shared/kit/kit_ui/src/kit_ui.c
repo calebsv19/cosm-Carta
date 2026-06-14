@@ -347,6 +347,9 @@ CoreResult kit_ui_stack_begin(KitUiStackLayout *layout,
     if (!layout || bounds.width < 0.0f || bounds.height < 0.0f) {
         return kit_ui_invalid("invalid layout");
     }
+    if (axis != KIT_UI_AXIS_VERTICAL && axis != KIT_UI_AXIS_HORIZONTAL) {
+        return kit_ui_invalid("invalid layout axis");
+    }
 
     layout->axis = axis;
     layout->bounds = bounds;
@@ -1002,6 +1005,10 @@ CoreResult kit_ui_draw_segmented(KitUiContext *ctx,
             bounds.height
         };
         KitUiWidgetState state = KIT_UI_STATE_NORMAL;
+
+        if (!labels[i]) {
+            return kit_ui_invalid("invalid segmented label");
+        }
 
         if (!enabled) {
             state = KIT_UI_STATE_DISABLED;

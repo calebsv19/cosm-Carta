@@ -170,6 +170,9 @@ CoreResult kit_render_adopt_external_backend(KitRenderContext *ctx,
     if (!ctx || !backend_handle) {
         return kit_render_invalid("invalid argument");
     }
+    if (ctx->frame_open) {
+        return kit_render_invalid("cannot attach backend during frame");
+    }
     if (!ops || !ops->attach_external) {
         return kit_render_invalid("backend does not support external attachment");
     }

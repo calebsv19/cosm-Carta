@@ -6,7 +6,7 @@ Provide stable action identity and trigger mapping contracts shared across host 
 ## Immediate Steps
 1. Keep registration and trigger resolution deterministic.
 2. Preserve simple fixed-capacity behavior with explicit failure on overflow.
-3. Document adapter boundary for platform key events.
+3. Keep adapter boundaries explicit for platform key events and host-owned trigger normalization.
 
 ## Future Steps
 1. Add contextual action scopes (global vs pane-local).

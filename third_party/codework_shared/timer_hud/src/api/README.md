@@ -5,7 +5,11 @@ provides a stable function surface.
 
 | File | Responsibility |
 | --- | --- |
-| `time_scope.h/c` | C API used by host apps: initialise/shutdown TimerHUD, start/stop timers, request HUD rendering, and flush logs. |
+| `time_scope.h/c` | C API used by host apps: initialise/shutdown TimerHUD, manage session-scoped runtime state, start/stop timers, request HUD rendering, and flush logs. |
 
-Include `time_scope.h` from your application to embed TimerHUD without digging
-into internal headers.
+Preferred public include surface:
+- `time_scope.h`
+- `timer_hud_config.h`
+
+Host code should not rely on the private settings-loader header for normal
+runtime control.
