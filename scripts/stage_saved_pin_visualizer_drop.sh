@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-STAGE_TOOL="$REPO_DIR/../skills/codework-visualizer-drop/scripts/stage_visualizer_run.py"
+STAGE_TOOL="${MAPFORGE_STAGE_TOOL:-$REPO_DIR/../skills/codework-visualizer-drop/scripts/stage_visualizer_run.py}"
 
 RUN_DIR=""
 DROP_ID=""

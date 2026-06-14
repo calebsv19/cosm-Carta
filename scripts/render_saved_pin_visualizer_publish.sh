@@ -18,6 +18,7 @@ RENDER_MODE="map_route_marker"
 INCLUDE_VIDEO="true"
 INCLUDE_FRAMES=""
 PUBLISH="true"
+KEEP_BMP="${MAPFORGE_KEEP_BMP:-false}"
 STAGING_ROOT="${REPO_DIR}/../_private_workspace_artifacts/codework_visualizer_runs"
 SITE_BASE_URL="${SITE_BASE_URL:-}"
 DROP_TIMESTAMP=""
@@ -42,6 +43,7 @@ Options:
   --include-video <bool>         true | false
   --include-frames <bool>        true | false
   --publish <bool>               true | false
+  --keep-bmp <bool>              true | false; skip BMP-to-PNG normalization
   --staging-root <dir>           Local staged-drop root
   --site-base-url <url>          Optional absolute website base URL
   --drop-timestamp <stamp>       Override UTC timestamp (YYYYMMDDTHHMMSSZ)
@@ -106,6 +108,10 @@ while [ "$#" -gt 0 ]; do
             PUBLISH=${2:-}
             shift 2
             ;;
+        --keep-bmp)
+            KEEP_BMP=${2:-}
+            shift 2
+            ;;
         --staging-root)
             STAGING_ROOT=${2:-}
             shift 2
@@ -142,6 +148,7 @@ fi
 
 require_bool "$INCLUDE_VIDEO"
 require_bool "$PUBLISH"
+require_bool "$KEEP_BMP"
 if [ -n "$INCLUDE_FRAMES" ]; then
     require_bool "$INCLUDE_FRAMES"
 fi
@@ -253,16 +260,23 @@ for orientation in $ORIENTATION_LIST; do
             > /dev/null
     fi
 
-    /bin/sh "$STAGE_HELPER" \
+    set -- \
         --run-dir "$RUN_DIR" \
         --drop-id "$DROP_ID" \
         --staging-root "$STAGING_ROOT" \
         --write-ready \
-        --overwrite \
-        > /dev/null
+        --overwrite
+    if [ "$KEEP_BMP" = "true" ]; then
+        set -- "$@" --keep-bmp
+    fi
+    /bin/sh "$STAGE_HELPER" "$@" > /dev/null
 
     STAGE_DIR="$STAGING_ROOT/$DROP_ID"
-    PREVIEW_REL_URL="/artifacts/map-forge/$DROP_ID/preview/preview.png"
+    if [ "$KEEP_BMP" = "true" ]; then
+        PREVIEW_REL_URL="/artifacts/map-forge/$DROP_ID/preview/preview.bmp"
+    else
+        PREVIEW_REL_URL="/artifacts/map-forge/$DROP_ID/preview/preview.png"
+    fi
 
     VIDEO_PATH=""
     VIDEO_REL_URL=""
