@@ -2,7 +2,7 @@
 
 MapForge now supports standardized macOS app-bundle packaging via Makefile targets.
 
-Last updated: 2026-04-25
+Last updated: 2026-06-19
 
 ## Build Package
 
@@ -10,10 +10,21 @@ Last updated: 2026-04-25
 make package-desktop
 ```
 
-Output:
+Default host output:
 
-- `dist/Carta.app`
+- `build/targets/<target-triple>/dist/Carta.app`
 - includes app/runtime scaffolding plus bundled ingest tools (`mapforge_region`, `mapforge_graph`); region payloads are not embedded by default
+
+Release artifacts encode the target architecture:
+
+- `Carta-<version>-macOS-arm64-stable.zip`
+- `Carta-<version>-macOS-x86_64-stable.zip`
+
+Example Intel package build from Apple Silicon:
+
+```sh
+make release-artifact TARGET_ARCH=x86_64 BUILD_TOOLCHAIN=clang PACKAGE_TOOLCHAIN=clang
+```
 
 ## Validate Package (Automated)
 
@@ -124,7 +135,8 @@ Hardening now in place:
   1. explicit env override (`MAPFORGE_REGIONS_DIR`)
   2. bundle regions dir (`<app>/Contents/Resources/data/regions`) when non-empty
   3. development fallback (`$HOME/Desktop/CodeWork/map_forge/data/regions`) when available
-  4. bundle regions dir as final fallback (scaffold path; may be empty)
+  4. writable app-support fallback (`~/Library/Application Support/Carta/regions`)
+  5. `${TMPDIR:-/tmp}/Carta/regions` if app-support creation fails
 
 Launcher diagnostics:
 - normal runs append logs to `~/Library/Logs/Carta/launcher.log`

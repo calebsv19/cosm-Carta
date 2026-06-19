@@ -6,6 +6,8 @@ This reference groups all active controls by category for quick lookup.
 - WASD / Arrow Keys: Pan camera
 - Mouse Wheel: Zoom in/out at cursor
 - Left-Click + Drag (empty space): Pan camera
+- `=` / `+`: Zoom in at viewport center
+- `-`: Zoom out at viewport center
 - Cmd/Ctrl + `+`: Increase UI text size
 - Cmd/Ctrl + `-`: Decrease UI text size
 - Cmd/Ctrl + `0`: Reset UI text size
@@ -24,8 +26,15 @@ This reference groups all active controls by category for quick lookup.
 - Space: Play / pause playback
 - . : Step forward 5 seconds
 - , : Step back 5 seconds
-- = : Speed up (1x → 2x → 4x → 6x → 8x → 12x → 16x)
-- - : Speed down
+- Shift + `=` / `+`: Speed up (1x -> 2x -> 4x -> 6x -> 8x -> 12x -> 16x)
+- Shift + `-`: Speed down
+
+## Routing: Preview
+- F8: Toggle route follow-preview
+- F9: Toggle heading-up / north-up preview mode
+- ; : Rotate heading left and leave follow-preview
+- ' : Rotate heading right and leave follow-preview
+- 0: Reset heading toward north-up and leave follow-preview
 
 ## Routing: Profile & Mode
 - F4: Cycle objective (shortest -> lowest time -> lowest elevation gain -> time above speed threshold)

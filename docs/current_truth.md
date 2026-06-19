@@ -1,6 +1,6 @@
 # Carta Current Truth
 
-Last updated: 2026-05-21
+Last updated: 2026-06-19
 
 ## Program Identity
 - Public product name: `Carta`
@@ -15,11 +15,23 @@ Last updated: 2026-05-21
   - B: continuity + residency
   - C: package/runtime-source contract discipline
   - D: throughput/productization closure
-- Current in-flight worktree boundary:
-  - offline tooling decomposition under `tools/`
-  - `mapforge_graph.c` now delegates source-format detection/input normalization and output/publish responsibilities into dedicated helper files
-  - `mapforge_region.c` now delegates staged build/publish, archive/meta emission, metrics dataset output, and tile-file responsibilities into dedicated helper files
-  - goal remains structural reduction with behavior parity and unchanged public region-pack contracts
+- Tile-store/runtime architecture lane is complete for the current product
+  boundary:
+  - `meta.json` owns the package contract, tile-store descriptor, canonical
+    source/build manifest, tile pyramid, output stats, tile coverage, and
+    archive rollups
+  - runtime source policy covers `archive_required`, `archive_preferred`, and
+    `filesystem_only`
+  - current archive-backed reads use the SQLite-backed archive path with
+    filesystem-tree fallback where policy allows it
+  - XML and `.osm.pbf` / `.pbf` ingest are supported; `osm.pbf` is the
+    canonical input format while XML remains compatibility input
+- Current maintenance boundary:
+  - preserve published region-pack, graph-operator, runtime-source-policy, and
+    skill-facing headless helper contracts
+  - open fresh narrow plans only for graph-package metadata expansion,
+    PMTiles-native reader support, or tile lifecycle/cache tuning after fresh
+    regression evidence
 
 ## Structure
 - Required lanes: `docs/`, `src/`, `include/`, `tests/`, `build/`
@@ -30,7 +42,7 @@ Last updated: 2026-05-21
 
 ## Core Runtime Contract
 - Tile-store contract is explicit in region metadata (`kind`, `root`, optional archive path).
-- Runtime source-policy lane is active (`archive_required`, `archive_preferred`, `filesystem_only`) with validation.
+- Runtime source-policy contract is active (`archive_required`, `archive_preferred`, `filesystem_only`) with validation.
 - Coverage metadata contract is active and used by runtime queue suppression and diagnostics.
 - Offline build-tool contract is active:
   - `mapforge_graph` owns graph ingest + publish for XML/PBF-backed inputs
@@ -63,8 +75,8 @@ Last updated: 2026-05-21
 - Standard package/release contract remains active via `package-desktop*` and release audit/sign/notary targets.
 
 ## Current Boundary
-- Continue post-A-D maintenance hardening while preserving contract-driven runtime behavior.
-- Complete current `tools/` decomposition without changing published operator contract semantics.
+- Continue maintenance hardening only from fresh evidence while preserving contract-driven runtime behavior.
+- Keep the completed tile-store/runtime architecture lane closed unless a fresh narrow regression or backend-expansion need appears.
 - Camera runtime now keeps Mercator zoom semantics, smoothing, and hot screen/world render transforms local while routing generic cursor-anchor zoom and drag-pan target math through vendored shared `core_viewport2d`.
 - Throughput guardrail calibration now reflects current local variance:
   - D2 `seattle` matrix precondition uses a higher absolute `l0_peak` ceiling

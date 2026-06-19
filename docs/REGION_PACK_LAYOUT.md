@@ -75,7 +75,9 @@ Example:
   - when archive reads miss, runtime falls back to `tile_store.root` if present.
 
 Archive metadata keys:
-- `tile_store.archive_path` (for example `tiles.pmtiles` or `tiles.mbtiles`; SQLite-backed archive read path expects tile blobs in `mapforge_tiles`/`tiles` rows)
+- `tile_store.archive_path` (for example `tiles.mbtiles`; the current archive
+  reader is SQLite-backed and expects tile blobs in `mapforge_tiles`/`tiles`
+  rows)
 
 ## Notes
 - Runtime loader checks banded road path first, then falls back to legacy split-layer tile path.
