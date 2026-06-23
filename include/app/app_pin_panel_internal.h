@@ -11,7 +11,13 @@ bool app_pin_name_edit_insert_text(char *buffer, size_t cap, int *cursor, const 
 bool app_pin_name_edit_backspace(char *buffer, int *cursor);
 bool app_pin_name_edit_move_left(const char *buffer, int *cursor);
 bool app_pin_name_edit_move_right(const char *buffer, int *cursor);
-void app_pin_panel_select_saved_pin(AppState *app, int index);
+void app_pin_editor_set_status(AppState *app, const char *message);
+void app_pin_editor_set_statusf(AppState *app, const char *fmt, ...);
+void app_pin_editor_select_saved_pin(AppState *app, int index);
+void app_pin_editor_begin_new_pin(AppState *app);
+bool app_pin_editor_save_draft(AppState *app);
+bool app_pin_editor_delete_selected(AppState *app);
+void app_pin_editor_cancel_draft(AppState *app);
 bool app_pin_panel_name_edit_active(const AppState *app);
 void app_pin_panel_name_edit_deactivate(AppState *app);
 void app_pin_panel_name_edit_sync_cursor_to_end(AppState *app);

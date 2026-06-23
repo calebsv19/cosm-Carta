@@ -183,13 +183,9 @@ bool app_pin_panel_handle_name_click(AppState *app, int x, int y) {
     if (app->ui_state_bridge.pin_name_edit_active ||
         (now - app->ui_state_bridge.pin_name_last_click_time_sec) <= 0.35) {
         app_pin_panel_name_edit_activate(app, x);
-        snprintf(app->ui_state_bridge.pin_editor_status,
-                 sizeof(app->ui_state_bridge.pin_editor_status),
-                 "Rename active. Use left/right to move the caret, Enter to save.");
+        app_pin_editor_set_status(app, "Rename active. Use left/right to move the caret, Enter to save.");
     } else {
-        snprintf(app->ui_state_bridge.pin_editor_status,
-                 sizeof(app->ui_state_bridge.pin_editor_status),
-                 "Double-click the name field to rename.");
+        app_pin_editor_set_status(app, "Double-click the name field to rename.");
     }
     app->ui_state_bridge.pin_name_last_click_time_sec = now;
     return true;

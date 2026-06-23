@@ -3,235 +3,39 @@
 #include "core/log.h"
 #include "core_io.h"
 #include "map/mercator.h"
+#include "mapforge_publish_support.h"
 
-#include <errno.h>
-#include <dirent.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
-typedef struct SnapshotEntry {
-    char path[512];
-    time_t mtime;
-} SnapshotEntry;
-
-static bool ensure_dir(const char *path) {
-    if (!path) {
-        return false;
-    }
-    if (mkdir(path, 0755) == 0) {
-        return true;
-    }
-    return errno == EEXIST;
-}
-
-static bool path_is_dir(const char *path) {
-    struct stat st;
-    if (!path) {
-        return false;
-    }
-    if (stat(path, &st) != 0) {
-        return false;
-    }
-    return S_ISDIR(st.st_mode);
-}
-
-static bool path_exists(const char *path) {
-    return path && core_io_path_exists(path);
-}
-
 bool ensure_dir_recursive(const char *path) {
-    if (!path || path[0] == '\0') {
-        return false;
-    }
-    char buffer[512];
-    snprintf(buffer, sizeof(buffer), "%s", path);
-    size_t len = strlen(buffer);
-    if (len == 0u) {
-        return false;
-    }
-    if (buffer[len - 1] == '/') {
-        buffer[len - 1] = '\0';
-    }
-    for (char *p = buffer + 1; *p != '\0'; ++p) {
-        if (*p != '/') {
-            continue;
-        }
-        *p = '\0';
-        if (!ensure_dir(buffer)) {
-            return false;
-        }
-        *p = '/';
-    }
-    return ensure_dir(buffer);
-}
-
-static bool split_parent_name(const char *path, char *out_parent, size_t parent_size, char *out_name, size_t name_size) {
-    if (!path || !out_parent || !out_name || parent_size == 0u || name_size == 0u) {
-        return false;
-    }
-    const char *slash = strrchr(path, '/');
-    if (!slash) {
-        snprintf(out_parent, parent_size, ".");
-        snprintf(out_name, name_size, "%s", path);
-        return true;
-    }
-    size_t parent_len = (size_t)(slash - path);
-    if (parent_len == 0u) {
-        snprintf(out_parent, parent_size, "/");
-    } else {
-        if (parent_len >= parent_size) {
-            return false;
-        }
-        memcpy(out_parent, path, parent_len);
-        out_parent[parent_len] = '\0';
-    }
-    snprintf(out_name, name_size, "%s", slash + 1);
-    return out_name[0] != '\0';
+    return mapforge_publish_ensure_dir_recursive(path);
 }
 
 bool remove_tree(const char *path) {
-    struct stat st;
-    if (!path || path[0] == '\0') {
-        return false;
-    }
-    if (lstat(path, &st) != 0) {
-        return errno == ENOENT;
-    }
-    if (S_ISDIR(st.st_mode)) {
-        DIR *dir = opendir(path);
-        struct dirent *entry = NULL;
-        if (!dir) {
-            return false;
-        }
-        while ((entry = readdir(dir)) != NULL) {
-            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-                continue;
-            }
-            char child[512];
-            snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
-            if (!remove_tree(child)) {
-                closedir(dir);
-                return false;
-            }
-        }
-        closedir(dir);
-        return rmdir(path) == 0;
-    }
-    return unlink(path) == 0;
-}
-
-static int snapshot_entry_compare_desc(const void *a, const void *b) {
-    const SnapshotEntry *left = (const SnapshotEntry *)a;
-    const SnapshotEntry *right = (const SnapshotEntry *)b;
-    if (left->mtime == right->mtime) {
-        return strcmp(left->path, right->path);
-    }
-    return (left->mtime > right->mtime) ? -1 : 1;
+    return mapforge_publish_remove_tree(path);
 }
 
 static void prune_snapshot_dir(const char *snapshot_root, uint32_t keep_old, uint32_t prune_days, bool dry_run) {
-    DIR *dir = NULL;
-    struct dirent *entry = NULL;
-    SnapshotEntry *items = NULL;
-    size_t count = 0u;
-    size_t capacity = 0u;
-    time_t now = time(NULL);
-    time_t prune_seconds = (prune_days > 0u) ? (time_t)prune_days * 24 * 60 * 60 : 0;
-
-    if (!snapshot_root || !path_is_dir(snapshot_root)) {
-        return;
-    }
-    dir = opendir(snapshot_root);
-    if (!dir) {
-        return;
-    }
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-        char path[512];
-        struct stat st;
-        snprintf(path, sizeof(path), "%s/%s", snapshot_root, entry->d_name);
-        if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) {
-            continue;
-        }
-        if (count == capacity) {
-            size_t next = (capacity == 0u) ? 16u : capacity * 2u;
-            SnapshotEntry *next_items = (SnapshotEntry *)realloc(items, next * sizeof(SnapshotEntry));
-            if (!next_items) {
-                free(items);
-                closedir(dir);
-                return;
-            }
-            items = next_items;
-            capacity = next;
-        }
-        snprintf(items[count].path, sizeof(items[count].path), "%s", path);
-        items[count].mtime = st.st_mtime;
-        count += 1u;
-    }
-    closedir(dir);
-
-    qsort(items, count, sizeof(SnapshotEntry), snapshot_entry_compare_desc);
-    for (size_t i = 0u; i < count; ++i) {
-        bool remove_by_count = i >= keep_old;
-        bool remove_by_age = false;
-        if (prune_seconds > 0 && now >= items[i].mtime) {
-            remove_by_age = (now - items[i].mtime) > prune_seconds;
-        }
-        if (!remove_by_count && !remove_by_age) {
-            continue;
-        }
-        if (dry_run) {
-            log_info("dry-run prune graph snapshot: %s", items[i].path);
-            continue;
-        }
-        if (!remove_tree(items[i].path)) {
-            log_error("Failed to prune graph snapshot: %s", items[i].path);
-        }
-    }
-    free(items);
+    mapforge_publish_prune_snapshot_dir(snapshot_root,
+                                        keep_old,
+                                        prune_days,
+                                        dry_run,
+                                        "dry-run prune graph snapshot: %s",
+                                        "Failed to prune graph snapshot: %s",
+                                        NULL);
 }
 
 void prune_staging_dirs(const char *staging_root, uint32_t prune_days, bool dry_run) {
-    DIR *dir = NULL;
-    struct dirent *entry = NULL;
-    time_t now = time(NULL);
-    time_t prune_seconds = (prune_days > 0u) ? (time_t)prune_days * 24 * 60 * 60 : 0;
-    if (!staging_root || prune_seconds == 0 || !path_is_dir(staging_root)) {
-        return;
-    }
-    dir = opendir(staging_root);
-    if (!dir) {
-        return;
-    }
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-        char path[512];
-        struct stat st;
-        snprintf(path, sizeof(path), "%s/%s", staging_root, entry->d_name);
-        if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode)) {
-            continue;
-        }
-        if (now < st.st_mtime || (now - st.st_mtime) <= prune_seconds) {
-            continue;
-        }
-        if (dry_run) {
-            log_info("dry-run prune graph staging dir: %s", path);
-            continue;
-        }
-        if (!remove_tree(path)) {
-            log_error("Failed to prune graph staging dir: %s", path);
-        }
-    }
-    closedir(dir);
+    mapforge_publish_prune_staging_dirs(staging_root,
+                                        prune_days,
+                                        dry_run,
+                                        "dry-run prune graph staging dir: %s",
+                                        "Failed to prune graph staging dir: %s",
+                                        NULL);
 }
 
 bool build_publish_paths(const char *active_root,
@@ -241,20 +45,15 @@ bool build_publish_paths(const char *active_root,
                          size_t snapshot_size,
                          char *out_staging_root,
                          size_t staging_root_size) {
-    char parent[512];
-    char name[256];
-    time_t now = time(NULL);
-    long pid = (long)getpid();
-    if (!active_root || !out_stage_root || !out_snapshot_root || !out_staging_root) {
-        return false;
-    }
-    if (!split_parent_name(active_root, parent, sizeof(parent), name, sizeof(name))) {
-        return false;
-    }
-    snprintf(out_staging_root, staging_root_size, "%s/.graph_staging", parent);
-    snprintf(out_snapshot_root, snapshot_size, "%s/.graph_snapshots/%s", parent, name);
-    snprintf(out_stage_root, stage_size, "%s/%s.%ld.%ld", out_staging_root, name, (long)now, pid);
-    return true;
+    return mapforge_publish_build_paths(active_root,
+                                        ".graph_staging",
+                                        ".graph_snapshots",
+                                        out_stage_root,
+                                        stage_size,
+                                        out_snapshot_root,
+                                        snapshot_size,
+                                        out_staging_root,
+                                        staging_root_size);
 }
 
 bool validate_staged_graph(const char *stage_root) {
@@ -303,7 +102,7 @@ bool publish_staged_graph(const GraphOptions *options,
         return false;
     }
 
-    if (path_exists(active_graph)) {
+    if (mapforge_publish_path_exists(active_graph)) {
         if (options->replace) {
             if (!remove_tree(active_graph)) {
                 return false;
@@ -339,10 +138,10 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
 
     char graph_dir[512];
     snprintf(graph_dir, sizeof(graph_dir), "%s/graph", out_dir);
-    if (!ensure_dir(out_dir)) {
+    if (!mapforge_publish_ensure_dir_recursive(out_dir)) {
         return false;
     }
-    if (!ensure_dir(graph_dir)) {
+    if (!mapforge_publish_ensure_dir_recursive(graph_dir)) {
         return false;
     }
 

@@ -3,6 +3,8 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+. "$SCRIPT_DIR/saved_pin_common.sh"
+SCRIPT_NAME="stage_saved_pin_visualizer_drop.sh"
 STAGE_TOOL="${MAPFORGE_STAGE_TOOL:-$REPO_DIR/../skills/codework-visualizer-drop/scripts/stage_visualizer_run.py}"
 
 RUN_DIR=""
@@ -68,7 +70,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         *)
-            echo "stage_saved_pin_visualizer_drop.sh: unknown option '$1'" >&2
+            echo "$SCRIPT_NAME: unknown option '$1'" >&2
             usage >&2
             exit 1
             ;;
@@ -76,23 +78,54 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$RUN_DIR" ] || [ -z "$DROP_ID" ]; then
-    echo "stage_saved_pin_visualizer_drop.sh: --run-dir and --drop-id are required" >&2
+    echo "$SCRIPT_NAME: --run-dir and --drop-id are required" >&2
     usage >&2
     exit 1
 fi
+mapforge_require_local_artifact_path "$SCRIPT_NAME" "--run-dir" "$RUN_DIR"
+mapforge_require_local_artifact_path "$SCRIPT_NAME" "--staging-root" "$STAGING_ROOT"
 
-if ! printf '%s\n' "$DROP_ID" | grep -Eq '^[a-z0-9][a-z0-9-]*--[a-z0-9][a-z0-9-]*--[0-9]{8}T[0-9]{6}Z--[a-z0-9]+$'; then
-    echo "stage_saved_pin_visualizer_drop.sh: drop_id must match <program>--<job-type>--<YYYYMMDDTHHMMSSZ>--<alnumnonce>" >&2
+if ! mapforge_drop_id_valid "$DROP_ID"; then
+    mapforge_print_visualizer_failure \
+        "$SCRIPT_NAME" \
+        "invalid_drop_id" \
+        "$RUN_DIR" \
+        "$STAGING_ROOT/$DROP_ID" \
+        "$RUN_DIR/manifest.json" \
+        "$RUN_DIR/preview.bmp" \
+        "" \
+        ""
+    echo "$SCRIPT_NAME: drop_id must match <program>--<job-type>--<YYYYMMDDTHHMMSSZ>--<alnumnonce>" >&2
     exit 1
 fi
 
 if [ ! -d "$RUN_DIR" ]; then
-    echo "stage_saved_pin_visualizer_drop.sh: run directory not found: $RUN_DIR" >&2
+    mapforge_print_visualizer_failure \
+        "$SCRIPT_NAME" \
+        "missing_run_dir" \
+        "$RUN_DIR" \
+        "$STAGING_ROOT/$DROP_ID" \
+        "$RUN_DIR/manifest.json" \
+        "$RUN_DIR/preview.bmp" \
+        "" \
+        ""
     exit 1
 fi
 
-if [ ! -f "$STAGE_TOOL" ]; then
-    echo "stage_saved_pin_visualizer_drop.sh: stage tool not found: $STAGE_TOOL" >&2
+stage_tool_reject_reason=$(mapforge_operator_script_reject_reason "$STAGE_TOOL" || true)
+if [ -n "$stage_tool_reject_reason" ]; then
+    echo "$SCRIPT_NAME: invalid trusted operator script for MAPFORGE_STAGE_TOOL: $stage_tool_reject_reason" >&2
+    echo "$SCRIPT_NAME: path=$STAGE_TOOL" >&2
+    echo "$SCRIPT_NAME: request data must not control MAPFORGE_STAGE_TOOL; set it only from the local operator environment" >&2
+    mapforge_print_visualizer_failure \
+        "$SCRIPT_NAME" \
+        "missing_stage_tool" \
+        "$RUN_DIR" \
+        "$STAGING_ROOT/$DROP_ID" \
+        "$RUN_DIR/manifest.json" \
+        "$RUN_DIR/preview.bmp" \
+        "" \
+        "$STAGE_TOOL"
     exit 1
 fi
 
@@ -108,7 +141,15 @@ FIRST_FRAME="$RUN_DIR/frames/frame_000001.bmp"
 
 for path in "$MANIFEST" "$SUMMARY_MD" "$JOB_RESOLVED" "$COMMAND_TXT" "$PREVIEW_BMP"; do
     if [ ! -f "$path" ]; then
-        echo "stage_saved_pin_visualizer_drop.sh: required artifact missing: $path" >&2
+        mapforge_print_visualizer_failure \
+            "$SCRIPT_NAME" \
+            "missing_required_artifact" \
+            "$RUN_DIR" \
+            "$STAGING_ROOT/$DROP_ID" \
+            "$MANIFEST" \
+            "$PREVIEW_BMP" \
+            "$path" \
+            ""
         exit 1
     fi
 done
@@ -204,4 +245,15 @@ if [ "$CONVERT_BMP_TO_PNG" = "true" ]; then
     set -- "$@" --convert-bmp-to-png
 fi
 
-python3 "$STAGE_TOOL" "$@"
+if ! python3 "$STAGE_TOOL" "$@"; then
+    mapforge_print_visualizer_failure \
+        "$SCRIPT_NAME" \
+        "stage_tool_failed" \
+        "$RUN_DIR" \
+        "$STAGING_ROOT/$DROP_ID" \
+        "$MANIFEST" \
+        "$PREVIEW_BMP" \
+        "$PRIMARY_SOURCE" \
+        "$LOG_SOURCE"
+    exit 1
+fi

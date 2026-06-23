@@ -64,10 +64,13 @@ MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region strict_ok_fs
 MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region strict_ok_fs --strict
 MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region strict_fail_archive
 
-if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region strict_fail_archive --strict; then
+strict_fail_stderr="$workspace/strict_fail_stderr.txt"
+if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region strict_fail_archive --strict 2>"$strict_fail_stderr"; then
     echo "expected strict validation failure when archive fallback tree is present" >&2
     exit 1
 fi
+grep -q 'diagnostic_stage=validation region=strict_fail_archive' "$strict_fail_stderr"
+grep -q 'repair_hint=Provide a readable archive payload or run without --strict when tree fallback is acceptable.' "$strict_fail_stderr"
 
 if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --strict; then
     echo "expected strict validation to fail when any region uses archive fallback" >&2

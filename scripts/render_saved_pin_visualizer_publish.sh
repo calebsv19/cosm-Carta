@@ -3,6 +3,8 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+. "$SCRIPT_DIR/saved_pin_common.sh"
+SCRIPT_NAME="render_saved_pin_visualizer_publish.sh"
 SKILL_HELPER="$SCRIPT_DIR/run_saved_pin_route_skill.sh"
 STAGE_HELPER="$SCRIPT_DIR/stage_saved_pin_visualizer_drop.sh"
 UPLOAD_HELPER="$SCRIPT_DIR/upload_visualizer_drop.sh"
@@ -18,6 +20,7 @@ RENDER_MODE="map_route_marker"
 INCLUDE_VIDEO="true"
 INCLUDE_FRAMES=""
 PUBLISH="true"
+PLAN_ONLY="false"
 KEEP_BMP="${MAPFORGE_KEEP_BMP:-false}"
 STAGING_ROOT="${REPO_DIR}/../_private_workspace_artifacts/codework_visualizer_runs"
 SITE_BASE_URL="${SITE_BASE_URL:-}"
@@ -43,6 +46,7 @@ Options:
   --include-video <bool>         true | false
   --include-frames <bool>        true | false
   --publish <bool>               true | false
+  --plan-only <bool>             true | false; compute result shape without render/stage/upload
   --keep-bmp <bool>              true | false; skip BMP-to-PNG normalization
   --staging-root <dir>           Local staged-drop root
   --site-base-url <url>          Optional absolute website base URL
@@ -50,16 +54,6 @@ Options:
   --write-result-json <path>     Optional copy path for publish result JSON
   --help                         Show usage
 EOF
-}
-
-require_bool() {
-    case "$1" in
-        true|false) return 0 ;;
-        *)
-            echo "render_saved_pin_visualizer_publish.sh: expected true|false but got '$1'" >&2
-            exit 1
-            ;;
-    esac
 }
 
 while [ "$#" -gt 0 ]; do
@@ -108,6 +102,10 @@ while [ "$#" -gt 0 ]; do
             PUBLISH=${2:-}
             shift 2
             ;;
+        --plan-only)
+            PLAN_ONLY=${2:-}
+            shift 2
+            ;;
         --keep-bmp)
             KEEP_BMP=${2:-}
             shift 2
@@ -133,7 +131,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         *)
-            echo "render_saved_pin_visualizer_publish.sh: unknown option '$1'" >&2
+            echo "$SCRIPT_NAME: unknown option '$1'" >&2
             usage >&2
             exit 1
             ;;
@@ -141,25 +139,29 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$REGION" ] || [ -z "$FROM_PIN" ] || [ -z "$TO_PIN" ] || [ -z "$OUT_ROOT" ]; then
-    echo "render_saved_pin_visualizer_publish.sh: --region, --from, --to, and --out-root are required" >&2
+    echo "$SCRIPT_NAME: --region, --from, --to, and --out-root are required" >&2
     usage >&2
     exit 1
 fi
-
-require_bool "$INCLUDE_VIDEO"
-require_bool "$PUBLISH"
-require_bool "$KEEP_BMP"
-if [ -n "$INCLUDE_FRAMES" ]; then
-    require_bool "$INCLUDE_FRAMES"
+mapforge_require_local_artifact_path "$SCRIPT_NAME" "--out-root" "$OUT_ROOT"
+mapforge_require_local_artifact_path "$SCRIPT_NAME" "--staging-root" "$STAGING_ROOT"
+if [ -n "$RESULT_JSON_PATH" ]; then
+    mapforge_require_local_artifact_path "$SCRIPT_NAME" "--write-result-json" "$RESULT_JSON_PATH"
 fi
 
-case "$ORIENTATION_MODE" in
-    heading_up|north_up|both) ;;
-    *)
-        echo "render_saved_pin_visualizer_publish.sh: unsupported orientation mode '$ORIENTATION_MODE'" >&2
-        exit 1
-        ;;
-esac
+mapforge_require_bool "$SCRIPT_NAME" "$INCLUDE_VIDEO"
+mapforge_require_bool "$SCRIPT_NAME" "$PUBLISH"
+mapforge_require_bool "$SCRIPT_NAME" "$PLAN_ONLY"
+mapforge_require_bool "$SCRIPT_NAME" "$KEEP_BMP"
+if [ -n "$INCLUDE_FRAMES" ]; then
+    mapforge_require_bool "$SCRIPT_NAME" "$INCLUDE_FRAMES"
+fi
+mapforge_validate_orientation_mode "$SCRIPT_NAME" "$ORIENTATION_MODE" true
+mapforge_validate_render_mode "$SCRIPT_NAME" "$RENDER_MODE"
+if [ "$PLAN_ONLY" = "true" ] && [ "$PUBLISH" = "true" ]; then
+    echo "$SCRIPT_NAME: --plan-only true requires --publish false" >&2
+    exit 1
+fi
 
 if [ -z "$DROP_TIMESTAMP" ]; then
     DROP_TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
@@ -175,10 +177,6 @@ cleanup() {
     rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT INT TERM
-
-sanitize_nonce() {
-    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'
-}
 
 append_run_record() {
     python3 - <<'PY' "$RUNS_JSONL" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12}" "${13}"
@@ -207,14 +205,9 @@ with path.open("a", encoding="utf-8") as f:
 PY
 }
 
-ORIENTATION_LIST="heading_up"
-if [ "$ORIENTATION_MODE" = "north_up" ]; then
-    ORIENTATION_LIST="north_up"
-elif [ "$ORIENTATION_MODE" = "both" ]; then
-    ORIENTATION_LIST="heading_up north_up"
-fi
+ORIENTATION_LIST=$(mapforge_orientation_list "$ORIENTATION_MODE")
 
-BASE_NONCE=$(sanitize_nonce "${FROM_PIN}${TO_PIN}${ZOOM_LEVEL}${MOTION_PROFILE}")
+BASE_NONCE=$(mapforge_sanitize_nonce "${FROM_PIN}${TO_PIN}${ZOOM_LEVEL}${MOTION_PROFILE}")
 if [ -z "$BASE_NONCE" ]; then
     BASE_NONCE="route"
 fi
@@ -233,31 +226,72 @@ for orientation in $ORIENTATION_LIST; do
     esac
     DROP_ID="map-forge--saved-pin-route--${DROP_TIMESTAMP}--${ORIENTATION_NONCE}"
 
+    if [ "$PLAN_ONLY" = "true" ]; then
+        STAGE_DIR="$STAGING_ROOT/$DROP_ID"
+        if [ "$KEEP_BMP" = "true" ]; then
+            PREVIEW_REL_URL="/artifacts/map-forge/$DROP_ID/preview/preview.bmp"
+        else
+            PREVIEW_REL_URL="/artifacts/map-forge/$DROP_ID/preview/preview.png"
+        fi
+
+        VIDEO_PATH=""
+        VIDEO_REL_URL=""
+        if [ "$INCLUDE_VIDEO" = "true" ]; then
+            VIDEO_PATH="$RUN_DIR/video/route_preview.mp4"
+            VIDEO_REL_URL="/artifacts/map-forge/$DROP_ID/outputs/final/route_preview.mp4"
+        fi
+
+        PREVIEW_URL="$PREVIEW_REL_URL"
+        FINAL_VIDEO_URL="$VIDEO_REL_URL"
+        if [ -n "$SITE_BASE_URL" ]; then
+            BASE=${SITE_BASE_URL%/}
+            PREVIEW_URL="$BASE$PREVIEW_REL_URL"
+            if [ -n "$VIDEO_REL_URL" ]; then
+                FINAL_VIDEO_URL="$BASE$VIDEO_REL_URL"
+            fi
+        fi
+
+        append_run_record \
+            "$orientation" \
+            "$RUN_DIR" \
+            "$DROP_ID" \
+            "$STAGE_DIR" \
+            "$PUBLISH" \
+            "$RUN_DIR/manifest.json" \
+            "$RUN_DIR/summary.md" \
+            "$RUN_DIR/preview.bmp" \
+            "$VIDEO_PATH" \
+            "$PREVIEW_URL" \
+            "$FINAL_VIDEO_URL" \
+            "$PREVIEW_REL_URL" \
+            "$VIDEO_REL_URL"
+        continue
+    fi
+
+    set -- \
+        --region "$REGION" \
+        --from "$FROM_PIN" \
+        --to "$TO_PIN" \
+        --out "$RUN_DIR" \
+        --zoom-level "$ZOOM_LEVEL" \
+        --motion-profile "$MOTION_PROFILE" \
+        --orientation-mode "$orientation" \
+        --render-mode "$RENDER_MODE" \
+        --include-video "$INCLUDE_VIDEO"
     if [ -n "$INCLUDE_FRAMES" ]; then
-        /bin/sh "$SKILL_HELPER" \
-            --region "$REGION" \
-            --from "$FROM_PIN" \
-            --to "$TO_PIN" \
-            --out "$RUN_DIR" \
-            --zoom-level "$ZOOM_LEVEL" \
-            --motion-profile "$MOTION_PROFILE" \
-            --orientation-mode "$orientation" \
-            --render-mode "$RENDER_MODE" \
-            --include-video "$INCLUDE_VIDEO" \
-            --include-frames "$INCLUDE_FRAMES" \
-            > /dev/null
-    else
-        /bin/sh "$SKILL_HELPER" \
-            --region "$REGION" \
-            --from "$FROM_PIN" \
-            --to "$TO_PIN" \
-            --out "$RUN_DIR" \
-            --zoom-level "$ZOOM_LEVEL" \
-            --motion-profile "$MOTION_PROFILE" \
-            --orientation-mode "$orientation" \
-            --render-mode "$RENDER_MODE" \
-            --include-video "$INCLUDE_VIDEO" \
-            > /dev/null
+        set -- "$@" --include-frames "$INCLUDE_FRAMES"
+    fi
+    if ! /bin/sh "$SKILL_HELPER" "$@" > /dev/null; then
+        mapforge_print_visualizer_failure \
+            "$SCRIPT_NAME" \
+            "skill_helper_failed" \
+            "$RUN_DIR" \
+            "$STAGING_ROOT/$DROP_ID" \
+            "$RUN_DIR/manifest.json" \
+            "$RUN_DIR/preview.bmp" \
+            "$RUN_DIR/video/route_preview.mp4" \
+            ""
+        exit 1
     fi
 
     set -- \
@@ -269,7 +303,18 @@ for orientation in $ORIENTATION_LIST; do
     if [ "$KEEP_BMP" = "true" ]; then
         set -- "$@" --keep-bmp
     fi
-    /bin/sh "$STAGE_HELPER" "$@" > /dev/null
+    if ! /bin/sh "$STAGE_HELPER" "$@" > /dev/null; then
+        mapforge_print_visualizer_failure \
+            "$SCRIPT_NAME" \
+            "stage_helper_failed" \
+            "$RUN_DIR" \
+            "$STAGING_ROOT/$DROP_ID" \
+            "$RUN_DIR/manifest.json" \
+            "$RUN_DIR/preview.bmp" \
+            "$RUN_DIR/video/route_preview.mp4" \
+            "$STAGING_ROOT/$DROP_ID/logs/run.log"
+        exit 1
+    fi
 
     STAGE_DIR="$STAGING_ROOT/$DROP_ID"
     if [ "$KEEP_BMP" = "true" ]; then
@@ -296,7 +341,18 @@ for orientation in $ORIENTATION_LIST; do
     fi
 
     if [ "$PUBLISH" = "true" ]; then
-        /bin/sh "$UPLOAD_HELPER" "$STAGE_DIR" "$DROP_ID" > /dev/null
+        if ! /bin/sh "$UPLOAD_HELPER" "$STAGE_DIR" "$DROP_ID" > /dev/null; then
+            mapforge_print_visualizer_failure \
+                "$SCRIPT_NAME" \
+                "upload_helper_failed" \
+                "$RUN_DIR" \
+                "$STAGE_DIR" \
+                "$RUN_DIR/manifest.json" \
+                "$RUN_DIR/preview.bmp" \
+                "$VIDEO_PATH" \
+                "$STAGE_DIR/logs/run.log"
+            exit 1
+        fi
     fi
 
     append_run_record \
@@ -346,10 +402,7 @@ out_path = Path(sys.argv[11])
 out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
 PY
 
-if [ -n "$RESULT_JSON_PATH" ]; then
-    mkdir -p "$(dirname "$RESULT_JSON_PATH")"
-    cp "$RESULT_JSON" "$RESULT_JSON_PATH"
-fi
+mapforge_copy_file_if_requested "$RESULT_JSON" "$RESULT_JSON_PATH"
 
 echo "status=complete"
 echo "schema=mapforge-saved-pin-visualizer-publish-result/v1"

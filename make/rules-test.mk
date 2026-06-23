@@ -6,10 +6,10 @@ run: app
 
 run-headless-smoke: run-headless-smoke-core
 
-run-headless-smoke-core: app test-worker-contract test-route-service test-route-preview test-headless-playback test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-region-validate-strict test-region-validate-contract test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
+run-headless-smoke-core: app test-worker-contract test-route-service test-route-preview test-headless-playback test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-region-validate-strict test-region-validate-contract test-region-publish-safety test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract
 	@echo "map_forge core headless smoke passed (non-interactive)"
 
-run-headless-smoke-artifacts: app test-headless-route-job test-headless-route-job-bundle test-headless-runtime-pins test-headless-saved-pin-script test-headless-saved-pin-skill-contract test-headless-route-frames test-headless-route-video-helper test-headless-visualizer-drop-stage test-headless-saved-pin-visualizer-publish-wrapper
+run-headless-smoke-artifacts: app test-headless-route-job test-headless-route-job-bundle test-headless-runtime-pins test-headless-saved-pin-script test-headless-saved-pin-skill-contract test-headless-route-frames test-headless-route-video-helper test-headless-visualizer-drop-stage test-upload-visualizer-drop-preflight test-headless-saved-pin-visualizer-publish-plan test-headless-saved-pin-visualizer-publish-wrapper
 	@echo "map_forge artifact headless smoke passed"
 
 run-headless-smoke-continuity: app test-route-preview-contract
@@ -21,8 +21,29 @@ run-headless-smoke-throughput: app test-phase-d-throughput
 run-headless-smoke-full: run-headless-smoke-core run-headless-smoke-artifacts run-headless-smoke-continuity run-headless-smoke-throughput
 	@echo "map_forge full headless smoke passed"
 
+test-r5-callable: test-route-preview test-headless-playback test-tile-source-archive test-runtime-source-policy test-archive-metrics-rollup test-headless-saved-pin-visualizer-publish-plan
+	@echo "map_forge R5 callable probes passed"
+
 visual-harness: app
 	@echo "visual harness binary ready: $(TARGET)"
+
+visual-artifact: app
+	@artifact_root="visual_artifacts/source_run_first_frame"; \
+	run_dir="$$artifact_root/route_demo_seattle"; \
+	preview_path="$$run_dir/preview.bmp"; \
+	rm -rf "$$run_dir"; \
+	mkdir -p "$$run_dir"; \
+	"$(APP_BIN)" --headless --job "jobs/examples/route_demo_seattle.json" --out "$$run_dir" >/dev/null; \
+	test -s "$$preview_path" || (echo "visual-artifact failed: missing or empty $$preview_path" >&2; exit 1); \
+	echo "visual-artifact=$$preview_path"
+
+carta-local-proof:
+	@$(MAKE) --no-print-directory test-r5-callable
+	@$(MAKE) --no-print-directory visual-artifact
+	@$(MAKE) --no-print-directory run-headless-smoke-core
+	@$(MAKE) --no-print-directory test-headless-saved-pin-visualizer-publish-wrapper
+	@$(MAKE) --no-print-directory package-desktop-self-test
+	@echo "carta-local-proof passed"
 
 run-ide-theme: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
@@ -45,6 +66,7 @@ build-safety-check: tools graph
 test: test-space build-safety-check
 test: test-region-validate-strict
 test: test-region-validate-contract
+test: test-region-publish-safety
 test: test-runtime-source-policy
 test: test-archive-metrics-rollup
 test: test-coverage-metadata-contract
@@ -70,6 +92,9 @@ test-region-validate-strict: tools-build
 
 test-region-validate-contract: tools-build
 	./tests/test_region_validate_contract.sh
+
+test-region-publish-safety: tools-build
+	./tests/test_region_publish_safety.sh
 
 test-runtime-source-policy: tools-build
 	./tests/test_runtime_source_policy.sh
@@ -107,6 +132,9 @@ test-headless-playback: $(APP_HEADLESS_PLAYBACK_TEST_TARGET)
 test-headless-route-job: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_job.sh
 
+test-headless-failure-diagnostics: app
+	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_failure_diagnostics.sh
+
 test-headless-route-job-bundle: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_job_bundle.sh
 
@@ -127,6 +155,12 @@ test-headless-route-video-helper: app
 
 test-headless-visualizer-drop-stage: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_visualizer_drop_stage.sh
+
+test-upload-visualizer-drop-preflight:
+	/bin/sh ./tests/test_upload_visualizer_drop_preflight.sh
+
+test-headless-saved-pin-visualizer-publish-plan:
+	/bin/sh ./tests/test_headless_saved_pin_visualizer_publish_plan.sh
 
 test-headless-saved-pin-visualizer-publish-wrapper: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_saved_pin_visualizer_publish_wrapper.sh

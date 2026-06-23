@@ -158,9 +158,7 @@ bool app_select_pin_at_screen_point(AppState *app, int screen_x, int screen_y) {
     if (!app_find_pin_at_screen_point(app, screen_x, screen_y, 10.0f, &pin_index)) {
         return false;
     }
-    app_pin_panel_select_saved_pin(app, pin_index);
-    snprintf(app->ui_state_bridge.pin_editor_status,
-             sizeof(app->ui_state_bridge.pin_editor_status),
-             "Pin selected from map.");
+    app_pin_editor_select_saved_pin(app, pin_index);
+    app_pin_editor_set_status(app, "Pin selected from map.");
     return true;
 }

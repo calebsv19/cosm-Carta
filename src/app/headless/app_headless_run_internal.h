@@ -28,6 +28,9 @@ typedef struct MapForgeHeadlessRunResult {
     bool frames_written;
     char status[32];
     char error[256];
+    char failure_stage[64];
+    char failure_code[64];
+    char failure_context[256];
     char job_path[PATH_MAX];
     char run_root[PATH_MAX];
     char out_dir[PATH_MAX];

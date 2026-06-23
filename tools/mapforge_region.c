@@ -83,6 +83,8 @@ static bool parse_args(int argc, char **argv, BuildOptions *options) {
     if (options->emit_archive && !mapforge_region_archive_rel_path_valid(options->archive_path)) {
         log_error("--archive-path must be a region-local relative path (no leading '/' and no '..'): %s",
                   options->archive_path ? options->archive_path : "");
+        mapforge_region_log_diagnostic("archive_emit",
+                                       "Use a region-local relative archive path such as tiles.mbtiles.");
         return false;
     }
 
@@ -133,6 +135,7 @@ int main(int argc, char **argv) {
     memset(&ctx, 0, sizeof(ctx));
 
     if (!mapforge_region_parse_osm(&options, &ctx)) {
+        mapforge_region_log_diagnostic("source_ingest", NULL);
         build_context_free(&ctx);
         return 1;
     }
@@ -159,6 +162,7 @@ int main(int argc, char **argv) {
     }
     if (!mapforge_region_write_tile_archive_sqlite(&options, &ctx)) {
         log_error("Failed to emit staged archive payload for region: %s", options.region);
+        mapforge_region_log_diagnostic("archive_emit", NULL);
         build_context_free(&ctx);
         if (stage_created) {
             mapforge_region_remove_tree(stage_dir);
@@ -185,6 +189,7 @@ int main(int argc, char **argv) {
     build_context_free(&ctx);
 
     if (!mapforge_region_validate_staged_region(&options, stage_dir)) {
+        mapforge_region_log_diagnostic("validation", NULL);
         if (stage_created) {
             mapforge_region_remove_tree(stage_dir);
         }
@@ -193,6 +198,7 @@ int main(int argc, char **argv) {
 
     log_info("Publishing staged region pack: %s -> %s", stage_dir, active_out_dir);
     if (!mapforge_region_publish_region_pack(&options, stage_dir, active_out_dir, snapshot_root)) {
+        mapforge_region_log_diagnostic("publish", NULL);
         if (stage_created) {
             mapforge_region_remove_tree(stage_dir);
         }

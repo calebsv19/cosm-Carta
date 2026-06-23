@@ -191,10 +191,10 @@ void app_runtime_update_frame(AppState *app,
         bool over_start = app->route_state_bridge.route.has_start && app_mouse_over_anchor(app, &app->route_state_bridge.start_anchor, 7.0f);
         bool over_goal = app->route_state_bridge.route.has_goal && app_mouse_over_anchor(app, &app->route_state_bridge.goal_anchor, 7.0f);
         if (over_goal && !over_start) {
-            app->route_state_bridge.dragging_goal = true;
+            app_route_service_begin_endpoint_drag(app, false);
             app_pin_panel_clear_route_goal(app);
         } else if (over_start) {
-            app->route_state_bridge.dragging_start = true;
+            app_route_service_begin_endpoint_drag(app, true);
             app_pin_panel_clear_route_start(app);
         }
     }
@@ -204,7 +204,7 @@ void app_runtime_update_frame(AppState *app,
         app->ui_state_bridge.input.right_click_pressed &&
         app->route_state_bridge.route.has_goal &&
         app_mouse_over_anchor(app, &app->route_state_bridge.goal_anchor, 7.0f)) {
-        app->route_state_bridge.dragging_goal = true;
+        app_route_service_begin_endpoint_drag(app, false);
         app_pin_panel_clear_route_goal(app);
     }
 
@@ -239,7 +239,7 @@ void app_runtime_update_frame(AppState *app,
     if (app->route_state_bridge.preview_follow_enabled &&
         !app->viewport_scenario_active &&
         app_runtime_has_manual_camera_override(&camera_input, allow_mouse_pan)) {
-        app->route_state_bridge.preview_follow_enabled = false;
+        app_route_preview_disable_follow(app);
     }
     camera_handle_input(&app->view_state_bridge.camera,
                         &camera_input,
@@ -251,7 +251,8 @@ void app_runtime_update_frame(AppState *app,
     app_route_poll_result(app);
     app_route_panel_model_update(app);
     app_playback_update(app, dt);
-    app_route_preview_update(app);
+    app_route_preview_update_state(app);
+    app_route_preview_apply_follow(app);
     camera_update(&app->view_state_bridge.camera, dt);
     if (app->viewport_scenario_mode == APP_VIEWPORT_SCENARIO_PHASE_B) {
         app_run_viewport_scenario_phase_b(app, now);
@@ -350,8 +351,7 @@ void app_runtime_update_frame(AppState *app,
     if (!consumed_click && app->ui_state_bridge.input.pin_panel_toggle_pressed) {
         app->ui_state_bridge.left_pane_open = !app->ui_state_bridge.left_pane_open;
         app_pin_panel_layout(app);
-        app->tile_state_bridge.queue_valid = false;
-        app->tile_state_bridge.visible_valid = false;
+        app_tile_viewport_invalidate(app);
         consumed_click = true;
     }
     if (!consumed_click &&
@@ -366,13 +366,8 @@ void app_runtime_update_frame(AppState *app,
 
     if (!consumed_click && (app->ui_state_bridge.input.left_click_pressed || app->ui_state_bridge.input.right_click_pressed || app->ui_state_bridge.input.middle_click_pressed)) {
         if (app->ui_state_bridge.input.middle_click_pressed) {
-            route_state_clear(&app->route_state_bridge.route);
+            app_route_service_clear_route_selection(app);
             app_pin_panel_clear_route_bindings(app);
-            app_playback_reset(app);
-            app->route_state_bridge.dragging_start = false;
-            app->route_state_bridge.dragging_goal = false;
-            memset(&app->route_state_bridge.start_anchor, 0, sizeof(app->route_state_bridge.start_anchor));
-            memset(&app->route_state_bridge.goal_anchor, 0, sizeof(app->route_state_bridge.goal_anchor));
         } else if (app->ui_state_bridge.input.left_click_pressed &&
                    !app->ui_state_bridge.input.shift_down &&
                    app_select_pin_at_screen_point(app,
@@ -396,15 +391,13 @@ void app_runtime_update_frame(AppState *app,
             }
             if (app->ui_state_bridge.input.left_click_pressed) {
                 if (app->route_state_bridge.route.has_start && app_mouse_over_anchor(app, &app->route_state_bridge.start_anchor, 7.0f)) {
-                    app->route_state_bridge.dragging_start = true;
+                    app_route_service_begin_endpoint_drag(app, true);
                     app_pin_panel_clear_route_start(app);
                 } else if (app->ui_state_bridge.input.shift_down) {
                     RouteEndpointAnchor anchor = {0};
                     if (app_pick_route_anchor_unbounded(app, world_x, world_y, &anchor)) {
                         app_pin_panel_clear_route_start(app);
-                        app->route_state_bridge.route.start_node = anchor.node;
-                        app->route_state_bridge.route.has_start = true;
-                        app->route_state_bridge.start_anchor = anchor;
+                        (void)app_route_service_set_endpoint_anchor(app, true, &anchor, 0.0);
                     }
                 }
             }
@@ -412,15 +405,13 @@ void app_runtime_update_frame(AppState *app,
                 if (!app->ui_state_bridge.pin_add_mode_active &&
                     app->route_state_bridge.route.has_goal &&
                     app_mouse_over_anchor(app, &app->route_state_bridge.goal_anchor, 7.0f)) {
-                    app->route_state_bridge.dragging_goal = true;
+                    app_route_service_begin_endpoint_drag(app, false);
                     app_pin_panel_clear_route_goal(app);
                 } else if (!app->ui_state_bridge.pin_add_mode_active) {
                     RouteEndpointAnchor anchor = {0};
                     if (app_pick_route_anchor_unbounded(app, world_x, world_y, &anchor)) {
                         app_pin_panel_clear_route_goal(app);
-                        app->route_state_bridge.route.goal_node = anchor.node;
-                        app->route_state_bridge.route.has_goal = true;
-                        app->route_state_bridge.goal_anchor = anchor;
+                        (void)app_route_service_set_endpoint_anchor(app, false, &anchor, 0.0);
                     }
                 }
             }
@@ -443,51 +434,17 @@ void app_runtime_update_frame(AppState *app,
                                     &world_y)) {
             RouteEndpointAnchor anchor = {0};
             if (app_pick_route_anchor_unbounded(app, world_x, world_y, &anchor)) {
-                bool changed = false;
-                if (app->route_state_bridge.dragging_start &&
-                    (anchor.node != app->route_state_bridge.route.start_node || fabsf(anchor.world_x - app->route_state_bridge.start_anchor.world_x) > 0.01f ||
-                     fabsf(anchor.world_y - app->route_state_bridge.start_anchor.world_y) > 0.01f)) {
-                    app->route_state_bridge.route.start_node = anchor.node;
-                    app->route_state_bridge.route.has_start = true;
-                    app->route_state_bridge.start_anchor = anchor;
-                    changed = true;
-                }
-                if (app->route_state_bridge.dragging_goal &&
-                    (anchor.node != app->route_state_bridge.route.goal_node || fabsf(anchor.world_x - app->route_state_bridge.goal_anchor.world_x) > 0.01f ||
-                     fabsf(anchor.world_y - app->route_state_bridge.goal_anchor.world_y) > 0.01f)) {
-                    app->route_state_bridge.route.goal_node = anchor.node;
-                    app->route_state_bridge.route.has_goal = true;
-                    app->route_state_bridge.goal_anchor = anchor;
-                    changed = true;
-                }
-                if (changed && app->route_state_bridge.route.has_start && app->route_state_bridge.route.has_goal) {
-                    app_route_schedule_recompute(app, APP_ROUTE_DRAG_DEBOUNCE_SEC);
-                }
+                (void)app_route_service_update_drag_endpoint(app, &anchor, APP_ROUTE_DRAG_DEBOUNCE_SEC);
             }
         }
     }
 
     if (app->ui_state_bridge.input.left_click_released) {
-        if (app->route_state_bridge.dragging_start) {
-            app->route_state_bridge.dragging_start = false;
-            if (app->route_state_bridge.route.has_start && app->route_state_bridge.route.has_goal) {
-                app_route_schedule_recompute(app, 0.0);
-            }
-        }
-        if (app->route_state_bridge.dragging_goal) {
-            app->route_state_bridge.dragging_goal = false;
-            if (app->route_state_bridge.route.has_start && app->route_state_bridge.route.has_goal) {
-                app_route_schedule_recompute(app, 0.0);
-            }
-        }
+        (void)app_route_service_finish_endpoint_drag(app, true, 0.0);
+        (void)app_route_service_finish_endpoint_drag(app, false, 0.0);
     }
     if (app->ui_state_bridge.input.right_click_released) {
-        if (app->route_state_bridge.dragging_goal) {
-            app->route_state_bridge.dragging_goal = false;
-            if (app->route_state_bridge.route.has_start && app->route_state_bridge.route.has_goal) {
-                app_route_schedule_recompute(app, 0.0);
-            }
-        }
+        (void)app_route_service_finish_endpoint_drag(app, false, 0.0);
     }
     app_route_poll_result(app);
     app_route_panel_model_update(app);

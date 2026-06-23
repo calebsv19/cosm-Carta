@@ -105,14 +105,20 @@ MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region contract_ok
 MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region contract_ok --strict-contract
 
 MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region contract_legacy
-if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region contract_legacy --strict-contract; then
+legacy_stderr="$workspace/contract_legacy_stderr.txt"
+if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region contract_legacy --strict-contract 2>"$legacy_stderr"; then
     echo "expected strict-contract validation failure for legacy package" >&2
     exit 1
 fi
+grep -q 'diagnostic_stage=validation region=contract_legacy' "$legacy_stderr"
+grep -q 'repair_hint=Rebuild with the current region tool to emit package_contract metadata.' "$legacy_stderr"
 
-if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region contract_bad_version; then
+bad_version_stderr="$workspace/contract_bad_version_stderr.txt"
+if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region contract_bad_version 2>"$bad_version_stderr"; then
     echo "expected validation failure for package_contract.version=0" >&2
     exit 1
 fi
+grep -q 'diagnostic_stage=validation region=contract_bad_version' "$bad_version_stderr"
+grep -q 'repair_hint=Set package_contract.version to 1 or rebuild with the current region tool.' "$bad_version_stderr"
 
 echo "region contract validation checks passed"

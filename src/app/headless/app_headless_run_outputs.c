@@ -1,4 +1,5 @@
 #include "app_headless_run_internal.h"
+#include "app_headless_util.h"
 
 #include "core_headless_job.h"
 #include "core_io.h"
@@ -74,17 +75,6 @@ static bool map_forge_headless_write_text_file(const char *path, const char *tex
     }
     write_result = core_io_write_all(path, text, strlen(text));
     return write_result.code == CORE_OK;
-}
-
-static bool map_forge_headless_copy_string(char *dst, size_t dst_size, const char *src) {
-    if (!dst || dst_size == 0u || !src) {
-        return false;
-    }
-    if (snprintf(dst, dst_size, "%s", src) >= (int)dst_size) {
-        dst[0] = '\0';
-        return false;
-    }
-    return true;
 }
 
 void map_forge_headless_record_job_warnings(MapForgeHeadlessRunResult *result) {
@@ -375,6 +365,15 @@ static struct json_object *map_forge_headless_build_manifest_json(const MapForge
     if (result->error[0] != '\0') {
         json_object_object_add(root, "error", json_object_new_string(result->error));
     }
+    if (result->failure_code[0] != '\0' || result->failure_stage[0] != '\0') {
+        struct json_object *failure = json_object_new_object();
+        json_object_object_add(failure, "stage", json_object_new_string(result->failure_stage));
+        json_object_object_add(failure, "code", json_object_new_string(result->failure_code));
+        if (result->failure_context[0] != '\0') {
+            json_object_object_add(failure, "context", json_object_new_string(result->failure_context));
+        }
+        json_object_object_add(root, "failure", failure);
+    }
     return root;
 }
 
@@ -485,6 +484,21 @@ static bool map_forge_headless_write_summary(const MapForgeHeadlessRunResult *re
     if (result->error[0] != '\0') {
         size_t used = strlen(text);
         n = snprintf(text + used, sizeof(text) - used, "Error:\n- %s\n", result->error);
+        if (n < 0 || (size_t)n >= sizeof(text) - used) {
+            return false;
+        }
+    }
+    if (result->failure_code[0] != '\0' || result->failure_stage[0] != '\0') {
+        size_t used = strlen(text);
+        n = snprintf(text + used,
+                     sizeof(text) - used,
+                     "Failure Diagnostics:\n"
+                     "- Stage: `%s`\n"
+                     "- Code: `%s`\n"
+                     "- Context: `%s`\n",
+                     result->failure_stage[0] != '\0' ? result->failure_stage : "unknown",
+                     result->failure_code[0] != '\0' ? result->failure_code : "unknown",
+                     result->failure_context[0] != '\0' ? result->failure_context : "none");
         if (n < 0 || (size_t)n >= sizeof(text) - used) {
             return false;
         }

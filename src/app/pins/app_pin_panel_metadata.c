@@ -173,10 +173,9 @@ bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y) {
         app_pin_cycle_option(app->ui_state_bridge.pin_editor_draft.type,
                              sizeof(app->ui_state_bridge.pin_editor_draft.type),
                              app_pin_type_options);
-        snprintf(app->ui_state_bridge.pin_editor_status,
-                 sizeof(app->ui_state_bridge.pin_editor_status),
-                 "Type set to %s.",
-                 app->ui_state_bridge.pin_editor_draft.type);
+        app_pin_editor_set_statusf(app,
+                                   "Type set to %s.",
+                                   app->ui_state_bridge.pin_editor_draft.type);
         return true;
     }
     if ((float)x >= app->ui_state_bridge.pin_pane_color_rect.x &&
@@ -186,10 +185,9 @@ bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y) {
         app_pin_cycle_option(app->ui_state_bridge.pin_editor_draft.color,
                              sizeof(app->ui_state_bridge.pin_editor_draft.color),
                              app_pin_color_options);
-        snprintf(app->ui_state_bridge.pin_editor_status,
-                 sizeof(app->ui_state_bridge.pin_editor_status),
-                 "Color set to %s.",
-                 app->ui_state_bridge.pin_editor_draft.color);
+        app_pin_editor_set_statusf(app,
+                                   "Color set to %s.",
+                                   app->ui_state_bridge.pin_editor_draft.color);
         return true;
     }
     if ((float)x >= app->ui_state_bridge.pin_pane_private_rect.x &&
@@ -197,10 +195,9 @@ bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y) {
         (float)y >= app->ui_state_bridge.pin_pane_private_rect.y &&
         (float)y <= app->ui_state_bridge.pin_pane_private_rect.y + app->ui_state_bridge.pin_pane_private_rect.h) {
         app->ui_state_bridge.pin_editor_draft.private_flag = !app->ui_state_bridge.pin_editor_draft.private_flag;
-        snprintf(app->ui_state_bridge.pin_editor_status,
-                 sizeof(app->ui_state_bridge.pin_editor_status),
-                 "Private flag %s.",
-                 app->ui_state_bridge.pin_editor_draft.private_flag ? "enabled" : "disabled");
+        app_pin_editor_set_statusf(app,
+                                   "Private flag %s.",
+                                   app->ui_state_bridge.pin_editor_draft.private_flag ? "enabled" : "disabled");
         return true;
     }
     return false;

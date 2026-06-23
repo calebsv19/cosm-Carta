@@ -114,18 +114,10 @@ bool app_runtime_handle_global_controls(AppState *app) {
         app_apply_shared_ui_font(app);
     }
     if (app->ui_state_bridge.input.toggle_follow_preview_pressed) {
-        if (app->route_state_bridge.preview_follow_enabled) {
-            app->route_state_bridge.preview_follow_enabled = false;
-        } else if (active_path && active_path->count >= 2u) {
-            app->route_state_bridge.preview_follow_enabled = true;
-        }
+        (void)app_route_preview_toggle_follow(app);
     }
     if (app->ui_state_bridge.input.toggle_follow_heading_mode_pressed) {
-        app->route_state_bridge.preview_heading_up = !app->route_state_bridge.preview_heading_up;
-        if (app->route_state_bridge.preview_follow_enabled &&
-            !app->route_state_bridge.preview_heading_up) {
-            camera_set_heading_target(&app->view_state_bridge.camera, 0.0f);
-        }
+        app_route_preview_toggle_heading_mode(app);
     }
     if (app->ui_state_bridge.input.toggle_playback_pressed && active_path && active_path->count >= 2u) {
         app->route_state_bridge.playback_playing = !app->route_state_bridge.playback_playing;
@@ -156,19 +148,19 @@ bool app_runtime_handle_global_controls(AppState *app) {
     }
     if (!app->ingest_edit_mode && app->ui_state_bridge.input.rotate_heading_left_pressed) {
         if (app->route_state_bridge.preview_follow_enabled) {
-            app->route_state_bridge.preview_follow_enabled = false;
+            app_route_preview_disable_follow(app);
         }
         app_runtime_rotate_heading(app, -kRotateStepRad);
     }
     if (!app->ingest_edit_mode && app->ui_state_bridge.input.rotate_heading_right_pressed) {
         if (app->route_state_bridge.preview_follow_enabled) {
-            app->route_state_bridge.preview_follow_enabled = false;
+            app_route_preview_disable_follow(app);
         }
         app_runtime_rotate_heading(app, kRotateStepRad);
     }
     if (!app->ingest_edit_mode && app->ui_state_bridge.input.rotate_heading_reset_pressed) {
         if (app->route_state_bridge.preview_follow_enabled) {
-            app->route_state_bridge.preview_follow_enabled = false;
+            app_route_preview_disable_follow(app);
         }
         camera_set_heading_target(&app->view_state_bridge.camera, 0.0f);
     }

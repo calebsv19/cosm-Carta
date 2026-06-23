@@ -1,5 +1,6 @@
 #include "app/app_headless.h"
 #include "app_headless_render_internal.h"
+#include "app_headless_util.h"
 
 #include "camera/camera.h"
 #include "map/mercator.h"
@@ -11,37 +12,6 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <errno.h>
-
-static bool map_forge_headless_render_ensure_dir(const char *path) {
-    char tmp[1024];
-    size_t len = 0u;
-    if (!path || path[0] == '\0') {
-        return false;
-    }
-    len = strnlen(path, sizeof(tmp) - 1u);
-    if (len == 0u || len >= sizeof(tmp)) {
-        return false;
-    }
-    memcpy(tmp, path, len);
-    tmp[len] = '\0';
-    for (char *p = tmp + 1; *p; ++p) {
-        if (*p != '/') {
-            continue;
-        }
-        *p = '\0';
-        if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
-            return false;
-        }
-        *p = '/';
-    }
-    if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
-        return false;
-    }
-    return true;
-}
 
 static void map_forge_headless_render_camera_fit(Camera *camera,
                                                  const RouteGraph *graph,
@@ -568,7 +538,7 @@ bool map_forge_headless_render_route_images(const char *out_dir,
     if (job->output.frames && frame_samples && frame_count > 0u) {
         char frames_dir[1024];
         snprintf(frames_dir, sizeof(frames_dir), "%s/frames", out_dir);
-        if (!map_forge_headless_render_ensure_dir(frames_dir)) {
+        if (!map_forge_headless_ensure_dir_recursive_mode(frames_dir, 0755)) {
             renderer_shutdown(&renderer);
             if (output_surface) {
                 SDL_FreeSurface(output_surface);

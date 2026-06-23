@@ -1,43 +1,11 @@
 #include "app/app_headless.h"
 
+#include "route_preview_test_fixture.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-
-static void seed_path(RouteGraph *graph, RoutePath *path) {
-    static double node_x[] = {0.0, 0.0, 10.0};
-    static double node_y[] = {0.0, 10.0, 10.0};
-    static uint32_t nodes[] = {0u, 1u, 2u};
-    static float cumulative_time_s[] = {0.0f, 10.0f, 20.0f};
-
-    memset(graph, 0, sizeof(*graph));
-    memset(path, 0, sizeof(*path));
-    graph->node_count = 3u;
-    graph->node_x = node_x;
-    graph->node_y = node_y;
-    path->nodes = nodes;
-    path->count = 3u;
-    path->cumulative_time_s = cumulative_time_s;
-    path->total_time_s = 20.0f;
-}
-
-static void seed_sway_path(RouteGraph *graph, RoutePath *path) {
-    static double node_x[] = {0.0, 0.0, 1.0, 0.0};
-    static double node_y[] = {0.0, 10.0, 20.0, 30.0};
-    static uint32_t nodes[] = {0u, 1u, 2u, 3u};
-    static float cumulative_time_s[] = {0.0f, 10.0f, 20.0f, 30.0f};
-
-    memset(graph, 0, sizeof(*graph));
-    memset(path, 0, sizeof(*path));
-    graph->node_count = 4u;
-    graph->node_x = node_x;
-    graph->node_y = node_y;
-    path->nodes = nodes;
-    path->count = 4u;
-    path->cumulative_time_s = cumulative_time_s;
-    path->total_time_s = 30.0f;
-}
 
 static void test_playback_plan_requires_duration_and_fps(void) {
     RouteGraph graph;
@@ -47,7 +15,7 @@ static void test_playback_plan_requires_duration_and_fps(void) {
     int fps = 0;
     uint32_t frame_count = 0u;
 
-    seed_path(&graph, &path);
+    mapforge_test_route_fixture_seed_corner(&graph, &path);
     memset(&config, 0, sizeof(config));
     assert(!map_forge_headless_playback_plan(&config, &path, &playback_duration_s, &fps, &frame_count));
 
@@ -66,7 +34,7 @@ static void test_playback_sample_tracks_midpoint_without_heading_state(void) {
     RoutePath path;
     MapForgeHeadlessPlaybackSample sample;
 
-    seed_path(&graph, &path);
+    mapforge_test_route_fixture_seed_corner(&graph, &path);
     memset(&sample, 0, sizeof(sample));
 
     assert(map_forge_headless_playback_sample(&graph, &path, NULL, 5.0f, NULL, &sample));
@@ -84,7 +52,7 @@ static void test_playback_sample_uses_heading_memory_for_abrupt_turn(void) {
     MapForgeHeadlessPlaybackSample sample;
     MapForgeHeadlessPlaybackHeadingState heading_state;
 
-    seed_path(&graph, &path);
+    mapforge_test_route_fixture_seed_corner(&graph, &path);
     memset(&sample, 0, sizeof(sample));
     map_forge_headless_playback_reset_heading_state(&heading_state);
 
@@ -102,7 +70,7 @@ static void test_playback_sample_softens_subtle_bends(void) {
     RoutePath path;
     MapForgeHeadlessPlaybackSample sample;
 
-    seed_sway_path(&graph, &path);
+    mapforge_test_route_fixture_seed_sway(&graph, &path);
     memset(&sample, 0, sizeof(sample));
 
     assert(map_forge_headless_playback_sample(&graph, &path, NULL, 10.5f, NULL, &sample));
@@ -122,7 +90,7 @@ static void test_playback_sample_respects_heading_rate_limit(void) {
     MapForgeHeadlessPlaybackHeadingState heading_state;
     MapForgeHeadlessPlaybackConfig config;
 
-    seed_path(&graph, &path);
+    mapforge_test_route_fixture_seed_corner(&graph, &path);
     memset(&sample, 0, sizeof(sample));
     memset(&config, 0, sizeof(config));
     map_forge_headless_playback_reset_heading_state(&heading_state);

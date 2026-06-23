@@ -9,6 +9,7 @@ jobs/*.local.json
 *.local.env
 runs/
 tmp/
+visual_artifacts/
 ide_files/
 vk_frame.ppm
 tools/packaging/macos/local_app_icon/

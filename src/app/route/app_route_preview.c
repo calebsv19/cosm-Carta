@@ -112,6 +112,43 @@ void app_route_preview_reset(AppState *app) {
     app_route_preview_reset_heading_memory(app);
 }
 
+void app_route_preview_set_follow_enabled(AppState *app, bool enabled) {
+    if (!app) {
+        return;
+    }
+    if (enabled) {
+        const RoutePath *active_path = app_route_primary_path(app, NULL);
+        if (!active_path || active_path->count < 2u) {
+            return;
+        }
+    }
+    app->route_state_bridge.preview_follow_enabled = enabled;
+}
+
+bool app_route_preview_toggle_follow(AppState *app) {
+    if (!app) {
+        return false;
+    }
+    bool next_enabled = !app->route_state_bridge.preview_follow_enabled;
+    app_route_preview_set_follow_enabled(app, next_enabled);
+    return app->route_state_bridge.preview_follow_enabled;
+}
+
+void app_route_preview_disable_follow(AppState *app) {
+    app_route_preview_set_follow_enabled(app, false);
+}
+
+void app_route_preview_toggle_heading_mode(AppState *app) {
+    if (!app) {
+        return;
+    }
+    app->route_state_bridge.preview_heading_up = !app->route_state_bridge.preview_heading_up;
+    if (app->route_state_bridge.preview_follow_enabled &&
+        !app->route_state_bridge.preview_heading_up) {
+        camera_set_heading_target(&app->view_state_bridge.camera, 0.0f);
+    }
+}
+
 static float app_route_preview_blend_heading(AppState *app,
                                              float raw_heading_rad,
                                              float sample_time_s) {
@@ -144,7 +181,7 @@ static float app_route_preview_blend_heading(AppState *app,
     return blended_heading_rad;
 }
 
-void app_route_preview_update(AppState *app) {
+void app_route_preview_update_state(AppState *app) {
     if (!app) {
         return;
     }
@@ -234,12 +271,24 @@ void app_route_preview_update(AppState *app) {
                             !app->viewport_scenario_active;
 
     app->route_state_bridge.preview = preview;
-    if (!preview.follow_active) {
+}
+
+void app_route_preview_apply_follow(AppState *app) {
+    if (!app) {
+        return;
+    }
+    const AppRoutePreviewState *preview = &app->route_state_bridge.preview;
+    if (!preview->follow_active) {
         return;
     }
 
-    app->view_state_bridge.camera.x_target = preview.world_x;
-    app->view_state_bridge.camera.y_target = preview.world_y;
+    app->view_state_bridge.camera.x_target = preview->world_x;
+    app->view_state_bridge.camera.y_target = preview->world_y;
     camera_set_heading_target(&app->view_state_bridge.camera,
-                              app->route_state_bridge.preview_heading_up ? preview.heading_rad : 0.0f);
+                              app->route_state_bridge.preview_heading_up ? preview->heading_rad : 0.0f);
+}
+
+void app_route_preview_update(AppState *app) {
+    app_route_preview_update_state(app);
+    app_route_preview_apply_follow(app);
 }

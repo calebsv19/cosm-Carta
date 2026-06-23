@@ -9,13 +9,7 @@
 #include <string.h>
 
 static void app_pin_panel_set_list_status(AppState *app, const char *message) {
-    if (!app) {
-        return;
-    }
-    snprintf(app->ui_state_bridge.pin_editor_status,
-             sizeof(app->ui_state_bridge.pin_editor_status),
-             "%s",
-             message ? message : "");
+    app_pin_editor_set_status(app, message);
 }
 
 static int app_pin_panel_row_at_point(const AppState *app, int x, int y) {
@@ -110,7 +104,7 @@ static bool app_pin_panel_apply_reorder(AppState *app) {
         return false;
     }
     app->pins_dirty = false;
-    app_pin_panel_select_saved_pin(app, target);
+    app_pin_editor_select_saved_pin(app, target);
     app_pin_panel_set_list_status(app, "Pin order updated.");
     return true;
 }
@@ -135,27 +129,26 @@ static bool app_pin_panel_set_route_endpoint_from_pin(AppState *app, int pin_ind
     }
 
     if (set_start) {
-        app->route_state_bridge.route.start_node = anchor.node;
-        app->route_state_bridge.route.has_start = true;
-        app->route_state_bridge.start_anchor = anchor;
+        if (!app_route_service_set_endpoint_anchor(app, true, &anchor, 0.0)) {
+            app_pin_panel_set_list_status(app, "Route start update failed.");
+            return false;
+        }
         snprintf(app->ui_state_bridge.pin_route_start_id,
                  sizeof(app->ui_state_bridge.pin_route_start_id),
                  "%s",
                  pin->id);
     } else {
-        app->route_state_bridge.route.goal_node = anchor.node;
-        app->route_state_bridge.route.has_goal = true;
-        app->route_state_bridge.goal_anchor = anchor;
+        if (!app_route_service_set_endpoint_anchor(app, false, &anchor, 0.0)) {
+            app_pin_panel_set_list_status(app, "Route goal update failed.");
+            return false;
+        }
         snprintf(app->ui_state_bridge.pin_route_goal_id,
                  sizeof(app->ui_state_bridge.pin_route_goal_id),
                  "%s",
                  pin->id);
     }
 
-    app_pin_panel_select_saved_pin(app, pin_index);
-    if (app->route_state_bridge.route.has_start && app->route_state_bridge.route.has_goal) {
-        app_route_schedule_recompute(app, 0.0);
-    }
+    app_pin_editor_select_saved_pin(app, pin_index);
     app_pin_panel_set_list_status(app, set_start ? "Route start set from pin." : "Route goal set from pin.");
     return true;
 }
@@ -230,7 +223,7 @@ bool app_pin_panel_handle_list_click(AppState *app, int x, int y) {
         return app_pin_panel_set_route_endpoint_from_pin(app, pin_index, true);
     }
 
-    app_pin_panel_select_saved_pin(app, pin_index);
+    app_pin_editor_select_saved_pin(app, pin_index);
     app->ui_state_bridge.pin_list_drag_armed = true;
     app->ui_state_bridge.pin_list_drag_active = false;
     app->ui_state_bridge.pin_drag_source_index = pin_index;

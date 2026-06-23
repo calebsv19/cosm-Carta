@@ -3,8 +3,10 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+. "$SCRIPT_DIR/saved_pin_common.sh"
+SCRIPT_NAME="run_saved_pin_route_skill.sh"
 RENDER_HELPER="$SCRIPT_DIR/render_saved_pin_route.sh"
-VIDEO_HELPER="$SCRIPT_DIR/build_route_video.sh"
+VIDEO_HELPER=${MAPFORGE_VIDEO_HELPER:-"$SCRIPT_DIR/build_route_video.sh"}
 
 REGION=""
 FROM_PIN=""
@@ -48,16 +50,6 @@ Environment:
   MAPFORGE_REGIONS_DIR    Regions root
   MAPFORGE_BINARY         Override the mapforge binary path
 EOF
-}
-
-require_bool() {
-    case "$1" in
-        true|false) return 0 ;;
-        *)
-            echo "run_saved_pin_route_skill.sh: expected true|false but got '$1'" >&2
-            exit 1
-            ;;
-    esac
 }
 
 while [ "$#" -gt 0 ]; do
@@ -115,7 +107,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         *)
-            echo "run_saved_pin_route_skill.sh: unknown option '$1'" >&2
+            echo "$SCRIPT_NAME: unknown option '$1'" >&2
             usage >&2
             exit 1
             ;;
@@ -123,66 +115,77 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$REGION" ] || [ -z "$FROM_PIN" ] || [ -z "$TO_PIN" ] || [ -z "$OUT_DIR" ]; then
-    echo "run_saved_pin_route_skill.sh: --region, --from, --to, and --out are required" >&2
+    echo "$SCRIPT_NAME: --region, --from, --to, and --out are required" >&2
     usage >&2
     exit 1
 fi
+mapforge_require_local_artifact_path "$SCRIPT_NAME" "--out" "$OUT_DIR"
+if [ -n "$JOB_COPY_PATH" ]; then
+    mapforge_require_local_artifact_path "$SCRIPT_NAME" "--write-job-copy" "$JOB_COPY_PATH"
+fi
+if [ -n "$RESULT_COPY_PATH" ]; then
+    mapforge_require_local_artifact_path "$SCRIPT_NAME" "--write-result-copy" "$RESULT_COPY_PATH"
+fi
 
-require_bool "$INCLUDE_VIDEO"
-
-PRESET="balanced"
-case "$ZOOM_LEVEL" in
-    close)
-        PRESET="zoomed_in"
-        ;;
-    balanced)
-        PRESET="balanced"
-        ;;
-    wide)
-        PRESET="zoomed_out"
-        ;;
-    *)
-        echo "run_saved_pin_route_skill.sh: unsupported --zoom-level '$ZOOM_LEVEL'" >&2
-        exit 1
-        ;;
-esac
+mapforge_require_bool "$SCRIPT_NAME" "$INCLUDE_VIDEO"
+mapforge_validate_orientation_mode "$SCRIPT_NAME" "$ORIENTATION_MODE" false
+mapforge_validate_render_mode "$SCRIPT_NAME" "$RENDER_MODE"
+PRESET=$(mapforge_zoom_level_to_preset "$SCRIPT_NAME" "$ZOOM_LEVEL")
 
 FRAMES_FLAG="false"
 if [ "$INCLUDE_VIDEO" = "true" ]; then
     FRAMES_FLAG="true"
+    mapforge_require_operator_script_file "$SCRIPT_NAME" "MAPFORGE_VIDEO_HELPER" "$VIDEO_HELPER"
 elif [ -n "$INCLUDE_FRAMES" ]; then
-    require_bool "$INCLUDE_FRAMES"
+    mapforge_require_bool "$SCRIPT_NAME" "$INCLUDE_FRAMES"
     FRAMES_FLAG="$INCLUDE_FRAMES"
 fi
 
+set -- \
+    --region "$REGION" \
+    --from-pin "$FROM_PIN" \
+    --to-pin "$TO_PIN" \
+    --out "$OUT_DIR" \
+    --preset "$PRESET" \
+    --motion-profile "$MOTION_PROFILE" \
+    --orientation-mode "$ORIENTATION_MODE" \
+    --frames "$FRAMES_FLAG" \
+    --render-mode "$RENDER_MODE"
 if [ -n "$JOB_COPY_PATH" ]; then
-    /bin/sh "$RENDER_HELPER" \
-        --region "$REGION" \
-        --from-pin "$FROM_PIN" \
-        --to-pin "$TO_PIN" \
-        --out "$OUT_DIR" \
-        --preset "$PRESET" \
-        --motion-profile "$MOTION_PROFILE" \
-        --orientation-mode "$ORIENTATION_MODE" \
-        --frames "$FRAMES_FLAG" \
-        --render-mode "$RENDER_MODE" \
-        --write-job-copy "$JOB_COPY_PATH"
-else
-    /bin/sh "$RENDER_HELPER" \
-        --region "$REGION" \
-        --from-pin "$FROM_PIN" \
-        --to-pin "$TO_PIN" \
-        --out "$OUT_DIR" \
-        --preset "$PRESET" \
-        --motion-profile "$MOTION_PROFILE" \
-        --orientation-mode "$ORIENTATION_MODE" \
-        --frames "$FRAMES_FLAG" \
-        --render-mode "$RENDER_MODE"
+    set -- "$@" --write-job-copy "$JOB_COPY_PATH"
+fi
+if ! /bin/sh "$RENDER_HELPER" "$@"; then
+    mapforge_print_saved_pin_failure \
+        "$SCRIPT_NAME" \
+        "render_helper_failed" \
+        "$OUT_DIR" \
+        "$JOB_COPY_PATH" \
+        "$OUT_DIR/manifest.json" \
+        "$OUT_DIR/summary.md"
+    exit 1
+fi
+
+if ! mapforge_require_complete_manifest \
+    "$SCRIPT_NAME" \
+    "$OUT_DIR" \
+    "$JOB_COPY_PATH" \
+    "$OUT_DIR/manifest.json" \
+    "$OUT_DIR/summary.md"; then
+    exit 1
 fi
 
 VIDEO_PATH=""
 if [ "$INCLUDE_VIDEO" = "true" ]; then
-    /bin/sh "$VIDEO_HELPER" "$OUT_DIR" >/dev/null
+    if ! /bin/sh "$VIDEO_HELPER" "$OUT_DIR" >/dev/null; then
+        mapforge_print_saved_pin_failure \
+            "$SCRIPT_NAME" \
+            "video_helper_failed" \
+            "$OUT_DIR" \
+            "$JOB_COPY_PATH" \
+            "$OUT_DIR/manifest.json" \
+            "$OUT_DIR/summary.md"
+        exit 1
+    fi
     VIDEO_PATH="$OUT_DIR/video/route_preview.mp4"
 fi
 
@@ -228,10 +231,7 @@ with open(result_json, "w", encoding="utf-8") as f:
     json.dump(result, f, indent=2)
 PY
 
-if [ -n "$RESULT_COPY_PATH" ]; then
-    mkdir -p "$(dirname "$RESULT_COPY_PATH")"
-    cp "$RESULT_JSON" "$RESULT_COPY_PATH"
-fi
+mapforge_copy_file_if_requested "$RESULT_JSON" "$RESULT_COPY_PATH"
 
 echo "status=complete"
 echo "schema=mapforge-saved-pin-skill-result/v1"

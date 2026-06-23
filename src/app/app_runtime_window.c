@@ -31,8 +31,7 @@ bool app_runtime_apply_window_size(AppState *app, int width, int height) {
     if (changed) {
         app->ui_state_bridge.hud_layer_debug_layout_dirty = true;
         app->ui_state_bridge.hud_route_panel_layout_dirty = true;
-        app->tile_state_bridge.queue_valid = false;
-        app->tile_state_bridge.visible_valid = false;
+        app_tile_viewport_invalidate(app);
     }
     return true;
 }

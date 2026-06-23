@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/saved_pin_common.sh"
+SCRIPT_NAME="build_route_video.sh"
+
 RUN_DIR=${1:-}
 OUTPUT_NAME=${2:-route_preview.mp4}
 FPS_OVERRIDE=${3:-}
@@ -9,6 +13,7 @@ if [ -z "$RUN_DIR" ]; then
     echo "Usage: build_route_video.sh <run_dir> [output_name.mp4] [fps]" >&2
     exit 1
 fi
+mapforge_require_local_artifact_path "$SCRIPT_NAME" "run directory" "$RUN_DIR"
 
 if [ ! -d "$RUN_DIR" ]; then
     echo "build_route_video.sh: run directory not found: $RUN_DIR" >&2

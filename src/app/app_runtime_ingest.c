@@ -412,7 +412,7 @@ static bool app_runtime_open_region_index(AppState *app, int region_index) {
                                                 (TileLayerKind)i);
     }
     tile_loader_init_with_source(&app->tile_state_bridge.tile_loader, &app->region.tile_source);
-    app->tile_state_bridge.visible_valid = false;
+    app_tile_viewport_invalidate(app);
     app->tile_state_bridge.loading_expected = 0;
     app->tile_state_bridge.loading_done = 0;
     app->tile_state_bridge.loading_no_data_time = 0.0f;

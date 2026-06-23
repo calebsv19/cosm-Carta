@@ -42,65 +42,6 @@ static bool ensure_dir(const char *path) {
     return errno == EEXIST;
 }
 
-static const char *archive_layer_from_suffix(const char *suffix) {
-    if (!suffix || suffix[0] == '\0') {
-        return NULL;
-    }
-    if (strcmp(suffix, "artery.mft") == 0) {
-        return "road_artery";
-    }
-    if (strcmp(suffix, "local.mft") == 0) {
-        return "road_local";
-    }
-    if (strcmp(suffix, "water.mft") == 0) {
-        return "water";
-    }
-    if (strcmp(suffix, "park.mft") == 0) {
-        return "park";
-    }
-    if (strcmp(suffix, "landuse.mft") == 0) {
-        return "landuse";
-    }
-    if (strcmp(suffix, "building.mft") == 0) {
-        return "building";
-    }
-    if (strcmp(suffix, "contour.mft") == 0) {
-        return "contour";
-    }
-    if (strcmp(suffix, "mft") == 0) {
-        return "road_artery";
-    }
-    return NULL;
-}
-
-static int archive_metric_layer_index(const char *layer) {
-    if (!layer || layer[0] == '\0') {
-        return -1;
-    }
-    if (strcmp(layer, "road_artery") == 0) {
-        return METRIC_LAYER_ARTERY;
-    }
-    if (strcmp(layer, "road_local") == 0) {
-        return METRIC_LAYER_LOCAL;
-    }
-    if (strcmp(layer, "water") == 0) {
-        return METRIC_LAYER_WATER;
-    }
-    if (strcmp(layer, "park") == 0) {
-        return METRIC_LAYER_PARK;
-    }
-    if (strcmp(layer, "landuse") == 0) {
-        return METRIC_LAYER_LANDUSE;
-    }
-    if (strcmp(layer, "building") == 0) {
-        return METRIC_LAYER_BUILDING;
-    }
-    if (strcmp(layer, "contour") == 0) {
-        return METRIC_LAYER_CONTOUR;
-    }
-    return -1;
-}
-
 static bool ensure_tile_path_from_root(const char *root_dir, TileCoord coord, const char *suffix, char *out_path, size_t out_size) {
     if (!root_dir || !out_path || out_size == 0) {
         return false;
@@ -174,7 +115,8 @@ static void record_tile_coverage(BuildContext *ctx,
         return;
     }
     int band_index = metric_band_index_from_tile_band(band);
-    int layer_index = archive_metric_layer_index(archive_layer_from_suffix(suffix));
+    int layer_index = mapforge_region_archive_metric_layer_index(
+        mapforge_region_archive_layer_from_suffix(suffix));
     if (band_index < 0 || layer_index < 0) {
         return;
     }

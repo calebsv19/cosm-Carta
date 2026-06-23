@@ -1,178 +1,11 @@
 #include "app/app_headless.h"
+#include "app_headless_util.h"
 
 #include <json-c/json.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <errno.h>
-
-static bool map_forge_headless_error(char *out_error,
-                                     size_t out_error_size,
-                                     const char *message) {
-    if (out_error && out_error_size > 0u) {
-        snprintf(out_error, out_error_size, "%s", message ? message : "unknown error");
-    }
-    return false;
-}
-
-static bool map_forge_headless_ensure_dir_recursive_local(const char *path) {
-    char tmp[PATH_MAX];
-    size_t len = 0u;
-    if (!path || path[0] == '\0') {
-        return false;
-    }
-    len = strnlen(path, sizeof(tmp) - 1u);
-    if (len == 0u || len >= sizeof(tmp)) {
-        return false;
-    }
-    memcpy(tmp, path, len);
-    tmp[len] = '\0';
-    for (char *p = tmp + 1; *p; ++p) {
-        if (*p != '/') {
-            continue;
-        }
-        *p = '\0';
-        if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
-            return false;
-        }
-        *p = '/';
-    }
-    if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
-        return false;
-    }
-    return true;
-}
-
-static bool map_forge_headless_parent_dir_local(const char *path,
-                                                char *out_dir,
-                                                size_t out_size) {
-    const char *slash = NULL;
-    if (!path || !out_dir || out_size == 0u) {
-        return false;
-    }
-    slash = strrchr(path, '/');
-    if (!slash) {
-        snprintf(out_dir, out_size, ".");
-        return true;
-    }
-    if (slash == path) {
-        snprintf(out_dir, out_size, "/");
-        return true;
-    }
-    {
-        size_t len = (size_t)(slash - path);
-        if (len >= out_size) {
-            return false;
-        }
-        memcpy(out_dir, path, len);
-        out_dir[len] = '\0';
-    }
-    return true;
-}
-
-static bool json_get_required_string(struct json_object *obj,
-                                     const char *key,
-                                     char *out_value,
-                                     size_t out_size,
-                                     char *out_error,
-                                     size_t out_error_size) {
-    struct json_object *value = NULL;
-    const char *raw = NULL;
-    if (!obj || !key || !out_value || out_size == 0u) {
-        return map_forge_headless_error(out_error, out_error_size, "invalid string parse request");
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !json_object_is_type(value, json_type_string)) {
-        char buffer[256];
-        snprintf(buffer, sizeof(buffer), "missing or invalid string field: %s", key);
-        return map_forge_headless_error(out_error, out_error_size, buffer);
-    }
-    raw = json_object_get_string(value);
-    if (!raw || raw[0] == '\0') {
-        char buffer[256];
-        snprintf(buffer, sizeof(buffer), "empty string field: %s", key);
-        return map_forge_headless_error(out_error, out_error_size, buffer);
-    }
-    snprintf(out_value, out_size, "%s", raw);
-    return true;
-}
-
-static bool json_get_optional_string(struct json_object *obj,
-                                     const char *key,
-                                     char *out_value,
-                                     size_t out_size) {
-    struct json_object *value = NULL;
-    const char *raw = NULL;
-    if (!obj || !key || !out_value || out_size == 0u) {
-        return false;
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !json_object_is_type(value, json_type_string)) {
-        return false;
-    }
-    raw = json_object_get_string(value);
-    if (!raw || raw[0] == '\0') {
-        return false;
-    }
-    snprintf(out_value, out_size, "%s", raw);
-    return true;
-}
-
-static bool json_get_required_u32(struct json_object *obj,
-                                  const char *key,
-                                  uint32_t *out_value,
-                                  char *out_error,
-                                  size_t out_error_size) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_value) {
-        return map_forge_headless_error(out_error, out_error_size, "invalid integer parse request");
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !json_object_is_type(value, json_type_int)) {
-        char buffer[256];
-        snprintf(buffer, sizeof(buffer), "missing or invalid integer field: %s", key);
-        return map_forge_headless_error(out_error, out_error_size, buffer);
-    }
-    *out_value = (uint32_t)json_object_get_int(value);
-    return true;
-}
-
-static bool json_get_optional_bool(struct json_object *obj, const char *key, bool *out_value) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_value) {
-        return false;
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !json_object_is_type(value, json_type_boolean)) {
-        return false;
-    }
-    *out_value = json_object_get_boolean(value) ? true : false;
-    return true;
-}
-
-static bool json_get_optional_int(struct json_object *obj, const char *key, int *out_value) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_value) {
-        return false;
-    }
-    if (!json_object_object_get_ex(obj, key, &value) || !json_object_is_type(value, json_type_int)) {
-        return false;
-    }
-    *out_value = json_object_get_int(value);
-    return true;
-}
-
-static bool json_get_optional_float(struct json_object *obj, const char *key, float *out_value) {
-    struct json_object *value = NULL;
-    if (!obj || !key || !out_value) {
-        return false;
-    }
-    if (!json_object_object_get_ex(obj, key, &value) ||
-        (!json_object_is_type(value, json_type_double) && !json_object_is_type(value, json_type_int))) {
-        return false;
-    }
-    *out_value = (float)json_object_get_double(value);
-    return true;
-}
 
 static bool map_forge_headless_parse_heading_mode(struct json_object *heading_obj,
                                                   MapForgeHeadlessHeadingMode *out_mode,
@@ -180,10 +13,10 @@ static bool map_forge_headless_parse_heading_mode(struct json_object *heading_ob
                                                   size_t out_error_size) {
     char mode[64] = {0};
     if (!out_mode) {
-        return map_forge_headless_error(out_error, out_error_size, "missing playback heading mode output");
+        return map_forge_headless_fail(out_error, out_error_size, "missing playback heading mode output");
     }
     *out_mode = MAPFORGE_HEADLESS_HEADING_MODE_BLENDED;
-    if (!heading_obj || !json_get_optional_string(heading_obj, "mode", mode, sizeof(mode))) {
+    if (!heading_obj || !map_forge_headless_json_get_optional_string(heading_obj, "mode", mode, sizeof(mode))) {
         return true;
     }
     if (strcmp(mode, "blended") == 0) {
@@ -198,7 +31,7 @@ static bool map_forge_headless_parse_heading_mode(struct json_object *heading_ob
         *out_mode = MAPFORGE_HEADLESS_HEADING_MODE_PATH_TANGENT;
         return true;
     }
-    return map_forge_headless_error(out_error,
+    return map_forge_headless_fail(out_error,
                                     out_error_size,
                                     "playback.heading.mode must be blended, lookahead, or path_tangent");
 }
@@ -209,10 +42,10 @@ static bool map_forge_headless_parse_render_mode(struct json_object *output_obj,
                                                  size_t out_error_size) {
     char mode[64] = {0};
     if (!out_mode) {
-        return map_forge_headless_error(out_error, out_error_size, "missing render mode output");
+        return map_forge_headless_fail(out_error, out_error_size, "missing render mode output");
     }
     *out_mode = MAPFORGE_HEADLESS_RENDER_MODE_MAP_ROUTE_MARKER;
-    if (!output_obj || !json_get_optional_string(output_obj, "render_mode", mode, sizeof(mode))) {
+    if (!output_obj || !map_forge_headless_json_get_optional_string(output_obj, "render_mode", mode, sizeof(mode))) {
         return true;
     }
     if (strcmp(mode, "map_route_marker") == 0) {
@@ -227,7 +60,7 @@ static bool map_forge_headless_parse_render_mode(struct json_object *output_obj,
         *out_mode = MAPFORGE_HEADLESS_RENDER_MODE_MAP_ONLY;
         return true;
     }
-    return map_forge_headless_error(out_error,
+    return map_forge_headless_fail(out_error,
                                     out_error_size,
                                     "output.render_mode must be map_route_marker, map_route, or map_only");
 }
@@ -238,10 +71,10 @@ static bool map_forge_headless_parse_quality_profile(struct json_object *output_
                                                      size_t out_error_size) {
     char profile[64] = {0};
     if (!out_profile) {
-        return map_forge_headless_error(out_error, out_error_size, "missing quality profile output");
+        return map_forge_headless_fail(out_error, out_error_size, "missing quality profile output");
     }
     *out_profile = MAPFORGE_HEADLESS_QUALITY_PROFILE_RUNTIME;
-    if (!output_obj || !json_get_optional_string(output_obj, "quality_profile", profile, sizeof(profile))) {
+    if (!output_obj || !map_forge_headless_json_get_optional_string(output_obj, "quality_profile", profile, sizeof(profile))) {
         return true;
     }
     if (strcmp(profile, "runtime") == 0) {
@@ -252,7 +85,7 @@ static bool map_forge_headless_parse_quality_profile(struct json_object *output_
         *out_profile = MAPFORGE_HEADLESS_QUALITY_PROFILE_FINAL;
         return true;
     }
-    return map_forge_headless_error(out_error,
+    return map_forge_headless_fail(out_error,
                                     out_error_size,
                                     "output.quality_profile must be runtime or final");
 }
@@ -263,10 +96,10 @@ static bool map_forge_headless_parse_mode(struct json_object *route_obj,
                                           size_t out_error_size) {
     char mode[32] = {0};
     if (!out_mode) {
-        return map_forge_headless_error(out_error, out_error_size, "missing route mode output");
+        return map_forge_headless_fail(out_error, out_error_size, "missing route mode output");
     }
     *out_mode = ROUTE_MODE_WALK;
-    if (!route_obj || !json_get_optional_string(route_obj, "mode", mode, sizeof(mode))) {
+    if (!route_obj || !map_forge_headless_json_get_optional_string(route_obj, "mode", mode, sizeof(mode))) {
         return true;
     }
     if (strcmp(mode, "walking") == 0 || strcmp(mode, "walk") == 0) {
@@ -277,7 +110,7 @@ static bool map_forge_headless_parse_mode(struct json_object *route_obj,
         *out_mode = ROUTE_MODE_CAR;
         return true;
     }
-    return map_forge_headless_error(out_error, out_error_size, "route.mode must be walking or car");
+    return map_forge_headless_fail(out_error, out_error_size, "route.mode must be walking or car");
 }
 
 bool map_forge_headless_job_load(const char *job_path,
@@ -293,7 +126,7 @@ bool map_forge_headless_job_load(const char *job_path,
     MapForgeHeadlessJob job;
 
     if (!job_path || !out_job) {
-        return map_forge_headless_error(out_error, out_error_size, "missing job path");
+        return map_forge_headless_fail(out_error, out_error_size, "missing job path");
     }
 
     memset(&job, 0, sizeof(job));
@@ -312,31 +145,31 @@ bool map_forge_headless_job_load(const char *job_path,
         if (root) {
             json_object_put(root);
         }
-        return map_forge_headless_error(out_error, out_error_size, "failed to parse job JSON");
+        return map_forge_headless_fail(out_error, out_error_size, "failed to parse job JSON");
     }
 
-    if (!json_get_required_u32(root, "version", &job.version, out_error, out_error_size) ||
-        !json_get_required_string(root, "type", job.type, sizeof(job.type), out_error, out_error_size) ||
-        !json_get_required_string(root, "map_region", job.map_region, sizeof(job.map_region), out_error, out_error_size) ||
-        !json_get_required_string(root, "from_pin", job.from_pin, sizeof(job.from_pin), out_error, out_error_size) ||
-        !json_get_required_string(root, "to_pin", job.to_pin, sizeof(job.to_pin), out_error, out_error_size)) {
+    if (!map_forge_headless_json_get_required_u32(root, "version", &job.version, out_error, out_error_size) ||
+        !map_forge_headless_json_get_required_string(root, "type", job.type, sizeof(job.type), out_error, out_error_size) ||
+        !map_forge_headless_json_get_required_string(root, "map_region", job.map_region, sizeof(job.map_region), out_error, out_error_size) ||
+        !map_forge_headless_json_get_required_string(root, "from_pin", job.from_pin, sizeof(job.from_pin), out_error, out_error_size) ||
+        !map_forge_headless_json_get_required_string(root, "to_pin", job.to_pin, sizeof(job.to_pin), out_error, out_error_size)) {
         json_object_put(root);
         return false;
     }
-    (void)json_get_optional_string(root, "pins_file", job.pins_file, sizeof(job.pins_file));
+    (void)map_forge_headless_json_get_optional_string(root, "pins_file", job.pins_file, sizeof(job.pins_file));
     if (job.version != 1u && job.version != 2u) {
         json_object_put(root);
-        return map_forge_headless_error(out_error, out_error_size, "job version must be 1 or 2");
+        return map_forge_headless_fail(out_error, out_error_size, "job version must be 1 or 2");
     }
     if (strcmp(job.type, "route_playback_render") != 0) {
         json_object_put(root);
-        return map_forge_headless_error(out_error, out_error_size, "job type must be route_playback_render");
+        return map_forge_headless_fail(out_error, out_error_size, "job type must be route_playback_render");
     }
 
-    (void)json_get_optional_string(root, "map_data", job.map_data, sizeof(job.map_data));
+    (void)map_forge_headless_json_get_optional_string(root, "map_data", job.map_data, sizeof(job.map_data));
     if (json_object_object_get_ex(root, "route", &route_obj) && route_obj && !json_object_is_type(route_obj, json_type_object)) {
         json_object_put(root);
-        return map_forge_headless_error(out_error, out_error_size, "route must be an object");
+        return map_forge_headless_fail(out_error, out_error_size, "route must be an object");
     }
     if (!map_forge_headless_parse_mode(route_obj, &job.route_mode, out_error, out_error_size)) {
         json_object_put(root);
@@ -346,27 +179,27 @@ bool map_forge_headless_job_load(const char *job_path,
     if (json_object_object_get_ex(root, "camera", &camera_obj)) {
         if (!json_object_is_type(camera_obj, json_type_object)) {
             json_object_put(root);
-            return map_forge_headless_error(out_error, out_error_size, "camera must be an object");
+            return map_forge_headless_fail(out_error, out_error_size, "camera must be an object");
         }
-        job.camera.has_width = json_get_optional_int(camera_obj, "width", &job.camera.width);
-        job.camera.has_height = json_get_optional_int(camera_obj, "height", &job.camera.height);
-        job.camera.has_zoom = json_get_optional_float(camera_obj, "zoom", &job.camera.zoom);
-        (void)json_get_optional_bool(camera_obj, "follow_route", &job.camera.follow_route);
-        (void)json_get_optional_bool(camera_obj, "rotate_with_heading", &job.camera.rotate_with_heading);
+        job.camera.has_width = map_forge_headless_json_get_optional_int(camera_obj, "width", &job.camera.width);
+        job.camera.has_height = map_forge_headless_json_get_optional_int(camera_obj, "height", &job.camera.height);
+        job.camera.has_zoom = map_forge_headless_json_get_optional_float(camera_obj, "zoom", &job.camera.zoom);
+        (void)map_forge_headless_json_get_optional_bool(camera_obj, "follow_route", &job.camera.follow_route);
+        (void)map_forge_headless_json_get_optional_bool(camera_obj, "rotate_with_heading", &job.camera.rotate_with_heading);
     }
 
     if (json_object_object_get_ex(root, "playback", &playback_obj)) {
         if (!json_object_is_type(playback_obj, json_type_object)) {
             json_object_put(root);
-            return map_forge_headless_error(out_error, out_error_size, "playback must be an object");
+            return map_forge_headless_fail(out_error, out_error_size, "playback must be an object");
         }
-        job.playback.has_duration_seconds = json_get_optional_float(playback_obj, "duration_seconds", &job.playback.duration_seconds);
-        job.playback.has_fps = json_get_optional_int(playback_obj, "fps", &job.playback.fps);
-        (void)json_get_optional_bool(playback_obj, "start_paused", &job.playback.start_paused);
+        job.playback.has_duration_seconds = map_forge_headless_json_get_optional_float(playback_obj, "duration_seconds", &job.playback.duration_seconds);
+        job.playback.has_fps = map_forge_headless_json_get_optional_int(playback_obj, "fps", &job.playback.fps);
+        (void)map_forge_headless_json_get_optional_bool(playback_obj, "start_paused", &job.playback.start_paused);
         if (json_object_object_get_ex(playback_obj, "heading", &heading_obj)) {
             if (!json_object_is_type(heading_obj, json_type_object)) {
                 json_object_put(root);
-                return map_forge_headless_error(out_error, out_error_size, "playback.heading must be an object");
+                return map_forge_headless_fail(out_error, out_error_size, "playback.heading must be an object");
             }
             if (!map_forge_headless_parse_heading_mode(heading_obj,
                                                        &job.playback.heading.mode,
@@ -376,33 +209,33 @@ bool map_forge_headless_job_load(const char *job_path,
                 return false;
             }
             job.playback.heading.has_smoothing_tau_seconds =
-                json_get_optional_float(heading_obj, "smoothing_tau_seconds", &job.playback.heading.smoothing_tau_seconds);
+                map_forge_headless_json_get_optional_float(heading_obj, "smoothing_tau_seconds", &job.playback.heading.smoothing_tau_seconds);
             job.playback.heading.has_lookahead_seconds =
-                json_get_optional_float(heading_obj, "lookahead_seconds", &job.playback.heading.lookahead_seconds);
+                map_forge_headless_json_get_optional_float(heading_obj, "lookahead_seconds", &job.playback.heading.lookahead_seconds);
             job.playback.heading.has_measurement_window_seconds =
-                json_get_optional_float(heading_obj, "measurement_window_seconds", &job.playback.heading.measurement_window_seconds);
+                map_forge_headless_json_get_optional_float(heading_obj, "measurement_window_seconds", &job.playback.heading.measurement_window_seconds);
             job.playback.heading.has_max_turn_rate_deg_per_sec =
-                json_get_optional_float(heading_obj, "max_turn_rate_deg_per_sec", &job.playback.heading.max_turn_rate_deg_per_sec);
+                map_forge_headless_json_get_optional_float(heading_obj, "max_turn_rate_deg_per_sec", &job.playback.heading.max_turn_rate_deg_per_sec);
         }
     }
 
     if (json_object_object_get_ex(root, "output", &output_obj)) {
         if (!json_object_is_type(output_obj, json_type_object)) {
             json_object_put(root);
-            return map_forge_headless_error(out_error, out_error_size, "output must be an object");
+            return map_forge_headless_fail(out_error, out_error_size, "output must be an object");
         }
         if (job.version >= 2u) {
-            (void)json_get_optional_bool(output_obj, "preview", &job.output.preview_png);
+            (void)map_forge_headless_json_get_optional_bool(output_obj, "preview", &job.output.preview_png);
         }
-        (void)json_get_optional_bool(output_obj, "preview_png", &job.output.preview_png);
-        (void)json_get_optional_bool(output_obj, "frames", &job.output.frames);
-        (void)json_get_optional_bool(output_obj, "video_manifest", &job.output.video_manifest);
-        (void)json_get_optional_string(output_obj, "frame_format", job.output.frame_format, sizeof(job.output.frame_format));
-        job.output.has_pixel_scale = json_get_optional_int(output_obj, "pixel_scale", &job.output.pixel_scale);
-        (void)json_get_optional_bool(output_obj, "stabilize_visible_zoom", &job.output.stabilize_visible_zoom);
-        (void)json_get_optional_bool(output_obj, "stabilize_tile_bands", &job.output.stabilize_tile_bands);
-        (void)json_get_optional_bool(output_obj, "allow_tile_fallback", &job.output.allow_tile_fallback);
-        (void)json_get_optional_bool(output_obj, "simplify_route_screen_space", &job.output.simplify_route_screen_space);
+        (void)map_forge_headless_json_get_optional_bool(output_obj, "preview_png", &job.output.preview_png);
+        (void)map_forge_headless_json_get_optional_bool(output_obj, "frames", &job.output.frames);
+        (void)map_forge_headless_json_get_optional_bool(output_obj, "video_manifest", &job.output.video_manifest);
+        (void)map_forge_headless_json_get_optional_string(output_obj, "frame_format", job.output.frame_format, sizeof(job.output.frame_format));
+        job.output.has_pixel_scale = map_forge_headless_json_get_optional_int(output_obj, "pixel_scale", &job.output.pixel_scale);
+        (void)map_forge_headless_json_get_optional_bool(output_obj, "stabilize_visible_zoom", &job.output.stabilize_visible_zoom);
+        (void)map_forge_headless_json_get_optional_bool(output_obj, "stabilize_tile_bands", &job.output.stabilize_tile_bands);
+        (void)map_forge_headless_json_get_optional_bool(output_obj, "allow_tile_fallback", &job.output.allow_tile_fallback);
+        (void)map_forge_headless_json_get_optional_bool(output_obj, "simplify_route_screen_space", &job.output.simplify_route_screen_space);
         if (!map_forge_headless_parse_render_mode(output_obj,
                                                   &job.output.render_mode,
                                                   out_error,
@@ -419,7 +252,7 @@ bool map_forge_headless_job_load(const char *job_path,
         }
         if (job.output.pixel_scale < 1) {
             json_object_put(root);
-            return map_forge_headless_error(out_error, out_error_size, "output.pixel_scale must be >= 1");
+            return map_forge_headless_fail(out_error, out_error_size, "output.pixel_scale must be >= 1");
         }
     }
 
@@ -442,13 +275,13 @@ bool map_forge_headless_job_write(const char *job_path,
     char parent_dir[PATH_MAX];
 
     if (!job_path || !job) {
-        return map_forge_headless_error(out_error, out_error_size, "missing job output path");
+        return map_forge_headless_fail(out_error, out_error_size, "missing job output path");
     }
-    if (!map_forge_headless_parent_dir_local(job_path, parent_dir, sizeof(parent_dir))) {
-        return map_forge_headless_error(out_error, out_error_size, "failed to resolve job output directory");
+    if (!map_forge_headless_parent_dir(job_path, parent_dir, sizeof(parent_dir))) {
+        return map_forge_headless_fail(out_error, out_error_size, "failed to resolve job output directory");
     }
-    if (!map_forge_headless_ensure_dir_recursive_local(parent_dir)) {
-        return map_forge_headless_error(out_error, out_error_size, "failed to create job output directory");
+    if (!map_forge_headless_ensure_dir_recursive_mode(parent_dir, 0755)) {
+        return map_forge_headless_fail(out_error, out_error_size, "failed to create job output directory");
     }
 
     root = json_object_new_object();
@@ -574,7 +407,7 @@ bool map_forge_headless_job_write(const char *job_path,
     file = fopen(job_path, "wb");
     if (!file) {
         json_object_put(root);
-        return map_forge_headless_error(out_error, out_error_size, "failed to open job output path");
+        return map_forge_headless_fail(out_error, out_error_size, "failed to open job output path");
     }
     fputs(json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY), file);
     fputc('\n', file);

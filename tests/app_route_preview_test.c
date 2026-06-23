@@ -1,4 +1,7 @@
 #include "app/app_internal.h"
+#include "app/app_headless.h"
+
+#include "route_preview_test_fixture.h"
 
 #include <assert.h>
 #include <math.h>
@@ -21,34 +24,14 @@ void camera_set_heading_target(Camera *camera, float heading_rad) {
 
 static void seed_path(AppState *app) {
     assert(app);
-    app->route_state_bridge.route.graph.node_count = 3u;
-    static double node_x[] = {0.0, 0.0, 10.0};
-    static double node_y[] = {0.0, 10.0, 10.0};
-    static uint32_t nodes[] = {0u, 1u, 2u};
-    static float cumulative_time_s[] = {0.0f, 10.0f, 20.0f};
-
-    app->route_state_bridge.route.graph.node_x = node_x;
-    app->route_state_bridge.route.graph.node_y = node_y;
-    app->route_state_bridge.route.path.nodes = nodes;
-    app->route_state_bridge.route.path.count = 3u;
-    app->route_state_bridge.route.path.cumulative_time_s = cumulative_time_s;
-    app->route_state_bridge.route.path.total_time_s = 20.0f;
+    mapforge_test_route_fixture_seed_corner(&app->route_state_bridge.route.graph,
+                                            &app->route_state_bridge.route.path);
 }
 
 static void seed_sway_path(AppState *app) {
     assert(app);
-    app->route_state_bridge.route.graph.node_count = 4u;
-    static double node_x[] = {0.0, 0.0, 1.0, 0.0};
-    static double node_y[] = {0.0, 10.0, 20.0, 30.0};
-    static uint32_t nodes[] = {0u, 1u, 2u, 3u};
-    static float cumulative_time_s[] = {0.0f, 10.0f, 20.0f, 30.0f};
-
-    app->route_state_bridge.route.graph.node_x = node_x;
-    app->route_state_bridge.route.graph.node_y = node_y;
-    app->route_state_bridge.route.path.nodes = nodes;
-    app->route_state_bridge.route.path.count = 4u;
-    app->route_state_bridge.route.path.cumulative_time_s = cumulative_time_s;
-    app->route_state_bridge.route.path.total_time_s = 30.0f;
+    mapforge_test_route_fixture_seed_sway(&app->route_state_bridge.route.graph,
+                                          &app->route_state_bridge.route.path);
 }
 
 static void test_preview_samples_paused_position_without_follow(void) {
@@ -195,6 +178,54 @@ static void test_preview_reset_clears_state(void) {
     assert(app.route_state_bridge.preview_heading_memory_rad == 0.0f);
 }
 
+static void test_preview_follow_entrypoints_own_settings(void) {
+    AppState app;
+    memset(&app, 0, sizeof(app));
+
+    assert(!app_route_preview_toggle_follow(&app));
+    assert(!app.route_state_bridge.preview_follow_enabled);
+
+    seed_path(&app);
+    assert(app_route_preview_toggle_follow(&app));
+    assert(app.route_state_bridge.preview_follow_enabled);
+
+    app_route_preview_disable_follow(&app);
+    assert(!app.route_state_bridge.preview_follow_enabled);
+
+    app_route_preview_set_follow_enabled(&app, true);
+    assert(app.route_state_bridge.preview_follow_enabled);
+    app.route_state_bridge.preview_heading_up = true;
+    g_last_heading_target = 1.0f;
+
+    app_route_preview_toggle_heading_mode(&app);
+    assert(!app.route_state_bridge.preview_heading_up);
+    assert(fabsf(g_last_heading_target - 0.0f) < 0.001f);
+}
+
+static void test_preview_matches_headless_playback_sample_on_shared_fixture(void) {
+    AppState app;
+    MapForgeHeadlessPlaybackSample sample;
+    memset(&app, 0, sizeof(app));
+    memset(&sample, 0, sizeof(sample));
+    seed_path(&app);
+
+    app.route_state_bridge.playback_time_s = 15.0f;
+    app_route_preview_update(&app);
+
+    assert(map_forge_headless_playback_sample(&app.route_state_bridge.route.graph,
+                                              &app.route_state_bridge.route.path,
+                                              NULL,
+                                              15.0f,
+                                              NULL,
+                                              &sample));
+    assert(app.route_state_bridge.preview.valid);
+    assert(sample.valid);
+    assert(app.route_state_bridge.preview.segment_index == sample.segment_index);
+    assert(fabsf(app.route_state_bridge.preview.world_x - (float)sample.world_x) < 0.001f);
+    assert(fabsf(app.route_state_bridge.preview.world_y - (float)sample.world_y) < 0.001f);
+    assert(fabsf(app.route_state_bridge.preview.heading_rad - sample.heading_rad) < 0.001f);
+}
+
 int main(void) {
     test_preview_samples_paused_position_without_follow();
     test_preview_drives_follow_camera_while_playing();
@@ -203,6 +234,8 @@ int main(void) {
     test_preview_spatial_heading_window_softens_subtle_bends();
     test_preview_heading_memory_smooths_abrupt_turn_transitions();
     test_preview_reset_clears_state();
+    test_preview_follow_entrypoints_own_settings();
+    test_preview_matches_headless_playback_sample_on_shared_fixture();
     printf("app_route_preview_test: success\n");
     return 0;
 }

@@ -149,24 +149,33 @@ JSON
 MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region policy_fs_default
 MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region policy_fs_explicit
 
-if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region policy_invalid_value; then
+invalid_policy_stderr="$workspace/policy_invalid_value_stderr.txt"
+if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region policy_invalid_value 2>"$invalid_policy_stderr"; then
     echo "expected failure for invalid runtime_source_policy value" >&2
     exit 1
 fi
+grep -q 'diagnostic_stage=validation region=policy_invalid_value' "$invalid_policy_stderr"
+grep -q 'repair_hint=Set tile_store.runtime_source_policy to archive_required, archive_preferred, or filesystem_only.' "$invalid_policy_stderr"
 
-if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region policy_required_mismatch; then
+required_mismatch_stderr="$workspace/policy_required_mismatch_stderr.txt"
+if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region policy_required_mismatch 2>"$required_mismatch_stderr"; then
     echo "expected failure for archive_required policy with filesystem storage" >&2
     exit 1
 fi
+grep -q 'diagnostic_stage=validation region=policy_required_mismatch' "$required_mismatch_stderr"
+grep -q 'repair_hint=Use tile_store.kind=archive_indexed for archive runtime policies or switch policy to filesystem_only.' "$required_mismatch_stderr"
 
 if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region policy_preferred_mismatch; then
     echo "expected failure for archive_preferred policy with filesystem storage" >&2
     exit 1
 fi
 
-if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region policy_archive_required_missing_payload; then
+missing_payload_stderr="$workspace/policy_missing_payload_stderr.txt"
+if MAPFORGE_REGIONS_DIR="$regions_root" "$validate_tool" --region policy_archive_required_missing_payload 2>"$missing_payload_stderr"; then
     echo "expected failure for archive_required policy without archive payload" >&2
     exit 1
 fi
+grep -q 'diagnostic_stage=validation region=policy_archive_required_missing_payload' "$missing_payload_stderr"
+grep -q 'repair_hint=Rebuild with --emit-archive or restore the archive payload named by tile_store.archive_path.' "$missing_payload_stderr"
 
 echo "runtime source policy validation checks passed"

@@ -1,16 +1,8 @@
 #include "app/app_headless.h"
+#include "app_headless_util.h"
 
 #include <stdio.h>
 #include <string.h>
-
-static bool map_forge_headless_error(char *out_error,
-                                     size_t out_error_size,
-                                     const char *message) {
-    if (out_error && out_error_size > 0u) {
-        snprintf(out_error, out_error_size, "%s", message ? message : "unknown error");
-    }
-    return false;
-}
 
 bool map_forge_headless_args_parse(int argc,
                                    char **argv,
@@ -19,7 +11,7 @@ bool map_forge_headless_args_parse(int argc,
                                    size_t out_error_size) {
     MapForgeHeadlessCliOptions options = {0};
     if (!out_options) {
-        return map_forge_headless_error(out_error, out_error_size, "missing output options");
+        return map_forge_headless_fail(out_error, out_error_size, "missing output options");
     }
 
     for (int i = 1; i < argc; ++i) {
@@ -37,14 +29,14 @@ bool map_forge_headless_args_parse(int argc,
         }
         if (strcmp(arg, "--job") == 0) {
             if (i + 1 >= argc) {
-                return map_forge_headless_error(out_error, out_error_size, "--job requires a path");
+                return map_forge_headless_fail(out_error, out_error_size, "--job requires a path");
             }
             options.job_path = argv[++i];
             continue;
         }
         if (strcmp(arg, "--out") == 0) {
             if (i + 1 >= argc) {
-                return map_forge_headless_error(out_error, out_error_size, "--out requires a path");
+                return map_forge_headless_fail(out_error, out_error_size, "--out requires a path");
             }
             options.out_dir = argv[++i];
             continue;
@@ -52,19 +44,19 @@ bool map_forge_headless_args_parse(int argc,
         if (options.headless || options.show_help) {
             char buffer[256];
             snprintf(buffer, sizeof(buffer), "unknown argument: %s", arg);
-            return map_forge_headless_error(out_error, out_error_size, buffer);
+            return map_forge_headless_fail(out_error, out_error_size, buffer);
         }
         char buffer[256];
         snprintf(buffer, sizeof(buffer), "interactive mode does not accept argument: %s", arg);
-        return map_forge_headless_error(out_error, out_error_size, buffer);
+        return map_forge_headless_fail(out_error, out_error_size, buffer);
     }
 
     if (options.headless) {
         if (!options.job_path || options.job_path[0] == '\0') {
-            return map_forge_headless_error(out_error, out_error_size, "headless mode requires --job <path>");
+            return map_forge_headless_fail(out_error, out_error_size, "headless mode requires --job <path>");
         }
         if (!options.out_dir || options.out_dir[0] == '\0') {
-            return map_forge_headless_error(out_error, out_error_size, "headless mode requires --out <dir>");
+            return map_forge_headless_fail(out_error, out_error_size, "headless mode requires --out <dir>");
         }
     }
 

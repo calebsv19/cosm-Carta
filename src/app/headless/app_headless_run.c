@@ -1,22 +1,19 @@
 #include "app/app_headless.h"
 #include "app/app_headless_job_bundle.h"
 #include "app_headless_run_internal.h"
+#include "app_headless_util.h"
 
 #include "app/region.h"
 #include "app/region_loader.h"
-#include "core_io.h"
 #include "map/mercator.h"
 #include "route/route.h"
 
 #include <json-c/json.h>
-#include <errno.h>
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <time.h>
 
 static bool map_forge_headless_set_error(MapForgeHeadlessRunResult *result, const char *message) {
@@ -25,6 +22,28 @@ static bool map_forge_headless_set_error(MapForgeHeadlessRunResult *result, cons
         snprintf(result->status, sizeof(result->status), "failed");
     }
     return false;
+}
+
+static bool map_forge_headless_set_diagnostic_error(MapForgeHeadlessRunResult *result,
+                                                    const char *stage,
+                                                    const char *code,
+                                                    const char *context,
+                                                    const char *message) {
+    if (result) {
+        snprintf(result->failure_stage,
+                 sizeof(result->failure_stage),
+                 "%s",
+                 stage ? stage : "");
+        snprintf(result->failure_code,
+                 sizeof(result->failure_code),
+                 "%s",
+                 code ? code : "");
+        snprintf(result->failure_context,
+                 sizeof(result->failure_context),
+                 "%s",
+                 context ? context : "");
+    }
+    return map_forge_headless_set_error(result, message);
 }
 
 static bool map_forge_headless_warning_add(MapForgeHeadlessWarningSet *warnings, const char *message) {
@@ -39,45 +58,6 @@ static bool map_forge_headless_warning_add(MapForgeHeadlessWarningSet *warnings,
              "%s",
              message);
     warnings->count += 1u;
-    return true;
-}
-
-static bool copy_string(char *dst, size_t dst_size, const char *src) {
-    if (!dst || dst_size == 0u || !src) {
-        return false;
-    }
-    if (snprintf(dst, dst_size, "%s", src) >= (int)dst_size) {
-        dst[0] = '\0';
-        return false;
-    }
-    return true;
-}
-
-static bool map_forge_headless_ensure_dir_recursive(const char *path) {
-    char tmp[PATH_MAX];
-    size_t len = 0u;
-    if (!path || path[0] == '\0') {
-        return false;
-    }
-    len = strnlen(path, sizeof(tmp) - 1u);
-    if (len == 0u || len >= sizeof(tmp)) {
-        return false;
-    }
-    memcpy(tmp, path, len);
-    tmp[len] = '\0';
-    for (char *p = tmp + 1; *p; ++p) {
-        if (*p != '/') {
-            continue;
-        }
-        *p = '\0';
-        if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
-            return false;
-        }
-        *p = '/';
-    }
-    if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
-        return false;
-    }
     return true;
 }
 
@@ -137,91 +117,6 @@ static void map_forge_headless_format_command(int argc,
         }
         used += (size_t)written;
     }
-}
-
-static bool map_forge_headless_realpath_or_copy(const char *path,
-                                                char *out_path,
-                                                size_t out_size) {
-    char resolved[PATH_MAX];
-    if (!path || !out_path || out_size == 0u) {
-        return false;
-    }
-    if (realpath(path, resolved)) {
-        snprintf(out_path, out_size, "%s", resolved);
-        return true;
-    }
-    snprintf(out_path, out_size, "%s", path);
-    return true;
-}
-
-static bool map_forge_headless_parent_dir(const char *path,
-                                          char *out_dir,
-                                          size_t out_size) {
-    const char *slash = NULL;
-    if (!path || !out_dir || out_size == 0u) {
-        return false;
-    }
-    slash = strrchr(path, '/');
-    if (!slash) {
-        snprintf(out_dir, out_size, ".");
-        return true;
-    }
-    if (slash == path) {
-        snprintf(out_dir, out_size, "/");
-        return true;
-    }
-    {
-        size_t len = (size_t)(slash - path);
-        if (len >= out_size) {
-            return false;
-        }
-        memcpy(out_dir, path, len);
-        out_dir[len] = '\0';
-    }
-    return true;
-}
-
-static bool map_forge_headless_resolve_relative(const char *base_dir,
-                                                const char *path,
-                                                char *out_path,
-                                                size_t out_size) {
-    if (!path || !out_path || out_size == 0u) {
-        return false;
-    }
-    if (path[0] == '/') {
-        return map_forge_headless_realpath_or_copy(path, out_path, out_size);
-    }
-    if (!base_dir || base_dir[0] == '\0') {
-        return map_forge_headless_realpath_or_copy(path, out_path, out_size);
-    }
-    {
-        char current_dir[PATH_MAX];
-        char parent_dir[PATH_MAX];
-
-        snprintf(current_dir, sizeof(current_dir), "%s", base_dir);
-        while (current_dir[0] != '\0') {
-            char joined[PATH_MAX];
-            snprintf(joined, sizeof(joined), "%s/%s", current_dir, path);
-            if (realpath(joined, out_path)) {
-                return true;
-            }
-            if (!map_forge_headless_parent_dir(current_dir, parent_dir, sizeof(parent_dir))) {
-                break;
-            }
-            if (strcmp(parent_dir, current_dir) == 0) {
-                break;
-            }
-            snprintf(current_dir, sizeof(current_dir), "%s", parent_dir);
-            if (strcmp(current_dir, "/") == 0) {
-                snprintf(joined, sizeof(joined), "/%s", path);
-                if (realpath(joined, out_path)) {
-                    return true;
-                }
-                break;
-            }
-        }
-    }
-    return map_forge_headless_realpath_or_copy(path, out_path, out_size);
 }
 
 static const RegionInfo *map_forge_headless_find_region(const char *name) {
@@ -395,7 +290,7 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
     memset(&result.source_envelope, 0, sizeof(result.source_envelope));
     memset(&source_bundle, 0, sizeof(source_bundle));
     (void)map_forge_headless_realpath_or_copy(options->out_dir, result.run_root, sizeof(result.run_root));
-    (void)copy_string(result.out_dir, sizeof(result.out_dir), result.run_root);
+    (void)map_forge_headless_copy_string(result.out_dir, sizeof(result.out_dir), result.run_root);
     snprintf(result.canonical_job_request_path,
              sizeof(result.canonical_job_request_path),
              "%s/job.request.json",
@@ -409,7 +304,7 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
              "%s/output/report.json",
              result.run_root);
 
-    if (!map_forge_headless_ensure_dir_recursive(result.run_root)) {
+    if (!map_forge_headless_ensure_dir_recursive_mode(result.run_root, 0755)) {
         fprintf(stderr, "map_forge: failed to create output directory: %s\n", result.run_root);
         route_state_shutdown(&result.route_state);
         return 1;
@@ -421,7 +316,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
                                              &is_shared_bundle,
                                              error,
                                              sizeof(error))) {
-        (void)map_forge_headless_set_error(&result, error);
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "job_load",
+                                                      "job_load_failed",
+                                                      options->job_path,
+                                                      error);
         (void)map_forge_headless_write_outputs(&result);
         route_state_shutdown(&result.route_state);
         return 1;
@@ -430,12 +329,16 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
     result.shared_bundle = is_shared_bundle;
     if (is_shared_bundle) {
         result.source_envelope = source_bundle.envelope;
-        (void)copy_string(result.job_path, sizeof(result.job_path), source_bundle.resolved_scene_payload_path);
+        (void)map_forge_headless_copy_string(result.job_path, sizeof(result.job_path), source_bundle.resolved_scene_payload_path);
         if (snprintf(result.out_dir,
                      sizeof(result.out_dir),
                      "%s/output/artifacts",
                      result.run_root) >= (int)sizeof(result.out_dir)) {
-            (void)map_forge_headless_set_error(&result, "failed to derive bundle artifacts directory");
+            (void)map_forge_headless_set_diagnostic_error(&result,
+                                                          "output_setup",
+                                                          "bundle_artifacts_path_overflow",
+                                                          result.run_root,
+                                                          "failed to derive bundle artifacts directory");
             (void)map_forge_headless_write_outputs(&result);
             route_state_shutdown(&result.route_state);
             return 1;
@@ -443,22 +346,34 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
     } else {
         (void)map_forge_headless_realpath_or_copy(options->job_path, result.job_path, sizeof(result.job_path));
     }
-    if (!map_forge_headless_ensure_dir_recursive(result.out_dir)) {
-        (void)map_forge_headless_set_error(&result, "failed to create artifact output directory");
+    if (!map_forge_headless_ensure_dir_recursive_mode(result.out_dir, 0755)) {
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "output_setup",
+                                                      "artifact_output_dir_create_failed",
+                                                      result.out_dir,
+                                                      "failed to create artifact output directory");
         (void)map_forge_headless_write_outputs(&result);
         route_state_shutdown(&result.route_state);
         return 1;
     }
-    (void)copy_string(effective_job_path, sizeof(effective_job_path), result.job_path);
+    (void)map_forge_headless_copy_string(effective_job_path, sizeof(effective_job_path), result.job_path);
     if (!map_forge_headless_parent_dir(effective_job_path, job_dir, sizeof(job_dir))) {
-        (void)map_forge_headless_set_error(&result, "failed to resolve job directory");
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "job_load",
+                                                      "job_directory_resolve_failed",
+                                                      effective_job_path,
+                                                      "failed to resolve job directory");
         (void)map_forge_headless_write_outputs(&result);
         route_state_shutdown(&result.route_state);
         return 1;
     }
     catalog_region = map_forge_headless_find_region(result.job.map_region);
     if (!catalog_region) {
-        (void)map_forge_headless_set_error(&result, "job.map_region was not found under MAPFORGE_REGIONS_DIR");
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "region_lookup",
+                                                      "map_region_not_found",
+                                                      result.job.map_region,
+                                                      "job.map_region was not found under MAPFORGE_REGIONS_DIR");
         (void)map_forge_headless_write_outputs(&result);
         route_state_shutdown(&result.route_state);
         return 1;
@@ -468,13 +383,21 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
                                                  result.job.pins_file,
                                                  result.pins_path,
                                                  sizeof(result.pins_path))) {
-            (void)map_forge_headless_set_error(&result, "failed to resolve pins file path");
+            (void)map_forge_headless_set_diagnostic_error(&result,
+                                                          "pins_load",
+                                                          "pins_file_path_resolve_failed",
+                                                          result.job.pins_file,
+                                                          "failed to resolve pins file path");
             (void)map_forge_headless_write_outputs(&result);
             route_state_shutdown(&result.route_state);
             return 1;
         }
         if (!map_forge_pins_load(result.pins_path, &pins_file, error, sizeof(error))) {
-            (void)map_forge_headless_set_error(&result, error);
+            (void)map_forge_headless_set_diagnostic_error(&result,
+                                                          "pins_load",
+                                                          "pins_file_load_failed",
+                                                          result.pins_path,
+                                                          error);
             (void)map_forge_headless_write_outputs(&result);
             route_state_shutdown(&result.route_state);
             return 1;
@@ -489,7 +412,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
                                                        &loaded_legacy_pins,
                                                        error,
                                                        sizeof(error))) {
-            (void)map_forge_headless_set_error(&result, error);
+            (void)map_forge_headless_set_diagnostic_error(&result,
+                                                          "pins_load",
+                                                          "region_pins_load_failed",
+                                                          result.job.map_region,
+                                                          error);
             (void)map_forge_headless_write_outputs(&result);
             route_state_shutdown(&result.route_state);
             return 1;
@@ -501,7 +428,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
                      "job did not specify pins_file and no saved pins file exists for region '%s' at %s",
                      result.job.map_region,
                      result.pins_path[0] != '\0' ? result.pins_path : "(unresolved)");
-            (void)map_forge_headless_set_error(&result, message);
+            (void)map_forge_headless_set_diagnostic_error(&result,
+                                                          "pins_load",
+                                                          "region_pins_missing",
+                                                          result.pins_path[0] != '\0' ? result.pins_path : result.job.map_region,
+                                                          message);
             (void)map_forge_headless_write_outputs(&result);
             map_forge_pins_file_free(&pins_file);
             route_state_shutdown(&result.route_state);
@@ -525,7 +456,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
         result.region = *catalog_region;
     }
     if (!region_graph_path(&result.region, result.graph_path, sizeof(result.graph_path))) {
-        (void)map_forge_headless_set_error(&result, "failed to resolve region graph path");
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "graph_load",
+                                                      "graph_path_resolve_failed",
+                                                      result.job.map_region,
+                                                      "failed to resolve region graph path");
         (void)map_forge_headless_write_outputs(&result);
         map_forge_pins_file_free(&pins_file);
         route_state_shutdown(&result.route_state);
@@ -534,7 +469,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
 
     result.route_state.mode = result.job.route_mode;
     if (!route_state_load_graph(&result.route_state, result.graph_path)) {
-        (void)map_forge_headless_set_error(&result, "failed to load route graph for region");
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "graph_load",
+                                                      "graph_load_failed",
+                                                      result.graph_path,
+                                                      "failed to load route graph for region");
         (void)map_forge_headless_write_outputs(&result);
         map_forge_pins_file_free(&pins_file);
         route_state_shutdown(&result.route_state);
@@ -544,7 +483,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
     error[0] = '\0';
     from_pin = map_forge_headless_find_pin(&pins_file, result.job.from_pin, error, sizeof(error));
     if (!from_pin && error[0] != '\0') {
-        (void)map_forge_headless_set_error(&result, error);
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "pin_lookup",
+                                                      "from_pin_ambiguous",
+                                                      result.job.from_pin,
+                                                      error);
         (void)map_forge_headless_write_outputs(&result);
         map_forge_pins_file_free(&pins_file);
         route_state_shutdown(&result.route_state);
@@ -553,14 +496,29 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
     error[0] = '\0';
     to_pin = map_forge_headless_find_pin(&pins_file, result.job.to_pin, error, sizeof(error));
     if (!to_pin && error[0] != '\0') {
-        (void)map_forge_headless_set_error(&result, error);
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "pin_lookup",
+                                                      "to_pin_ambiguous",
+                                                      result.job.to_pin,
+                                                      error);
         (void)map_forge_headless_write_outputs(&result);
         map_forge_pins_file_free(&pins_file);
         route_state_shutdown(&result.route_state);
         return 1;
     }
     if (!from_pin || !to_pin) {
-        (void)map_forge_headless_set_error(&result, "from_pin or to_pin could not be resolved from the selected pins source");
+        char context[256];
+        snprintf(context,
+                 sizeof(context),
+                 "from_pin=%s to_pin=%s pins=%s",
+                 result.job.from_pin,
+                 result.job.to_pin,
+                 result.pins_path[0] != '\0' ? result.pins_path : "(unresolved)");
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "pin_lookup",
+                                                      !from_pin ? "from_pin_not_found" : "to_pin_not_found",
+                                                      context,
+                                                      "from_pin or to_pin could not be resolved from the selected pins source");
         (void)map_forge_headless_write_outputs(&result);
         map_forge_pins_file_free(&pins_file);
         route_state_shutdown(&result.route_state);
@@ -568,7 +526,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
     }
     if (!map_forge_headless_resolve_pin(&result.route_state.graph, from_pin, &result.from_pin) ||
         !map_forge_headless_resolve_pin(&result.route_state.graph, to_pin, &result.to_pin)) {
-        (void)map_forge_headless_set_error(&result, "failed to resolve pin coordinates to route graph nodes");
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "pin_lookup",
+                                                      "pin_node_resolve_failed",
+                                                      result.graph_path,
+                                                      "failed to resolve pin coordinates to route graph nodes");
         (void)map_forge_headless_write_outputs(&result);
         map_forge_pins_file_free(&pins_file);
         route_state_shutdown(&result.route_state);
@@ -576,7 +538,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
     }
 
     if (!route_state_route(&result.route_state, result.from_pin.nearest_node, result.to_pin.nearest_node)) {
-        (void)map_forge_headless_set_error(&result, "route computation failed for the selected pins");
+        (void)map_forge_headless_set_diagnostic_error(&result,
+                                                      "route_compute",
+                                                      "route_compute_failed",
+                                                      result.job.map_region,
+                                                      "route computation failed for the selected pins");
         (void)map_forge_headless_write_outputs(&result);
         map_forge_pins_file_free(&pins_file);
         route_state_shutdown(&result.route_state);
@@ -611,7 +577,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
         if (playback_ready) {
             result.playback_trace_written = true;
             if (!map_forge_headless_build_playback_samples(&result)) {
-                (void)map_forge_headless_set_error(&result, "failed to build deterministic playback samples");
+                (void)map_forge_headless_set_diagnostic_error(&result,
+                                                              "playback",
+                                                              "playback_samples_failed",
+                                                              result.job.map_region,
+                                                              "failed to build deterministic playback samples");
                 (void)map_forge_headless_write_outputs(&result);
                 map_forge_pins_file_free(&pins_file);
                 route_state_shutdown(&result.route_state);
@@ -621,7 +591,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
             preview_sample_ptr = &result.frame_samples[result.estimated_frame_count > 1u ? result.estimated_frame_count / 2u : 0u];
         } else if (result.job.output.preview_png) {
             if (!map_forge_headless_build_preview_sample(&result, &preview_sample)) {
-                (void)map_forge_headless_set_error(&result, "failed to build a diagnostic preview sample");
+                (void)map_forge_headless_set_diagnostic_error(&result,
+                                                              "playback",
+                                                              "preview_sample_failed",
+                                                              result.job.map_region,
+                                                              "failed to build a diagnostic preview sample");
                 (void)map_forge_headless_write_outputs(&result);
                 map_forge_pins_file_free(&pins_file);
                 route_state_shutdown(&result.route_state);
@@ -641,7 +615,11 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
                                                         playback_ready ? result.frame_samples : NULL,
                                                         playback_ready ? result.estimated_frame_count : 0u,
                                                         &result.image_exports)) {
-                (void)map_forge_headless_set_error(&result, "failed to render headless route image exports");
+                (void)map_forge_headless_set_diagnostic_error(&result,
+                                                              "render_export",
+                                                              "render_export_failed",
+                                                              result.out_dir,
+                                                              "failed to render headless route image exports");
                 (void)map_forge_headless_write_outputs(&result);
                 map_forge_pins_file_free(&pins_file);
                 route_state_shutdown(&result.route_state);

@@ -188,6 +188,11 @@ bool mapforge_region_archive_rel_path_valid(const char *path);
 bool mapforge_region_write_tile_archive_sqlite(const BuildOptions *options, BuildContext *ctx);
 bool mapforge_region_write_meta_json(const BuildOptions *options, const BuildContext *ctx);
 bool mapforge_region_write_metrics_dataset_json(const BuildOptions *options, const BuildContext *ctx);
+const char *mapforge_region_metric_band_name(int band);
+const char *mapforge_region_metric_layer_name(int layer);
+const char *mapforge_region_archive_layer_from_suffix(const char *suffix);
+int mapforge_region_archive_metric_band_index(const char *band);
+int mapforge_region_archive_metric_layer_index(const char *layer);
 bool mapforge_region_build_publish_paths(const char *active_dir,
                                          char *out_stage_dir,
                                          size_t stage_size,
@@ -203,5 +208,14 @@ bool mapforge_region_publish_region_pack(const BuildOptions *options,
                                          const char *active_dir,
                                          const char *snapshot_root);
 void mapforge_region_prune_staging_dirs(const char *staging_root, uint32_t prune_days, bool dry_run);
+
+static inline void mapforge_region_log_diagnostic(const char *stage, const char *hint) {
+    if (stage && stage[0] != '\0') {
+        log_error("diagnostic_stage=%s", stage);
+    }
+    if (hint && hint[0] != '\0') {
+        log_error("repair_hint=%s", hint);
+    }
+}
 
 #endif

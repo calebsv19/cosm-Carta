@@ -65,6 +65,19 @@ If you are new to the runtime code, read in this order:
 
 ## Non-GUI Stability Checks
 
+- `make visual-harness`
+  - build/readiness target for manual visual validation; prints the source
+    binary path and does not emit an image artifact
+- `make visual-artifact`
+  - source-run first-frame proof; runs headlessly, writes ignored
+    `visual_artifacts/source_run_first_frame/route_demo_seattle/preview.bmp`,
+    validates that it is nonempty, and prints `visual-artifact=<path>`
+- `make carta-local-proof`
+  - one-command local proof aggregate; runs `test-r5-callable`,
+    `visual-artifact`, `run-headless-smoke-core`,
+    `test-headless-saved-pin-visualizer-publish-wrapper`, and
+    `package-desktop-self-test`, then prints `carta-local-proof passed`; no
+    remote publish/upload is performed
 - `make test-presentation-stability`
 - `make memory-check-audit`
 - `make run-headless-smoke`

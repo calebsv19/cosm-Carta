@@ -1,22 +1,5 @@
 #include "mapforge_region_internal.h"
 
-static const char *k_metric_band_names[METRIC_BAND_COUNT] = {
-    "default",
-    "coarse",
-    "mid",
-    "fine"
-};
-
-static const char *k_metric_layer_names[METRIC_LAYER_COUNT] = {
-    "artery",
-    "local",
-    "water",
-    "park",
-    "landuse",
-    "building",
-    "contour"
-};
-
 static const char *osm_source_kind_label(OSMSourceKind kind) {
     switch (kind) {
         case OSM_SOURCE_KIND_PBF:
@@ -109,81 +92,6 @@ static bool string_has_suffix(const char *value, const char *suffix) {
     return strcmp(value + (value_len - suffix_len), suffix) == 0;
 }
 
-static const char *archive_layer_from_suffix(const char *suffix) {
-    if (!suffix || suffix[0] == '\0') {
-        return NULL;
-    }
-    if (strcmp(suffix, "artery.mft") == 0) {
-        return "road_artery";
-    }
-    if (strcmp(suffix, "local.mft") == 0) {
-        return "road_local";
-    }
-    if (strcmp(suffix, "water.mft") == 0) {
-        return "water";
-    }
-    if (strcmp(suffix, "park.mft") == 0) {
-        return "park";
-    }
-    if (strcmp(suffix, "landuse.mft") == 0) {
-        return "landuse";
-    }
-    if (strcmp(suffix, "building.mft") == 0) {
-        return "building";
-    }
-    if (strcmp(suffix, "contour.mft") == 0) {
-        return "contour";
-    }
-    if (strcmp(suffix, "mft") == 0) {
-        return "road_artery";
-    }
-    return NULL;
-}
-
-static int archive_metric_band_index(const char *band) {
-    if (!band || band[0] == '\0' || strcmp(band, "default") == 0) {
-        return METRIC_BAND_DEFAULT;
-    }
-    if (strcmp(band, "coarse") == 0) {
-        return METRIC_BAND_COARSE;
-    }
-    if (strcmp(band, "mid") == 0) {
-        return METRIC_BAND_MID;
-    }
-    if (strcmp(band, "fine") == 0) {
-        return METRIC_BAND_FINE;
-    }
-    return -1;
-}
-
-static int archive_metric_layer_index(const char *layer) {
-    if (!layer || layer[0] == '\0') {
-        return -1;
-    }
-    if (strcmp(layer, "road_artery") == 0) {
-        return METRIC_LAYER_ARTERY;
-    }
-    if (strcmp(layer, "road_local") == 0) {
-        return METRIC_LAYER_LOCAL;
-    }
-    if (strcmp(layer, "water") == 0) {
-        return METRIC_LAYER_WATER;
-    }
-    if (strcmp(layer, "park") == 0) {
-        return METRIC_LAYER_PARK;
-    }
-    if (strcmp(layer, "landuse") == 0) {
-        return METRIC_LAYER_LANDUSE;
-    }
-    if (strcmp(layer, "building") == 0) {
-        return METRIC_LAYER_BUILDING;
-    }
-    if (strcmp(layer, "contour") == 0) {
-        return METRIC_LAYER_CONTOUR;
-    }
-    return -1;
-}
-
 static bool archive_parse_tile_rel_path(const char *rel_path,
                                         int *out_z,
                                         int *out_x,
@@ -245,7 +153,7 @@ static bool archive_parse_tile_rel_path(const char *rel_path,
     if (file_copy[0] == '\0' || suffix[0] == '\0') {
         return false;
     }
-    const char *layer = archive_layer_from_suffix(suffix);
+    const char *layer = mapforge_region_archive_layer_from_suffix(suffix);
     if (!layer) {
         return false;
     }
@@ -316,8 +224,8 @@ static bool archive_insert_tile(sqlite3_stmt *stmt,
         core_io_buffer_free(&tile_data);
         return false;
     }
-    int band_index = archive_metric_band_index(band);
-    int layer_index = archive_metric_layer_index(layer);
+    int band_index = mapforge_region_archive_metric_band_index(band);
+    int layer_index = mapforge_region_archive_metric_layer_index(layer);
     if (band_index >= 0 && band_index < METRIC_BAND_COUNT &&
         layer_index >= 0 && layer_index < METRIC_LAYER_COUNT) {
         ctx->archive_rollup_rows[band_index][layer_index] += 1u;
@@ -388,6 +296,8 @@ bool mapforge_region_write_tile_archive_sqlite(const BuildOptions *options, Buil
     }
 #if !defined(MAPFORGE_HAVE_SQLITE)
     log_error("archive emit requested but build lacks sqlite support");
+    mapforge_region_log_diagnostic("archive_emit",
+                                   "Rebuild MapForge with SQLite support or omit --emit-archive for filesystem-only region output.");
     return false;
 #else
     const char *archive_rel = (options->archive_path && options->archive_path[0] != '\0')
@@ -395,6 +305,8 @@ bool mapforge_region_write_tile_archive_sqlite(const BuildOptions *options, Buil
         : "tiles.mbtiles";
     if (!mapforge_region_archive_rel_path_valid(archive_rel)) {
         log_error("archive path must be region-local and not contain '..': %s", archive_rel);
+        mapforge_region_log_diagnostic("archive_emit",
+                                       "Use a region-local relative archive path such as tiles.mbtiles.");
         return false;
     }
 
@@ -404,10 +316,14 @@ bool mapforge_region_write_tile_archive_sqlite(const BuildOptions *options, Buil
     snprintf(archive_file, sizeof(archive_file), "%s/%s", options->out_dir, archive_rel);
     if (!path_exists(tiles_root)) {
         log_error("archive emit missing tiles root: %s", tiles_root);
+        mapforge_region_log_diagnostic("archive_emit",
+                                       "Ensure tile files are emitted before archive generation or rerun without --emit-archive.");
         return false;
     }
     if (!ensure_parent_dir_recursive(archive_file)) {
         log_error("archive emit failed to ensure parent dir: %s", archive_file);
+        mapforge_region_log_diagnostic("archive_emit",
+                                       "Check write permissions for the archive output directory.");
         return false;
     }
     (void)unlink(archive_file);
@@ -416,6 +332,8 @@ bool mapforge_region_write_tile_archive_sqlite(const BuildOptions *options, Buil
     sqlite3_stmt *insert_stmt = NULL;
     if (sqlite3_open_v2(archive_file, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK || !db) {
         log_error("archive emit open failed: %s", archive_file);
+        mapforge_region_log_diagnostic("archive_emit",
+                                       "Check write permissions and remove any stale invalid archive file before retrying.");
         if (db) {
             sqlite3_close(db);
         }
@@ -449,6 +367,8 @@ bool mapforge_region_write_tile_archive_sqlite(const BuildOptions *options, Buil
         (void)archive_exec_sql(db, "ROLLBACK;");
         sqlite3_close(db);
         log_error("archive emit prepare failed");
+        mapforge_region_log_diagnostic("archive_emit",
+                                       "Retry after removing the partially written archive payload.");
         return false;
     }
 
@@ -459,12 +379,16 @@ bool mapforge_region_write_tile_archive_sqlite(const BuildOptions *options, Buil
         (void)archive_exec_sql(db, "ROLLBACK;");
         sqlite3_close(db);
         log_error("archive emit failed to ingest tile rows");
+        mapforge_region_log_diagnostic("archive_emit",
+                                       "Verify the staged tiles directory contains .mft payloads before archive generation.");
         return false;
     }
     ok = archive_exec_sql(db, "COMMIT;");
     sqlite3_close(db);
     if (!ok) {
         log_error("archive emit commit failed");
+        mapforge_region_log_diagnostic("archive_emit",
+                                       "Check disk availability and remove the partial archive before retrying.");
         return false;
     }
     log_info("archive emitted: %s rows=%llu bytes=%llu",
@@ -493,7 +417,7 @@ static bool format_archive_rollups_json(const BuildContext *ctx, char *out_json,
     off += (size_t)n;
 
     for (int b = 0; b < METRIC_BAND_COUNT; ++b) {
-        n = snprintf(out_json + off, out_size - off, "                \"%s\": {\n", k_metric_band_names[b]);
+        n = snprintf(out_json + off, out_size - off, "                \"%s\": {\n", mapforge_region_metric_band_name(b));
         if (n <= 0 || (size_t)n >= (out_size - off)) {
             return false;
         }
@@ -502,7 +426,7 @@ static bool format_archive_rollups_json(const BuildContext *ctx, char *out_json,
             const char *comma = (l + 1 < METRIC_LAYER_COUNT) ? "," : "";
             n = snprintf(out_json + off, out_size - off,
                          "                    \"%s\": {\"rows\": %llu, \"bytes\": %llu}%s\n",
-                         k_metric_layer_names[l],
+                         mapforge_region_metric_layer_name(l),
                          (unsigned long long)ctx->archive_rollup_rows[b][l],
                          (unsigned long long)ctx->archive_rollup_bytes[b][l],
                          comma);
@@ -543,7 +467,7 @@ static bool format_tile_coverage_json(const BuildContext *ctx, char *out_json, s
     off += (size_t)n;
 
     for (int b = 0; b < METRIC_BAND_COUNT; ++b) {
-        n = snprintf(out_json + off, out_size - off, "                \"%s\": {\n", k_metric_band_names[b]);
+        n = snprintf(out_json + off, out_size - off, "                \"%s\": {\n", mapforge_region_metric_band_name(b));
         if (n <= 0 || (size_t)n >= (out_size - off)) {
             return false;
         }
@@ -566,7 +490,7 @@ static bool format_tile_coverage_json(const BuildContext *ctx, char *out_json, s
                          "                    \"%s\": {\n"
                          "                        \"tile_count\": %llu,\n"
                          "                        \"zoom_bounds\": {\n",
-                         k_metric_layer_names[l],
+                         mapforge_region_metric_layer_name(l),
                          (unsigned long long)ctx->coverage_tiles[b][l]);
             if (n <= 0 || (size_t)n >= (out_size - off)) {
                 return false;

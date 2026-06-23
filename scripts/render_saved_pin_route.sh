@@ -3,6 +3,8 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+. "$SCRIPT_DIR/saved_pin_common.sh"
+SCRIPT_NAME="render_saved_pin_route.sh"
 BINARY=${MAPFORGE_BINARY:-"$REPO_DIR/build/targets/macOS-arm64/toolchains/clang/bin/mapforge"}
 
 REGION=""
@@ -70,16 +72,6 @@ Environment:
 EOF
 }
 
-require_bool() {
-    case "$1" in
-        true|false) return 0 ;;
-        *)
-            echo "render_saved_pin_route.sh: expected true|false but got '$1'" >&2
-            exit 1
-            ;;
-    esac
-}
-
 apply_preset() {
     case "$1" in
         balanced)
@@ -111,7 +103,7 @@ apply_preset() {
             PREVIEW="true"
             ;;
         *)
-            echo "render_saved_pin_route.sh: unsupported preset '$1'" >&2
+            echo "$SCRIPT_NAME: unsupported preset '$1'" >&2
             exit 1
             ;;
     esac
@@ -138,7 +130,7 @@ apply_motion_profile() {
             HEADING_MAX_TURN_RATE_DEG_PER_SEC="45.0"
             ;;
         *)
-            echo "render_saved_pin_route.sh: unsupported motion profile '$1'" >&2
+            echo "$SCRIPT_NAME: unsupported motion profile '$1'" >&2
             exit 1
             ;;
     esac
@@ -237,7 +229,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         *)
-            echo "render_saved_pin_route.sh: unknown option '$1'" >&2
+            echo "$SCRIPT_NAME: unknown option '$1'" >&2
             usage >&2
             exit 1
             ;;
@@ -245,15 +237,20 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$REGION" ] || [ -z "$FROM_PIN" ] || [ -z "$TO_PIN" ] || [ -z "$OUT_DIR" ]; then
-    echo "render_saved_pin_route.sh: --region, --from-pin, --to-pin, and --out are required" >&2
+    echo "$SCRIPT_NAME: --region, --from-pin, --to-pin, and --out are required" >&2
     usage >&2
     exit 1
 fi
+mapforge_require_local_artifact_path "$SCRIPT_NAME" "--out" "$OUT_DIR"
+if [ -n "$JOB_COPY_PATH" ]; then
+    mapforge_require_local_artifact_path "$SCRIPT_NAME" "--write-job-copy" "$JOB_COPY_PATH"
+fi
 
-require_bool "$FRAMES"
-require_bool "$PREVIEW"
-require_bool "$FOLLOW_ROUTE"
+mapforge_require_bool "$SCRIPT_NAME" "$FRAMES"
+mapforge_require_bool "$SCRIPT_NAME" "$PREVIEW"
+mapforge_require_bool "$SCRIPT_NAME" "$FOLLOW_ROUTE"
 apply_motion_profile "$MOTION_PROFILE"
+mapforge_validate_orientation_mode "$SCRIPT_NAME" "$ORIENTATION_MODE" false
 
 case "$ORIENTATION_MODE" in
     heading_up)
@@ -262,36 +259,27 @@ case "$ORIENTATION_MODE" in
     north_up)
         ROTATE_WITH_HEADING="false"
         ;;
-    *)
-        echo "render_saved_pin_route.sh: unsupported orientation mode '$ORIENTATION_MODE'" >&2
-        exit 1
-        ;;
 esac
 
-case "$RENDER_MODE" in
-    map_route_marker|map_route|map_only) ;;
-    *)
-        echo "render_saved_pin_route.sh: invalid render mode '$RENDER_MODE'" >&2
-        exit 1
-        ;;
-esac
+mapforge_validate_render_mode "$SCRIPT_NAME" "$RENDER_MODE"
+mapforge_require_operator_executable "$SCRIPT_NAME" "MAPFORGE_BINARY" "$BINARY"
 
 case "$QUALITY_PROFILE" in
     runtime|final) ;;
     *)
-        echo "render_saved_pin_route.sh: invalid quality profile '$QUALITY_PROFILE'" >&2
+        echo "$SCRIPT_NAME: invalid quality profile '$QUALITY_PROFILE'" >&2
         exit 1
         ;;
 esac
 
 case "$PIXEL_SCALE" in
     ''|*[!0-9]*)
-        echo "render_saved_pin_route.sh: pixel scale must be an integer >= 1" >&2
+        echo "$SCRIPT_NAME: pixel scale must be an integer >= 1" >&2
         exit 1
         ;;
 esac
 if [ "$PIXEL_SCALE" -lt 1 ]; then
-    echo "render_saved_pin_route.sh: pixel scale must be >= 1" >&2
+    echo "$SCRIPT_NAME: pixel scale must be >= 1" >&2
     exit 1
 fi
 
@@ -305,58 +293,129 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-cat > "$JOB_PATH" <<EOF
-{
-  "version": 2,
-  "type": "route_playback_render",
-  "map_region": "$REGION",
-  "from_pin": "$FROM_PIN",
-  "to_pin": "$TO_PIN",
-  "route": {
-    "mode": "walking"
-  },
-  "camera": {
-    "width": $WIDTH,
-    "height": $HEIGHT,
-    "zoom": $ZOOM,
-    "follow_route": $FOLLOW_ROUTE,
-    "rotate_with_heading": $ROTATE_WITH_HEADING
-  },
-  "playback": {
-    "duration_seconds": $DURATION_SECONDS,
-    "fps": $FPS,
-    "start_paused": false,
-    "heading": {
-      "mode": "blended",
-      "smoothing_tau_seconds": $HEADING_SMOOTHING_TAU_SECONDS,
-      "lookahead_seconds": $HEADING_LOOKAHEAD_SECONDS,
-      "measurement_window_seconds": $HEADING_MEASUREMENT_WINDOW_SECONDS,
-      "max_turn_rate_deg_per_sec": $HEADING_MAX_TURN_RATE_DEG_PER_SEC
-    }
-  },
-  "output": {
-    "preview": $PREVIEW,
-    "frames": $FRAMES,
-    "frame_format": "bmp",
-    "video_manifest": false,
-    "render_mode": "$RENDER_MODE",
-    "quality_profile": "$QUALITY_PROFILE",
-    "pixel_scale": $PIXEL_SCALE,
-    "stabilize_visible_zoom": true,
-    "stabilize_tile_bands": true,
-    "allow_tile_fallback": false,
-    "simplify_route_screen_space": false
-  }
-}
-EOF
+python3 - "$JOB_PATH" \
+    "$REGION" \
+    "$FROM_PIN" \
+    "$TO_PIN" \
+    "$WIDTH" \
+    "$HEIGHT" \
+    "$ZOOM" \
+    "$FOLLOW_ROUTE" \
+    "$ROTATE_WITH_HEADING" \
+    "$DURATION_SECONDS" \
+    "$FPS" \
+    "$HEADING_SMOOTHING_TAU_SECONDS" \
+    "$HEADING_LOOKAHEAD_SECONDS" \
+    "$HEADING_MEASUREMENT_WINDOW_SECONDS" \
+    "$HEADING_MAX_TURN_RATE_DEG_PER_SEC" \
+    "$PREVIEW" \
+    "$FRAMES" \
+    "$RENDER_MODE" \
+    "$QUALITY_PROFILE" \
+    "$PIXEL_SCALE" <<'PY'
+import json
+import sys
+from pathlib import Path
 
-if [ -n "$JOB_COPY_PATH" ]; then
-    mkdir -p "$(dirname "$JOB_COPY_PATH")"
-    cp "$JOB_PATH" "$JOB_COPY_PATH"
+(
+    job_path,
+    region,
+    from_pin,
+    to_pin,
+    width,
+    height,
+    zoom,
+    follow_route,
+    rotate_with_heading,
+    duration_seconds,
+    fps,
+    heading_smoothing_tau_seconds,
+    heading_lookahead_seconds,
+    heading_measurement_window_seconds,
+    heading_max_turn_rate_deg_per_sec,
+    preview,
+    frames,
+    render_mode,
+    quality_profile,
+    pixel_scale,
+) = sys.argv[1:]
+
+def as_bool(value):
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"expected boolean true|false, got {value!r}")
+
+job = {
+    "version": 2,
+    "type": "route_playback_render",
+    "map_region": region,
+    "from_pin": from_pin,
+    "to_pin": to_pin,
+    "route": {
+        "mode": "walking",
+    },
+    "camera": {
+        "width": int(width),
+        "height": int(height),
+        "zoom": float(zoom),
+        "follow_route": as_bool(follow_route),
+        "rotate_with_heading": as_bool(rotate_with_heading),
+    },
+    "playback": {
+        "duration_seconds": float(duration_seconds),
+        "fps": int(fps),
+        "start_paused": False,
+        "heading": {
+            "mode": "blended",
+            "smoothing_tau_seconds": float(heading_smoothing_tau_seconds),
+            "lookahead_seconds": float(heading_lookahead_seconds),
+            "measurement_window_seconds": float(heading_measurement_window_seconds),
+            "max_turn_rate_deg_per_sec": float(heading_max_turn_rate_deg_per_sec),
+        },
+    },
+    "output": {
+        "preview": as_bool(preview),
+        "frames": as_bool(frames),
+        "frame_format": "bmp",
+        "video_manifest": False,
+        "render_mode": render_mode,
+        "quality_profile": quality_profile,
+        "pixel_scale": int(pixel_scale),
+        "stabilize_visible_zoom": True,
+        "stabilize_tile_bands": True,
+        "allow_tile_fallback": False,
+        "simplify_route_screen_space": False,
+    },
+}
+
+Path(job_path).write_text(json.dumps(job, indent=2) + "\n", encoding="utf-8")
+PY
+
+mapforge_copy_file_if_requested "$JOB_PATH" "$JOB_COPY_PATH"
+
+MAPFORGE_REGIONS_DIR=${MAPFORGE_REGIONS_DIR:-$REPO_DIR/data/regions}
+export MAPFORGE_REGIONS_DIR
+if ! "$BINARY" --headless --job "$JOB_PATH" --out "$OUT_DIR"; then
+    mapforge_print_saved_pin_failure \
+        "$SCRIPT_NAME" \
+        "binary_failed" \
+        "$OUT_DIR" \
+        "$JOB_PATH" \
+        "$OUT_DIR/manifest.json" \
+        "$OUT_DIR/summary.md"
+    exit 1
 fi
 
-MAPFORGE_REGIONS_DIR="${MAPFORGE_REGIONS_DIR:-$REPO_DIR/data/regions}" \
-"$BINARY" --headless --job "$JOB_PATH" --out "$OUT_DIR"
+if ! mapforge_require_complete_manifest \
+    "$SCRIPT_NAME" \
+    "$OUT_DIR" \
+    "$JOB_PATH" \
+    "$OUT_DIR/manifest.json" \
+    "$OUT_DIR/summary.md"; then
+    exit 1
+fi
 
 printf 'saved-pin route export complete\n'
 printf 'out=%s\n' "$OUT_DIR"

@@ -61,4 +61,30 @@ grep -q '"preview_relpath": "preview/preview.png"' "$DROP_DIR/manifest.json"
 grep -q 'outputs/final/route_preview.mp4' "$DROP_DIR/SHA256SUMS"
 grep -q '"drop_id": "'"$DROP_ID"'"' "$STAGE_JSON"
 
+FAIL_STDERR="$TMP_DIR/stage_fail_stderr.txt"
+if /bin/sh "$STAGE_HELPER" \
+    --run-dir "$TMP_DIR/missing_run" \
+    --drop-id "map-forge--saved-pin-route--20260520T000000Z--missing" \
+    --staging-root "$STAGING_ROOT" \
+    2> "$FAIL_STDERR"; then
+    echo "expected visualizer stage helper to fail for missing run dir" >&2
+    exit 1
+fi
+grep -q 'visualizer wrapper failure: missing_run_dir' "$FAIL_STDERR"
+grep -q 'run_dir='"$TMP_DIR"'/missing_run' "$FAIL_STDERR"
+grep -q 'drop_dir='"$STAGING_ROOT"'/map-forge--saved-pin-route--20260520T000000Z--missing' "$FAIL_STDERR"
+grep -q 'manifest='"$TMP_DIR"'/missing_run/manifest.json' "$FAIL_STDERR"
+grep -q 'preview='"$TMP_DIR"'/missing_run/preview.bmp' "$FAIL_STDERR"
+
+BAD_ROOT_STDERR="$TMP_DIR/bad_root_stderr.txt"
+if /bin/sh "$STAGE_HELPER" \
+    --run-dir "$RUN_DIR" \
+    --drop-id "map-forge--saved-pin-route--20260520T000000Z--badroot" \
+    --staging-root "$TMP_DIR/../bad_staged" \
+    > /dev/null 2> "$BAD_ROOT_STDERR"; then
+    echo "expected visualizer stage helper to reject parent traversal staging root" >&2
+    exit 1
+fi
+grep -q 'invalid local artifact path for --staging-root: parent_traversal' "$BAD_ROOT_STDERR"
+
 echo "headless visualizer drop stage smoke passed"

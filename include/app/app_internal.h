@@ -805,6 +805,7 @@ void app_runtime_budget_policy_init(AppState *app);
 void app_runtime_budget_reset_frame(AppState *app);
 uint32_t app_tile_load_budget(TileLayerKind kind, uint32_t expected);
 uint32_t app_tile_integrate_budget(TileLayerKind kind, uint32_t expected);
+void app_tile_viewport_invalidate(AppState *app);
 void app_clear_tile_queue(AppState *app);
 void app_drain_tile_results(AppState *app, uint32_t budget);
 void app_refresh_layer_states(AppState *app);
@@ -869,8 +870,26 @@ bool app_recompute_route(AppState *app);
 const RoutePath *app_route_primary_path(const AppState *app, uint32_t *out_alt_index);
 bool app_route_service_select_alternative(AppState *app, uint32_t alt_index);
 bool app_route_service_toggle_alternative_visibility(AppState *app, uint32_t alt_index);
+void app_route_service_clear_route_selection(AppState *app);
+bool app_route_service_begin_endpoint_drag(AppState *app, bool set_start);
+bool app_route_service_set_endpoint_anchor(AppState *app,
+                                           bool set_start,
+                                           const RouteEndpointAnchor *anchor,
+                                           double recompute_debounce_sec);
+bool app_route_service_update_drag_endpoint(AppState *app,
+                                            const RouteEndpointAnchor *anchor,
+                                            double recompute_debounce_sec);
+bool app_route_service_finish_endpoint_drag(AppState *app,
+                                            bool set_start,
+                                            double recompute_debounce_sec);
 
 void app_route_preview_reset(AppState *app);
+void app_route_preview_set_follow_enabled(AppState *app, bool enabled);
+bool app_route_preview_toggle_follow(AppState *app);
+void app_route_preview_disable_follow(AppState *app);
+void app_route_preview_toggle_heading_mode(AppState *app);
+void app_route_preview_update_state(AppState *app);
+void app_route_preview_apply_follow(AppState *app);
 void app_route_preview_update(AppState *app);
 void app_playback_reset(AppState *app);
 void app_playback_update(AppState *app, float dt);

@@ -1,6 +1,6 @@
 # Carta Current Truth
 
-Last updated: 2026-06-19
+Last updated: 2026-06-23
 
 ## Program Identity
 - Public product name: `Carta`
@@ -54,6 +54,24 @@ Last updated: 2026-06-19
   - `make -C map_forge clean && make -C map_forge`
   - `make -C map_forge test`
 - Primary smoke/stability gates:
+  - `make -C map_forge visual-harness`
+    - build/readiness target for manual visual validation
+    - prints the source binary path; does not emit an image artifact
+  - `make -C map_forge visual-artifact`
+    - source-run first-frame proof target
+    - runs the source-built app headlessly through the route demo
+    - writes ignored `visual_artifacts/source_run_first_frame/route_demo_seattle/preview.bmp`
+    - prints `visual-artifact=<path>` after validating the preview is nonempty
+    - failure means the headless route demo failed or the expected preview
+      artifact was missing/empty
+  - `make -C map_forge carta-local-proof`
+    - local proof aggregate; runs `test-r5-callable`, `visual-artifact`,
+      `run-headless-smoke-core`,
+      `test-headless-saved-pin-visualizer-publish-wrapper`, and
+      `package-desktop-self-test` sequentially
+    - prints `carta-local-proof passed`
+    - runs headlessly and does not perform remote publish/upload
+    - failure means one constituent local proof gate failed
   - `make -C map_forge run-headless-smoke`
     - routine non-interactive smoke; aliases `run-headless-smoke-core`
     - excludes saved-pin/video/visualizer artifact lanes and Phase-D throughput
@@ -77,6 +95,9 @@ Last updated: 2026-06-19
 ## Current Boundary
 - Continue maintenance hardening only from fresh evidence while preserving contract-driven runtime behavior.
 - Keep the completed tile-store/runtime architecture lane closed unless a fresh narrow regression or backend-expansion need appears.
+- The R0-R6 refinement pass is complete for the current boundary; proof commands
+  are documented through `visual-artifact` and `carta-local-proof`, and future
+  work should open a fresh narrow lane from new evidence.
 - Camera runtime now keeps Mercator zoom semantics, smoothing, and hot screen/world render transforms local while routing generic cursor-anchor zoom and drag-pan target math through vendored shared `core_viewport2d`.
 - Throughput guardrail calibration now reflects current local variance:
   - D2 `seattle` matrix precondition uses a higher absolute `l0_peak` ceiling

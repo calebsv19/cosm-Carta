@@ -486,6 +486,8 @@ static bool resolve_osmium_program(char *out_path, size_t out_path_cap) {
             return true;
         }
         log_error("MAPFORGE_OSMIUM_PATH is set but not executable: %s", env_path);
+        mapforge_region_log_diagnostic("source_ingest",
+                                       "Set MAPFORGE_OSMIUM_PATH to an executable osmium binary or unset it to use PATH/default probes.");
     }
 
     for (size_t i = 0; i < (sizeof(candidates) / sizeof(candidates[0])); ++i) {
@@ -522,6 +524,8 @@ static bool convert_pbf_to_xml(const char *pbf_path,
 
     if (!resolve_osmium_program(osmium_program, sizeof(osmium_program))) {
         log_error("PBF source detected (%s) but converter is unavailable. Install `osmium` or set MAPFORGE_OSMIUM_PATH to the osmium binary.", pbf_path);
+        mapforge_region_log_diagnostic("source_ingest",
+                                       "Install osmium or set MAPFORGE_OSMIUM_PATH to an executable osmium binary.");
         return false;
     }
     osmium_argv[0] = osmium_program;
@@ -545,8 +549,12 @@ static bool convert_pbf_to_xml(const char *pbf_path,
     (void)unlink(tmp_template);
     if (rc == ENOENT) {
         log_error("PBF source detected (%s) but converter is unavailable. Install `osmium` or set MAPFORGE_OSMIUM_PATH to the osmium binary.", pbf_path);
+        mapforge_region_log_diagnostic("source_ingest",
+                                       "Install osmium or set MAPFORGE_OSMIUM_PATH to an executable osmium binary.");
     } else {
         log_error("PBF conversion failed for %s (converter=%s, rc=%d)", pbf_path, osmium_program, rc);
+        mapforge_region_log_diagnostic("source_ingest",
+                                       "Inspect the source PBF and rerun the osmium conversion command shown by the converter path.");
     }
     return false;
 }
@@ -561,6 +569,8 @@ static bool parse_osm_xml(const BuildOptions *options,
     FILE *file = fopen(osm_xml_path, "r");
     if (!file) {
         log_error("Failed to open OSM file: %s", osm_xml_path);
+        mapforge_region_log_diagnostic("source_ingest",
+                                       "Check the --osm path and permissions before rebuilding the region.");
         return false;
     }
 
