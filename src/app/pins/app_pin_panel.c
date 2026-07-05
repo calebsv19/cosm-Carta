@@ -1,6 +1,7 @@
 #include "app/app_internal.h"
 #include "app/app_map_viewport_internal.h"
 #include "app/app_pin_panel_internal.h"
+#include "app/app_runtime_ingest_internal.h"
 
 #include "map/mercator.h"
 
@@ -12,6 +13,67 @@ static bool app_point_in_rect(int x, int y, const SDL_FRect *rect) {
            (float)x <= rect->x + rect->w &&
            (float)y >= rect->y &&
            (float)y <= rect->y + rect->h;
+}
+
+static bool app_pin_panel_handle_ingest_click(AppState *app, int x, int y) {
+    if (!app || app->ui_state_bridge.left_pane_section != APP_LEFT_PANE_SECTION_INGEST) {
+        return false;
+    }
+    if (!app->ui_state_bridge.input.left_click_pressed) {
+        return false;
+    }
+    for (int i = 0; i < app->ui_state_bridge.pin_pane_row_count; ++i) {
+        if (!app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_row_rects[i])) {
+            continue;
+        }
+        uint32_t now = SDL_GetTicks();
+        if (app->ingest_show_active_tab) {
+            bool double_click = app->ingest_last_active_click_index == i &&
+                                now - app->ingest_last_active_click_tick < 500u;
+            app->ingest_selected_active = i;
+            app->ingest_last_active_click_index = i;
+            app->ingest_last_active_click_tick = now;
+            if (double_click) {
+                (void)app_ingest_open_selected_active_region(app);
+            }
+        } else {
+            bool double_click = app->ingest_last_active_click_index == i &&
+                                now - app->ingest_last_active_click_tick < 500u;
+            app->ingest_selected_osm = i;
+            app->ingest_last_active_click_index = i;
+            app->ingest_last_active_click_tick = now;
+            if (double_click) {
+                (void)app_ingest_open_or_import_selected_source(app);
+            }
+        }
+        return true;
+    }
+    if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_add_rect)) {
+        if (app->ingest_show_active_tab) {
+            (void)app_ingest_open_selected_active_region(app);
+        } else {
+            (void)app_ingest_open_or_import_selected_source(app);
+        }
+        return true;
+    }
+    if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_save_rect)) {
+        if (app->ingest_show_active_tab) {
+            app->ingest_show_active_tab = false;
+        } else {
+            (void)app_ingest_import_selected_osm(app, true);
+        }
+        return true;
+    }
+    if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_delete_rect)) {
+        (void)app_ingest_pick_source_file(app);
+        return true;
+    }
+    if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_cancel_rect)) {
+        app_ingest_rescan_sources(app);
+        app_ingest_rescan_active_regions(app);
+        return true;
+    }
+    return false;
 }
 
 bool app_pin_panel_handle_click(AppState *app, int x, int y) {
@@ -36,6 +98,9 @@ bool app_pin_panel_handle_click(AppState *app, int x, int y) {
         app_pin_panel_handle_list_click(app, x, y)) {
         return true;
     }
+    if (app_pin_panel_handle_ingest_click(app, x, y)) {
+        return true;
+    }
     if (!app->ui_state_bridge.input.left_click_pressed) {
         return true;
     }
@@ -50,6 +115,12 @@ bool app_pin_panel_handle_click(AppState *app, int x, int y) {
         if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_tab_rects[i])) {
             app_pin_panel_cancel_list_drag(app);
             app->ui_state_bridge.left_pane_section = (AppLeftPaneSection)i;
+            if (app->ui_state_bridge.left_pane_section == APP_LEFT_PANE_SECTION_INGEST) {
+                app->ingest_panel_open = true;
+                app->ui_state_bridge.hud_ingest_panel_collapsed = false;
+                app_ingest_rescan_sources(app);
+                app_ingest_rescan_active_regions(app);
+            }
             app_pin_panel_layout(app);
             return true;
         }

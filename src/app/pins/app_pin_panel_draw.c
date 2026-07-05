@@ -1,5 +1,6 @@
 #include "app/app_internal.h"
 #include "app/app_pin_panel_internal.h"
+#include "app/app_runtime_ingest_internal.h"
 #include "app/app_ui_internal.h"
 
 #include "ui/font.h"
@@ -290,6 +291,54 @@ static void app_draw_left_pane_ingest(AppState *app,
                          muted,
                          0.85f,
                          (int)app->ui_state_bridge.pin_pane_content_rect.w - 8);
+    if (app->ingest_import_running && app->ingest_import_total_steps > 0) {
+        SDL_FRect track = {
+            app->ui_state_bridge.pin_pane_content_rect.x + 2.0f,
+            app->ui_state_bridge.pin_pane_content_rect.y + 80.0f,
+            app->ui_state_bridge.pin_pane_content_rect.w - 4.0f,
+            6.0f
+        };
+        float ratio = (float)app->ingest_import_completed_steps / (float)app->ingest_import_total_steps;
+        if (ratio < 0.0f) {
+            ratio = 0.0f;
+        }
+        if (ratio > 1.0f) {
+            ratio = 1.0f;
+        }
+        SDL_FRect fill = track;
+        fill.w *= ratio;
+        renderer_set_draw_color(&app->renderer, palette->button_outline.r, palette->button_outline.g, palette->button_outline.b, 180);
+        renderer_fill_rect(&app->renderer, &track);
+        renderer_set_draw_color(&app->renderer, palette->overlay_accent.r, palette->overlay_accent.g, palette->overlay_accent.b, 245);
+        renderer_fill_rect(&app->renderer, &fill);
+    }
+
+    SDL_FRect buttons[4] = {
+        app->ui_state_bridge.pin_pane_add_rect,
+        app->ui_state_bridge.pin_pane_save_rect,
+        app->ui_state_bridge.pin_pane_delete_rect,
+        app->ui_state_bridge.pin_pane_cancel_rect
+    };
+    const char *labels_source[4] = {"IMPORT", "ALL", "FILE", "RESCAN"};
+    const char *labels_active[4] = {"OPEN", "SOURCES", "FILE", "RESCAN"};
+    const char **labels = app->ingest_show_active_tab ? labels_active : labels_source;
+    for (int i = 0; i < 4; ++i) {
+        SDL_Color fill = palette->button_fill;
+        if (i == 0 && app->ingest_import_running) {
+            fill = palette->button_active_primary;
+        }
+        renderer_set_draw_color(&app->renderer, fill.r, fill.g, fill.b, 220);
+        renderer_fill_rect(&app->renderer, &buttons[i]);
+        renderer_set_draw_color(&app->renderer, palette->button_outline.r, palette->button_outline.g, palette->button_outline.b, palette->button_outline.a);
+        renderer_draw_rect(&app->renderer, &buttons[i]);
+        ui_draw_text_clipped(&app->renderer,
+                             (int)(buttons[i].x + 8.0f),
+                             (int)(buttons[i].y + 4.0f),
+                             labels[i],
+                             text,
+                             0.82f,
+                             (int)buttons[i].w - 12);
+    }
 
     renderer_set_draw_color(&app->renderer, palette->route_panel_fill.r, palette->route_panel_fill.g, palette->route_panel_fill.b, 220);
     renderer_fill_rect(&app->renderer, &app->ui_state_bridge.pin_pane_list_rect);
@@ -306,7 +355,7 @@ static void app_draw_left_pane_ingest(AppState *app,
         ui_draw_text(&app->renderer,
                      (int)(app->ui_state_bridge.pin_pane_list_rect.x + 10.0f),
                      (int)(app->ui_state_bridge.pin_pane_list_rect.y + 100.0f),
-                     "Use existing ingest shortcuts while pane-hosted controls are rebuilt.",
+                     app->ingest_show_active_tab ? "Import a source to create a region." : "Use FILE to select an OSM/PBF source.",
                      muted,
                      0.9f);
         return;
@@ -315,17 +364,35 @@ static void app_draw_left_pane_ingest(AppState *app,
     for (int i = 0; i < app->ui_state_bridge.pin_pane_row_count; ++i) {
         SDL_FRect row = app->ui_state_bridge.pin_pane_row_rects[i];
         const char *name = app->ingest_show_active_tab ? app->ingest_active_regions[i] : app->ingest_osm_files[i];
-        renderer_set_draw_color(&app->renderer, palette->chip_idle_fill.r, palette->chip_idle_fill.g, palette->chip_idle_fill.b, 110);
+        const bool selected = app->ingest_show_active_tab
+            ? (i == app->ingest_selected_active)
+            : (i == app->ingest_selected_osm);
+        bool loaded = false;
+        char region_name[APP_INGEST_NAME_CAP];
+        region_name[0] = '\0';
+        if (!app->ingest_show_active_tab) {
+            loaded = app_ingest_source_name_loaded(name, region_name, sizeof(region_name));
+        }
+        SDL_Color row_fill = selected ? palette->button_active_primary : palette->chip_idle_fill;
+        renderer_set_draw_color(&app->renderer, row_fill.r, row_fill.g, row_fill.b, selected ? 150 : 110);
         renderer_fill_rect(&app->renderer, &row);
         renderer_set_draw_color(&app->renderer, palette->overlay_outline.r, palette->overlay_outline.g, palette->overlay_outline.b, 180);
         renderer_draw_rect(&app->renderer, &row);
+        if (!app->ingest_show_active_tab && loaded) {
+            ui_draw_text(&app->renderer,
+                         (int)(row.x + row.w - 54.0f),
+                         (int)(row.y + 5.0f),
+                         "LOADED",
+                         muted,
+                         0.72f);
+        }
         ui_draw_text_clipped(&app->renderer,
                              (int)(row.x + 8.0f),
                              (int)(row.y + 5.0f),
                              name,
                              text,
                              1.0f,
-                             (int)row.w - 16);
+                             (int)row.w - (loaded ? 70 : 16));
     }
 }
 

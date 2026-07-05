@@ -310,11 +310,24 @@ void app_pin_panel_layout(AppState *app) {
             app->ui_state_bridge.pin_pane_content_rect.y + app->ui_state_bridge.pin_pane_content_rect.h - y
         };
     } else if (app->ui_state_bridge.left_pane_section == APP_LEFT_PANE_SECTION_INGEST) {
+        float body_x = app->ui_state_bridge.pin_pane_content_rect.x;
+        float body_w = app->ui_state_bridge.pin_pane_content_rect.w;
+        float button_gap = 8.0f;
+        float button_w = (body_w - button_gap * 3.0f) / 4.0f;
+        float y = app->ui_state_bridge.pin_pane_content_rect.y + 86.0f;
+        if (button_w < 64.0f) {
+            button_w = 64.0f;
+        }
+        app->ui_state_bridge.pin_pane_add_rect = (SDL_FRect){body_x, y, button_w, button_h};
+        app->ui_state_bridge.pin_pane_save_rect = (SDL_FRect){body_x + button_w + button_gap, y, button_w, button_h};
+        app->ui_state_bridge.pin_pane_delete_rect = (SDL_FRect){body_x + (button_w + button_gap) * 2.0f, y, button_w, button_h};
+        app->ui_state_bridge.pin_pane_cancel_rect = (SDL_FRect){body_x + (button_w + button_gap) * 3.0f, y, button_w, button_h};
+        y += button_h + 10.0f;
         app->ui_state_bridge.pin_pane_list_rect = (SDL_FRect){
-            app->ui_state_bridge.pin_pane_content_rect.x,
-            app->ui_state_bridge.pin_pane_content_rect.y + 92.0f,
-            app->ui_state_bridge.pin_pane_content_rect.w,
-            app->ui_state_bridge.pin_pane_content_rect.h - 92.0f
+            body_x,
+            y,
+            body_w,
+            app->ui_state_bridge.pin_pane_content_rect.y + app->ui_state_bridge.pin_pane_content_rect.h - y
         };
     } else {
         app->ui_state_bridge.pin_pane_list_rect = (SDL_FRect){

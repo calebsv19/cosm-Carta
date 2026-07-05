@@ -5,6 +5,10 @@
 
 void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats);
 void app_draw_region_bounds(AppState *app);
+bool app_polygon_fill_gate_allows(uint32_t expected_tiles, uint32_t ready_tiles);
+bool app_polygon_fill_screen_gate_allows(uint32_t expected_tiles, uint32_t ready_tiles);
+bool app_polygon_present_trace_enabled(void);
+void app_polygon_present_trace_emit(const AppPolygonPresentTraceDecision *decision);
 void app_tile_presenter_reset_frame_counters(AppState *app);
 float app_tile_presenter_band_blend_mix(const AppState *app, TileLayerKind kind, double now_sec);
 bool app_tile_presenter_peek_tile_for_band(const AppState *app,
@@ -28,6 +32,18 @@ void app_tile_presenter_present_hold_remember(AppState *app,
                                               TileCoord coord,
                                               TileZoomBand band,
                                               double now_sec);
+void app_tile_presenter_present_hold_remember_draw(AppState *app,
+                                                   TileLayerKind kind,
+                                                   TileCoord coord,
+                                                   TileCoord draw_coord,
+                                                   TileZoomBand band,
+                                                   double now_sec);
+bool app_tile_presenter_present_hold_lookup_draw(AppState *app,
+                                                 TileLayerKind kind,
+                                                 TileCoord coord,
+                                                 double now_sec,
+                                                 TileCoord *out_draw_coord,
+                                                 TileZoomBand *out_band);
 bool app_tile_presenter_present_hold_lookup(AppState *app,
                                             TileLayerKind kind,
                                             TileCoord coord,
@@ -35,9 +51,11 @@ bool app_tile_presenter_present_hold_lookup(AppState *app,
                                             TileZoomBand *out_band);
 bool app_tile_presenter_draw_polygon_band_blend(AppState *app,
                                                 TileLayerKind kind,
+                                                TileCoord requested_coord,
                                                 TileCoord coord,
                                                 float building_zoom_bias,
                                                 float layer_opacity,
+                                                bool allow_background_fill,
                                                 double now_sec);
 bool app_tile_presenter_draw_road_band_blend(AppState *app,
                                              TileLayerKind kind,
@@ -56,8 +74,17 @@ bool app_tile_presenter_draw_road_layer(AppState *app,
                                         float road_opacity,
                                         double now_sec,
                                         uint32_t *io_vk_asset_misses);
+bool app_try_draw_vk_cached_polygon_tile(AppState *app,
+                                         TileLayerKind kind,
+                                         TileCoord coord,
+                                         TileZoomBand band,
+                                         bool allow_retained_fill,
+                                         VkPolyFillBudget *budget,
+                                         VkPolyAssetBuildBudget *asset_build_budget,
+                                         AppPolygonPresentTraceDecision *trace);
 bool app_tile_presenter_draw_polygon_layer(AppState *app,
                                            TileLayerKind kind,
+                                           TileCoord requested_coord,
                                            TileCoord coord,
                                            const MftTile *tile,
                                            TileZoomBand band,

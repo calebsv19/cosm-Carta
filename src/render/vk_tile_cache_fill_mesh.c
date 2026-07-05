@@ -1,5 +1,7 @@
 #include "vk_tile_cache_fill_mesh.h"
 
+#include "vk_polygon_fill_geometry_guard.h"
+
 #include "map/polygon_triangulator.h"
 
 #include <stdlib.h>
@@ -160,13 +162,17 @@ bool vk_tile_cache_build_polygon_fill_mesh(VkTileCache *cache,
                     cache->fill_mesh_build_failures += 1u;
                     return false;
                 }
+                const uint16_t *ring_points = &tile->polygon_points[point_offset * 2u];
+                if (!vk_polygon_fill_ring_allowed_for_retained_mesh(entry->kind, ring_points, ring_count)) {
+                    point_offset += ring_count;
+                    continue;
+                }
                 const uint32_t *cached_indices = NULL;
                 uint32_t cached_count = 0u;
                 uint32_t *fallback_indices = NULL;
                 uint32_t fallback_count = 0u;
                 bool has_indices = polygon_get_cached_indices(tile, ring_index, &cached_indices, &cached_count);
                 if (!has_indices) {
-                    const uint16_t *ring_points = &tile->polygon_points[point_offset * 2u];
                     has_indices = polygon_build_fallback_indices(ring_points, ring_count,
                                                                  &fallback_indices, &fallback_count);
                     cached_indices = fallback_indices;
@@ -213,13 +219,17 @@ bool vk_tile_cache_build_polygon_fill_mesh(VkTileCache *cache,
                 point_offset += ring_count;
                 continue;
             }
+            const uint16_t *ring_points = &tile->polygon_points[point_offset * 2u];
+            if (!vk_polygon_fill_ring_allowed_for_retained_mesh(entry->kind, ring_points, ring_count)) {
+                point_offset += ring_count;
+                continue;
+            }
             const uint32_t *ring_indices = NULL;
             uint32_t ring_index_count = 0u;
             uint32_t *fallback_indices = NULL;
             uint32_t fallback_count = 0u;
             bool has_indices = polygon_get_cached_indices(tile, ring_index, &ring_indices, &ring_index_count);
             if (!has_indices) {
-                const uint16_t *ring_points = &tile->polygon_points[point_offset * 2u];
                 has_indices = polygon_build_fallback_indices(ring_points, ring_count,
                                                              &fallback_indices, &fallback_count);
                 ring_indices = fallback_indices;

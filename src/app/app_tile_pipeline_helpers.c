@@ -401,7 +401,7 @@ static bool app_visible_coord_has_present_hold_tile(const AppState *app,
         if (entry->coord.z != coord.z || entry->coord.x != coord.x || entry->coord.y != coord.y) {
             continue;
         }
-        if (tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, entry->band)) {
+        if (tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], entry->draw_coord, entry->band)) {
             return true;
         }
     }

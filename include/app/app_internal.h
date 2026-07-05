@@ -132,6 +132,12 @@ typedef struct VkPolyFillBudget {
     uint32_t total_used;
     uint32_t layer_cap[TILE_LAYER_COUNT];
     uint32_t layer_used[TILE_LAYER_COUNT];
+    bool layer_fill_allowed[TILE_LAYER_COUNT];
+    uint32_t layer_fill_expected[TILE_LAYER_COUNT];
+    uint32_t layer_fill_ready[TILE_LAYER_COUNT];
+    bool screen_fill_allowed;
+    uint32_t screen_fill_expected;
+    uint32_t screen_fill_ready;
 } VkPolyFillBudget;
 
 /* Runtime cap for on-demand Vulkan polygon asset generation. */
@@ -139,6 +145,38 @@ typedef struct VkPolyAssetBuildBudget {
     uint32_t cap;
     uint32_t used;
 } VkPolyAssetBuildBudget;
+
+/* Captures one polygon tile presentation decision for opt-in zoom diagnostics. */
+typedef struct AppPolygonPresentTraceDecision {
+    TileLayerKind kind;
+    TileCoord requested_coord;
+    TileCoord draw_coord;
+    TileZoomBand target_band;
+    TileZoomBand resolved_band;
+    float zoom;
+    float layer_opacity;
+    float fade_multiplier;
+    bool vk_backend;
+    bool vk_assets_enabled;
+    bool same_coord;
+    uint32_t fallback_depth;
+    bool present_hold_hit;
+    bool present_hold_valid;
+    bool band_blend_attempted;
+    bool band_blend_drawn;
+    bool asset_present;
+    bool retained_fill_ready;
+    bool retained_fill_drawn;
+    bool retained_fill_skipped_budget;
+    bool retained_fill_missing;
+    bool retained_outline_drawn;
+    bool cpu_fallback_allowed;
+    bool cpu_fallback_drawn;
+    bool asset_enqueue_attempted;
+    bool asset_enqueue_budget_blocked;
+    bool asset_enqueue_succeeded;
+    bool no_draw_after_asset_miss;
+} AppPolygonPresentTraceDecision;
 
 /* Centralized runtime budget knobs for tile/load/render throughput control. */
 typedef struct AppRuntimeBudgetPolicy {
@@ -183,7 +221,9 @@ typedef struct AppRuntimeBudgetFrameStats {
 /* Last-known tile presentation band retained briefly for visual continuity. */
 typedef struct TilePresentHoldEntry {
     bool occupied;
+    /* Visible request key; draw_coord may be a retained parent tile. */
     TileCoord coord;
+    TileCoord draw_coord;
     TileZoomBand band;
     double expires_at;
     uint64_t stamp;
@@ -848,8 +888,10 @@ bool app_try_draw_vk_cached_polygon_tile(AppState *app,
                                          TileLayerKind kind,
                                          TileCoord coord,
                                          TileZoomBand band,
+                                         bool allow_retained_fill,
                                          VkPolyFillBudget *budget,
-                                         VkPolyAssetBuildBudget *asset_build_budget);
+                                         VkPolyAssetBuildBudget *asset_build_budget,
+                                         AppPolygonPresentTraceDecision *trace);
 bool app_try_draw_vk_cached_tile(AppState *app, TileLayerKind kind, TileCoord coord, TileZoomBand band);
 
 bool app_load_route_graph(AppState *app);

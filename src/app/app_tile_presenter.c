@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_tile_render_internal.h"
 
 #include "core/log.h"
 #include "map/polygon_renderer.h"
@@ -189,11 +190,12 @@ static TilePresentHoldEntry *app_present_hold_pick_slot(AppState *app, TileLayer
     return oldest;
 }
 
-void app_tile_presenter_present_hold_remember(AppState *app,
-                                              TileLayerKind kind,
-                                              TileCoord coord,
-                                              TileZoomBand band,
-                                              double now_sec) {
+static void app_tile_presenter_present_hold_store(AppState *app,
+                                                  TileLayerKind kind,
+                                                  TileCoord coord,
+                                                  TileCoord draw_coord,
+                                                  TileZoomBand band,
+                                                  double now_sec) {
     if (!app || kind < 0 || kind >= TILE_LAYER_COUNT) {
         return;
     }
@@ -206,6 +208,7 @@ void app_tile_presenter_present_hold_remember(AppState *app,
     }
     entry->occupied = true;
     entry->coord = coord;
+    entry->draw_coord = draw_coord;
     entry->band = band;
     double ttl = APP_TILE_PRESENT_HOLD_TTL_SEC;
     if (app->tile_state_bridge.visible_valid) {
@@ -225,12 +228,30 @@ void app_tile_presenter_present_hold_remember(AppState *app,
     app->tile_state_bridge.present_hold_updates += 1u;
 }
 
-bool app_tile_presenter_present_hold_lookup(AppState *app,
-                                            TileLayerKind kind,
-                                            TileCoord coord,
-                                            double now_sec,
-                                            TileZoomBand *out_band) {
-    if (!app || !out_band || kind < 0 || kind >= TILE_LAYER_COUNT) {
+void app_tile_presenter_present_hold_remember(AppState *app,
+                                              TileLayerKind kind,
+                                              TileCoord coord,
+                                              TileZoomBand band,
+                                              double now_sec) {
+    app_tile_presenter_present_hold_store(app, kind, coord, coord, band, now_sec);
+}
+
+void app_tile_presenter_present_hold_remember_draw(AppState *app,
+                                                   TileLayerKind kind,
+                                                   TileCoord coord,
+                                                   TileCoord draw_coord,
+                                                   TileZoomBand band,
+                                                   double now_sec) {
+    app_tile_presenter_present_hold_store(app, kind, coord, draw_coord, band, now_sec);
+}
+
+bool app_tile_presenter_present_hold_lookup_draw(AppState *app,
+                                                 TileLayerKind kind,
+                                                 TileCoord coord,
+                                                 double now_sec,
+                                                 TileCoord *out_draw_coord,
+                                                 TileZoomBand *out_band) {
+    if (!app || !out_draw_coord || !out_band || kind < 0 || kind >= TILE_LAYER_COUNT) {
         return false;
     }
     TilePresentHoldEntry *entry = app_present_hold_find(app, kind, coord);
@@ -243,10 +264,20 @@ bool app_tile_presenter_present_hold_lookup(AppState *app,
         app->tile_state_bridge.present_hold_misses += 1u;
         return false;
     }
+    *out_draw_coord = entry->draw_coord;
     *out_band = entry->band;
     entry->stamp = app->tile_state_bridge.present_hold_tick++;
     app->tile_state_bridge.present_hold_hits += 1u;
     return true;
+}
+
+bool app_tile_presenter_present_hold_lookup(AppState *app,
+                                            TileLayerKind kind,
+                                            TileCoord coord,
+                                            double now_sec,
+                                            TileZoomBand *out_band) {
+    TileCoord draw_coord = {0};
+    return app_tile_presenter_present_hold_lookup_draw(app, kind, coord, now_sec, &draw_coord, out_band);
 }
 
 bool app_tile_presenter_resolve_tile_for_present(AppState *app,
@@ -259,8 +290,9 @@ bool app_tile_presenter_resolve_tile_for_present(AppState *app,
         return false;
     }
     TileZoomBand hold_band = TILE_BAND_DEFAULT;
-    if (app_tile_presenter_present_hold_lookup(app, kind, coord, now_sec, &hold_band) &&
-        app_tile_presenter_peek_tile_for_band(app, kind, coord, hold_band, out_tile)) {
+    TileCoord hold_draw_coord = coord;
+    if (app_tile_presenter_present_hold_lookup_draw(app, kind, coord, now_sec, &hold_draw_coord, &hold_band) &&
+        app_tile_presenter_peek_tile_for_band(app, kind, hold_draw_coord, hold_band, out_tile)) {
         *out_band = hold_band;
         return true;
     }
@@ -272,17 +304,25 @@ bool app_tile_presenter_resolve_tile_for_present(AppState *app,
 
 bool app_tile_presenter_draw_polygon_band_blend(AppState *app,
                                                 TileLayerKind kind,
+                                                TileCoord requested_coord,
                                                 TileCoord coord,
                                                 float building_zoom_bias,
                                                 float layer_opacity,
+                                                bool allow_background_fill,
                                                 double now_sec) {
     if (!app) {
+        return false;
+    }
+    if (!allow_background_fill) {
         return false;
     }
     float band_mix = app_tile_presenter_band_blend_mix(app, kind, now_sec);
     TileZoomBand from_band = app->tile_state_bridge.previous_target_band[kind];
     TileZoomBand to_band = app->tile_state_bridge.layer_target_band[kind];
     if (from_band == to_band || band_mix >= 1.0f) {
+        return false;
+    }
+    if (!app_tile_coord_equals(requested_coord, coord)) {
         return false;
     }
 
@@ -303,7 +343,7 @@ bool app_tile_presenter_draw_polygon_band_blend(AppState *app,
                                    building_zoom_bias, app->view_state_bridge.building_fill_enabled, app->view_state_bridge.polygon_outline_only,
                                    layer_opacity * band_mix);
     }
-    app_tile_presenter_present_hold_remember(app, kind, coord, has_to ? to_band : from_band, now_sec);
+    app_tile_presenter_present_hold_remember_draw(app, kind, requested_coord, coord, has_to ? to_band : from_band, now_sec);
     app->tile_state_bridge.transition_blend_draw_count += 1u;
     app->tile_state_bridge.draw_path_fallback_count += 1u;
     return true;
@@ -405,6 +445,7 @@ bool app_tile_presenter_draw_road_layer(AppState *app,
 
 bool app_tile_presenter_draw_polygon_layer(AppState *app,
                                            TileLayerKind kind,
+                                           TileCoord requested_coord,
                                            TileCoord coord,
                                            const MftTile *tile,
                                            TileZoomBand band,
@@ -420,13 +461,72 @@ bool app_tile_presenter_draw_polygon_layer(AppState *app,
         return false;
     }
 
-    bool blended = app_tile_presenter_draw_polygon_band_blend(app, kind, coord, building_zoom_bias, layer_opacity, now_sec);
+    TileZoomBand target_band = app->tile_state_bridge.layer_target_band[kind];
+    bool background_fill_allowed = app_tile_coord_equals(requested_coord, coord) && band == target_band;
+    if (poly_fill_budget && poly_fill_budget->enabled && kind >= 0 && kind < TILE_LAYER_COUNT &&
+        !poly_fill_budget->layer_fill_allowed[kind]) {
+        background_fill_allowed = false;
+    }
+    if (poly_fill_budget && poly_fill_budget->enabled && poly_fill_budget->screen_fill_expected > 0u &&
+        !poly_fill_budget->screen_fill_allowed) {
+        background_fill_allowed = false;
+    }
+    bool trace_enabled = app_polygon_present_trace_enabled();
+    AppPolygonPresentTraceDecision trace = {0};
+    if (trace_enabled) {
+        trace.kind = kind;
+        trace.requested_coord = requested_coord;
+        trace.draw_coord = coord;
+        trace.target_band = app->tile_state_bridge.layer_target_band[kind];
+        trace.resolved_band = band;
+        trace.zoom = app->view_state_bridge.camera.zoom;
+        trace.layer_opacity = layer_opacity;
+        trace.fade_multiplier = app_layer_fade_multiplier(app, kind);
+        trace.vk_backend = renderer_get_backend(&app->renderer) == RENDERER_BACKEND_VULKAN;
+        trace.vk_assets_enabled = app->tile_state_bridge.vk_assets_enabled;
+        trace.same_coord = app_tile_coord_equals(requested_coord, coord);
+        if (requested_coord.z >= coord.z) {
+            trace.fallback_depth = (uint32_t)(requested_coord.z - coord.z);
+        }
+        trace.cpu_fallback_allowed = allow_immediate_polygon_fallback ||
+                                     (kind == TILE_LAYER_POLY_BUILDING && allow_building_fallback);
+        TilePresentHoldEntry *hold_entry = app_present_hold_find(app, kind, requested_coord);
+        if (hold_entry && hold_entry->expires_at > now_sec) {
+            trace.present_hold_hit = true;
+            trace.present_hold_valid = tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind],
+                                                              hold_entry->draw_coord,
+                                                              hold_entry->band) != NULL;
+        }
+        trace.band_blend_attempted = app->tile_state_bridge.previous_target_band[kind] !=
+                                     app->tile_state_bridge.layer_target_band[kind];
+    }
+
+    bool blended = app_tile_presenter_draw_polygon_band_blend(app,
+                                                              kind,
+                                                              requested_coord,
+                                                              coord,
+                                                              building_zoom_bias,
+                                                              layer_opacity,
+                                                              background_fill_allowed,
+                                                              now_sec);
     if (blended) {
+        if (trace_enabled) {
+            trace.band_blend_drawn = true;
+            trace.cpu_fallback_drawn = true;
+            app_polygon_present_trace_emit(&trace);
+        }
         return true;
     }
 
-    if (app_try_draw_vk_cached_polygon_tile(app, kind, coord, band, poly_fill_budget, poly_asset_build_budget)) {
-        app_tile_presenter_present_hold_remember(app, kind, coord, band, now_sec);
+    if (app_try_draw_vk_cached_polygon_tile(app,
+                                            kind,
+                                            coord,
+                                            band,
+                                            background_fill_allowed,
+                                            poly_fill_budget,
+                                            poly_asset_build_budget,
+                                            trace_enabled ? &trace : NULL)) {
+        app_tile_presenter_present_hold_remember_draw(app, kind, requested_coord, coord, band, now_sec);
         app->tile_state_bridge.draw_path_vk_count += 1u;
         bool is_ideal = (app->tile_state_bridge.layer_target_band[kind] == band);
         app_tile_lifecycle_transition(app,
@@ -438,6 +538,9 @@ bool app_tile_presenter_draw_polygon_layer(AppState *app,
                                       true,
                                       !is_ideal,
                                       is_ideal);
+        if (trace_enabled) {
+            app_polygon_present_trace_emit(&trace);
+        }
         return true;
     }
 
@@ -447,13 +550,22 @@ bool app_tile_presenter_draw_polygon_layer(AppState *app,
         if (io_vk_asset_misses) {
             *io_vk_asset_misses += 1u;
         }
+        if (trace_enabled) {
+            trace.asset_enqueue_attempted = true;
+        }
         bool enqueue_allowed = true;
         if (poly_asset_build_budget && poly_asset_build_budget->cap > 0u &&
             poly_asset_build_budget->used >= poly_asset_build_budget->cap) {
             enqueue_allowed = false;
             app->tile_state_bridge.budget_frame.vk_poly_asset_budget_hit_count += 1u;
+            if (trace_enabled) {
+                trace.asset_enqueue_budget_blocked = true;
+            }
         }
         if (enqueue_allowed && app_vk_asset_enqueue(app, kind, coord, band)) {
+            if (trace_enabled) {
+                trace.asset_enqueue_succeeded = true;
+            }
             if (poly_asset_build_budget && poly_asset_build_budget->cap > 0u) {
                 poly_asset_build_budget->used += 1u;
             }
@@ -461,17 +573,21 @@ bool app_tile_presenter_draw_polygon_layer(AppState *app,
     }
 
     if (allow_immediate_polygon_fallback || (kind == TILE_LAYER_POLY_BUILDING && allow_building_fallback)) {
+        bool outline_only = app->view_state_bridge.polygon_outline_only || !background_fill_allowed;
         polygon_renderer_draw_tile(&app->renderer,
                                    &app->view_state_bridge.camera,
                                    (MftTile *)tile,
                                    app->view_state_bridge.show_landuse,
                                    building_zoom_bias,
                                    app->view_state_bridge.building_fill_enabled,
-                                   app->view_state_bridge.polygon_outline_only,
+                                   outline_only,
                                    layer_opacity);
-        app_tile_presenter_present_hold_remember(app, kind, coord, band, now_sec);
+        app_tile_presenter_present_hold_remember_draw(app, kind, requested_coord, coord, band, now_sec);
         app->tile_state_bridge.draw_path_fallback_count += 1u;
         bool is_ideal = (app->tile_state_bridge.layer_target_band[kind] == band);
+        if (trace_enabled) {
+            trace.cpu_fallback_drawn = true;
+        }
         app_tile_lifecycle_transition(app,
                                       kind,
                                       coord,
@@ -481,9 +597,16 @@ bool app_tile_presenter_draw_polygon_layer(AppState *app,
                                       false,
                                       !is_ideal,
                                       is_ideal);
+        if (trace_enabled) {
+            app_polygon_present_trace_emit(&trace);
+        }
         return true;
     }
 
+    if (trace_enabled) {
+        trace.no_draw_after_asset_miss = vk_assets_mode;
+        app_polygon_present_trace_emit(&trace);
+    }
     return false;
 }
 

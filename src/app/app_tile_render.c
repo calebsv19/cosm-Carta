@@ -100,6 +100,81 @@ static void app_init_vk_poly_fill_budget(AppState *app, VkPolyFillBudget *budget
         layer_policy_vk_polygon_fill_layer_budget(TILE_LAYER_POLY_BUILDING, budget->total_cap);
 }
 
+static void app_update_vk_poly_fill_visibility_gate_for_layer(AppState *app,
+                                                              VkPolyFillBudget *budget,
+                                                              TileLayerKind kind) {
+    if (!app || !budget || !budget->enabled || kind < 0 || kind >= TILE_LAYER_COUNT) {
+        return;
+    }
+    if (!app_layer_active_runtime(app, kind) || !app->tile_state_bridge.visible_valid) {
+        budget->layer_fill_allowed[kind] = false;
+        return;
+    }
+
+    uint32_t expected = 0u;
+    uint32_t ready = 0u;
+    for (uint32_t y = app->tile_state_bridge.visible_top_left.y; y <= app->tile_state_bridge.visible_bottom_right.y; ++y) {
+        for (uint32_t x = app->tile_state_bridge.visible_top_left.x; x <= app->tile_state_bridge.visible_bottom_right.x; ++x) {
+            TileCoord coord = {app->tile_state_bridge.visible_zoom, x, y};
+            TileZoomBand band = app->tile_state_bridge.layer_target_band[kind];
+            const MftTile *tile = NULL;
+            if (!app_tile_presenter_pick_tile_with_fallback(app, kind, coord, &tile, &band)) {
+                continue;
+            }
+            if (!tile) {
+                continue;
+            }
+            expected += 1u;
+#if defined(MAPFORGE_HAVE_VK)
+            const VkTileCacheEntry *asset = vk_tile_cache_peek(&app->tile_state_bridge.vk_tile_cache, kind, tile->coord, band);
+            if (asset && asset->fill_mesh_ready) {
+                ready += 1u;
+            }
+#endif
+        }
+    }
+
+    budget->layer_fill_expected[kind] = expected;
+    budget->layer_fill_ready[kind] = ready;
+    budget->layer_fill_allowed[kind] = app_polygon_fill_gate_allows(expected, ready);
+}
+
+static void app_update_vk_poly_fill_visibility_gates(AppState *app,
+                                                     VkPolyFillBudget *budget) {
+    if (!app || !budget || !budget->enabled) {
+        return;
+    }
+    const TileLayerKind layers[] = {
+        TILE_LAYER_POLY_WATER,
+        TILE_LAYER_POLY_PARK,
+        TILE_LAYER_POLY_LANDUSE,
+        TILE_LAYER_POLY_BUILDING
+    };
+    for (size_t i = 0u; i < sizeof(layers) / sizeof(layers[0]); ++i) {
+        app_update_vk_poly_fill_visibility_gate_for_layer(app, budget, layers[i]);
+    }
+
+    /*
+     * Water and park are the default retained background-fill layers. Require
+     * screen-level coherence for them so dense views do not show scattered
+     * filled rectangles beside outline-only neighbors while assets warm.
+     */
+    const TileLayerKind background_layers[] = {
+        TILE_LAYER_POLY_WATER,
+        TILE_LAYER_POLY_PARK
+    };
+    for (size_t i = 0u; i < sizeof(background_layers) / sizeof(background_layers[0]); ++i) {
+        TileLayerKind kind = background_layers[i];
+        if (!app_layer_active_runtime(app, kind)) {
+            continue;
+        }
+        budget->screen_fill_expected += budget->layer_fill_expected[kind];
+        budget->screen_fill_ready += budget->layer_fill_ready[kind];
+    }
+    budget->screen_fill_allowed = app_polygon_fill_screen_gate_allows(budget->screen_fill_expected,
+                                                                      budget->screen_fill_ready);
+}
+
 static void app_init_vk_poly_asset_build_budget(AppState *app, VkPolyAssetBuildBudget *budget) {
     if (!budget) {
         return;
@@ -497,8 +572,10 @@ bool app_try_draw_vk_cached_polygon_tile(AppState *app,
                                          TileLayerKind kind,
                                          TileCoord coord,
                                          TileZoomBand band,
+                                         bool allow_retained_fill,
                                          VkPolyFillBudget *budget,
-                                         VkPolyAssetBuildBudget *asset_build_budget) {
+                                         VkPolyAssetBuildBudget *asset_build_budget,
+                                         AppPolygonPresentTraceDecision *trace) {
     if (!app || renderer_get_backend(&app->renderer) != RENDERER_BACKEND_VULKAN || !app->tile_state_bridge.vk_assets_enabled) {
         return false;
     }
@@ -511,14 +588,26 @@ bool app_try_draw_vk_cached_polygon_tile(AppState *app,
     if (!asset) {
         return false;
     }
+    if (trace) {
+        trace->asset_present = true;
+    }
 
     bool drew_any = false;
-    bool allow_fill = !app->view_state_bridge.polygon_outline_only;
+    bool allow_fill = allow_retained_fill && !app->view_state_bridge.polygon_outline_only;
     if (kind == TILE_LAYER_POLY_BUILDING && !app->view_state_bridge.building_fill_enabled) {
+        allow_fill = false;
+    }
+    if (budget && budget->enabled && kind >= 0 && kind < TILE_LAYER_COUNT && !budget->layer_fill_allowed[kind]) {
+        allow_fill = false;
+    }
+    if (budget && budget->enabled && budget->screen_fill_expected > 0u && !budget->screen_fill_allowed) {
         allow_fill = false;
     }
     if (allow_fill) {
         if (asset->fill_mesh_ready) {
+            if (trace) {
+                trace->retained_fill_ready = true;
+            }
             uint32_t need = asset->fill_mesh.index_count;
             bool budget_ok = true;
             if (budget && budget->enabled) {
@@ -533,6 +622,9 @@ bool app_try_draw_vk_cached_polygon_tile(AppState *app,
                 app_draw_vk_tri_mesh_for_coord(app, &asset->fill_mesh, coord);
                 app->tile_state_bridge.vk_poly_fill_drawn += 1u;
                 app->tile_state_bridge.vk_poly_fill_indices += need;
+                if (trace) {
+                    trace->retained_fill_drawn = true;
+                }
                 if (budget && budget->enabled) {
                     budget->total_used += need;
                     if (kind < TILE_LAYER_COUNT) {
@@ -542,10 +634,18 @@ bool app_try_draw_vk_cached_polygon_tile(AppState *app,
                 drew_any = true;
             } else {
                 app->tile_state_bridge.vk_poly_fill_skip += 1u;
+                if (trace) {
+                    trace->retained_fill_skipped_budget = true;
+                }
             }
         } else {
             app->tile_state_bridge.vk_poly_fill_fail += 1u;
+            if (trace) {
+                trace->retained_fill_missing = true;
+            }
         }
+    } else if (asset->fill_mesh_ready && trace) {
+        trace->retained_fill_ready = true;
     }
 
     if (kind == TILE_LAYER_POLY_WATER) {
@@ -558,26 +658,45 @@ bool app_try_draw_vk_cached_polygon_tile(AppState *app,
         }
         if (asset->water_lod_mesh_ready[lod]) {
             app_draw_vk_mesh_for_coord(app, &asset->water_lod_mesh[lod], coord);
+            if (trace) {
+                trace->retained_outline_drawn = true;
+            }
             drew_any = true;
         } else if (asset->water_lod_mesh_ready[2]) {
             app_draw_vk_mesh_for_coord(app, &asset->water_lod_mesh[2], coord);
+            if (trace) {
+                trace->retained_outline_drawn = true;
+            }
             drew_any = true;
         } else if (asset->water_lod_mesh_ready[1]) {
             app_draw_vk_mesh_for_coord(app, &asset->water_lod_mesh[1], coord);
+            if (trace) {
+                trace->retained_outline_drawn = true;
+            }
             drew_any = true;
         } else if (asset->water_lod_mesh_ready[0]) {
             app_draw_vk_mesh_for_coord(app, &asset->water_lod_mesh[0], coord);
+            if (trace) {
+                trace->retained_outline_drawn = true;
+            }
             drew_any = true;
         }
     } else if (asset->mesh_ready) {
         app_draw_vk_mesh_for_coord(app, &asset->mesh, coord);
+        if (trace) {
+            trace->retained_outline_drawn = true;
+        }
         drew_any = true;
     }
     return drew_any;
 #else
     (void)kind;
     (void)coord;
+    (void)band;
+    (void)allow_retained_fill;
     (void)budget;
+    (void)asset_build_budget;
+    (void)trace;
     return false;
 #endif
 }
@@ -612,6 +731,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
     VkPolyFillBudget poly_fill_budget = {0};
     VkPolyAssetBuildBudget poly_asset_build_budget = {0};
     app_init_vk_poly_fill_budget(app, &poly_fill_budget);
+    app_update_vk_poly_fill_visibility_gates(app, &poly_fill_budget);
     app_init_vk_poly_asset_build_budget(app, &poly_asset_build_budget);
     app->tile_state_bridge.vk_poly_fill_drawn = 0u;
     app->tile_state_bridge.vk_poly_fill_skip = 0u;
@@ -785,6 +905,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                                                    app_allow_progressive_polygon_fallback(app, coord);
                 bool drew = app_tile_presenter_draw_polygon_layer(app,
                                                                   TILE_LAYER_POLY_WATER,
+                                                                  coord,
                                                                   water_draw_coord,
                                                                   water,
                                                                   water_band,
@@ -807,6 +928,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                                                    app_allow_progressive_polygon_fallback(app, coord);
                 bool drew = app_tile_presenter_draw_polygon_layer(app,
                                                                   TILE_LAYER_POLY_PARK,
+                                                                  coord,
                                                                   park_draw_coord,
                                                                   park,
                                                                   park_band,
@@ -829,6 +951,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                                                    app_allow_progressive_polygon_fallback(app, coord);
                 bool drew = app_tile_presenter_draw_polygon_layer(app,
                                                                   TILE_LAYER_POLY_LANDUSE,
+                                                                  coord,
                                                                   landuse_draw_coord,
                                                                   landuse,
                                                                   landuse_band,
@@ -855,6 +978,7 @@ void app_draw_visible_tiles(AppState *app, AppVisibleTileRenderStats *out_stats)
                                                    app_allow_progressive_polygon_fallback(app, coord);
                 bool drew = app_tile_presenter_draw_polygon_layer(app,
                                                                   TILE_LAYER_POLY_BUILDING,
+                                                                  coord,
                                                                   building_draw_coord,
                                                                   building,
                                                                   building_band,

@@ -231,6 +231,35 @@ static bool app_runtime_pick_folder_macos(char *out_path, size_t out_cap) {
 #endif
 }
 
+static bool app_runtime_pick_osm_file_macos(char *out_path, size_t out_cap) {
+#if defined(__APPLE__)
+    FILE *pipe = NULL;
+    char line[MAPFORGE_REGION_PATH_CAPACITY];
+    if (!out_path || out_cap == 0u) {
+        return false;
+    }
+    pipe = popen("/usr/bin/osascript -e 'POSIX path of (choose file with prompt \"Choose Carta OSM Source File\")'", "r");
+    if (!pipe) {
+        return false;
+    }
+    if (!fgets(line, sizeof(line), pipe)) {
+        (void)pclose(pipe);
+        return false;
+    }
+    (void)pclose(pipe);
+    line[strcspn(line, "\r\n")] = '\0';
+    if (line[0] == '\0') {
+        return false;
+    }
+    snprintf(out_path, out_cap, "%s", line);
+    return true;
+#else
+    (void)out_path;
+    (void)out_cap;
+    return false;
+#endif
+}
+
 static bool app_runtime_has_suffix(const char *name, const char *suffix) {
     size_t name_len = 0u;
     size_t suffix_len = 0u;
@@ -245,7 +274,7 @@ static bool app_runtime_has_suffix(const char *name, const char *suffix) {
     return strcasecmp(name + (name_len - suffix_len), suffix) == 0;
 }
 
-static void app_runtime_region_slug_from_source(const char *osm_name, char *out_name, size_t out_cap) {
+void app_ingest_region_name_from_source(const char *osm_name, char *out_name, size_t out_cap) {
     size_t wi = 0u;
     if (!out_name || out_cap == 0u) {
         return;
@@ -278,6 +307,43 @@ static void app_runtime_region_slug_from_source(const char *osm_name, char *out_
         return;
     }
     out_name[wi] = '\0';
+}
+
+static bool app_runtime_select_source_path(AppState *app, const char *source_path) {
+    char parent[MAPFORGE_REGION_PATH_CAPACITY];
+    char name[APP_INGEST_NAME_CAP];
+    const char *slash = NULL;
+    size_t parent_len = 0u;
+    if (!app || !source_path || source_path[0] == '\0') {
+        return false;
+    }
+    slash = strrchr(source_path, '/');
+    if (!slash || slash == source_path || slash[1] == '\0') {
+        app_runtime_set_ingest_status(app, "Selected source path is invalid");
+        return false;
+    }
+    parent_len = (size_t)(slash - source_path);
+    if (parent_len >= sizeof(parent) || strlen(slash + 1) >= sizeof(name)) {
+        app_runtime_set_ingest_status(app, "Selected source path is too long");
+        return false;
+    }
+    memcpy(parent, source_path, parent_len);
+    parent[parent_len] = '\0';
+    snprintf(name, sizeof(name), "%s", slash + 1);
+
+    snprintf(app->input_root, sizeof(app->input_root), "%s", parent);
+    snprintf(app->input_root_edit, sizeof(app->input_root_edit), "%s", parent);
+    app_ingest_rescan_sources(app);
+    for (int i = 0; i < app->ingest_osm_count; ++i) {
+        if (strcmp(app->ingest_osm_files[i], name) == 0) {
+            app->ingest_selected_osm = i;
+            app->ingest_show_active_tab = false;
+            snprintf(app->ingest_status, sizeof(app->ingest_status), "Selected source: %s", name);
+            return true;
+        }
+    }
+    snprintf(app->ingest_status, sizeof(app->ingest_status), "Selected file is not a supported OSM source: %s", name);
+    return false;
 }
 
 static bool app_runtime_shell_quote(const char *src, char *out, size_t out_cap) {
@@ -461,6 +527,51 @@ bool app_ingest_open_selected_active_region(AppState *app) {
     return true;
 }
 
+bool app_ingest_source_name_loaded(const char *osm_name, char *out_region, size_t out_region_cap) {
+    char region_name[APP_INGEST_NAME_CAP];
+    if (!osm_name || osm_name[0] == '\0') {
+        return false;
+    }
+    app_ingest_region_name_from_source(osm_name, region_name, sizeof(region_name));
+    if (out_region && out_region_cap > 0u) {
+        snprintf(out_region, out_region_cap, "%s", region_name);
+    }
+    return app_runtime_find_region_index_by_name(region_name) >= 0;
+}
+
+bool app_ingest_selected_source_loaded(const AppState *app, char *out_region, size_t out_region_cap) {
+    if (!app || app->ingest_selected_osm < 0 || app->ingest_selected_osm >= app->ingest_osm_count) {
+        return false;
+    }
+    return app_ingest_source_name_loaded(app->ingest_osm_files[app->ingest_selected_osm],
+                                         out_region,
+                                         out_region_cap);
+}
+
+bool app_ingest_open_or_import_selected_source(AppState *app) {
+    char region_name[APP_INGEST_NAME_CAP];
+    if (!app || app->ingest_selected_osm < 0 || app->ingest_selected_osm >= app->ingest_osm_count) {
+        app_runtime_set_ingest_status(app, "No OSM source selected");
+        return true;
+    }
+    if (app_ingest_selected_source_loaded(app, region_name, sizeof(region_name))) {
+        if (app_runtime_open_region_by_name(app, region_name)) {
+            app->ingest_show_active_tab = true;
+            app_ingest_rescan_active_regions(app);
+            for (int i = 0; i < app->ingest_active_count; ++i) {
+                if (strcmp(app->ingest_active_regions[i], region_name) == 0) {
+                    app->ingest_selected_active = i;
+                    break;
+                }
+            }
+            return true;
+        }
+        app_runtime_set_ingest_status(app, "Loaded source region failed to open");
+        return true;
+    }
+    return app_ingest_import_selected_osm(app, false);
+}
+
 static void app_runtime_poll_import_process(AppState *app) {
     int status = 0;
     pid_t waited = 0;
@@ -526,7 +637,7 @@ void app_runtime_ingest_shutdown(AppState *app) {
     app_runtime_clear_import_process_state(app);
 }
 
-static bool app_runtime_import_selected_osm(AppState *app, bool import_all) {
+bool app_ingest_import_selected_osm(AppState *app, bool import_all) {
     char region_tool[MAPFORGE_REGION_PATH_CAPACITY];
     char graph_tool[MAPFORGE_REGION_PATH_CAPACITY];
     char q_region_tool[MAPFORGE_REGION_PATH_CAPACITY * 2];
@@ -612,7 +723,7 @@ static bool app_runtime_import_selected_osm(AppState *app, bool import_all) {
         char q_region[APP_INGEST_NAME_CAP * 2];
 
         snprintf(osm_name, sizeof(osm_name), "%s", app->ingest_osm_files[i]);
-        app_runtime_region_slug_from_source(osm_name, region_name, sizeof(region_name));
+        app_ingest_region_name_from_source(osm_name, region_name, sizeof(region_name));
         snprintf(osm_path, sizeof(osm_path), "%s/%s", app->input_root, osm_name);
         snprintf(out_dir, sizeof(out_dir), "%s/%s", region_data_root(), region_name);
         if (!app_runtime_shell_quote(osm_path, q_osm, sizeof(q_osm)) ||
@@ -690,6 +801,19 @@ static bool app_runtime_import_selected_osm(AppState *app, bool import_all) {
     } else {
         snprintf(app->ingest_status, sizeof(app->ingest_status), "Import started: %s", opened_region[0] != '\0' ? opened_region : "selected source");
     }
+    return true;
+}
+
+bool app_ingest_pick_source_file(AppState *app) {
+    char picked[MAPFORGE_REGION_PATH_CAPACITY];
+    if (!app) {
+        return false;
+    }
+    if (!app_runtime_pick_osm_file_macos(picked, sizeof(picked))) {
+        app_runtime_set_ingest_status(app, "File picker canceled/unavailable");
+        return true;
+    }
+    (void)app_runtime_select_source_path(app, picked);
     return true;
 }
 
@@ -789,7 +913,7 @@ static bool app_runtime_handle_ingest_controls(AppState *app) {
 
     if (app->ui_state_bridge.input.ingest_import_all_pressed) {
         if (!app->ingest_show_active_tab) {
-            (void)app_runtime_import_selected_osm(app, true);
+            (void)app_ingest_import_selected_osm(app, true);
         }
         consumed = true;
     }
@@ -804,7 +928,7 @@ static bool app_runtime_handle_ingest_controls(AppState *app) {
             (void)app_ingest_open_selected_active_region(app);
             consumed = true;
         } else {
-            (void)app_runtime_import_selected_osm(app, false);
+            (void)app_ingest_open_or_import_selected_source(app);
             consumed = true;
         }
     }
