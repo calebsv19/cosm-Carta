@@ -465,6 +465,10 @@ static cJSON *core_mesh_asset_doc_imported_mesh_source_to_json(
     cJSON_AddBoolToObject(obj, "weld_vertices", source->weld_vertices);
     cJSON_AddNumberToObject(obj, "weld_tolerance", source->weld_tolerance);
     cJSON_AddBoolToObject(obj, "preserve_source_normals", source->preserve_source_normals);
+    cJSON_AddStringToObject(obj,
+                           "normal_mode",
+                           core_mesh_asset_imported_normal_mode_name(source->normal_mode));
+    cJSON_AddNumberToObject(obj, "crease_angle_degrees", source->crease_angle_degrees);
     cJSON_AddBoolToObject(obj,
                           "topology_closed_volume_observed",
                           source->topology_closed_volume_observed);
@@ -487,6 +491,8 @@ static CoreResult core_mesh_asset_doc_imported_mesh_source_from_json(
     const cJSON *weld_vertices = NULL;
     const cJSON *weld_tolerance = NULL;
     const cJSON *preserve_source_normals = NULL;
+    const cJSON *normal_mode = NULL;
+    const cJSON *crease_angle_degrees = NULL;
     const cJSON *topology_closed_volume_observed = NULL;
     const cJSON *topology_manifold_observed = NULL;
     CoreResult r;
@@ -504,6 +510,8 @@ static CoreResult core_mesh_asset_doc_imported_mesh_source_from_json(
     weld_vertices = cJSON_GetObjectItemCaseSensitive(node, "weld_vertices");
     weld_tolerance = cJSON_GetObjectItemCaseSensitive(node, "weld_tolerance");
     preserve_source_normals = cJSON_GetObjectItemCaseSensitive(node, "preserve_source_normals");
+    normal_mode = cJSON_GetObjectItemCaseSensitive(node, "normal_mode");
+    crease_angle_degrees = cJSON_GetObjectItemCaseSensitive(node, "crease_angle_degrees");
     topology_closed_volume_observed =
         cJSON_GetObjectItemCaseSensitive(node, "topology_closed_volume_observed");
     topology_manifold_observed =
@@ -557,6 +565,19 @@ static CoreResult core_mesh_asset_doc_imported_mesh_source_from_json(
     out_source->weld_vertices = cJSON_IsTrue(weld_vertices);
     out_source->weld_tolerance = weld_tolerance->valuedouble;
     out_source->preserve_source_normals = cJSON_IsTrue(preserve_source_normals);
+    if (normal_mode || crease_angle_degrees) {
+        if (!cJSON_IsString(normal_mode) || !normal_mode->valuestring ||
+            !cJSON_IsNumber(crease_angle_degrees)) {
+            return core_mesh_asset_doc_invalid_arg(
+                "imported_mesh normal policy fields are incomplete");
+        }
+        r = core_mesh_asset_imported_normal_mode_parse(normal_mode->valuestring,
+                                                       &out_source->normal_mode);
+        if (r.code != CORE_OK) {
+            return r;
+        }
+        out_source->crease_angle_degrees = crease_angle_degrees->valuedouble;
+    }
     out_source->topology_closed_volume_observed = cJSON_IsTrue(topology_closed_volume_observed);
     out_source->topology_manifold_observed = cJSON_IsTrue(topology_manifold_observed);
     return core_mesh_asset_imported_mesh_source_validate(out_source);

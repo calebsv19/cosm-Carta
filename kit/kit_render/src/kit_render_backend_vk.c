@@ -815,17 +815,26 @@ static CoreResult vk_backend_submit_enabled(KitRenderContext *ctx, KitRenderFram
             }
             case KIT_RENDER_CMD_LINE:
                 vk_backend_apply_color(renderer, cmd->data.line.color);
-                vk_renderer_draw_line(renderer,
-                                      cmd->data.line.p0.x,
-                                      cmd->data.line.p0.y,
-                                      cmd->data.line.p1.x,
-                                      cmd->data.line.p1.y);
+                vk_renderer_draw_line_thick(renderer,
+                                            cmd->data.line.p0.x,
+                                            cmd->data.line.p0.y,
+                                            cmd->data.line.p1.x,
+                                            cmd->data.line.p1.y,
+                                            cmd->data.line.thickness);
                 break;
             case KIT_RENDER_CMD_POLYLINE:
                 vk_backend_apply_color(renderer, cmd->data.polyline.color);
-                vk_renderer_draw_line_strip(renderer,
-                                            (const SDL_FPoint *)cmd->data.polyline.points,
-                                            cmd->data.polyline.point_count);
+                for (uint32_t point_index = 1u;
+                     point_index < cmd->data.polyline.point_count;
+                     ++point_index) {
+                    const KitRenderVec2 *points = cmd->data.polyline.points;
+                    vk_renderer_draw_line_thick(renderer,
+                                                points[point_index - 1u].x,
+                                                points[point_index - 1u].y,
+                                                points[point_index].x,
+                                                points[point_index].y,
+                                                cmd->data.polyline.thickness);
+                }
                 break;
             case KIT_RENDER_CMD_TEXTURED_QUAD: {
                 SDL_Rect dst = vk_backend_rect_to_sdl(cmd->data.textured_quad.rect);

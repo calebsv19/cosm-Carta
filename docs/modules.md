@@ -6,6 +6,8 @@
 - `core_data`: canonical in-memory data model.
 - `core_pack`: versioned binary container and interchange.
 - `core_scene`: scene bundle/load contract boundary.
+- `core_scene_view`: renderer-free scene-view packet vocabulary, readback, and
+  compact summary derivation.
 - `core_space`: coordinate-space conversion and placement contracts.
 - `core_viewport2d`: shared 2D viewport/camera transforms for fit, pan, and anchor-preserving zoom.
 - `core_trace`: trace/event timeline capture contracts.

@@ -1,0 +1,19 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer InputValues {
+    uint values[];
+} input_values;
+
+layout(set = 0, binding = 1, std430) writeonly buffer OutputValues {
+    uint values[];
+} output_values;
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index < input_values.values.length()) {
+        output_values.values[index] =
+            input_values.values[index] * 3u + 7u;
+    }
+}

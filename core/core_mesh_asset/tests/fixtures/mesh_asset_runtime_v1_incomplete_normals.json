@@ -1,0 +1,33 @@
+{
+  "schema_family": "codework_geometry",
+  "schema_variant": "mesh_asset_runtime_v1",
+  "schema_version": 1,
+  "asset_id": "asset_incomplete_normals",
+  "source_asset_id": "asset_incomplete_normals",
+  "asset_type": "solid_mesh",
+  "local_bounds": {
+    "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+    "max": { "x": 1.0, "y": 1.0, "z": 0.0 }
+  },
+  "topology_flags": {
+    "closed_volume": false,
+    "manifold_expected": true
+  },
+  "mesh": {
+    "vertex_count": 3,
+    "triangle_count": 1,
+    "vertices": [
+      { "x": 0.0, "y": 0.0, "z": 0.0 },
+      { "x": 1.0, "y": 0.0, "z": 0.0 },
+      { "x": 0.0, "y": 1.0, "z": 0.0 }
+    ],
+    "normal_count": 3,
+    "triangles": [
+      { "a": 0, "b": 1, "c": 2, "surface_group_id": "shell" }
+    ]
+  },
+  "surface_groups": [
+    { "group_id": "shell", "triangle_span": { "start": 0, "count": 1 } }
+  ],
+  "extensions": {}
+}

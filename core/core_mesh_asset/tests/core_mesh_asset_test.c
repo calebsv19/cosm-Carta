@@ -67,6 +67,9 @@ static int test_parse_helpers(void) {
     CoreMeshAssetSourceMode mode = CORE_MESH_ASSET_SOURCE_MODE_REVOLVE;
     CoreMeshAssetImportedMeshSourceFormat format =
         CORE_MESH_ASSET_IMPORTED_MESH_SOURCE_FORMAT_STL;
+    CoreMeshAssetRuntimeNormalProvenance provenance =
+        CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE;
+    CoreMeshAssetImportedNormalMode normal_mode = CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_NONE;
 
     CHECK(core_mesh_asset_schema_variant_parse(NULL, &variant).code == CORE_ERR_INVALID_ARG);
     CHECK(variant == CORE_MESH_ASSET_SCHEMA_VARIANT_UNKNOWN);
@@ -102,6 +105,11 @@ static int test_parse_helpers(void) {
           CORE_ERR_INVALID_ARG);
     CHECK(format == CORE_MESH_ASSET_IMPORTED_MESH_SOURCE_FORMAT_UNKNOWN);
     CHECK(core_mesh_asset_imported_mesh_source_format_parse("stl", &format).code == CORE_OK);
+    CHECK(core_mesh_asset_runtime_normal_provenance_parse(
+              "generated_smooth", &provenance).code == CORE_OK);
+    CHECK(provenance == CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_SMOOTH);
+    CHECK(core_mesh_asset_imported_normal_mode_parse("crease_aware", &normal_mode).code == CORE_OK);
+    CHECK(normal_mode == CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_CREASE_AWARE);
     CHECK(format == CORE_MESH_ASSET_IMPORTED_MESH_SOURCE_FORMAT_STL);
     CHECK(strcmp(core_mesh_asset_imported_mesh_source_format_name(format), "stl") == 0);
 
@@ -352,6 +360,58 @@ static int test_runtime_document_file_roundtrip(void) {
     return 0;
 }
 
+static int test_runtime_document_vertex_normal_roundtrip(void) {
+    CoreMeshAssetRuntimeDocument document;
+    CoreMeshAssetRuntimeDocument reloaded;
+    const char *path = "/private/tmp/core_mesh_asset_runtime_normals_roundtrip.json";
+    size_t i;
+
+    core_mesh_asset_runtime_document_init(&document);
+    core_mesh_asset_runtime_document_init(&reloaded);
+    CHECK(core_mesh_asset_runtime_document_load_file(
+              "tests/fixtures/mesh_asset_runtime_v1_sample.json",
+              &document).code == CORE_OK);
+    CHECK(document.vertex_normal_count == 0u);
+    CHECK(document.normal_provenance == CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE);
+    document.vertex_normal_count = document.vertex_count;
+    document.normal_provenance =
+        CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_SMOOTH;
+    for (i = 0u; i < document.vertex_count; ++i) {
+        document.vertices[i].normal.x = 0.0;
+        document.vertices[i].normal.y = 0.0;
+        document.vertices[i].normal.z = 1.0;
+    }
+    CHECK(core_mesh_asset_runtime_document_validate(&document).code == CORE_OK);
+    CHECK(core_mesh_asset_runtime_document_save_file(&document, path).code == CORE_OK);
+    CHECK(core_mesh_asset_runtime_document_load_file(path, &reloaded).code == CORE_OK);
+    CHECK(reloaded.vertex_normal_count == reloaded.vertex_count);
+    CHECK(reloaded.normal_provenance ==
+          CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_SMOOTH);
+    CHECK(fabs(reloaded.vertices[2].normal.z - 1.0) < 1e-12);
+
+    reloaded.vertices[0].normal.z = 0.5;
+    CHECK(core_mesh_asset_runtime_document_validate(&reloaded).code == CORE_ERR_INVALID_ARG);
+    reloaded.vertices[0].normal.z = 1.0;
+    reloaded.vertex_normal_count -= 1u;
+    CHECK(core_mesh_asset_runtime_document_validate(&reloaded).code == CORE_ERR_INVALID_ARG);
+
+    core_mesh_asset_runtime_document_free(&document);
+    core_mesh_asset_runtime_document_free(&reloaded);
+    remove(path);
+    return 0;
+}
+
+static int test_runtime_document_rejects_incomplete_normal_payload(void) {
+    CoreMeshAssetRuntimeDocument document;
+    core_mesh_asset_runtime_document_init(&document);
+    CHECK(core_mesh_asset_runtime_document_load_file(
+              "tests/fixtures/mesh_asset_runtime_v1_incomplete_normals.json",
+              &document).code == CORE_ERR_INVALID_ARG);
+    CHECK(document.vertex_count == 0u);
+    core_mesh_asset_runtime_document_free(&document);
+    return 0;
+}
+
 static int test_runtime_document_large_file_save_streams(void) {
     const size_t triangle_count = 90000u;
     const char *path = "/private/tmp/core_mesh_asset_runtime_large_stream.json";
@@ -550,6 +610,8 @@ int main(void) {
     if (test_runtime_document_validation() != 0) return 1;
     if (test_runtime_document_file_load() != 0) return 1;
     if (test_runtime_document_file_roundtrip() != 0) return 1;
+    if (test_runtime_document_vertex_normal_roundtrip() != 0) return 1;
+    if (test_runtime_document_rejects_incomplete_normal_payload() != 0) return 1;
     if (test_runtime_document_large_file_save_streams() != 0) return 1;
     if (test_runtime_document_mrt0_sphere_fixtures() != 0) return 1;
     if (test_fixture_tokens() != 0) return 1;

@@ -20,19 +20,20 @@ Shared compile-boundary helpers for the mesh-asset rollout.
   - imported-mesh authored sources that require import metadata before compile
   - emitted runtime mesh documents for bounded STL imports
   - emitted runtime mesh files for bounded STL imports
+  - angle-weighted smooth and crease-aware runtime vertex normals
 
 ## Boundaries
 - No JSON parsing or writing
 - STL import is bounded to the proof-scale path:
-  - max imported STL triangles: `250000`
+  - max imported STL triangles: `3000000`
   - larger inputs must be rejected before runtime mesh allocation
-  - mesh repair, retopo, normals policy, LOD/streaming policy, and host import
-    UX remain out of scope
+  - mesh repair, retopo, LOD/streaming policy, and host import UX remain out of
+    scope
 - No ownership of authored/runtime asset semantics (`core_mesh_asset` owns those)
 - No long-term scene-envelope ownership (`core_scene` will absorb scene-instance semantics in the next rollout step)
 - No renderer/solver import behavior
 
-## Current Contract (v0.6.2)
+## Current Contract (v0.7.0)
 - Supported geometry-ref kind is exactly:
   - `mesh_asset`
 - Supported staged instance object type is exactly:
@@ -64,6 +65,10 @@ Shared compile-boundary helpers for the mesh-asset rollout.
     spatial hash index rather than a full linear scan
   - emits one validated `CoreMeshAssetRuntimeDocument`
   - assigns all triangles to the authored default surface group
+  - optionally emits angle-weighted smooth vertex normals from welded indexed
+    topology
+  - optionally splits vertices into edge-connected smoothing islands at the
+    authored crease angle, while keeping surface-group boundaries isolated
 - `core_mesh_compile_imported_mesh_to_runtime_document_with_progress(...)`
   mirrors the bounded compile proof while optionally reporting coarse progress
   stages for preparing, source read, STL parse, runtime emission, and complete.
@@ -72,6 +77,26 @@ Shared compile-boundary helpers for the mesh-asset rollout.
 
 ## Status
 - Bootstrap staging module created so fixtures and validation can land before `core_scene` integration.
+- v0.7.0 adds opt-in angle-weighted smooth and crease-aware vertex-normal
+  generation. The topology path uses welded indices and edge-connected face
+  neighborhoods rather than render-acceleration proximity, and normal logic is
+  isolated in `core_mesh_compile_normals.c`. When inconsistent legacy winding
+  cancels an angle-weighted vertex sum, smooth mode deterministically falls back
+  to the first valid incident face normal instead of rejecting the whole mesh.
+- v0.6.6 keeps the binary STL size guard warning-clean under strict Linux
+  C11 builds where `size_t` is wider than the 32-bit STL triangle-count field.
+- v0.6.5 raises the bounded imported STL proof ceiling to `3000000`
+  triangles so the private high-triangle sidecar lane can run the x3 Stanford
+  Dragon upper-range proof while repair, retopo, LOD/streaming, and host UX
+  stay out of scope.
+- v0.6.4 raises the bounded imported STL proof ceiling to `2000000`
+  triangles so private high-triangle sidecar generation can cover the current
+  generated `1.74M` raw-triangle stress candidate while repair, retopo,
+  LOD/streaming, and host UX stay out of scope.
+- v0.6.3 raises the bounded imported STL proof ceiling to `1000000`
+  triangles so private high-triangle sidecar generation can cover sub-million
+  scan fixtures while repair, retopo, LOD/streaming, and host UX stay out of
+  scope.
 - v0.6.2 adds an optional progress-callback compile entry point for imported
   STL work so app hosts can surface long-running parse/weld/runtime-emission
   state without owning compiler internals.

@@ -11,7 +11,8 @@ CWARN  ?= -Wall -Wextra -Wpedantic
 COPT   ?= -O2
 
 # Project includes
-INC := -Iinclude
+VK_RUNTIME_ROOT ?= ../vk_runtime
+INC := -Iinclude -I$(VK_RUNTIME_ROOT)/include
 
 # --- Vulkan flags (prefer pkg-config) ---
 VULKAN_CFLAGS := $(shell $(PKG_CONFIG) --cflags vulkan 2>/dev/null)
@@ -31,10 +32,19 @@ endif
 
 # macOS frameworks (Metal for MoltenVK, Cocoa boilerplate for SDL)
 APPLE_FW := -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo
+UNAME_S := $(shell uname -s)
+VALIDATION_LAYER_DIR ?= $(patsubst %/,%,$(dir $(firstword \
+	$(wildcard /opt/homebrew/lib/libVkLayer_khronos_validation.dylib) \
+	$(wildcard /usr/local/lib/libVkLayer_khronos_validation.dylib))))
+ifeq ($(UNAME_S),Darwin)
+  VALIDATION_ENV := $(if $(VALIDATION_LAYER_DIR),DYLD_LIBRARY_PATH=$(VALIDATION_LAYER_DIR),)
+else
+  VALIDATION_ENV :=
+endif
 
 # Common compile/link flags
 CFLAGS  := $(COPT) $(CSTD) $(CWARN) $(INC) $(VULKAN_CFLAGS) $(SDL_CFLAGS) -D_THREAD_SAFE -DVK_USE_PLATFORM_METAL_EXT -DVK_RENDERER_SHADER_ROOT=\"$(CURDIR)\"
-LDFLAGS := $(VULKAN_LIBS) $(SDL_LIBS) $(APPLE_FW)
+LDFLAGS := -L$(VK_RUNTIME_ROOT)/build/lib -lvkruntime $(VULKAN_LIBS) $(SDL_LIBS) $(APPLE_FW)
 
 # Sources / objects
 SRC := $(wildcard src/*.c)
@@ -43,11 +53,16 @@ OBJ := $(patsubst src/%.c,build/obj/%.o,$(SRC))
 # Outputs
 LIBDIR := build/lib
 BINDIR := build/example
+TESTDIR := build/tests
 LIB    := $(LIBDIR)/libvkrenderer.a
 
 # Default target
 .PHONY: all
-all: $(LIB)
+all: runtime $(LIB)
+
+.PHONY: runtime
+runtime:
+	$(MAKE) -C $(VK_RUNTIME_ROOT) all
 
 # Build static library from all src/*.c
 $(LIB): $(OBJ)
@@ -61,11 +76,17 @@ build/obj/%.o: src/%.c
 
 # Example (optional)
 .PHONY: example
-example: $(LIB)
+example: runtime $(LIB)
 	@test -f examples/sdl_vulkan_example.c || { echo "No examples/sdl_vulkan_example.c present; skipping."; exit 0; }
 	@mkdir -p $(BINDIR)
 	$(CC) examples/sdl_vulkan_example.c $(CFLAGS) -L$(LIBDIR) -lvkrenderer -o $(BINDIR)/sdl_vulkan_example $(LDFLAGS)
 	@echo "Built $(BINDIR)/sdl_vulkan_example"
+
+.PHONY: test-live
+test-live: runtime $(LIB)
+	@mkdir -p $(TESTDIR)
+	$(CC) tests/test_vk_renderer_live.c $(CFLAGS) -L$(LIBDIR) -lvkrenderer -o $(TESTDIR)/test_vk_renderer_live $(LDFLAGS)
+	$(VALIDATION_ENV) ./$(TESTDIR)/test_vk_renderer_live
 
 # Shader helper passthrough (your script already exists)
 .PHONY: shaders

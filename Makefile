@@ -5,6 +5,9 @@ core-test:
 	$(MAKE) -C core/core_io test
 	$(MAKE) -C core/core_data test
 	$(MAKE) -C core/core_math test
+	$(MAKE) -C core/core_screen_pick test
+	$(MAKE) -C core/core_viewport3d test
+	$(MAKE) -C kit/kit_viewport3d test
 	$(MAKE) -C core/core_theme test
 	$(MAKE) -C core/core_font test
 	$(MAKE) -C core/core_space test
@@ -28,6 +31,9 @@ core-clean:
 	$(MAKE) -C core/core_io clean
 	$(MAKE) -C core/core_data clean
 	$(MAKE) -C core/core_math clean
+	$(MAKE) -C core/core_screen_pick clean
+	$(MAKE) -C core/core_viewport3d clean
+	$(MAKE) -C kit/kit_viewport3d clean
 	$(MAKE) -C core/core_theme clean
 	$(MAKE) -C core/core_font clean
 	$(MAKE) -C core/core_space clean

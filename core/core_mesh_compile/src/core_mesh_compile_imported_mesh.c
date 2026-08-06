@@ -1,4 +1,5 @@
 #include "core_mesh_compile.h"
+#include "core_mesh_compile_normals.h"
 
 #include "core_io.h"
 
@@ -10,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CORE_MESH_COMPILE_IMPORTED_STL_MAX_TRIANGLES 250000u
+#define CORE_MESH_COMPILE_IMPORTED_STL_MAX_TRIANGLES 3000000u
 
 typedef struct CoreMeshCompileParsedTriangle {
     size_t a;
@@ -550,7 +551,9 @@ static bool imported_mesh_binary_stl_layout_valid(const CoreBuffer *file_data,
     if (out_triangle_count) *out_triangle_count = 0u;
     if (!file_data || !file_data->data || file_data->size < 84u) return false;
     triangle_count = imported_mesh_read_u32_le((const unsigned char *)file_data->data + 80u);
+#if SIZE_MAX < UINT32_MAX
     if ((size_t)triangle_count > (SIZE_MAX - 84u) / 50u) return false;
+#endif
     expected_size = 84u + ((size_t)triangle_count * 50u);
     if (expected_size != file_data->size || triangle_count == 0u) return false;
     if (out_triangle_count) *out_triangle_count = triangle_count;
@@ -881,6 +884,12 @@ CoreResult core_mesh_compile_imported_mesh_to_runtime_document_with_progress(
     if (r.code != CORE_OK) goto fail;
     out_document->surface_groups[0].triangle_start = 0u;
     out_document->surface_groups[0].triangle_count = parsed_triangle_count;
+
+    r = core_mesh_compile_runtime_generate_vertex_normals(
+        out_document,
+        document->imported_mesh_source.normal_mode,
+        document->imported_mesh_source.crease_angle_degrees);
+    if (r.code != CORE_OK) goto fail;
 
     r = core_mesh_asset_runtime_document_validate(out_document);
     if (r.code != CORE_OK) goto fail;

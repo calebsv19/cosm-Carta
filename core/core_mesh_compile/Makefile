@@ -11,7 +11,8 @@ INC = -Iinclude -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_OBJ
 OBJ_DIR = build
 
 LIB = $(OBJ_DIR)/libcore_mesh_compile.a
-LIB_OBJ = $(OBJ_DIR)/core_mesh_compile.o $(OBJ_DIR)/core_mesh_compile_imported_mesh.o
+LIB_OBJ = $(OBJ_DIR)/core_mesh_compile.o $(OBJ_DIR)/core_mesh_compile_imported_mesh.o \
+	$(OBJ_DIR)/core_mesh_compile_normals.o
 TEST_BIN = $(OBJ_DIR)/core_mesh_compile_test
 TEST_CJSON_OBJ = $(OBJ_DIR)/cJSON.o
 
@@ -41,6 +42,9 @@ $(OBJ_DIR)/core_mesh_compile.o: src/core_mesh_compile.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(OBJ_DIR)/core_mesh_compile_imported_mesh.o: src/core_mesh_compile_imported_mesh.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJ_DIR)/core_mesh_compile_normals.o: src/core_mesh_compile_normals.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(TEST_CJSON_OBJ): $(CJSON_SRC) | $(OBJ_DIR)

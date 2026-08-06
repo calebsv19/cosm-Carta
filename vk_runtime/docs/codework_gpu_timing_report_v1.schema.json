@@ -1,0 +1,338 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codework.local/schemas/codework_gpu_timing_report_v1.schema.json",
+  "title": "CodeWork GPU Timing Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "module_version",
+    "runtime_status",
+    "validation",
+    "platform",
+    "shader_identity",
+    "timestamp",
+    "methodology",
+    "workloads",
+    "crossover"
+  ],
+  "properties": {
+    "schema": {
+      "const": "codework_gpu_timing_report_v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "module_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "runtime_status": {
+      "const": "ok"
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "warnings", "errors"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "warnings": {"const": 0},
+        "errors": {"const": 0}
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "architecture",
+        "device_name",
+        "device_uuid",
+        "vendor_id",
+        "device_id",
+        "compute_queue_family"
+      ],
+      "properties": {
+        "os": {"type": "string", "minLength": 1},
+        "architecture": {"type": "string", "minLength": 1},
+        "device_name": {"type": "string", "minLength": 1},
+        "device_uuid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "vendor_id": {"$ref": "#/$defs/nonnegativeInteger"},
+        "device_id": {"$ref": "#/$defs/nonnegativeInteger"},
+        "compute_queue_family": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        }
+      }
+    },
+    "shader_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["u32_sha256"],
+      "properties": {
+        "u32_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "timestamp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supported",
+        "valid_bits",
+        "period_ns",
+        "measurement_count"
+      ],
+      "properties": {
+        "supported": {"const": true},
+        "valid_bits": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "period_ns": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "measurement_count": {"const": 189}
+      }
+    },
+    "methodology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "warmups",
+        "samples",
+        "aggregation",
+        "cpu_batch_min_values",
+        "dispatches_per_sample",
+        "barriers_per_sample",
+        "final_readbacks_per_sample",
+        "gpu_timestamps_bracket_queue_commands",
+        "submit_wait_includes_fence_wait",
+        "cpu_operation"
+      ],
+      "properties": {
+        "warmups": {"const": 2},
+        "samples": {"const": 7},
+        "aggregation": {"const": "median"},
+        "cpu_batch_min_values": {"const": 16777216},
+        "dispatches_per_sample": {"const": 2},
+        "barriers_per_sample": {"const": 1},
+        "final_readbacks_per_sample": {"const": 1},
+        "gpu_timestamps_bracket_queue_commands": {"const": true},
+        "submit_wait_includes_fence_wait": {"const": true},
+        "cpu_operation": {
+          "const": "twice(output=input*3u+7u)"
+        }
+      }
+    },
+    "workloads": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "prefixItems": [
+        {"$ref": "#/$defs/workload256"},
+        {"$ref": "#/$defs/workload1024"},
+        {"$ref": "#/$defs/workload4096"},
+        {"$ref": "#/$defs/workload16384"},
+        {"$ref": "#/$defs/workload65536"},
+        {"$ref": "#/$defs/workload262144"},
+        {"$ref": "#/$defs/workload1048576"}
+      ],
+      "items": false
+    },
+    "crossover": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["execution_only", "end_to_end"],
+      "properties": {
+        "execution_only": {"$ref": "#/$defs/crossover"},
+        "end_to_end": {"$ref": "#/$defs/crossover"}
+      }
+    }
+  },
+  "$defs": {
+    "nonnegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timingPhases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cpu_reference",
+        "upload_host_copy",
+        "upload_submit_wait",
+        "upload_gpu",
+        "execution_submit_wait",
+        "execution_gpu",
+        "download_submit_wait",
+        "download_gpu",
+        "readback_host_copy",
+        "transfer_gpu",
+        "total_wall"
+      ],
+      "properties": {
+        "cpu_reference": {"$ref": "#/$defs/nonnegativeInteger"},
+        "upload_host_copy": {"$ref": "#/$defs/nonnegativeInteger"},
+        "upload_submit_wait": {"$ref": "#/$defs/nonnegativeInteger"},
+        "upload_gpu": {"$ref": "#/$defs/nonnegativeInteger"},
+        "execution_submit_wait": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "execution_gpu": {"$ref": "#/$defs/nonnegativeInteger"},
+        "download_submit_wait": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "download_gpu": {"$ref": "#/$defs/nonnegativeInteger"},
+        "readback_host_copy": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "transfer_gpu": {"$ref": "#/$defs/nonnegativeInteger"},
+        "total_wall": {"$ref": "#/$defs/nonnegativeInteger"}
+      }
+    },
+    "workloadBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value_count",
+        "byte_count",
+        "group_count_x",
+        "parity",
+        "checksum",
+        "median_ns"
+      ],
+      "properties": {
+        "value_count": {"type": "integer"},
+        "byte_count": {"type": "integer"},
+        "group_count_x": {"type": "integer"},
+        "parity": {"const": true},
+        "checksum": {"$ref": "#/$defs/nonnegativeInteger"},
+        "median_ns": {"$ref": "#/$defs/timingPhases"}
+      }
+    },
+    "workload256": {
+      "allOf": [
+        {"$ref": "#/$defs/workloadBase"},
+        {
+          "properties": {
+            "value_count": {"const": 256},
+            "byte_count": {"const": 1024},
+            "group_count_x": {"const": 4}
+          }
+        }
+      ]
+    },
+    "workload1024": {
+      "allOf": [
+        {"$ref": "#/$defs/workloadBase"},
+        {
+          "properties": {
+            "value_count": {"const": 1024},
+            "byte_count": {"const": 4096},
+            "group_count_x": {"const": 16}
+          }
+        }
+      ]
+    },
+    "workload4096": {
+      "allOf": [
+        {"$ref": "#/$defs/workloadBase"},
+        {
+          "properties": {
+            "value_count": {"const": 4096},
+            "byte_count": {"const": 16384},
+            "group_count_x": {"const": 64}
+          }
+        }
+      ]
+    },
+    "workload16384": {
+      "allOf": [
+        {"$ref": "#/$defs/workloadBase"},
+        {
+          "properties": {
+            "value_count": {"const": 16384},
+            "byte_count": {"const": 65536},
+            "group_count_x": {"const": 256}
+          }
+        }
+      ]
+    },
+    "workload65536": {
+      "allOf": [
+        {"$ref": "#/$defs/workloadBase"},
+        {
+          "properties": {
+            "value_count": {"const": 65536},
+            "byte_count": {"const": 262144},
+            "group_count_x": {"const": 1024}
+          }
+        }
+      ]
+    },
+    "workload262144": {
+      "allOf": [
+        {"$ref": "#/$defs/workloadBase"},
+        {
+          "properties": {
+            "value_count": {"const": 262144},
+            "byte_count": {"const": 1048576},
+            "group_count_x": {"const": 4096}
+          }
+        }
+      ]
+    },
+    "workload1048576": {
+      "allOf": [
+        {"$ref": "#/$defs/workloadBase"},
+        {
+          "properties": {
+            "value_count": {"const": 1048576},
+            "byte_count": {"const": 4194304},
+            "group_count_x": {"const": 16384}
+          }
+        }
+      ]
+    },
+    "crossover": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observed", "first_value_count"],
+          "properties": {
+            "observed": {"const": false},
+            "first_value_count": {"type": "null"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observed", "first_value_count"],
+          "properties": {
+            "observed": {"const": true},
+            "first_value_count": {
+              "enum": [
+                256,
+                1024,
+                4096,
+                16384,
+                65536,
+                262144,
+                1048576
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

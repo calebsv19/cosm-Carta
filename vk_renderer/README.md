@@ -22,10 +22,24 @@ lifecycle management.
 ## Versioning
 
 - Module version source of truth: `shared/vk_renderer/VERSION`
-- Current version: `1.1.1`
+- Current version: `1.3.1`
 - `1.0.0` behavior note: debug capture is opt-in only and runs only when `vk_renderer_request_capture(...)` is called.
 - `1.1.0` behavior note: long-lived textures can now be updated in place through `vk_renderer_texture_update_rgba_subrect(...)` for bounded dirty-rect preview workflows without recreating whole textures every frame.
 - `1.1.1` behavior note: debug frame capture now normalizes SDL surface creation and channel ordering for both RGBA and BGRA source paths so saved captures are consistent across swapchain formats.
+- `1.1.2` behavior note: Linux C11 builds no longer warn on the Apple-only portability-subset extension helper or strict const-qualified quad submissions when compiling with `-Werror`.
+- `1.1.3` behavior note: swapchains now request transfer-source usage when
+  supported so the existing opt-in frame-capture API can read back presented
+  frames; capture requests fail cleanly when a surface lacks that capability.
+- `1.3.0` lifecycle note: `vk_renderer` now delegates Vulkan instance,
+  physical-device, logical-device, queue, validation, and teardown ownership
+  to sibling `vk_runtime` while preserving `VkRendererDevice` handle mirrors
+  and the existing renderer entry points. `vk_renderer_recover_surface(...)`
+  provides one compatibility wrapper for out-of-date/suboptimal recovery, and
+  `make test-live` proves runtime ownership, readback, resize recovery, and
+  capture dimensions through a hidden SDL Vulkan window.
+- `1.3.1` compatibility note: restores the public
+  `vk_renderer_draw_line_mesh_affine_tinted(...)` wrapper lost during the
+  lifecycle rebase while preserving the untinted affine entry point.
 
 ## Layout
 
@@ -123,7 +137,7 @@ presentation.
    VkResult frame = vk_renderer_begin_frame(renderContext->renderer,
                                             &cmd, &fb, &extent);
    if (frame == VK_ERROR_OUT_OF_DATE_KHR || frame == VK_SUBOPTIMAL_KHR) {
-       vk_renderer_recreate_swapchain(renderContext->renderer, window);
+       vk_renderer_recover_surface(renderContext->renderer, window, frame);
        return; // or continue; inside your loop
    }
    SDL_assert(frame == VK_SUCCESS);
@@ -137,7 +151,7 @@ presentation.
    ```c
    VkResult end = vk_renderer_end_frame(renderContext->renderer, cmd);
    if (end == VK_ERROR_OUT_OF_DATE_KHR || end == VK_SUBOPTIMAL_KHR) {
-       vk_renderer_recreate_swapchain(renderContext->renderer, window);
+       vk_renderer_recover_surface(renderContext->renderer, window, end);
    } else {
        SDL_assert(end == VK_SUCCESS);
    }

@@ -4,7 +4,7 @@ Public guidance for wiring `shared/kit/kit_workspace_authoring` into additional 
 
 ## Purpose
 
-This guide captures the stable host-side contract proven by `workspace_sandbox`, piloted in `datalab`, and closed as a completed first-host attach in `drawing_program`, so future programs can:
+This guide captures the stable host-side contract proven by `workspace_sandbox`, piloted in `datalab`, closed as a completed first-host attach in `drawing_program`, and repeated in `line_drawing`, so future programs can:
 1. adopt shared authoring behavior quickly,
 2. avoid overlay-only integrations that fail to surface theme/font changes in normal app shells,
 3. keep host ownership boundaries clear while reusing shared input/runtime/UI glue.
@@ -86,6 +86,28 @@ Use `drawing_program` as a second concrete reference for a completed first-host 
 3. Accepted-only authoring persistence:
    - `/Users/calebsv/Desktop/CodeWork/drawing_program/src/io/session/drawing_program_snapshot.c`
    - `/Users/calebsv/Desktop/CodeWork/drawing_program/src/io/session/drawing_program_snapshot_ui_settings.c`
+
+Use `line_drawing` / `sCulpt` as another completed production-style attach when the host uses app-local SDL/Vulkan drawing and a mature pane/editor shell:
+1. Host adapter + accepted-state ownership:
+   - `/Users/calebsv/Desktop/CodeWork/line_drawing/src/UI/workspace_authoring/line_drawing_workspace_authoring_host.c`
+   - `/Users/calebsv/Desktop/CodeWork/line_drawing/src/UI/workspace_authoring/line_drawing_workspace_authoring_overlay.c`
+2. Source documentation:
+   - `/Users/calebsv/Desktop/CodeWork/line_drawing/src/UI/README.md`
+   - `/Users/calebsv/Desktop/CodeWork/line_drawing/src/Input/README.md`
+3. Closed private execution evidence:
+   - `/Users/calebsv/Desktop/CodeWork/docs/private_program_docs/line_drawing/archive/2026-05-03_line_drawing_wa1_workspace_authoring_host_plan.md`
+
+Use `growth_sim` / `Change` as the current in-progress low-conflict attach:
+1. Completed through invisible entry/capture host:
+   - `/Users/calebsv/Desktop/CodeWork/growth_sim/include/growth_sim/growth_sim_workspace_authoring_host.h`
+   - `/Users/calebsv/Desktop/CodeWork/growth_sim/src/runtime/growth_sim_workspace_authoring_host.c`
+   - `/Users/calebsv/Desktop/CodeWork/growth_sim/tests/growth_sim_workspace_authoring_host_test.c`
+2. Current private execution plan:
+   - `/Users/calebsv/Desktop/CodeWork/docs/private_program_docs/growth_sim/active/2026-06-19_growth_sim_workspace_authoring_host_plan.md`
+3. Boundary:
+   - `GSWA1-S1` is complete, but Growth Sim is not a completed host attach
+     until active pane overlay, Font/Theme overlay, accepted-only persistence,
+     and visual acceptance are done.
 
 ## Verification Checklist (per host)
 

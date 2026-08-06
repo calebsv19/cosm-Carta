@@ -100,6 +100,9 @@ VkResult vk_renderer_begin_frame(VkRenderer* renderer,
 VkResult vk_renderer_end_frame(VkRenderer* renderer,
                                VkCommandBuffer cmd);
 VkResult vk_renderer_recreate_swapchain(VkRenderer* renderer, SDL_Window* window);
+VkResult vk_renderer_recover_surface(VkRenderer* renderer,
+                                     SDL_Window* window,
+                                     VkResult surface_result);
 VkResult vk_renderer_request_capture(VkRenderer* renderer, const char* output_path);
 
 void vk_renderer_set_draw_color(VkRenderer* renderer, float r, float g, float b, float a);
@@ -109,6 +112,12 @@ void vk_renderer_get_clip_rect(VkRenderer* renderer, SDL_Rect* rect);
 SDL_bool vk_renderer_is_clip_enabled(VkRenderer* renderer);
 void vk_renderer_draw_point(VkRenderer* renderer, float x, float y);
 void vk_renderer_draw_line(VkRenderer* renderer, float x0, float y0, float x1, float y1);
+void vk_renderer_draw_line_thick(VkRenderer* renderer,
+                                 float x0,
+                                 float y0,
+                                 float x1,
+                                 float y1,
+                                 float thickness);
 void vk_renderer_draw_line_strip(VkRenderer* renderer, const SDL_FPoint* points, uint32_t count);
 void vk_renderer_draw_rect(VkRenderer* renderer, const SDL_Rect* rect);
 void vk_renderer_fill_rect(VkRenderer* renderer, const SDL_Rect* rect);
@@ -143,6 +152,18 @@ void vk_renderer_draw_line_mesh_affine(VkRenderer* renderer,
                                        float t1x,
                                        float t1y,
                                        float t1z);
+void vk_renderer_draw_line_mesh_affine_tinted(VkRenderer* renderer,
+                                              const VkRendererLineMesh* mesh,
+                                              float t0x,
+                                              float t0y,
+                                              float t0z,
+                                              float t1x,
+                                              float t1y,
+                                              float t1z,
+                                              float tint_r,
+                                              float tint_g,
+                                              float tint_b,
+                                              float tint_a);
 
 VkResult vk_renderer_create_tri_mesh(VkRenderer* renderer,
                                      const SDL_FPoint* vertices,

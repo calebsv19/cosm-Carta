@@ -105,6 +105,26 @@ This is not an implementation guide.
 
 ---
 
+### core_scene_view (BOOTSTRAP)
+**Role:** Shared renderer-free scene-view packet vocabulary and readback
+contract.
+**Responsibilities:**
+- Scene-view schema family and packet variant constants
+- Preview quality, degraded reason, display flag, and pick-id vocabulary
+- Compact JSON readback validation for packet metadata
+- Shared readback structs for producer/consumer fixture parity
+- Compact summary derivation from validated packet readback metadata
+
+**Boundary:**
+- Owns packet meaning only
+- Does not own rendering, viewport input, picking policy, material sampling,
+  editor mutation, or app face/object mapping
+- Does not create, delete, move, resize, or rewrite scene objects
+- Producers and consumers keep app-local rendering/editor behavior until more
+  hosts prove the contract
+
+---
+
 ### core_mesh_asset (BOOTSTRAP)
 **Role:** Shared reusable mesh-asset contract owner.
 **Responsibilities:**
@@ -128,7 +148,7 @@ This is not an implementation guide.
 - Staged `mesh_asset_instance` scene-reference helpers
 - Authored-source compile responsibility validation
 - Bounded ASCII and binary STL imported-mesh to runtime-mesh compile proof
-  with a `250000` triangle proof-scale ceiling
+  with a `1000000` triangle proof-scale ceiling
 - File-backed runtime mesh output for bounded imported-mesh proofs
 - Runtime mesh emission contract flags
 - Surface-group preservation contract
@@ -150,6 +170,8 @@ This is not an implementation guide.
 - Bounded feature-edge preview generation from `mesh_asset_runtime_v1`
 - Runtime mesh preview metadata for source counts, local bounds, source asset
   ids, preview mode, and sampled drawable edge payloads
+- Renderer-neutral coherent indexed LOD construction with caller-selected
+  triangle budgets
 - File-backed preview save/load helpers
 
 **Boundary:**
@@ -157,6 +179,9 @@ This is not an implementation guide.
 - Does not own UI selection, hitboxes, camera projection, renderer state,
   scene placement, mesh repair, retopo, GPU buffers, BVHs, solver proxies,
   collision meshes, or SDF generation
+- Proven consumers: LineDrawing retains its CPU depth-raster/cache policy;
+  RayTracing retains its native Vulkan editor rendering, mode controls,
+  picking, overlays, final geometry, and BVH authority.
 
 ---
 
@@ -184,6 +209,23 @@ This is not an implementation guide.
 - Owns pure 2D viewport state and transform math only
 - No SDL/input event ownership
 - No map projection semantics, scene import placement, or renderer backend coupling
+
+---
+
+### core_viewport3d (BOOTSTRAP)
+**Role:** Shared renderer-neutral 3D editor viewport navigation contract.
+**Responsibilities:**
+- Double-precision effective viewport-center target and scale state
+- Canonical radian orientation and camera right/screen-down/forward basis
+- Camera-basis pan, anchor-preserving zoom, orbit, frame, reset, and resize transitions
+- Projected-extents fit-scale resolution with host-selected padding
+- Invalid-input rejection without output mutation
+
+**Boundary:**
+- Depends only on `core_base`; uses a domain-specific double vector ABI
+- No SDL/input, projector matrices, selection/bounds resolution, picking,
+  rendering, authoring, persistence, geometry, or BVH ownership
+- RayTracing and LineDrawing remain responsible for thin runtime adapters
 
 ---
 
@@ -418,6 +460,46 @@ This is not an implementation guide.
 
 ---
 
+### core_collision2d (BOOTSTRAP)
+**Role:** Shared UI-free 2D collision contract.
+**Responsibilities:**
+- Double-precision 2D vectors and AABBs
+- Circle, axis-aligned box, and convex polygon descriptors
+- Polygon geometry helpers
+- Contact manifold records
+- Primitive contact generation for circle/circle, axis-aligned box/box, and
+  convex polygon/polygon
+
+**Boundary:**
+- Owns app-neutral collision shape/query semantics only
+- Does not own rigid-body integration, impulse solving, mass/inertia, or
+  fixed-step cadence
+- Does not own room/floor/wall convenience contacts, named fixtures, summary
+  strings, CLI routes, visual review artifacts, workers, packages, or runtime
+  default policy
+
+---
+
+### core_rigid2d (BOOTSTRAP)
+**Role:** Shared UI-free 2D rigid-body contract layered on `core_collision2d`.
+**Responsibilities:**
+- Material records and rigid-body state descriptors
+- Shape-based mass and inertia helpers
+- Dynamic/static body initialization and validation
+- Minimal host-called body integration
+- Deterministic normal, angular, and friction contact solver primitives
+- Standalone typed parity harness over the first Ball Bounce rigid-body and
+  solver oracle values
+
+**Boundary:**
+- Owns rigid-body state and contact response primitives only
+- Depends on `core_collision2d` for vectors, shapes, and manifolds
+- Does not own fixed-step accumulation, broadphase/contact discovery, worlds,
+  scenarios, summary strings, CLI routes, visual review artifacts, workers,
+  packages, or runtime default policy
+
+---
+
 ### core_theme (BOOTSTRAP)
 **Role:** Canonical semantic UI token model and theme preset registry.
 **Responsibilities:**
@@ -608,6 +690,18 @@ This is not an implementation guide.
 - Owns app-neutral frame-stage timing math helpers.
 - Owns app-neutral input-frame cumulative totals helpers.
 - Does not own program input policy, routing behavior, or render behavior.
+
+### kit_viewport3d (BOOTSTRAP)
+**Role:** Optional renderer-neutral 3D editor viewport presentation helpers.
+**Notes:**
+- Owns semantic object-outline palette roles and CPU buffer composition for
+  silhouettes, relative depth discontinuities, and object-owner boundaries.
+- Accepts borrowed float or double depth buffers and optional object-owner
+  buffers; supports filled-surface and outline-only composition.
+- Does not own `core_viewport3d` navigation state, projection, rasterization,
+  renderer/GPU resources, cache lifetime, picking, scene state, input, or
+  app overlay visibility policy.
+- RayTracing and LineDrawing are the first source-level proving hosts.
 
 ### kit_graph (ACTIVE)
 **Role:** Shared graph visualization kit.

@@ -247,7 +247,11 @@ static void push_basic_constants_affine(VkRenderer* renderer,
                                         float t0z,
                                         float t1x,
                                         float t1y,
-                                        float t1z) {
+                                        float t1z,
+                                        float tint_r,
+                                        float tint_g,
+                                        float tint_b,
+                                        float tint_a) {
     float logical_w = renderer->draw_state.logical_size[0];
     float logical_h = renderer->draw_state.logical_size[1];
 
@@ -261,7 +265,7 @@ static void push_basic_constants_affine(VkRenderer* renderer,
         logical_h,
         mode_x,
         0.0f,
-        1.0f, 1.0f, 1.0f, 1.0f,
+        tint_r, tint_g, tint_b, tint_a,
         t0x, t0y, t0z, 0.0f,
         t1x, t1y, t1z, 0.0f,
     };
@@ -277,7 +281,10 @@ static void push_basic_constants_affine(VkRenderer* renderer,
 static void push_basic_constants(VkRenderer* renderer,
                                  VkCommandBuffer cmd,
                                  VkRendererPipelineKind kind) {
-    push_basic_constants_affine(renderer, cmd, kind, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+    push_basic_constants_affine(renderer, cmd, kind, 0.0f,
+                                1.0f, 0.0f, 0.0f,
+                                0.0f, 1.0f, 0.0f,
+                                1.0f, 1.0f, 1.0f, 1.0f);
 }
 
 static VkRect2D compute_active_scissor(VkRenderer* renderer) {
@@ -940,6 +947,10 @@ VkResult vk_renderer_recreate_swapchain(VkRenderer* renderer, SDL_Window* window
 
 VkResult vk_renderer_request_capture(VkRenderer* renderer, const char* output_path) {
     if (!renderer) return VK_ERROR_INITIALIZATION_FAILED;
+    if ((renderer->context.swapchain.image_usage &
+         VK_IMAGE_USAGE_TRANSFER_SRC_BIT) == 0u) {
+        return VK_ERROR_FORMAT_NOT_SUPPORTED;
+    }
     VkRendererDebugCapture* capture = &renderer->debug_capture;
 
     if (capture->buffer.buffer == VK_NULL_HANDLE) {
@@ -1061,7 +1072,7 @@ void vk_renderer_draw_point(VkRenderer* renderer, float x, float y) {
     float x1 = x + 1.0f;
     float y1 = y + 1.0f;
 
-    float quad[6][6] = {
+    const float quad[6][6] = {
         {x0, y0, color[0], color[1], color[2], color[3]},
         {x1, y0, color[0], color[1], color[2], color[3]},
         {x1, y1, color[0], color[1], color[2], color[3]},
@@ -1144,6 +1155,57 @@ void vk_renderer_draw_line(VkRenderer* renderer,
             renderer->draw_state.current_color[3],
             (unsigned long long)++s_total_lines_logged);
     }
+}
+
+void vk_renderer_draw_line_thick(VkRenderer* renderer,
+                                 float x0,
+                                 float y0,
+                                 float x1,
+                                 float y1,
+                                 float thickness) {
+    VkRendererFrameState* frame = active_frame(renderer);
+    float dx;
+    float dy;
+    float length;
+    float half_width;
+    float nx;
+    float ny;
+    float color[4];
+    float quad[6][6];
+
+    if (!frame || thickness <= 0.0f) return;
+    if (thickness <= 1.0f) {
+        vk_renderer_draw_line(renderer, x0, y0, x1, y1);
+        return;
+    }
+    dx = x1 - x0;
+    dy = y1 - y0;
+    length = sqrtf(dx * dx + dy * dy);
+    if (length <= 1e-4f) {
+        const float inset = thickness * 0.5f;
+        SDL_Rect point_rect = {(int)floorf(x0 - inset), (int)floorf(y0 - inset),
+                               (int)ceilf(thickness), (int)ceilf(thickness)};
+        vk_renderer_fill_rect(renderer, &point_rect);
+        return;
+    }
+    half_width = thickness * 0.5f;
+    nx = -dy / length * half_width;
+    ny = dx / length * half_width;
+    color[0] = renderer->draw_state.current_color[0];
+    color[1] = renderer->draw_state.current_color[1];
+    color[2] = renderer->draw_state.current_color[2];
+    color[3] = renderer->draw_state.current_color[3];
+    quad[0][0] = x0 + nx; quad[0][1] = y0 + ny;
+    quad[1][0] = x1 + nx; quad[1][1] = y1 + ny;
+    quad[2][0] = x1 - nx; quad[2][1] = y1 - ny;
+    quad[3][0] = x0 + nx; quad[3][1] = y0 + ny;
+    quad[4][0] = x1 - nx; quad[4][1] = y1 - ny;
+    quad[5][0] = x0 - nx; quad[5][1] = y0 - ny;
+    for (uint32_t i = 0u; i < 6u; ++i) {
+        quad[i][2] = color[0]; quad[i][3] = color[1];
+        quad[i][4] = color[2]; quad[i][5] = color[3];
+    }
+    emit_filled_quad(renderer, frame, quad, VK_RENDERER_PIPELINE_SOLID, 6);
 }
 
 void vk_renderer_draw_line_strip(VkRenderer* renderer, const SDL_FPoint* points, uint32_t count) {
@@ -1308,6 +1370,23 @@ void vk_renderer_draw_line_mesh_affine(VkRenderer* renderer,
                                        float t1x,
                                        float t1y,
                                        float t1z) {
+    vk_renderer_draw_line_mesh_affine_tinted(renderer, mesh,
+                                             t0x, t0y, t0z, t1x, t1y, t1z,
+                                             1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+void vk_renderer_draw_line_mesh_affine_tinted(VkRenderer* renderer,
+                                              const VkRendererLineMesh* mesh,
+                                              float t0x,
+                                              float t0y,
+                                              float t0z,
+                                              float t1x,
+                                              float t1y,
+                                              float t1z,
+                                              float tint_r,
+                                              float tint_g,
+                                              float tint_b,
+                                              float tint_a) {
     VkRendererFrameState* frame = active_frame(renderer);
     if (!renderer || !mesh || !frame || mesh->vertex_count == 0u ||
         mesh->vertex_buffer.buffer == VK_NULL_HANDLE) {
@@ -1322,7 +1401,8 @@ void vk_renderer_draw_line_mesh_affine(VkRenderer* renderer,
                       renderer->pipelines[VK_RENDERER_PIPELINE_LINES].pipeline);
     vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
     push_basic_constants_affine(renderer, cmd, VK_RENDERER_PIPELINE_LINES, 1.0f,
-                                t0x, t0y, t0z, t1x, t1y, t1z);
+                                t0x, t0y, t0z, t1x, t1y, t1z,
+                                tint_r, tint_g, tint_b, tint_a);
     apply_active_scissor(renderer, cmd);
     vkCmdDraw(cmd, mesh->vertex_count, 1, 0, 0);
     renderer->draw_state.draw_call_count++;
@@ -1430,7 +1510,8 @@ void vk_renderer_draw_tri_mesh_affine(VkRenderer* renderer,
     vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
     vkCmdBindIndexBuffer(cmd, mesh->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
     push_basic_constants_affine(renderer, cmd, VK_RENDERER_PIPELINE_SOLID, 1.0f,
-                                t0x, t0y, t0z, t1x, t1y, t1z);
+                                t0x, t0y, t0z, t1x, t1y, t1z,
+                                1.0f, 1.0f, 1.0f, 1.0f);
     apply_active_scissor(renderer, cmd);
     vkCmdDrawIndexed(cmd, mesh->index_count, 1, 0, 0, 0);
     renderer->draw_state.draw_call_count++;
@@ -1542,7 +1623,7 @@ void vk_renderer_fill_rect(VkRenderer* renderer, const SDL_Rect* rect) {
         renderer->draw_state.current_color[3],
     };
 
-    float quad[6][6] = {
+    const float quad[6][6] = {
         {x, y, color[0], color[1], color[2], color[3]},
         {x + w, y, color[0], color[1], color[2], color[3]},
         {x + w, y + h, color[0], color[1], color[2], color[3]},

@@ -1,8 +1,14 @@
 #include "core_mesh_compile.h"
 
 #include <stdint.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
+
+CoreResult core_mesh_compile_runtime_generate_vertex_normals(
+    CoreMeshAssetRuntimeDocument *document,
+    CoreMeshAssetImportedNormalMode mode,
+    double crease_angle_degrees);
 
 #define CHECK(cond) do { if (!(cond)) { printf("fail:%d\n", __LINE__); return 1; } } while (0)
 
@@ -123,6 +129,109 @@ static int test_imported_stl_to_runtime_document(void) {
     CHECK(runtime.contract.local_bounds.max.x == 1.0);
     CHECK(runtime.contract.local_bounds.max.y == 1.0);
     CHECK(runtime.contract.local_bounds.max.z == 1.0);
+    CHECK(core_mesh_asset_runtime_document_validate(&runtime).code == CORE_OK);
+
+    core_mesh_asset_runtime_document_free(&runtime);
+    core_mesh_asset_authoring_document_free(&authoring);
+    return 0;
+}
+
+static int test_imported_stl_generates_angle_weighted_smooth_normals(void) {
+    CoreMeshAssetAuthoringDocument authoring;
+    CoreMeshAssetRuntimeDocument runtime;
+    size_t i;
+
+    core_mesh_asset_authoring_document_init(&authoring);
+    core_mesh_asset_runtime_document_init(&runtime);
+    CHECK(core_mesh_asset_authoring_document_load_file(
+              "tests/fixtures/mesh_asset_authoring_v1_imported_stl_tetrahedron.json",
+              &authoring).code == CORE_OK);
+    authoring.imported_mesh_source.normal_mode =
+        CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_SMOOTH;
+    CHECK(core_mesh_compile_imported_mesh_to_runtime_document(
+              &authoring,
+              ".",
+              "asset_imported_tetrahedron_smooth_runtime",
+              &runtime).code == CORE_OK);
+    CHECK(runtime.vertex_count == 4u);
+    CHECK(runtime.vertex_normal_count == runtime.vertex_count);
+    CHECK(runtime.normal_provenance ==
+          CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_SMOOTH);
+    for (i = 0u; i < runtime.vertex_count; ++i) {
+        CoreObjectVec3 normal = runtime.vertices[i].normal;
+        double length_sq = normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
+        CHECK(fabs(length_sq - 1.0) < 1e-8);
+    }
+    CHECK(core_mesh_asset_runtime_document_validate(&runtime).code == CORE_OK);
+
+    core_mesh_asset_runtime_document_free(&runtime);
+    core_mesh_asset_authoring_document_free(&authoring);
+    return 0;
+}
+
+static int test_smooth_normals_fall_back_when_opposite_faces_cancel(void) {
+    CoreMeshAssetRuntimeDocument runtime;
+    size_t i;
+
+    core_mesh_asset_runtime_document_init(&runtime);
+    CHECK(core_mesh_asset_runtime_document_set_vertex_count(&runtime, 3u).code == CORE_OK);
+    CHECK(core_mesh_asset_runtime_document_set_triangle_count(&runtime, 2u).code == CORE_OK);
+    runtime.vertices[0].position = (CoreObjectVec3){0.0, 0.0, 0.0};
+    runtime.vertices[1].position = (CoreObjectVec3){1.0, 0.0, 0.0};
+    runtime.vertices[2].position = (CoreObjectVec3){0.0, 1.0, 0.0};
+    runtime.triangles[0].a = 0u;
+    runtime.triangles[0].b = 1u;
+    runtime.triangles[0].c = 2u;
+    runtime.triangles[1].a = 0u;
+    runtime.triangles[1].b = 2u;
+    runtime.triangles[1].c = 1u;
+    CHECK(core_mesh_compile_runtime_generate_vertex_normals(
+              &runtime,
+              CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_SMOOTH,
+              180.0).code == CORE_OK);
+    CHECK(runtime.vertex_normal_count == runtime.vertex_count);
+    for (i = 0u; i < runtime.vertex_count; ++i) {
+        CoreObjectVec3 normal = runtime.vertices[i].normal;
+        double length_sq = normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
+        CHECK(fabs(length_sq - 1.0) < 1e-8);
+        CHECK(normal.z > 0.999999);
+    }
+    core_mesh_asset_runtime_document_free(&runtime);
+    return 0;
+}
+
+static int test_imported_stl_crease_aware_normals_split_hard_edges(void) {
+    CoreMeshAssetAuthoringDocument authoring;
+    CoreMeshAssetRuntimeDocument runtime;
+    size_t triangle_index;
+
+    core_mesh_asset_authoring_document_init(&authoring);
+    core_mesh_asset_runtime_document_init(&runtime);
+    CHECK(core_mesh_asset_authoring_document_load_file(
+              "tests/fixtures/mesh_asset_authoring_v1_imported_stl_tetrahedron.json",
+              &authoring).code == CORE_OK);
+    authoring.imported_mesh_source.normal_mode =
+        CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_CREASE_AWARE;
+    authoring.imported_mesh_source.crease_angle_degrees = 30.0;
+    CHECK(core_mesh_compile_imported_mesh_to_runtime_document(
+              &authoring,
+              ".",
+              "asset_imported_tetrahedron_crease_runtime",
+              &runtime).code == CORE_OK);
+    CHECK(runtime.vertex_count == 12u);
+    CHECK(runtime.vertex_normal_count == 12u);
+    CHECK(runtime.normal_provenance ==
+          CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_CREASE_AWARE);
+    for (triangle_index = 0u; triangle_index < runtime.triangle_count; ++triangle_index) {
+        const CoreMeshAssetRuntimeTriangle *triangle = &runtime.triangles[triangle_index];
+        CoreObjectVec3 a = runtime.vertices[triangle->a].normal;
+        CoreObjectVec3 b = runtime.vertices[triangle->b].normal;
+        CoreObjectVec3 c = runtime.vertices[triangle->c].normal;
+        CHECK(fabs(a.x - b.x) < 1e-12 && fabs(a.y - b.y) < 1e-12 &&
+              fabs(a.z - b.z) < 1e-12);
+        CHECK(fabs(a.x - c.x) < 1e-12 && fabs(a.y - c.y) < 1e-12 &&
+              fabs(a.z - c.z) < 1e-12);
+    }
     CHECK(core_mesh_asset_runtime_document_validate(&runtime).code == CORE_OK);
 
     core_mesh_asset_runtime_document_free(&runtime);
@@ -362,7 +471,7 @@ static int test_imported_binary_stl_too_many_triangles_guardrail(void) {
     core_mesh_asset_authoring_document_init(&authoring);
     core_mesh_asset_runtime_document_init(&runtime);
 
-    CHECK(write_binary_repeated_triangle_stl(path, 250001u));
+    CHECK(write_binary_repeated_triangle_stl(path, 3000001u));
     CHECK(core_mesh_asset_authoring_document_load_file(
               "tests/fixtures/mesh_asset_authoring_v1_imported_stl_tetrahedron.json",
               &authoring).code == CORE_OK);
@@ -473,6 +582,9 @@ int main(void) {
     if (test_instance_contract_validation() != 0) return 1;
     if (test_authoring_compile_contract_validation() != 0) return 1;
     if (test_imported_stl_to_runtime_document() != 0) return 1;
+    if (test_imported_stl_generates_angle_weighted_smooth_normals() != 0) return 1;
+    if (test_smooth_normals_fall_back_when_opposite_faces_cancel() != 0) return 1;
+    if (test_imported_stl_crease_aware_normals_split_hard_edges() != 0) return 1;
     if (test_imported_stl_to_runtime_file() != 0) return 1;
     if (test_imported_binary_stl_to_runtime_document() != 0) return 1;
     if (test_imported_binary_stl_indexed_weld_to_runtime_document() != 0) return 1;

@@ -7,7 +7,8 @@ Provide one shared semantic source of truth for authored-texture manifest meanin
 1. Keep the module JSON-free and UI-free.
 2. Freeze manifest vocabulary, primitive/binding/output enums, and face-role completeness rules.
 3. Keep semantic-net layout/slot/orientation plus corner/edge/adjacency validation shared and strict.
-4. Let apps adopt shared validation/constants incrementally before widening into any shared adapter layer.
+4. Maintain the v0.2 exact indexed-palette and fixed-cell atlas contract as JSON/image-IO/renderer-free interchange.
+5. Let apps adopt shared validation/constants incrementally before widening into any shared adapter layer.
 
 ## Future Steps
 1. Lock the current bridge-first adoption with focused exporter/loader compatibility tests and docs.

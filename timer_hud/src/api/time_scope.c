@@ -37,13 +37,17 @@
 #define TS_DEFAULT_LOG_FILE "timing.json"
 
 static void ts_strlcpy(char* dst, size_t dst_cap, const char* src) {
+    size_t len = 0u;
     if (!dst || dst_cap == 0) return;
-    if (!src) {
-        dst[0] = '\0';
-        return;
+    if (!src) src = "";
+    len = strlen(src);
+    if (len >= dst_cap) {
+        len = dst_cap - 1u;
     }
-    strncpy(dst, src, dst_cap - 1);
-    dst[dst_cap - 1] = '\0';
+    if (len > 0u && dst != src) {
+        memcpy(dst, src, len);
+    }
+    dst[len] = '\0';
 }
 
 static int path_is_absolute(const char* path) {

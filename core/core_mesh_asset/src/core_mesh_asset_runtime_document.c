@@ -160,7 +160,22 @@ static CoreResult runtime_doc_save_file_streaming(const CoreMeshAssetRuntimeDocu
              runtime_doc_write_vec3(f, document->vertices[i].position) &&
              fprintf(f, "%s\n", (i + 1u < document->vertex_count) ? "," : "") >= 0;
     }
-    ok = ok && fprintf(f, "\t],\"triangles\":[\n") >= 0;
+    ok = ok && fprintf(f, "\t]") >= 0;
+    if (ok && document->vertex_normal_count > 0u) {
+        ok = fprintf(f, ",\"normal_count\":%zu,\"normal_provenance\":",
+                     document->vertex_normal_count) >= 0 &&
+             runtime_doc_write_json_string(
+                 f,
+                 core_mesh_asset_runtime_normal_provenance_name(document->normal_provenance)) &&
+             fprintf(f, ",\"normals\":[\n") >= 0;
+        for (i = 0u; ok && i < document->vertex_normal_count; ++i) {
+            ok = fprintf(f, "\t\t") >= 0 &&
+                 runtime_doc_write_vec3(f, document->vertices[i].normal) &&
+                 fprintf(f, "%s\n", (i + 1u < document->vertex_normal_count) ? "," : "") >= 0;
+        }
+        ok = ok && fprintf(f, "\t]") >= 0;
+    }
+    ok = ok && fprintf(f, ",\"triangles\":[\n") >= 0;
     for (i = 0u; ok && i < document->triangle_count; ++i) {
         const CoreMeshAssetRuntimeTriangle *triangle = &document->triangles[i];
         ok = fprintf(f,
@@ -337,6 +352,8 @@ void core_mesh_asset_runtime_document_free(CoreMeshAssetRuntimeDocument *documen
     document->triangles = NULL;
     document->surface_groups = NULL;
     document->vertex_count = 0u;
+    document->vertex_normal_count = 0u;
+    document->normal_provenance = CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE;
     document->triangle_count = 0u;
     document->surface_group_count = 0u;
     core_mesh_asset_runtime_contract_init(&document->contract);
@@ -353,6 +370,8 @@ CoreResult core_mesh_asset_runtime_document_set_vertex_count(
         core_free(document->vertices);
         document->vertices = NULL;
         document->vertex_count = 0u;
+        document->vertex_normal_count = 0u;
+        document->normal_provenance = CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE;
         return core_result_ok();
     }
     if (vertex_count > (SIZE_MAX / sizeof(CoreMeshAssetRuntimeVertex))) {
@@ -366,6 +385,8 @@ CoreResult core_mesh_asset_runtime_document_set_vertex_count(
     core_free(document->vertices);
     document->vertices = (CoreMeshAssetRuntimeVertex *)buffer;
     document->vertex_count = vertex_count;
+    document->vertex_normal_count = 0u;
+    document->normal_provenance = CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE;
     document->contract.vertex_count = vertex_count;
     return core_result_ok();
 }
@@ -444,6 +465,14 @@ CoreResult core_mesh_asset_runtime_document_validate(
         document->contract.triangle_count != document->triangle_count) {
         return runtime_doc_invalid_arg("runtime mesh counts must match arrays");
     }
+    if (document->vertex_normal_count == 0u) {
+        if (document->normal_provenance != CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE) {
+            return runtime_doc_invalid_arg("normal provenance requires vertex normals");
+        }
+    } else if (document->vertex_normal_count != document->vertex_count ||
+               document->normal_provenance == CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE) {
+        return runtime_doc_invalid_arg("runtime vertex normal count/provenance is invalid");
+    }
     if (document->surface_group_count == 0u || !document->surface_groups) {
         return runtime_doc_invalid_arg("surface groups must be present");
     }
@@ -451,6 +480,15 @@ CoreResult core_mesh_asset_runtime_document_validate(
         CoreObjectVec3 p = document->vertices[i].position;
         if (!runtime_doc_vec3_is_finite(p)) {
             return runtime_doc_invalid_arg("runtime mesh vertices must be finite");
+        }
+        if (document->vertex_normal_count > 0u) {
+            CoreObjectVec3 n = document->vertices[i].normal;
+            double length_sq = n.x * n.x + n.y * n.y + n.z * n.z;
+            if (!runtime_doc_vec3_is_finite(n) || !isfinite(length_sq) ||
+                fabs(length_sq - 1.0) > 1e-4) {
+                return runtime_doc_invalid_arg(
+                    "runtime vertex normals must be finite and normalized");
+            }
         }
         if (!runtime_doc_bounds_contains(document->contract.local_bounds, p)) {
             return runtime_doc_invalid_arg("runtime mesh vertex is outside local bounds");
@@ -495,10 +533,14 @@ CoreResult core_mesh_asset_runtime_document_load_file(const char *path,
     const cJSON *vertex_count = NULL;
     const cJSON *triangle_count = NULL;
     const cJSON *vertices = NULL;
+    const cJSON *normal_count = NULL;
+    const cJSON *normal_provenance = NULL;
+    const cJSON *normals = NULL;
     const cJSON *triangles = NULL;
     const cJSON *surface_groups = NULL;
     const cJSON *array_item = NULL;
     int vertex_array_count;
+    int normal_array_count = 0;
     int triangle_array_count;
     int surface_group_count;
     int i;
@@ -541,6 +583,10 @@ CoreResult core_mesh_asset_runtime_document_load_file(const char *path,
     vertex_count = mesh ? cJSON_GetObjectItemCaseSensitive(mesh, "vertex_count") : NULL;
     triangle_count = mesh ? cJSON_GetObjectItemCaseSensitive(mesh, "triangle_count") : NULL;
     vertices = mesh ? cJSON_GetObjectItemCaseSensitive(mesh, "vertices") : NULL;
+    normal_count = mesh ? cJSON_GetObjectItemCaseSensitive(mesh, "normal_count") : NULL;
+    normal_provenance =
+        mesh ? cJSON_GetObjectItemCaseSensitive(mesh, "normal_provenance") : NULL;
+    normals = mesh ? cJSON_GetObjectItemCaseSensitive(mesh, "normals") : NULL;
     triangles = mesh ? cJSON_GetObjectItemCaseSensitive(mesh, "triangles") : NULL;
     if (!cJSON_IsObject(mesh) || !cJSON_IsNumber(vertex_count) ||
         !cJSON_IsNumber(triangle_count) || !cJSON_IsArray(vertices) ||
@@ -572,6 +618,33 @@ CoreResult core_mesh_asset_runtime_document_load_file(const char *path,
         return r;
     }
 
+    if (normal_count || normal_provenance || normals) {
+        if (!cJSON_IsNumber(normal_count) || normal_count->valueint <= 0 ||
+            !cJSON_IsString(normal_provenance) || !normal_provenance->valuestring ||
+            !cJSON_IsArray(normals)) {
+            cJSON_Delete(root);
+            core_mesh_asset_runtime_document_free(&document);
+            return runtime_doc_invalid_arg("runtime vertex normal fields are incomplete");
+        }
+        normal_array_count = cJSON_GetArraySize(normals);
+        if (normal_count->valueint != vertex_array_count ||
+            normal_array_count != vertex_array_count) {
+            cJSON_Delete(root);
+            core_mesh_asset_runtime_document_free(&document);
+            return runtime_doc_invalid_arg("runtime vertex normal count is invalid");
+        }
+        r = core_mesh_asset_runtime_normal_provenance_parse(
+            normal_provenance->valuestring,
+            &document.normal_provenance);
+        if (r.code != CORE_OK ||
+            document.normal_provenance == CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE) {
+            cJSON_Delete(root);
+            core_mesh_asset_runtime_document_free(&document);
+            return runtime_doc_invalid_arg("runtime vertex normal provenance is invalid");
+        }
+        document.vertex_normal_count = (size_t)normal_array_count;
+    }
+
     i = 0;
     cJSON_ArrayForEach(array_item, vertices) {
         if (i >= vertex_array_count ||
@@ -586,6 +659,24 @@ CoreResult core_mesh_asset_runtime_document_load_file(const char *path,
         cJSON_Delete(root);
         core_mesh_asset_runtime_document_free(&document);
         return runtime_doc_invalid_arg("runtime mesh vertex count mismatch");
+    }
+
+    if (document.vertex_normal_count > 0u) {
+        i = 0;
+        cJSON_ArrayForEach(array_item, normals) {
+            if (i >= normal_array_count ||
+                !runtime_doc_vec3_from_json(array_item, &document.vertices[i].normal)) {
+                cJSON_Delete(root);
+                core_mesh_asset_runtime_document_free(&document);
+                return runtime_doc_invalid_arg("runtime vertex normal is invalid");
+            }
+            i += 1;
+        }
+        if (i != normal_array_count) {
+            cJSON_Delete(root);
+            core_mesh_asset_runtime_document_free(&document);
+            return runtime_doc_invalid_arg("runtime vertex normal count mismatch");
+        }
     }
 
     i = 0;

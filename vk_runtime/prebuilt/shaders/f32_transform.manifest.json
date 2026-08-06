@@ -1,0 +1,33 @@
+{
+  "compiler": "glslc",
+  "compiler_version": "shaderc v2023.8 unknown hash, 2025-09-26",
+  "descriptor_layout": [
+    {
+      "access": "readonly",
+      "binding": 0,
+      "descriptor_type": "storage_buffer"
+    },
+    {
+      "access": "writeonly",
+      "binding": 1,
+      "descriptor_type": "storage_buffer"
+    }
+  ],
+  "entry_point": "main",
+  "flags": [
+    "--target-env=vulkan1.1",
+    "-O"
+  ],
+  "kernel_id": "codework_f32_transform_v1",
+  "local_size": [
+    64,
+    1,
+    1
+  ],
+  "schema": "codework_vk_shader_manifest_v1",
+  "schema_version": 1,
+  "source": "shaders/f32_transform.comp",
+  "source_sha256": "8483a38474926a6409ea1b6bac0721baa4c272f3ec14a9cd2fdd4aa63292cee0",
+  "spirv": "build/shaders/f32_transform.spv",
+  "spirv_sha256": "daf4614fe9a95530d30323d47ae11242ffbcef914493ea7c4b4c6ab79bb784c8"
+}

@@ -44,6 +44,19 @@ typedef enum CoreMeshAssetImportedMeshSourceFormat {
     CORE_MESH_ASSET_IMPORTED_MESH_SOURCE_FORMAT_STL = 1
 } CoreMeshAssetImportedMeshSourceFormat;
 
+typedef enum CoreMeshAssetRuntimeNormalProvenance {
+    CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE = 0,
+    CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_SOURCE = 1,
+    CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_SMOOTH = 2,
+    CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_CREASE_AWARE = 3
+} CoreMeshAssetRuntimeNormalProvenance;
+
+typedef enum CoreMeshAssetImportedNormalMode {
+    CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_NONE = 0,
+    CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_SMOOTH = 1,
+    CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_CREASE_AWARE = 2
+} CoreMeshAssetImportedNormalMode;
+
 typedef struct CoreMeshAssetFrame3 {
     CoreObjectVec3 origin;
     CoreObjectVec3 axis_u;
@@ -81,6 +94,7 @@ typedef struct CoreMeshAssetRuntimeContract {
 
 typedef struct CoreMeshAssetRuntimeVertex {
     CoreObjectVec3 position;
+    CoreObjectVec3 normal;
 } CoreMeshAssetRuntimeVertex;
 
 typedef struct CoreMeshAssetRuntimeTriangle {
@@ -100,6 +114,8 @@ typedef struct CoreMeshAssetRuntimeDocument {
     CoreMeshAssetRuntimeContract contract;
     size_t vertex_count;
     CoreMeshAssetRuntimeVertex *vertices;
+    size_t vertex_normal_count;
+    CoreMeshAssetRuntimeNormalProvenance normal_provenance;
     size_t triangle_count;
     CoreMeshAssetRuntimeTriangle *triangles;
     size_t surface_group_count;
@@ -142,6 +158,8 @@ typedef struct CoreMeshAssetImportedMeshSource {
     bool weld_vertices;
     double weld_tolerance;
     bool preserve_source_normals;
+    CoreMeshAssetImportedNormalMode normal_mode;
+    double crease_angle_degrees;
     bool topology_closed_volume_observed;
     bool topology_manifold_observed;
 } CoreMeshAssetImportedMeshSource;
@@ -173,6 +191,15 @@ const char *core_mesh_asset_imported_mesh_source_format_name(
 CoreResult core_mesh_asset_imported_mesh_source_format_parse(
     const char *text,
     CoreMeshAssetImportedMeshSourceFormat *out_format);
+const char *core_mesh_asset_runtime_normal_provenance_name(
+    CoreMeshAssetRuntimeNormalProvenance provenance);
+CoreResult core_mesh_asset_runtime_normal_provenance_parse(
+    const char *text,
+    CoreMeshAssetRuntimeNormalProvenance *out_provenance);
+const char *core_mesh_asset_imported_normal_mode_name(CoreMeshAssetImportedNormalMode mode);
+CoreResult core_mesh_asset_imported_normal_mode_parse(
+    const char *text,
+    CoreMeshAssetImportedNormalMode *out_mode);
 void core_mesh_asset_imported_mesh_source_init(CoreMeshAssetImportedMeshSource *source);
 CoreResult core_mesh_asset_imported_mesh_source_validate(
     const CoreMeshAssetImportedMeshSource *source);

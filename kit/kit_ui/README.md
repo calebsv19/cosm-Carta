@@ -15,7 +15,7 @@ This module now provides:
 - rounded/compact button appearance presets for HUD-style control surfaces
 - HUD-style floating surface/button-row layout helpers with alpha-preserving
   dark floating defaults and nested-corner inset helpers
-- optional SDL rounded-surface/button/readout adapter helpers through
+- optional SDL rounded-surface/button/readout/scrollbar adapter helpers through
   `kit_ui_sdl.h`
 - checkbox drawing
 - slider drawing
@@ -140,6 +140,11 @@ This SDL adapter is intentionally a bridge, not a replacement for
 should continue to use command-frame UI helpers. The adapter exists for active
 plain-SDL overlays where adopting the shared HUD expression first is cleaner
 than forcing a renderer migration.
+
+`kit_ui_sdl_scrollbar_layout(...)` and `kit_ui_sdl_draw_scrollbar(...)` mirror
+the shared command-frame scrollbar geometry (6px track inset 8px from the
+right edge and a 10% minimum thumb) for direct SDL hosts. The host keeps scroll
+offset and pointer routing; `kit_ui` owns the common visual geometry.
 
 ## Theme-Scale Style Sync
 

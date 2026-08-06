@@ -6,6 +6,9 @@ Current milestone:
 - shared text policy resolution and external text helper runtime are both live
 - the module boundary is now truth-locked around frame recording, backend attachment, and shared text-runtime ownership
 - external text bridge hosts now have an explicit shared font-cache reset seam for SDL_ttf lifecycle boundaries, reducing stale-handle risk during menu/runtime teardown and restart flows
+- Vulkan submission honors the existing line/polyline thickness fields through
+  filled screen-space stroke geometry; cap/join style selection remains a
+  future additive refinement
 
 Next implementation steps:
 - improve transform-stack ergonomics beyond per-command transforms

@@ -3,6 +3,70 @@
 #include <assert.h>
 #include <string.h>
 
+static void test_indexed_palette_and_atlas_contracts(void) {
+    CoreAuthoredTextureIndexedSlot slots[] = {
+        {"transparent", {0u, 0u, 0u, 0u}},
+        {"stone_mid", {128u, 128u, 128u, 255u}},
+    };
+    CoreAuthoredTexturePaletteEntry entries[] = {
+        {"transparent", {0u, 0u, 0u, 0u}},
+        {"stone_mid", {90u, 100u, 110u, 255u}},
+    };
+    CoreAuthoredTextureAtlasCell cells[] = {
+        {"surface.floor.a", 0u, 0u, 16u, 16u},
+        {"surface.boundary.n", 16u, 0u, 16u, 16u},
+    };
+    CoreAuthoredTextureIndexedPaletteContract palette = {
+        CORE_AUTHORED_TEXTURE_INDEXED_CONTRACT_REVISION_V1,
+        slots,
+        2u,
+        entries,
+        2u,
+    };
+    CoreAuthoredTextureIndexedAtlasContract atlas = {
+        CORE_AUTHORED_TEXTURE_INDEXED_CONTRACT_REVISION_V1,
+        32u,
+        16u,
+        16u,
+        16u,
+        CORE_AUTHORED_TEXTURE_OUTPUT_KIND_INDEX_ATLAS,
+        "index_atlas.png",
+        cells,
+        2u,
+    };
+
+    assert(core_authored_texture_identifier_validate("surface.floor.a"));
+    assert(!core_authored_texture_identifier_validate("Surface.floor"));
+    assert(!core_authored_texture_identifier_validate("9surface"));
+    assert(core_authored_texture_indexed_palette_validate(&palette));
+    entries[1].slot_id = "transparent";
+    assert(!core_authored_texture_indexed_palette_validate(&palette));
+    entries[1].slot_id = "stone_mid";
+    slots[1].source_rgba = slots[0].source_rgba;
+    assert(!core_authored_texture_indexed_palette_validate(&palette));
+    slots[1].source_rgba = (CoreAuthoredTextureRgba8){128u, 128u, 128u, 255u};
+    palette.entry_count = 1u;
+    assert(!core_authored_texture_indexed_palette_validate(&palette));
+    palette.entry_count = 2u;
+
+    assert(core_authored_texture_indexed_atlas_validate(&atlas));
+    assert(core_authored_texture_atlas_cell_find(&atlas, "surface.boundary.n") == &cells[1]);
+    assert(core_authored_texture_atlas_cell_find(&atlas, "surface.missing") == NULL);
+    cells[1].id = "surface.floor.a";
+    assert(!core_authored_texture_indexed_atlas_validate(&atlas));
+    cells[1].id = "surface.boundary.n";
+    cells[1].x = 8u;
+    assert(!core_authored_texture_indexed_atlas_validate(&atlas));
+    cells[1].x = UINT32_MAX - 4u;
+    assert(!core_authored_texture_indexed_atlas_validate(&atlas));
+    cells[1].x = 16u;
+    cells[1].width = 8u;
+    assert(!core_authored_texture_indexed_atlas_validate(&atlas));
+    cells[1].width = 16u;
+    atlas.output_kind = CORE_AUTHORED_TEXTURE_OUTPUT_KIND_FLATTENED_ONLY;
+    assert(!core_authored_texture_indexed_atlas_validate(&atlas));
+}
+
 int main(void) {
     CoreAuthoredTexturePrimitiveKind primitive_kind =
         CORE_AUTHORED_TEXTURE_PRIMITIVE_KIND_NONE;
@@ -374,5 +438,6 @@ int main(void) {
         prism_edge_ids,
         prism_adjacent_roles));
 
+    test_indexed_palette_and_atlas_contracts();
     return 0;
 }

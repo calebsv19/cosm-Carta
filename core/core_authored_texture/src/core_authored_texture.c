@@ -97,6 +97,10 @@ const char* core_authored_texture_output_kind_name(CoreAuthoredTextureOutputKind
             return "FLATTENED_ONLY";
         case CORE_AUTHORED_TEXTURE_OUTPUT_KIND_BASE_PLUS_OVERLAY:
             return "BASE_PLUS_OVERLAY";
+        case CORE_AUTHORED_TEXTURE_OUTPUT_KIND_INDEX_ATLAS:
+            return "INDEX_ATLAS";
+        case CORE_AUTHORED_TEXTURE_OUTPUT_KIND_PALETTE_BAKED_ATLAS:
+            return "PALETTE_BAKED_ATLAS";
         case CORE_AUTHORED_TEXTURE_OUTPUT_KIND_NONE:
         default:
             return "";
@@ -117,6 +121,14 @@ bool core_authored_texture_output_kind_parse(const char* text,
     }
     if (core_authored_texture_text_equals(text, "BASE_PLUS_OVERLAY")) {
         *out_kind = CORE_AUTHORED_TEXTURE_OUTPUT_KIND_BASE_PLUS_OVERLAY;
+        return true;
+    }
+    if (core_authored_texture_text_equals(text, "INDEX_ATLAS")) {
+        *out_kind = CORE_AUTHORED_TEXTURE_OUTPUT_KIND_INDEX_ATLAS;
+        return true;
+    }
+    if (core_authored_texture_text_equals(text, "PALETTE_BAKED_ATLAS")) {
+        *out_kind = CORE_AUTHORED_TEXTURE_OUTPUT_KIND_PALETTE_BAKED_ATLAS;
         return true;
     }
     return false;
@@ -493,4 +505,120 @@ bool core_authored_texture_semantic_net_validate(
     }
 
     return false;
+}
+
+bool core_authored_texture_identifier_validate(const char* text) {
+    size_t i = 0u;
+    if (!text || text[0] < 'a' || text[0] > 'z') {
+        return false;
+    }
+    for (i = 1u; text[i] != '\0'; ++i) {
+        const char c = text[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+              c == '_' || c == '-' || c == '.')) {
+            return false;
+        }
+    }
+    return i <= 63u;
+}
+
+bool core_authored_texture_rgba8_equal(CoreAuthoredTextureRgba8 a,
+                                       CoreAuthoredTextureRgba8 b) {
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+bool core_authored_texture_indexed_palette_validate(
+    const CoreAuthoredTextureIndexedPaletteContract* contract) {
+    size_t i = 0u;
+    size_t j = 0u;
+    if (!contract || contract->revision != CORE_AUTHORED_TEXTURE_INDEXED_CONTRACT_REVISION_V1 ||
+        !contract->slots || !contract->entries || contract->slot_count == 0u ||
+        contract->slot_count != contract->entry_count) {
+        return false;
+    }
+    for (i = 0u; i < contract->slot_count; ++i) {
+        size_t matches = 0u;
+        if (!core_authored_texture_identifier_validate(contract->slots[i].id)) {
+            return false;
+        }
+        for (j = i + 1u; j < contract->slot_count; ++j) {
+            if (core_authored_texture_text_equals(contract->slots[i].id,
+                                                  contract->slots[j].id) ||
+                core_authored_texture_rgba8_equal(contract->slots[i].source_rgba,
+                                                  contract->slots[j].source_rgba)) {
+                return false;
+            }
+        }
+        for (j = 0u; j < contract->entry_count; ++j) {
+            if (!core_authored_texture_identifier_validate(contract->entries[j].slot_id)) {
+                return false;
+            }
+            if (core_authored_texture_text_equals(contract->slots[i].id,
+                                                  contract->entries[j].slot_id)) {
+                matches += 1u;
+            }
+        }
+        if (matches != 1u) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool core_authored_texture_rects_overlap(const CoreAuthoredTextureAtlasCell* a,
+                                                const CoreAuthoredTextureAtlasCell* b) {
+    return a->x < b->x + b->width && b->x < a->x + a->width &&
+           a->y < b->y + b->height && b->y < a->y + a->height;
+}
+
+bool core_authored_texture_indexed_atlas_validate(
+    const CoreAuthoredTextureIndexedAtlasContract* contract) {
+    size_t i = 0u;
+    size_t j = 0u;
+    if (!contract || contract->revision != CORE_AUTHORED_TEXTURE_INDEXED_CONTRACT_REVISION_V1 ||
+        contract->atlas_width == 0u || contract->atlas_height == 0u ||
+        contract->logical_cell_width == 0u || contract->logical_cell_height == 0u ||
+        !contract->image_ref || contract->image_ref[0] == '\0' ||
+        !contract->cells || contract->cell_count == 0u ||
+        (contract->output_kind != CORE_AUTHORED_TEXTURE_OUTPUT_KIND_INDEX_ATLAS &&
+         contract->output_kind != CORE_AUTHORED_TEXTURE_OUTPUT_KIND_PALETTE_BAKED_ATLAS)) {
+        return false;
+    }
+    for (i = 0u; i < contract->cell_count; ++i) {
+        const CoreAuthoredTextureAtlasCell* cell = &contract->cells[i];
+        if (!core_authored_texture_identifier_validate(cell->id) ||
+            cell->width != contract->logical_cell_width ||
+            cell->height != contract->logical_cell_height ||
+            cell->x > contract->atlas_width || cell->y > contract->atlas_height ||
+            cell->width > contract->atlas_width - cell->x ||
+            cell->height > contract->atlas_height - cell->y) {
+            return false;
+        }
+    }
+    for (i = 0u; i < contract->cell_count; ++i) {
+        const CoreAuthoredTextureAtlasCell* cell = &contract->cells[i];
+        for (j = i + 1u; j < contract->cell_count; ++j) {
+            if (core_authored_texture_text_equals(cell->id, contract->cells[j].id) ||
+                core_authored_texture_rects_overlap(cell, &contract->cells[j])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+const CoreAuthoredTextureAtlasCell* core_authored_texture_atlas_cell_find(
+    const CoreAuthoredTextureIndexedAtlasContract* contract,
+    const char* id) {
+    size_t i = 0u;
+    if (!core_authored_texture_indexed_atlas_validate(contract) ||
+        !core_authored_texture_identifier_validate(id)) {
+        return NULL;
+    }
+    for (i = 0u; i < contract->cell_count; ++i) {
+        if (core_authored_texture_text_equals(contract->cells[i].id, id)) {
+            return &contract->cells[i];
+        }
+    }
+    return NULL;
 }
