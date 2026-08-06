@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codework.local/schemas/codework_vk_shader_manifest_v1.schema.json",
+  "title": "CodeWork Vulkan Shader Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "kernel_id",
+    "source",
+    "spirv",
+    "spirv_sha256",
+    "compiler",
+    "compiler_version",
+    "flags",
+    "entry_point",
+    "local_size",
+    "descriptor_layout"
+  ],
+  "properties": {
+    "schema": {
+      "const": "codework_vk_shader_manifest_v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "kernel_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "spirv": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spirv_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "compiler": {
+      "type": "string",
+      "minLength": 1
+    },
+    "compiler_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "entry_point": {
+      "const": "main"
+    },
+    "local_size": {
+      "const": [64, 1, 1]
+    },
+    "descriptor_layout": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "const": {
+            "binding": 0,
+            "descriptor_type": "storage_buffer",
+            "access": "readonly"
+          }
+        },
+        {
+          "const": {
+            "binding": 1,
+            "descriptor_type": "storage_buffer",
+            "access": "writeonly"
+          }
+        }
+      ],
+      "items": false
+    }
+  }
+}

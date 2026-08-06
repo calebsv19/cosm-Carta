@@ -210,6 +210,8 @@ and runtime preference persistence.
 Press `Esc` or close the window to exit.
 
 Recent update notes:
+- `0.14.4`: the Vulkan bridge now honors recorded line and polyline thickness
+  through the additive `vk_renderer_draw_line_thick(...)` filled-stroke path.
 - `0.14.3`: added `kit_render_external_text_reset_font_system(...)` so bridge hosts can clear shared external-text font caches before SDL_ttf shutdown/restart and avoid stale derived font handles in later text measurement.
 - `0.14.2`: truth-locked the live backend/text boundary, documented borrowed frame-data lifetime rules, added lifecycle/zoom/borrow-contract tests, and rejected backend attachment during an open frame.
 - `0.14.1`: external text font-source unregister now clears derived point-size font cache entries for that source path, preventing stale SDL_ttf font handles from surviving app/menu shutdown and later crashing text measurement.

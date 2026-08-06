@@ -63,8 +63,11 @@ Implemented now:
 8. decimation/stride helper for dense series
 9. Vulkan validation harness
 10. internal split between math helpers and draw helpers so apps can reuse plotting math incrementally
-11. first app adoption slice landed: DataLab now reuses shared stride guidance for trace decimation
+11. first app adoption slice landed: DataLab reused shared stride guidance for trace decimation
 12. bounded hardening now covers non-finite rejection, command-buffer failure propagation, and hover-label lifetime safety
+13. bounded DataLab trace graph adoption now routes view computation, zoom,
+    hover inspection, plot drawing, and hover overlay drawing through the
+    shared kit while leaving trace/session meaning app-owned
 
 ## Planned Growth
 
@@ -76,7 +79,10 @@ Implemented now:
 
 ## Adoption Note
 
-DataLab currently uses `kit_graph_timeseries` only for shared render-stride guidance. Full shared view/hover/draw adoption remains a separate app-integration lane.
+DataLab now uses `kit_graph_timeseries` for bounded trace graph rendering:
+shared view computation, zoom, hover inspection, plot draw commands, and hover
+overlay commands route through the kit, while DataLab keeps sample/session
+ownership, trace lane meaning, cursor policy, and SDL replay local.
 
 ## Build
 

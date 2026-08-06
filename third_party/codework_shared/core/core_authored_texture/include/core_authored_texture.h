@@ -15,6 +15,7 @@ extern "C" {
 #define CORE_AUTHORED_TEXTURE_FACE_CORNER_COUNT 4u
 #define CORE_AUTHORED_TEXTURE_FACE_EDGE_COUNT 4u
 #define CORE_AUTHORED_TEXTURE_UNKNOWN_ID 255u
+#define CORE_AUTHORED_TEXTURE_INDEXED_CONTRACT_REVISION_V1 1u
 
 typedef enum CoreAuthoredTexturePrimitiveKind {
     CORE_AUTHORED_TEXTURE_PRIMITIVE_KIND_NONE = 0,
@@ -31,8 +32,55 @@ typedef enum CoreAuthoredTextureOutputKind {
     CORE_AUTHORED_TEXTURE_OUTPUT_KIND_NONE = 0,
     CORE_AUTHORED_TEXTURE_OUTPUT_KIND_LEGACY_FLATTENED = 1,
     CORE_AUTHORED_TEXTURE_OUTPUT_KIND_FLATTENED_ONLY = 2,
-    CORE_AUTHORED_TEXTURE_OUTPUT_KIND_BASE_PLUS_OVERLAY = 3
+    CORE_AUTHORED_TEXTURE_OUTPUT_KIND_BASE_PLUS_OVERLAY = 3,
+    CORE_AUTHORED_TEXTURE_OUTPUT_KIND_INDEX_ATLAS = 4,
+    CORE_AUTHORED_TEXTURE_OUTPUT_KIND_PALETTE_BAKED_ATLAS = 5
 } CoreAuthoredTextureOutputKind;
+
+typedef struct CoreAuthoredTextureRgba8 {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    uint8_t a;
+} CoreAuthoredTextureRgba8;
+
+typedef struct CoreAuthoredTextureIndexedSlot {
+    const char* id;
+    CoreAuthoredTextureRgba8 source_rgba;
+} CoreAuthoredTextureIndexedSlot;
+
+typedef struct CoreAuthoredTexturePaletteEntry {
+    const char* slot_id;
+    CoreAuthoredTextureRgba8 rgba;
+} CoreAuthoredTexturePaletteEntry;
+
+typedef struct CoreAuthoredTextureIndexedPaletteContract {
+    uint32_t revision;
+    const CoreAuthoredTextureIndexedSlot* slots;
+    size_t slot_count;
+    const CoreAuthoredTexturePaletteEntry* entries;
+    size_t entry_count;
+} CoreAuthoredTextureIndexedPaletteContract;
+
+typedef struct CoreAuthoredTextureAtlasCell {
+    const char* id;
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+} CoreAuthoredTextureAtlasCell;
+
+typedef struct CoreAuthoredTextureIndexedAtlasContract {
+    uint32_t revision;
+    uint32_t atlas_width;
+    uint32_t atlas_height;
+    uint32_t logical_cell_width;
+    uint32_t logical_cell_height;
+    CoreAuthoredTextureOutputKind output_kind;
+    const char* image_ref;
+    const CoreAuthoredTextureAtlasCell* cells;
+    size_t cell_count;
+} CoreAuthoredTextureIndexedAtlasContract;
 
 typedef enum CoreAuthoredTextureFaceRole {
     CORE_AUTHORED_TEXTURE_FACE_ROLE_NONE = 0,
@@ -131,6 +179,16 @@ bool core_authored_texture_semantic_net_validate(
     const uint8_t* corner_ids,
     const uint8_t* edge_ids,
     const CoreAuthoredTextureFaceRole* adjacent_face_roles);
+bool core_authored_texture_identifier_validate(const char* text);
+bool core_authored_texture_rgba8_equal(CoreAuthoredTextureRgba8 a,
+                                       CoreAuthoredTextureRgba8 b);
+bool core_authored_texture_indexed_palette_validate(
+    const CoreAuthoredTextureIndexedPaletteContract* contract);
+bool core_authored_texture_indexed_atlas_validate(
+    const CoreAuthoredTextureIndexedAtlasContract* contract);
+const CoreAuthoredTextureAtlasCell* core_authored_texture_atlas_cell_find(
+    const CoreAuthoredTextureIndexedAtlasContract* contract,
+    const char* id);
 
 #ifdef __cplusplus
 }

@@ -15,6 +15,7 @@ typedef struct VkRendererSwapchain {
     VkSwapchainKHR handle;
     VkFormat image_format;
     VkExtent2D extent;
+    VkImageUsageFlags image_usage;
     uint32_t image_count;
     VkImage* images;
     VkImageView* image_views;

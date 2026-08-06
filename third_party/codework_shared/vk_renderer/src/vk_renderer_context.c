@@ -125,8 +125,13 @@ static VkResult create_swapchain(VkRendererContext* ctx,
     VkExtent2D extent = choose_extent(window, capabilities);
 
     uint32_t image_count = capabilities.minImageCount + 1;
+    VkImageUsageFlags image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     if (capabilities.maxImageCount > 0 && image_count > capabilities.maxImageCount) {
         image_count = capabilities.maxImageCount;
+    }
+    if ((capabilities.supportedUsageFlags &
+         VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0u) {
+        image_usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     }
 
     VkSwapchainCreateInfoKHR create_info = {
@@ -137,7 +142,7 @@ static VkResult create_swapchain(VkRendererContext* ctx,
         .imageColorSpace = surface_format.colorSpace,
         .imageExtent = extent,
         .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageUsage = image_usage,
         .preTransform = capabilities.currentTransform,
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
         .presentMode = present_mode,
@@ -163,6 +168,7 @@ static VkResult create_swapchain(VkRendererContext* ctx,
 
     ctx->swapchain.image_format = surface_format.format;
     ctx->swapchain.extent = extent;
+    ctx->swapchain.image_usage = image_usage;
 
     vkGetSwapchainImagesKHR(device->device, ctx->swapchain.handle, &image_count, NULL);
     ctx->swapchain.image_count = image_count;
@@ -237,7 +243,9 @@ VkResult vk_renderer_context_create_with_device(VkRendererContext* ctx,
     ctx->surface = VK_NULL_HANDLE;
     ctx->swapchain = (VkRendererSwapchain){0};
 
-    if (!SDL_Vulkan_CreateSurface(window, device->instance, &ctx->surface)) {
+    ctx->surface = vk_renderer_device_take_surface(device, window);
+    if (ctx->surface == VK_NULL_HANDLE &&
+        !SDL_Vulkan_CreateSurface(window, device->instance, &ctx->surface)) {
         fprintf(stderr, "SDL_Vulkan_CreateSurface failed: %s\n", SDL_GetError());
         return VK_ERROR_SURFACE_LOST_KHR;
     }

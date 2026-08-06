@@ -165,3 +165,40 @@ void kit_ui_sdl_draw_readout(SDL_Renderer *renderer,
                                 scale,
                                 style->text);
 }
+
+void kit_ui_sdl_scrollbar_layout(const SDL_Rect *viewport,
+                                 int content_height,
+                                 int offset_y,
+                                 KitUiSdlScrollbarLayout *out_layout) {
+    int max_offset = 0;
+    int thumb_h = 0;
+    int travel = 0;
+    if (!out_layout) return;
+    *out_layout = (KitUiSdlScrollbarLayout){{0}, {0}, 0};
+    if (!viewport || viewport->w <= 0 || viewport->h <= 0 || content_height <= viewport->h) return;
+    out_layout->scrollable = 1;
+    out_layout->track = (SDL_Rect){viewport->x + viewport->w - 8, viewport->y, 6, viewport->h};
+    thumb_h = (viewport->h * viewport->h) / content_height;
+    if (thumb_h < viewport->h / 10) thumb_h = viewport->h / 10;
+    if (thumb_h < 1) thumb_h = 1;
+    if (thumb_h > viewport->h) thumb_h = viewport->h;
+    max_offset = content_height - viewport->h;
+    offset_y = kit_ui_sdl_clamp_int(offset_y, 0, max_offset);
+    travel = out_layout->track.h - thumb_h;
+    out_layout->thumb = (SDL_Rect){out_layout->track.x,
+                                   out_layout->track.y + (travel > 0 ? (offset_y * travel) / max_offset : 0),
+                                   out_layout->track.w,
+                                   thumb_h};
+}
+
+void kit_ui_sdl_draw_scrollbar(SDL_Renderer *renderer,
+                               const KitUiSdlScrollbarLayout *layout,
+                               KitRenderColor track_color,
+                               KitRenderColor thumb_color) {
+    if (!renderer || !layout || !layout->scrollable) return;
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, track_color.r, track_color.g, track_color.b, track_color.a);
+    SDL_RenderFillRect(renderer, &layout->track);
+    SDL_SetRenderDrawColor(renderer, thumb_color.r, thumb_color.g, thumb_color.b, thumb_color.a);
+    SDL_RenderFillRect(renderer, &layout->thumb);
+}

@@ -24,6 +24,9 @@ Modules covered:
 - `shared/core/core_trace`
 - `shared/core/core_sim_trace`
 - `shared/core/core_math`
+- `shared/core/core_viewport3d`
+- `shared/core/core_collision2d`
+- `shared/core/core_rigid2d`
 - `shared/core/core_pane`
 - `shared/core/core_pane_module`
 - `shared/core/core_pane_snapshot`
@@ -37,6 +40,7 @@ Modules covered:
 - `shared/core/core_kernel`
 - `shared/kit/kit_render`
 - `shared/kit/kit_pane`
+- `shared/kit/kit_viewport3d`
 - `shared/kit/kit_workspace_authoring`
 - `shared/kit/kit_graph_timeseries`
 - `shared/kit/kit_graph_struct`

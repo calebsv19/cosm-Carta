@@ -19,7 +19,7 @@ Shared authored-texture manifest contract semantics for cross-app texture export
 - No scene writeback helpers or runtime material sampling behavior
 
 ## Status
-- Current bootstrap (`v0.1.2`) with semantic enums, primitive/face completeness helpers, semantic-net validation helpers, and a narrow manifest-contract validator.
+- Current additive contract (`v0.2.0`) with the existing semantic manifest/net APIs plus generic exact-index palette and atlas-cell validation.
 - Bridge-first adoption is now live in:
   - `drawing_program` authored-texture export
   - `ray_tracing` authored-texture loader validation
@@ -33,7 +33,7 @@ Shared authored-texture manifest contract semantics for cross-app texture export
   - JSON-free manifest-contract validation
 - JSON parsing/writing, image IO, and app UX remain local to the host apps until a later lane proves a wider shared adapter is worth the rollout cost.
 
-## Current Contract (v0.1.3)
+## Current Contract (v0.2.0)
 - Supported schema versions are exactly `V1`, `V2`, and `V5`.
 - Parse helpers are exact-token and case-sensitive today.
 - Supported primitive kinds are exactly:
@@ -52,3 +52,8 @@ Shared authored-texture manifest contract semantics for cross-app texture export
   - plane nets require `PLANE` layout, `FRONT` slot/face, known orientation, and all corner/edge ids unset
   - prism nets require `PRISM_CROSS` layout, slot-to-face equality, known orientation, unique corner/edge ids, unique non-self adjacent roles, and current shared range limits
 - Current validation does not own manifest files, exported image sets, texture project persistence, runtime scene material application, or editor/runtime UX.
+- Indexed interchange is exact and adapter-neutral:
+  - lowercase stable identifiers use letters, digits, `.`, `_`, and `-`;
+  - source slot RGBA identities must be unique and palettes must provide exactly one entry per slot;
+  - atlas cells use unsigned pixel rectangles, one fixed logical cell size, unique IDs, non-overlapping in-bounds rectangles, and explicit index-atlas or palette-baked output kinds;
+  - file parsing, image loading, palette baking, rendering, and app-specific tile meaning remain host-owned.

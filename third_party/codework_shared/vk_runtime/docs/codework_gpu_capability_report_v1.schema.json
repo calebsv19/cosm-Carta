@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codework.local/schemas/codework_gpu_capability_report_v1.schema.json",
+  "title": "CodeWork GPU Capability Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "module_version",
+    "platform",
+    "architecture",
+    "compiler",
+    "vulkan",
+    "validation",
+    "result",
+    "devices"
+  ],
+  "properties": {
+    "schema": {
+      "const": "codework_gpu_capability_report_v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "module_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "architecture": {
+      "type": "string"
+    },
+    "compiler": {
+      "type": "string"
+    },
+    "vulkan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "header_version",
+        "requested_api_version",
+        "loader_api_version",
+        "negotiated_api_version",
+        "portability_enumeration_available",
+        "portability_enumeration_enabled"
+      ],
+      "properties": {
+        "header_version": { "type": "integer", "minimum": 0 },
+        "requested_api_version": { "type": "string" },
+        "loader_api_version": { "type": "string" },
+        "negotiated_api_version": { "type": "string" },
+        "portability_enumeration_available": { "type": "boolean" },
+        "portability_enumeration_enabled": { "type": "boolean" }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested",
+        "available",
+        "enabled",
+        "load_failed",
+        "debug_utils_available",
+        "warnings",
+        "errors"
+      ],
+      "properties": {
+        "requested": { "type": "boolean" },
+        "available": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "load_failed": { "type": "boolean" },
+        "debug_utils_available": { "type": "boolean" },
+        "warnings": { "type": "integer", "minimum": 0 },
+        "errors": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "vulkan_result", "selected_device_index"],
+      "properties": {
+        "status": { "type": "string" },
+        "vulkan_result": { "type": "integer" },
+        "selected_device_index": {
+          "anyOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "device_uuid",
+          "vendor_id",
+          "device_id",
+          "type",
+          "api_version",
+          "driver_version",
+          "driver_name",
+          "driver_info",
+          "selected",
+          "suitable",
+          "rejection_bits",
+          "rejections",
+          "selected_queues",
+          "features",
+          "subgroup",
+          "queue_families",
+          "memory_heaps",
+          "extensions"
+        ]
+      }
+    }
+  }
+}

@@ -5,12 +5,14 @@
 #include <SDL2/SDL.h>
 
 #include "vk_renderer_config.h"
+#include "vk_runtime.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct VkRendererDevice {
+    VkRuntime runtime;
     VkInstance instance;
     VkDebugUtilsMessengerEXT debug_messenger;
 
@@ -26,6 +28,8 @@ typedef struct VkRendererDevice {
 
     VkPipelineCache pipeline_cache;
     VkBool32 validation_enabled;
+    VkSurfaceKHR pending_surface;
+    SDL_Window* pending_surface_window;
 } VkRendererDevice;
 
 VkResult vk_renderer_device_init(VkRendererDevice* device,
@@ -33,6 +37,8 @@ VkResult vk_renderer_device_init(VkRendererDevice* device,
                                  const VkRendererConfig* config);
 void vk_renderer_device_shutdown(VkRendererDevice* device);
 void vk_renderer_device_wait_idle(VkRendererDevice* device);
+VkSurfaceKHR vk_renderer_device_take_surface(VkRendererDevice* device,
+                                             SDL_Window* window);
 
 #ifdef __cplusplus
 }

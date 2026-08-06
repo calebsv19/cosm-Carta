@@ -11,7 +11,7 @@ INC = -Iinclude -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_MES
 OBJ_DIR = build
 
 LIB = $(OBJ_DIR)/libcore_mesh_preview.a
-LIB_OBJ = $(OBJ_DIR)/core_mesh_preview.o
+LIB_OBJ = $(OBJ_DIR)/core_mesh_preview.o $(OBJ_DIR)/core_mesh_preview_lod.o
 TEST_BIN = $(OBJ_DIR)/core_mesh_preview_test
 TEST_CJSON_OBJ = $(OBJ_DIR)/cJSON.o
 
@@ -38,6 +38,9 @@ $(CORE_MESH_ASSET_DIR)/build/libcore_mesh_asset.a:
 	$(MAKE) -C $(CORE_MESH_ASSET_DIR)
 
 $(OBJ_DIR)/core_mesh_preview.o: src/core_mesh_preview.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJ_DIR)/core_mesh_preview_lod.o: src/core_mesh_preview_lod.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(TEST_CJSON_OBJ): $(CJSON_SRC) | $(OBJ_DIR)

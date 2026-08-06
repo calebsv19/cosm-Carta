@@ -12,6 +12,8 @@ Shared reusable 3D mesh-asset contract semantics for the physics trio object-aut
   - asset type
   - authoring source mode
   - imported mesh source format
+  - imported normal-generation mode
+  - runtime vertex-normal provenance
   - primitive seed kind
 - Shared validation for:
   - asset identity
@@ -19,7 +21,7 @@ Shared reusable 3D mesh-asset contract semantics for the physics trio object-aut
   - pivot/local-frame semantics
   - primitive-seed object payloads
   - imported mesh provenance, unit, orientation, weld, and topology diagnostics
-  - runtime mesh counts, payload arrays, local bounds, and surface groups
+  - runtime mesh counts, optional vertex-normal payloads, local bounds, and surface groups
   - topology expectation flags
 - File-backed authoring-document load/save helpers for exporter/importer adapters
 - File-backed runtime-document load helpers for `mesh_asset_runtime_v1`
@@ -31,7 +33,7 @@ Shared reusable 3D mesh-asset contract semantics for the physics trio object-aut
 - No scene-instance ownership (`core_scene` remains the long-term scene envelope owner)
 - No render acceleration structures, GPU buffers, solver voxelization, or SDF ownership
 
-## Current Contract (v0.5.2)
+## Current Contract (v0.6.0)
 - Supported schema variants are exactly:
   - `mesh_asset_authoring_v1`
   - `mesh_asset_runtime_v1`
@@ -47,6 +49,10 @@ Shared reusable 3D mesh-asset contract semantics for the physics trio object-aut
   - `imported_mesh`
 - Supported imported mesh source formats are exactly:
   - `stl`
+- Imported STL authoring may opt into `normal_mode=smooth` or
+  `normal_mode=crease_aware`; `none` preserves position-only runtime output.
+- `crease_angle_degrees` is validated in `(0, 180]` and remains compiler input,
+  not renderer policy.
 - `core_mesh_asset_authoring_contract_validate(...)` currently validates only shared semantic lanes:
   - non-empty `asset_id`
   - known `unit_kind`
@@ -71,6 +77,8 @@ Shared reusable 3D mesh-asset contract semantics for the physics trio object-aut
   - finite pivot vectors with non-degenerate local frame axes
 - `core_mesh_asset_runtime_document_*` now owns the first file-backed runtime mesh lane:
   - vertex payload arrays with finite local-space positions
+  - optional one-per-vertex finite unit normals with explicit source,
+    generated-smooth, or generated-crease-aware provenance
   - triangle payload arrays with index range and non-degeneracy validation
   - local-bounds containment checks for every vertex
   - surface group ids and triangle spans
@@ -78,6 +86,9 @@ Shared reusable 3D mesh-asset contract semantics for the physics trio object-aut
 
 ## Status
 - Bootstrap contract module for the shared mesh-asset lane.
+- v0.6.0 adds backward-compatible optional runtime vertex-normal arrays and
+  provenance plus imported-mesh normal-generation policy. Existing
+  position-only `mesh_asset_runtime_v1` files remain valid.
 - First fixtures now cover both the editable `primitive_seed` authoring document lane and runtime mesh payloads ahead of richer mesh-compile integration.
 - v0.5.2 keeps the `mesh_asset_runtime_v1` schema stable and switches runtime
   document save to streaming temp-file output so large imported meshes can

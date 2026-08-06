@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codework.local/schemas/codework_gpu_residency_report_v1.schema.json",
+  "title": "CodeWork GPU Residency Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "module_version",
+    "runtime_status",
+    "validation",
+    "device_identity",
+    "shader_identity",
+    "memory",
+    "contract",
+    "negative_fixtures",
+    "timeout_fixture",
+    "resource_accounting",
+    "u32",
+    "timing_ns"
+  ],
+  "properties": {
+    "schema": {
+      "const": "codework_gpu_residency_report_v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "module_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "runtime_status": {
+      "const": "ok"
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "warnings", "errors"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "warnings": {"const": 0},
+        "errors": {"const": 0}
+      }
+    },
+    "device_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uuid",
+        "vendor_id",
+        "device_id",
+        "compute_queue_family"
+      ],
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "vendor_id": {"$ref": "#/$defs/nonnegativeInteger"},
+        "device_id": {"$ref": "#/$defs/nonnegativeInteger"},
+        "compute_queue_family": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        }
+      }
+    },
+    "shader_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["u32_sha256"],
+      "properties": {
+        "u32_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "staging_flags",
+        "device_a_flags",
+        "device_b_flags",
+        "staging_host_visible_coherent",
+        "device_a_local",
+        "device_b_local"
+      ],
+      "properties": {
+        "staging_flags": {"$ref": "#/$defs/nonnegativeInteger"},
+        "device_a_flags": {"$ref": "#/$defs/nonnegativeInteger"},
+        "device_b_flags": {"$ref": "#/$defs/nonnegativeInteger"},
+        "staging_host_visible_coherent": {"const": true},
+        "device_a_local": {"const": true},
+        "device_b_local": {"const": true}
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lifecycle_cycles",
+        "chains",
+        "dispatches_per_chain",
+        "barriers_per_chain",
+        "readbacks_per_chain",
+        "final_only_readback",
+        "staging_reused",
+        "device_buffers_reused",
+        "descriptor_state_reused",
+        "command_state_reused"
+      ],
+      "properties": {
+        "lifecycle_cycles": {"const": 4},
+        "chains": {"const": 13},
+        "dispatches_per_chain": {"const": 2},
+        "barriers_per_chain": {"const": 1},
+        "readbacks_per_chain": {"const": 1},
+        "final_only_readback": {"const": true},
+        "staging_reused": {"const": true},
+        "device_buffers_reused": {"const": true},
+        "descriptor_state_reused": {"const": true},
+        "command_state_reused": {"const": true}
+      }
+    },
+    "negative_fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "null_session",
+        "double_session",
+        "buffer_range",
+        "program_binding",
+        "referenced_buffer",
+        "close_with_resources"
+      ],
+      "properties": {
+        "null_session": {"const": "invalid_argument"},
+        "double_session": {"const": "invalid_argument"},
+        "buffer_range": {"const": "buffer_range_invalid"},
+        "program_binding": {
+          "const": "descriptor_binding_invalid"
+        },
+        "referenced_buffer": {"const": "resource_in_use"},
+        "close_with_resources": {"const": "resource_in_use"}
+      }
+    },
+    "timeout_fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "submit_status",
+        "in_flight_observed",
+        "close_status",
+        "recovery_status"
+      ],
+      "properties": {
+        "submit_status": {"const": "fence_wait_timeout"},
+        "in_flight_observed": {"const": true},
+        "close_status": {"const": "resource_in_use"},
+        "recovery_status": {"const": "ok"}
+      }
+    },
+    "resource_accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "submissions",
+        "completed_submissions",
+        "uploads",
+        "readbacks",
+        "dispatches",
+        "barriers",
+        "final_live_counts_zero"
+      ],
+      "properties": {
+        "submissions": {"const": 39},
+        "completed_submissions": {"const": 39},
+        "uploads": {"const": 13},
+        "readbacks": {"const": 13},
+        "dispatches": {"const": 26},
+        "barriers": {"const": 13},
+        "final_live_counts_zero": {"const": true}
+      }
+    },
+    "u32": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parity",
+        "value_count",
+        "operation",
+        "input",
+        "expected",
+        "output"
+      ],
+      "properties": {
+        "parity": {"const": true},
+        "value_count": {"const": 1025},
+        "operation": {"const": "twice(output=input*3u+7u)"},
+        "input": {"$ref": "#/$defs/u32Array"},
+        "expected": {"$ref": "#/$defs/u32Array"},
+        "output": {"$ref": "#/$defs/u32Array"}
+      }
+    },
+    "timing_ns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "upload_host_copy",
+        "upload_submit_wait",
+        "dispatch_submit_wait",
+        "readback_submit_wait",
+        "readback_host_copy"
+      ],
+      "properties": {
+        "upload_host_copy": {"$ref": "#/$defs/nonnegativeInteger"},
+        "upload_submit_wait": {"$ref": "#/$defs/nonnegativeInteger"},
+        "dispatch_submit_wait": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "readback_submit_wait": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "readback_host_copy": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonnegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "u32Array": {
+      "type": "array",
+      "minItems": 1025,
+      "maxItems": 1025,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4294967295
+      }
+    }
+  }
+}

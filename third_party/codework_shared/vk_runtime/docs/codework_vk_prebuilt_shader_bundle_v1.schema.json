@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codework.local/schemas/codework_vk_prebuilt_shader_bundle_v1.schema.json",
+  "title": "CodeWork Vulkan Prebuilt Shader Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "artifacts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "codework_vk_prebuilt_shader_bundle_v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kernel_id",
+          "source",
+          "source_sha256",
+          "spirv",
+          "spirv_sha256",
+          "shader_manifest",
+          "shader_manifest_sha256"
+        ],
+        "properties": {
+          "kernel_id": {
+            "enum": [
+              "codework_f32_transform_v1",
+              "codework_u32_transform_v1"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "spirv": {
+            "type": "string",
+            "pattern": "^[^/]+\\.spv$"
+          },
+          "spirv_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "shader_manifest": {
+            "type": "string",
+            "pattern": "^[^/]+\\.manifest\\.json$"
+          },
+          "shader_manifest_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

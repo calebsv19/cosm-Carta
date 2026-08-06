@@ -10,6 +10,7 @@ Core defines meaning. Kits define expression. Apps define purpose.
 - `kit/`: optional higher-level integration/rendering kits (`kit_*`).
 - `sys_shims/`: system include compatibility overlays and conformance tests.
 - `shape/`: shared shape library/import tooling.
+- `vk_runtime/`: SDL-independent Vulkan device/runtime and capability layer.
 - `vk_renderer/`: Vulkan renderer backend layer.
 - `timer_hud/`: shared timing/profiling HUD utilities.
 - `assets/`: shared assets (fonts/scenes/shapes).

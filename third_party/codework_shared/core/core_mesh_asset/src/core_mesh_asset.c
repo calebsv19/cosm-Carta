@@ -221,6 +221,78 @@ CoreResult core_mesh_asset_imported_mesh_source_format_parse(
     }
 }
 
+const char *core_mesh_asset_runtime_normal_provenance_name(
+    CoreMeshAssetRuntimeNormalProvenance provenance) {
+    switch (provenance) {
+        case CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE: return "none";
+        case CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_SOURCE: return "source";
+        case CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_SMOOTH:
+            return "generated_smooth";
+        case CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_CREASE_AWARE:
+            return "generated_crease_aware";
+        default: return "unknown";
+    }
+}
+
+CoreResult core_mesh_asset_runtime_normal_provenance_parse(
+    const char *text,
+    CoreMeshAssetRuntimeNormalProvenance *out_provenance) {
+    if (!out_provenance) {
+        return core_mesh_asset_invalid_arg("out_provenance is null");
+    }
+    *out_provenance = CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_NONE;
+    if (!text) {
+        return core_mesh_asset_invalid_arg("normal provenance is null");
+    }
+    if (strcmp(text, "none") == 0) {
+        return core_result_ok();
+    }
+    if (strcmp(text, "source") == 0) {
+        *out_provenance = CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_SOURCE;
+        return core_result_ok();
+    }
+    if (strcmp(text, "generated_smooth") == 0) {
+        *out_provenance = CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_SMOOTH;
+        return core_result_ok();
+    }
+    if (strcmp(text, "generated_crease_aware") == 0) {
+        *out_provenance = CORE_MESH_ASSET_RUNTIME_NORMAL_PROVENANCE_GENERATED_CREASE_AWARE;
+        return core_result_ok();
+    }
+    return core_mesh_asset_invalid_arg("unknown runtime normal provenance");
+}
+
+const char *core_mesh_asset_imported_normal_mode_name(CoreMeshAssetImportedNormalMode mode) {
+    switch (mode) {
+        case CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_NONE: return "none";
+        case CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_SMOOTH: return "smooth";
+        case CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_CREASE_AWARE: return "crease_aware";
+        default: return "unknown";
+    }
+}
+
+CoreResult core_mesh_asset_imported_normal_mode_parse(
+    const char *text,
+    CoreMeshAssetImportedNormalMode *out_mode) {
+    if (!out_mode) {
+        return core_mesh_asset_invalid_arg("out_mode is null");
+    }
+    *out_mode = CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_NONE;
+    if (!text) {
+        return core_mesh_asset_invalid_arg("normal mode is null");
+    }
+    if (strcmp(text, "none") == 0) return core_result_ok();
+    if (strcmp(text, "smooth") == 0) {
+        *out_mode = CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_SMOOTH;
+        return core_result_ok();
+    }
+    if (strcmp(text, "crease_aware") == 0) {
+        *out_mode = CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_CREASE_AWARE;
+        return core_result_ok();
+    }
+    return core_mesh_asset_invalid_arg("unknown imported normal mode");
+}
+
 void core_mesh_asset_imported_mesh_source_init(CoreMeshAssetImportedMeshSource *source) {
     if (!source) {
         return;
@@ -233,6 +305,8 @@ void core_mesh_asset_imported_mesh_source_init(CoreMeshAssetImportedMeshSource *
     source->weld_vertices = true;
     source->weld_tolerance = 0.000001;
     source->preserve_source_normals = false;
+    source->normal_mode = CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_NONE;
+    source->crease_angle_degrees = 180.0;
 }
 
 CoreResult core_mesh_asset_imported_mesh_source_validate(
@@ -263,6 +337,16 @@ CoreResult core_mesh_asset_imported_mesh_source_validate(
     }
     if (!isfinite(source->weld_tolerance) || source->weld_tolerance < 0.0) {
         return core_mesh_asset_invalid_arg("weld_tolerance must be finite and non-negative");
+    }
+    if (source->normal_mode != CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_NONE &&
+        source->normal_mode != CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_SMOOTH &&
+        source->normal_mode != CORE_MESH_ASSET_IMPORTED_NORMAL_MODE_CREASE_AWARE) {
+        return core_mesh_asset_invalid_arg("known normal_mode is required");
+    }
+    if (!isfinite(source->crease_angle_degrees) || source->crease_angle_degrees <= 0.0 ||
+        source->crease_angle_degrees > 180.0) {
+        return core_mesh_asset_invalid_arg(
+            "crease_angle_degrees must be finite and in (0, 180]");
     }
     return core_result_ok();
 }

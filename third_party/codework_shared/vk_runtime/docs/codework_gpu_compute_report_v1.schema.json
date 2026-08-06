@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codework.local/schemas/codework_gpu_compute_report_v1.schema.json",
+  "title": "CodeWork GPU Compute Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "module_version",
+    "runtime_status",
+    "validation_enabled",
+    "validation_warnings",
+    "validation_errors",
+    "device_identity",
+    "shader_identity",
+    "negative_fixtures",
+    "u32",
+    "f32",
+    "timing_ns"
+  ],
+  "properties": {
+    "schema": {
+      "const": "codework_gpu_compute_report_v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "module_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "runtime_status": {
+      "const": "ok"
+    },
+    "validation_enabled": {
+      "type": "boolean"
+    },
+    "validation_warnings": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "validation_errors": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "device_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uuid", "vendor_id", "device_id"],
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "vendor_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "device_id": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "shader_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["u32_sha256", "f32_sha256"],
+      "properties": {
+        "u32_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "f32_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "negative_fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding", "shader"],
+      "properties": {
+        "binding": {
+          "const": "descriptor_binding_invalid"
+        },
+        "shader": {
+          "const": "shader_code_invalid"
+        }
+      }
+    },
+    "u32": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parity", "input", "expected", "output"],
+      "properties": {
+        "parity": {
+          "const": true
+        },
+        "input": {
+          "$ref": "#/$defs/u32Array"
+        },
+        "expected": {
+          "$ref": "#/$defs/u32Array"
+        },
+        "output": {
+          "$ref": "#/$defs/u32Array"
+        }
+      }
+    },
+    "f32": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parity",
+        "policy",
+        "max_absolute_error",
+        "max_relative_error",
+        "input",
+        "expected",
+        "output"
+      ],
+      "properties": {
+        "parity": {
+          "const": true
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "absolute_tolerance",
+            "relative_tolerance",
+            "exceptional_values"
+          ],
+          "properties": {
+            "absolute_tolerance": {
+              "const": 0.000001
+            },
+            "relative_tolerance": {
+              "const": 0.000001
+            },
+            "exceptional_values": {
+              "const": "finite_only"
+            }
+          }
+        },
+        "max_absolute_error": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_relative_error": {
+          "type": "number",
+          "minimum": 0
+        },
+        "input": {
+          "$ref": "#/$defs/f32Array"
+        },
+        "expected": {
+          "$ref": "#/$defs/f32Array"
+        },
+        "output": {
+          "$ref": "#/$defs/f32Array"
+        }
+      }
+    },
+    "timing_ns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "u32_host_upload",
+        "u32_submit_wait",
+        "u32_host_readback",
+        "f32_host_upload",
+        "f32_submit_wait",
+        "f32_host_readback"
+      ],
+      "properties": {
+        "u32_host_upload": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "u32_submit_wait": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "u32_host_readback": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "f32_host_upload": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "f32_submit_wait": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "f32_host_readback": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonnegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "u32Array": {
+      "type": "array",
+      "minItems": 257,
+      "maxItems": 257,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4294967295
+      }
+    },
+    "f32Array": {
+      "type": "array",
+      "minItems": 257,
+      "maxItems": 257,
+      "items": {
+        "type": "number"
+      }
+    }
+  }
+}

@@ -31,6 +31,7 @@ python3 bin/vps_exec_request.py \
   --exec-cwd <vps_cwd> \
   --exec-prompt-text "<prompt>" \
   --execution-profile vps_readonly \
+  --shared-key-file _private_workspace_artifacts/secrets/codework_worker_shared_key \
   --upload \
   --run \
   --wait
@@ -40,9 +41,22 @@ What this wrapper now owns:
 
 1. create local thread
 2. upload thread to the VPS home-scoped report-inbox root
-3. trigger the VPS `/report-inbox/<thread_id>/run` route
+3. trigger the VPS `/report-inbox/<thread_id>/run` route with
+   `X-Codework-Worker-Key` when `--shared-key`, `--shared-key-file`, or
+   `CODEWORK_WORKER_SHARED_KEY` is provided
 4. do one short first fetch
 5. continue slower polling until a terminal exec result appears
+
+Current auth state:
+
+- `system-dashboard-api` now sets `CODEWORK_WORKER_SHARED_KEY` through a
+  managed systemd `EnvironmentFile`
+- no-key private API calls return HTTP `403`
+- Mac-side report-inbox run triggers can pass
+  `_private_workspace_artifacts/secrets/codework_worker_shared_key` with
+  `--shared-key-file`, set `CODEWORK_WORKER_SHARED_KEY` in the local
+  environment, or rely on `bin/vps_exec_request.py` defaulting to that private
+  key file when it exists
 
 ## Current Mac Helpers
 
@@ -98,12 +112,15 @@ Allowlisted today:
 - `vps_verify_visualizer_catalog`
 - `vps_apply_visualizer_site_static`
 - `vps_verify_visualizer_site_static`
+- `vps_verify_visualizer_http_loopback`
+- `vps_verify_visualizer_deploy_dry_run_post`
 - `vps_publish_visualizer_drop`
 - `vps_apply_root_site_static`
 - `vps_verify_root_site_static`
 - `vps_apply_root_site_static_privileged`
 - `vps_apply_ecosystem_static`
 - `vps_verify_ecosystem_static`
+- `vps_apply_artifacts_static`
 - `vps_validate_caddy_config`
 - `vps_apply_caddy_config`
 - `vps_service_status_web`
@@ -136,7 +153,126 @@ Current limitations:
 - `vps_apply_visualizer_site_static` and
   `vps_verify_visualizer_site_static` are now live as the bounded visualizer
   site-shell publication pair, with generated `site/data` intentionally left
-  to the separate catalog/publish lanes
+  to the separate catalog/publish lanes; review-status UI release
+  `2026-06-20T223658Z-visualizer-site` added private Visualizer badges and
+  filters plus the deployed review-state bridge at
+  `/srv/websites/codework-visualizer/current/site/data/public_review_state.json`
+- Site naming boundary:
+  `visualizer.calebsv.tech` is the private WireGuard-gated CodeWork Visualizer
+  operator/admin surface; `artifacts.calebsv.tech` is the sanitized public
+  static Artifacts gallery. Private Visualizer site-shell applies must be
+  reported as Visualizer deploys, not public Artifacts deploys. The private
+  Visualizer `/artifacts/...` path is private artifact access on the
+  Visualizer host, not the public Artifacts website.
+- Visualizer review mutation source/UI/API/CLI is now implemented for the
+  private review queue. Private site release
+  `2026-06-21T032745Z-visualizer-site` added `scripts/review-mutation.js`, and
+  `visualizer-review-mutation-api-restart-20260621a` refreshed
+  `visualizer-api` after the managed installer was fixed to restart an
+  already-active service.
+- `vps_verify_visualizer_http_loopback` is now live as a bounded outer-runner
+  HTTP probe profile for the private Visualizer API:
+  - fixed allowlist:
+    - `http://127.0.0.1:9111/api/review-state`
+    - `http://127.0.0.1:9111/api/public-gallery-deploy-status`
+  - no inner Codex network grant
+  - proof thread `visualizer-public-gallery-deploy-status-loopback-proof-20260622a`
+    returned HTTP `200` and `content-type: application/json` for both
+    allowlisted endpoints; the public-gallery status endpoint reported
+    `state=pending` / `label=Deploy pending`
+  - Mac-side `https://visualizer.calebsv.tech/` and `/api/review-state` still
+    return Caddy `404`, so browser-facing private route repair remains
+    separate from loopback API health
+- Private review controls were simplified in
+  `visualizer-public-private-toggle-site-apply-20260621a`: runtime
+  `program.html` now loads `review-mutation.js?v=2` and `app.css?v=16`, and
+  the UI presents a current-state pill plus a two-option `Private` / `Public`
+  toggle instead of the older five-button workflow cluster.
+- Private Visualizer public-gallery deploy status/action landed in
+  `visualizer-public-gallery-deploy-status-site-apply-20260622a`: runtime
+  `program.html` now loads `review-mutation.js?v=3`, `program.js?v=14`, and
+  `app.css?v=17`; the toggle remains a metadata-only visibility mutation, and
+  the separate `Deploy Public Gallery` action is the explicit public static
+  deploy boundary backed by `POST /api/actions/deploy-public-gallery`. The
+  toggle can queue or remove a run from the public set but must not be treated
+  as a deploy of `artifacts.calebsv.tech`.
+- Private Visualizer public-gallery bridge diff model landed in
+  `visualizer-public-bridge-source-20260624a` and was live-applied through
+  `visualizer-public-bridge-site-apply-20260624a` plus
+  `visualizer-public-bridge-api-restart-20260624a`. The deploy-status payload
+  now keeps source visibility state, live public state, and deploy diff state
+  explicit with:
+  `source_published_run_ids`, `source_published_count`,
+  `live_published_run_ids`, `live_published_count`, `live_run_id_source`,
+  `run_id_comparison_available`, `pending_add_run_ids`,
+  `pending_remove_run_ids`, `pending_add_count`, `pending_remove_count`, and
+  `pending_total_count`. Loopback proof
+  `visualizer-public-bridge-loopback-proof-20260624a` returned HTTP `200`
+  JSON for `/api/public-gallery-deploy-status` and showed the new
+  `source_published_count` field in the body snippet. The fixed
+  `vps_verify_visualizer_http_loopback` profile now parses this endpoint into
+  a `Parsed Bridge Summary`: proof
+  `visualizer-loopback-json-proof-live-keys-20260624a` reported
+  `state=pending`, `label=Deploy pending`, `source_published_count=4`,
+  `live_published_count=null`,
+  `live_run_id_source=public_catalog.artifacts.source_run_id`,
+  `run_id_comparison_available=partial`, and key-only private string leak
+  detail `string_leak_match_keys=["$.deploy_script_path"]` without printing
+  the private value.
+- Public Artifacts deploy `artifacts-public-gallery-live-deploy-20260624a`
+  refreshed `https://artifacts.calebsv.tech/` through
+  `vps_apply_artifacts_static` from the current private Visualizer
+  publish-ready set. Live runtime readback under
+  `/var/www/calebsv.tech/artifacts` reported `artifact_count=4`,
+  `program_count=2`, `media_count=14`, deploy metadata timestamp
+  `2026-06-24T16:40:13+00:00`, and `skipped_entries=0` for both catalog and
+  media manifest. Public HTTPS readback returned `200` for `/`,
+  `/data/public_catalog.json`, and `/data/public_media_manifest.json`, while
+  `/api/status`, `/admin/`, and `/artifacts/` returned `404`. Post-deploy
+  private Visualizer bridge proof
+  `artifacts-public-gallery-post-deploy-visualizer-status-20260624a` reported
+  `state=current` and `label=Public gallery current`.
+- Private Visualizer visibility toggle queued-deploy UX landed in
+  `visualizer-visibility-toggle-queued-ui-site-apply-20260622a`: runtime
+  `program.html` now loads `review-mutation.js?v=4`, `program.js?v=15`, and
+  `app.css?v=18`; the `Private` / `Public` control remains clickable while the
+  API is available and no request is in flight, helper copy explains that
+  `Public` marks a run for the next manual `Deploy Public Gallery` run, and
+  mutation success notices now state the next-deploy result directly.
+- Private Visualizer review-state loading was corrected in
+  `visualizer-review-state-live-api-site-apply-20260622a`: runtime
+  `index.html`, `program.html`, and `archive.html` now load
+  `review-state.js?v=3`; `review-state.js` fetches `/api/review-state` first
+  with cache busting and uses `./data/public_review_state.json` only as a
+  fallback. This fixes the post-click repaint bug where successful
+  `/api/actions/review-state` mutations were hidden by stale runtime static
+  JSON.
+- Private Visualizer click feedback was hardened in
+  `visualizer-click-reaction-narrow-fix-source-20260622a`:
+  - runtime shell apply `visualizer-click-reaction-site-apply-20260622a`
+    published `program.js?v=16`
+  - managed API refresh `visualizer-click-reaction-api-restart-20260622a`
+    restarted `visualizer-api`
+  - the selected run panel now applies the mutation response locally and
+    re-renders immediately after a successful `Private` / `Public` click
+  - the API mirrors canonical review-state JSON into runtime
+    `site/data/public_review_state.json` after mutation so fallback state stays
+    current
+  - loopback proof `visualizer-click-reaction-loopback-proof-20260622a`
+    returned HTTP `200`, `application/json` for `/api/review-state` and
+    `/api/public-gallery-deploy-status`
+- `vps_verify_visualizer_deploy_dry_run_post` is now live as a bounded
+  outer-runner POST proof profile for the private Visualizer deploy action:
+  - fixed request:
+    `POST http://127.0.0.1:9111/api/actions/deploy-public-gallery` with JSON
+    body `{"dry_run": true}`
+  - no inner Codex network grant
+  - no writable roots, service restart, review-state mutation, or public
+    Artifacts mutation
+  - proof thread `visualizer-deploy-dry-run-post-proof-20260622a` returned
+    HTTP `200`, `content-type: application/json`, `dry_run=true`, and `Dry run
+    complete`; live public catalog readback remained `generated_at:
+    2026-06-20T22:02:36Z`, `artifact_count=2`, and `program_count=2`
 - `vps_publish_visualizer_drop` is now live for one staged visualizer drop at
   a time plus the derived catalog rebuild it requires
 - `vps_apply_root_site_static` and `vps_verify_root_site_static` are now live
@@ -146,6 +282,26 @@ Current limitations:
 - `vps_apply_ecosystem_static` and `vps_verify_ecosystem_static` are now live
   as a second bounded static-site apply/verify pair, with backend deploy and
   service-control intentionally left out of scope
+- `vps_apply_artifacts_static` is now live as a bounded static-site apply lane
+  for `artifacts.calebsv.tech`; dry-run proof
+  `artifacts-static-profile-dryrun-proof-20260620a` confirms the running VPS
+  API accepts the profile and can execute
+  `/home/caleb/bin/deploy/deploy_public_artifacts_site.sh --skip-generate --dry-run`
+  without mutating `/var/www`; live deploy
+  `artifacts-static-live-deploy-20260620a` populated
+  `/var/www/calebsv.tech/artifacts`, and Caddy apply
+  `artifacts-caddy-live-apply-20260620c` published
+  `https://artifacts.calebsv.tech/`; first promotion deploy
+  `artifacts-public-export-metadata-clean-redeploy-20260620a` published one
+  approved `ray-tracing` artifact with two copied public PNGs and sanitized
+  public JSON; second promotion deploy
+  `artifacts-video-ui-live-deploy-20260620a` published
+  `desktop-capture-session-export-stop-file-v2` with preview PNG, poster PNG,
+  and MP4 public media, bringing the live catalog at that time to
+  `artifact_count=2`, `program_count=2`, and media manifest `media_count=5`.
+  Latest public deploy `artifacts-public-gallery-live-deploy-20260624a`
+  refreshed the live public gallery to `artifact_count=4`, `program_count=2`,
+  and media manifest `media_count=14`.
 - `vps_apply_ecosystem_backend_live` is now live as the bounded Ecosystem
   backend lane:
   sync the writable runtime server tree and restart only `ecosystem-api`
@@ -544,6 +700,28 @@ This lane is intentionally separate from `dashboard_workspace_write`.
     - bounded live shell publication is proven
     - generated `site/data` remains intentionally preserved for the separate
       catalog and staged-drop lanes
+    - review-status UI release `2026-06-20T223658Z-visualizer-site` is live
+      after thread `visualizer-public-review-queue-site-apply-20260620a`
+    - private runtime now includes `scripts/review-state.js` and
+      `data/public_review_state.json`
+    - private review mutation release `2026-06-21T032745Z-visualizer-site` is
+      live after thread `visualizer-review-mutation-site-apply-20260621a`
+    - private runtime now includes `scripts/review-mutation.js`
+    - review-control usability release
+      `visualizer-public-private-toggle-site-apply-20260621a` is live; the UI
+      now shows a selected `Private` / `Public` visibility toggle backed by the
+      existing mutation endpoint
+    - endpoint loopback proof
+      `visualizer-http-loopback-proof-20260621a` returned HTTP `200` and
+      `application/json` from `http://127.0.0.1:9111/api/review-state` through
+      the bounded outer-runner HTTP probe profile
+    - `data/public_review_state.json` is semantically equal to the source
+      `public_site/data/public_visibility.json`
+    - public Artifacts runtime `/var/www/calebsv.tech/artifacts` was not
+      mutated by this private Visualizer apply
+    - Mac-side `https://visualizer.calebsv.tech/` and `/api/review-state`
+      currently return Caddy `404`, so browser-route repair remains open even
+      though loopback API proof now passes
 
 - `vps_verify_visualizer_site_static`
   - status: live
@@ -663,6 +841,41 @@ This lane is intentionally separate from `dashboard_workspace_write`.
   - current live result:
     - bounded apply is successful for the static ecosystem site target
     - backend deploys and service restarts remain explicitly out of scope
+
+- `vps_apply_artifacts_static`
+  - status: live
+  - bounded helper-managed public Artifacts static apply profile
+  - current allowlisted roots:
+    - `/home/caleb/bin/deploy`
+    - `/home/caleb/visualizer-workspace/codework-visualizer`
+    - `/srv/artifacts/codework-visualizer`
+    - `/srv/websites/codework-visualizer/current/site/data`
+    - `/var/www/calebsv.tech/artifacts`
+  - helper path:
+    - `/home/caleb/bin/deploy/deploy_public_artifacts_site.sh`
+  - current live result:
+    - dashboard source patch thread:
+      `artifacts-static-profile-patch-20260620a`
+    - API reload thread:
+      `artifacts-static-profile-api-reload-20260620a`
+    - dry-run proof thread:
+      `artifacts-static-profile-dryrun-proof-20260620a`
+    - the profile accepted the Mac-originated request and ran the helper with
+      `--skip-generate --dry-run`
+    - live static deploy thread:
+      `artifacts-static-live-deploy-20260620a`
+    - live Caddy apply thread:
+      `artifacts-caddy-live-apply-20260620c`
+    - public smoke passed for `https://artifacts.calebsv.tech/` and
+      `https://artifacts.calebsv.tech/data/public_catalog.json`
+    - promoted artifacts are `ray-tracing-proof-frame-0000` and
+      `desktop-capture-session-export-stop-file-v2`
+    - latest public catalog has `artifact_count=4`, `program_count=2`
+    - latest public media manifest has `artifact_count=4`, `media_count=14`
+    - desktop-capture MP4 public media returns `content-type: video/mp4`
+    - `/api/*`, `/artifacts/*`, and `/admin/*` return `404`
+    - deploy metadata is sanitized and omits private source/staging/runtime
+      paths
 
 - `vps_apply_ecosystem_backend_live`
   - status: live
@@ -962,7 +1175,9 @@ This lane is intentionally separate from `dashboard_workspace_write`.
       - `visualizer-api`
       - `encyclopedia-api`
       - `codework-worker-dispatcher`
+      - `system-dashboard-api`
       - `vanlife-refresh`
+      - `trader-lab-backend`
     - the raw installer scripts still require privilege directly, which is why
       the lane uses a fixed wrapper instead of calling those installers from
       the inner sandbox
@@ -972,6 +1187,12 @@ This lane is intentionally separate from `dashboard_workspace_write`.
     - outer-runner execution, not inner-sandbox `sudo`
     - one explicit allowlisted selector mapped to the existing managed
       installers under `/home/caleb/bin/ops`
+  - Visualizer-specific update:
+    - `visualizer-api-managed-restart-helper-20260621a` changed the managed
+      Visualizer installer so the approved wrapper restarts
+      `visualizer-api.service` after enablement; this is required for
+      source-code updates to be picked up by an already-running Python API
+      process
   - excluded from this live lane:
     - arbitrary unit-file copies
     - arbitrary unit names
@@ -988,6 +1209,42 @@ This lane is intentionally separate from `dashboard_workspace_write`.
       - `/etc/systemd/system/encyclopedia-api.service`
     - proof exit code:
       - `0`
+  - current `system-dashboard-api` state:
+    - managed source and installer support are staged
+    - operator-run VPS sudo apply installed the service env-file update
+    - `system-dashboard-api` now requires `CODEWORK_WORKER_SHARED_KEY`
+    - authenticated report-inbox run triggers are proven with
+      `vps-authenticated-report-inbox-run-proof-20260615a` and
+      `vps-default-key-report-inbox-run-proof-20260615a`
+    - `vps-managed-systemd-sudoers-preflight-20260615a` confirmed the wrapper
+      allows `system-dashboard-api` but the sudoers drop-in was absent
+    - `vps-managed-systemd-sudoers-bootstrap-patch-20260615a` patched the
+      bootstrap source so it generates the exact `system-dashboard-api`
+      sudoers entry
+    - the patched bootstrap was run once with VPS sudo authentication, and a
+      direct non-mutating proof confirmed:
+      `sudo -n -l /usr/local/bin/apply_managed_systemd_unit_privileged system-dashboard-api`
+      allows only the exact command
+    - Mac-originated apply proof
+      `vps-system-dashboard-api-managed-apply-proof-20260615b` reached the
+      exact `sudo -n` wrapper command, but this selector restarts the API that
+      owns the report-inbox runner, so the initiating thread stayed `running`
+      until timeout
+    - post-restart health proof
+      `vps-system-dashboard-api-post-self-apply-readonly-20260615a` completed
+      after the self-apply, confirming report-inbox exec recovered
+    - `bin/vps_exec_request.py` now implements this as an automatic
+      `system-dashboard-api` self-apply completion mode:
+      - parent thread command observation:
+        `sudo -n /usr/local/bin/apply_managed_systemd_unit_privileged system-dashboard-api`
+      - post-restart `vps_readonly` proof
+      - output fields:
+        `effective_status=completed`,
+        `completion_mode=self_apply_recovery`
+      - proof:
+        `vps-system-dashboard-api-self-apply-helper-proof-20260615a`
+        recovered via
+        `vps-system-dashboard-api-self-apply-helper-proof-20260615a-post-self-apply`
 
 ## Future v0.2 Direction
 
