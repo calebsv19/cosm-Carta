@@ -74,7 +74,11 @@ package-desktop-smoke: package-desktop
 	@echo "package-desktop-smoke passed."
 
 package-desktop-self-test: package-desktop-smoke
-	@"$(PACKAGE_MACOS_DIR)/mapforge-launcher" --self-test || (echo "package-desktop self-test failed."; exit 1)
+	@mkdir -p build/vulkan-rollout-package
+	@MAPFORGE_PACKAGE_VALIDATION_LAYER_DYLIB="$(VULKAN_VALIDATION_DYLD_PATH)/libVkLayer_khronos_validation.dylib" MAPFORGE_PACKAGE_REQUIRE_VULKAN_ROLLOUT="$(VK_RUNTIME_AVAILABLE)" MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE="$(abspath build/vulkan-rollout-package/initial.bmp)" MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE="$(abspath build/vulkan-rollout-package/resized.bmp)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher" --self-test || (echo "package-desktop self-test failed."; exit 1)
+	@if [ "$(VK_RUNTIME_AVAILABLE)" = "1" ]; then \
+		python3 tools/verify-vulkan-rollout.py --shared-root "$(SHARED_ROOT)" --initial-capture build/vulkan-rollout-package/initial.bmp --resized-capture build/vulkan-rollout-package/resized.bmp; \
+	fi
 	@echo "package-desktop-self-test passed."
 
 package-desktop-copy-desktop: package-desktop
@@ -98,4 +102,3 @@ package-desktop-refresh: package-desktop
 	@rm -rf "$(DESKTOP_APP_DIR)"
 	@/usr/bin/ditto "$(PACKAGE_APP_DIR)" "$(DESKTOP_APP_DIR)"
 	@echo "Refreshed $(PACKAGE_APP_NAME) at $(DESKTOP_APP_DIR)"
-

@@ -54,6 +54,16 @@ static void renderer_disable_vulkan(Renderer *renderer, const char *reason) {
     SDL_Log("[renderer] Vulkan disabled after fatal failure (%s). No backend fallback is active.",
             reason ? reason : "unknown");
 }
+
+static SDL_bool renderer_vk_validation_requested(void) {
+    const char *value = getenv("MAPFORGE_REQUIRE_VK_VALIDATION");
+    return value &&
+                   (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 ||
+                    strcmp(value, "TRUE") == 0 || strcmp(value, "yes") == 0 ||
+                    strcmp(value, "on") == 0)
+               ? SDL_TRUE
+               : SDL_FALSE;
+}
 #endif
 
 void renderer_set_backend(Renderer *renderer, RendererBackend backend) {
@@ -218,7 +228,7 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
         if (vk) {
             VkRendererConfig cfg;
             vk_renderer_config_set_defaults(&cfg);
-            cfg.enable_validation = SDL_FALSE;
+            cfg.enable_validation = renderer_vk_validation_requested();
             VkResult init_result = vk_renderer_init(vk, window, &cfg);
             if (init_result == VK_SUCCESS) {
                 SDL_Log("[renderer] Vulkan init succeeded");
@@ -276,7 +286,13 @@ bool renderer_resize(Renderer *renderer, int width, int height) {
         renderer->window) {
         VkRenderer *vk = (VkRenderer *)renderer->vk;
         vk_renderer_set_logical_size(vk, (float)renderer->surface_width, (float)renderer->surface_height);
+#if defined(MAPFORGE_HAVE_VK_RUNTIME)
+        VkResult result = vk_renderer_recover_surface(vk,
+                                                      renderer->window,
+                                                      VK_ERROR_OUT_OF_DATE_KHR);
+#else
         VkResult result = vk_renderer_recreate_swapchain(vk, renderer->window);
+#endif
         renderer->vk_last_begin_result = (int)result;
         if (result == VK_SUCCESS) {
             renderer->vk_swapchain_recreates += 1u;
@@ -358,7 +374,15 @@ void renderer_begin_frame(Renderer *renderer) {
         VkExtent2D extent = {0};
         VkResult result = vk_renderer_begin_frame(vk, &cmd, &fb, &extent);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            if (vk_renderer_recreate_swapchain(vk, renderer->window) == VK_SUCCESS) {
+#if defined(MAPFORGE_HAVE_VK_RUNTIME)
+            VkResult recover_result = vk_renderer_recover_surface(vk,
+                                                                  renderer->window,
+                                                                  result);
+#else
+            VkResult recover_result = vk_renderer_recreate_swapchain(vk,
+                                                                      renderer->window);
+#endif
+            if (recover_result == VK_SUCCESS) {
                 renderer->vk_swapchain_recreates += 1;
                 result = vk_renderer_begin_frame(vk, &cmd, &fb, &extent);
             }
@@ -423,7 +447,11 @@ void renderer_end_frame(Renderer *renderer) {
         VkCommandBuffer cmd = (VkCommandBuffer)renderer->vk_cmd;
         VkResult result = vk_renderer_end_frame(vk, cmd);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+#if defined(MAPFORGE_HAVE_VK_RUNTIME)
+            (void)vk_renderer_recover_surface(vk, renderer->window, result);
+#else
             (void)vk_renderer_recreate_swapchain(vk, renderer->window);
+#endif
             renderer->vk_swapchain_recreates += 1;
         } else if (result == VK_ERROR_DEVICE_LOST) {
             renderer->vk_begin_failures_total += 1;

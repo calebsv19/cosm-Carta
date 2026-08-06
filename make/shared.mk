@@ -60,6 +60,13 @@ VK_RENDERER_INCLUDE := $(VK_RENDERER_RESOLVED_DIR)/include
 VK_RENDERER_STATIC_LIB := $(VK_RENDERER_RESOLVED_DIR)/build/lib/libvkrenderer.a
 VK_RENDERER_SRCS := $(wildcard $(VK_RENDERER_RESOLVED_DIR)/src/*.c)
 VK_RENDERER_OBJS := $(patsubst $(VK_RENDERER_RESOLVED_DIR)/src/%.c,$(HOST_BUILD_ROOT)/vk_renderer/%.o,$(VK_RENDERER_SRCS))
+VK_RUNTIME_DIR ?= $(SHARED_ROOT)/vk_runtime
+VK_RUNTIME_INCLUDE := $(VK_RUNTIME_DIR)/include
+VK_RUNTIME_SRCS := $(wildcard $(VK_RUNTIME_DIR)/src/*.c)
+VK_RUNTIME_OBJS := $(patsubst $(VK_RUNTIME_DIR)/src/%.c,$(HOST_BUILD_ROOT)/vk_runtime/%.o,$(VK_RUNTIME_SRCS))
+VK_RUNTIME_AVAILABLE := $(if $(wildcard $(VK_RUNTIME_INCLUDE)/vk_runtime.h),1,)
+VK_RUNTIME_MODULE_VERSION := $(strip $(shell cat $(VK_RUNTIME_DIR)/VERSION 2>/dev/null))
+VK_RUNTIME_VERSION_CFLAG := -DVK_RUNTIME_BUILD_VERSION=\"$(VK_RUNTIME_MODULE_VERSION)\"
 VK_BUILD_LIB := $(TARGET_BUILD_ROOT)/vk/lib/libvkrenderer.a
 VK_BUILD_SHADER_DIR := $(TARGET_BUILD_ROOT)/vk/shaders
 VK_REQUIRED_SHADERS := fill.vert.spv fill.frag.spv line.vert.spv line.frag.spv textured.vert.spv textured.frag.spv

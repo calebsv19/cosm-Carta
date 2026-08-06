@@ -152,6 +152,24 @@ write_vk_icd_file() {
 EOF
 }
 
+write_vk_validation_layer_file() {
+    path=$1
+    dylib=$2
+    cat >"$path" <<EOF
+{
+  "file_format_version": "1.2.0",
+  "layer": {
+    "name": "VK_LAYER_KHRONOS_validation",
+    "type": "GLOBAL",
+    "library_path": "$dylib",
+    "api_version": "1.4.0",
+    "implementation_version": "1",
+    "description": "Khronos Validation Layer for MapForge package self-test"
+  }
+}
+EOF
+}
+
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 if ! touch "$LOG_FILE" 2>/dev/null; then
     LOG_FILE="${TMPDIR:-/tmp}/mapforge-launcher.log"
@@ -256,6 +274,29 @@ if [ "${1:-}" = "--self-test" ]; then
     launcher_require_file "$MOLTENVK_DYLIB" "bundled MoltenVK dylib"
     launcher_require_dir "$MAPFORGE_RUNTIME_DIR" "runtime state dir"
     launcher_require_dir "$MAPFORGE_REGIONS_DIR" "regions dir"
+    if [ "${MAPFORGE_PACKAGE_REQUIRE_VULKAN_ROLLOUT:-0}" = "1" ]; then
+        validation_dylib="${MAPFORGE_PACKAGE_VALIDATION_LAYER_DYLIB:-}"
+        if [ -n "$validation_dylib" ]; then
+            launcher_require_file "$validation_dylib" "development Vulkan validation layer"
+            validation_manifest_dir="$VK_RUNTIME_DIR/validation"
+            mkdir -p "$validation_manifest_dir"
+            write_vk_validation_layer_file \
+                "$validation_manifest_dir/VkLayer_khronos_validation.json" \
+                "$validation_dylib"
+            export VK_LAYER_PATH="$validation_manifest_dir"
+        fi
+        rollout_initial="${MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE:-$MAPFORGE_RUNTIME_DIR/vulkan_rollout_initial.bmp}"
+        rollout_resized="${MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE:-$MAPFORGE_RUNTIME_DIR/vulkan_rollout_resized.bmp}"
+        MAPFORGE_RENDER_BACKEND=vulkan \
+        MAPFORGE_REQUIRE_VK_VALIDATION=1 \
+        MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE="$rollout_initial" \
+        MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE="$rollout_resized" \
+            "$SCRIPT_DIR/mapforge-bin" --vulkan-rollout-self-test
+        launcher_require_file "$rollout_initial" "Vulkan rollout initial capture"
+        launcher_require_file "$rollout_resized" "Vulkan rollout resized capture"
+        echo "VULKAN_ROLLOUT_INITIAL_CAPTURE=$rollout_initial"
+        echo "VULKAN_ROLLOUT_RESIZED_CAPTURE=$rollout_resized"
+    fi
     echo "self-test: ok"
     echo "LOG_FILE=$LOG_FILE"
     echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"

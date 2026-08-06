@@ -4,6 +4,16 @@ test-%: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
 run: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
 
+vulkan-rollout-contract:
+	python3 tools/verify-vulkan-rollout.py --shared-root "$(SHARED_ROOT)"
+
+vulkan-rollout-self-test: vulkan-rollout-contract
+	rm -rf build
+	$(MAKE) app
+	mkdir -p build/vulkan-rollout
+	MAPFORGE_RENDER_BACKEND=vulkan MAPFORGE_REQUIRE_VK_VALIDATION=1 MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE=build/vulkan-rollout/initial.bmp MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE=build/vulkan-rollout/resized.bmp DYLD_LIBRARY_PATH=$(VULKAN_VALIDATION_DYLD_PATH) ./$(TARGET) --vulkan-rollout-self-test
+	python3 tools/verify-vulkan-rollout.py --shared-root "$(SHARED_ROOT)" --initial-capture build/vulkan-rollout/initial.bmp --resized-capture build/vulkan-rollout/resized.bmp
+
 run-headless-smoke: run-headless-smoke-core
 
 run-headless-smoke-core: app test-worker-contract test-route-service test-route-preview test-headless-playback test-presentation-stability test-polygon-cache-guardrails test-input-policy test-tile-manager-residency test-region-validate-strict test-region-validate-contract test-region-publish-safety test-runtime-source-policy test-archive-metrics-rollup test-coverage-metadata-contract

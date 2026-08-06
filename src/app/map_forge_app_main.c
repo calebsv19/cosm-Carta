@@ -5,6 +5,7 @@
 
 #include "app/app.h"
 #include "app/app_headless.h"
+#include "app/app_vulkan_rollout.h"
 
 typedef enum MapForgeWrapperError {
     MAP_FORGE_WRAPPER_ERROR_NONE = 0,
@@ -150,6 +151,11 @@ int map_forge_app_main(int argc, char **argv) {
     memset(&app, 0, sizeof(app));
     app.argc = argc;
     app.argv = argv;
+
+    if (argc == 2 && argv && argv[1] &&
+        strcmp(argv[1], "--vulkan-rollout-self-test") == 0) {
+        return map_forge_vulkan_rollout_self_test();
+    }
 
     if (!map_forge_headless_args_parse(argc, argv, &cli, error, sizeof(error))) {
         map_forge_headless_args_usage((argc > 0 && argv && argv[0]) ? argv[0] : "mapforge",

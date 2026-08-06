@@ -114,6 +114,10 @@ $(HOST_BUILD_ROOT)/vk_renderer/%.o: $(VK_RENDERER_RESOLVED_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
+$(HOST_BUILD_ROOT)/vk_runtime/%.o: $(VK_RUNTIME_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -std=c11 $(VK_RUNTIME_VERSION_CFLAG) -MMD -MP -Iinclude -c $< -o $@
+
 $(KIT_RENDER_OBJ): $(KIT_RENDER_DIR)/src/kit_render.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
