@@ -38,6 +38,16 @@ make package-desktop-self-test
 - bundled font/config/shader resources
 - bundled ingest tools
 - required runtime/regions directory scaffolding
+- the bundled `--vulkan-rollout-self-test`, including validation-required
+  runtime/renderer identity, initial readback, real resize/recovery, resized
+  readback, and capture-dimension checks when the local Vulkan development
+  runtime is available
+
+The Vulkan package proof creates a temporary absolute validation-layer
+manifest only for the self-test process. Normal packaged launch neither ships
+nor requires that development validation layer. The 2026-08-05 Apple
+M2/MoltenVK proof retained the existing Retina relationship: logical
+`1280x720` produced `2560x1440`, and logical `1440x800` produced `2880x1600`.
 
 ## Desktop Copy + Refresh Flow
 

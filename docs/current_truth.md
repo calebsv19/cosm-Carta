@@ -1,6 +1,6 @@
 # Carta Current Truth
 
-Last updated: 2026-06-23
+Last updated: 2026-08-05
 
 ## Program Identity
 - Public product name: `Carta`
@@ -10,6 +10,16 @@ Last updated: 2026-06-23
   - wrapper still delegates run-loop through legacy runtime path for behavior parity
 
 ## Current Shipped State
+- Managed Vulkan presentation adoption is complete for the current source
+  boundary:
+  - the default `third_party/codework_shared` snapshot contains
+    `vk_runtime 0.6.0` and `vk_renderer 1.3.1`
+  - `vk_renderer` delegates Vulkan instance/device lifecycle to `vk_runtime`
+    while preserving the renderer compatibility entry points used by Carta
+  - Carta retains backend selection, SDL fallback, map drawing policy, input,
+    diagnostics, and recovery reporting
+  - the restored tinted affine line-mesh wrapper preserves Carta's existing
+    route/map presentation call surface after the renderer lifecycle rebase
 - Runtime scaffold A-D lane is complete:
   - A: viewport stability kernel
   - B: continuity + residency
@@ -53,6 +63,16 @@ Last updated: 2026-06-23
 - Build/tests:
   - `make -C map_forge clean && make -C map_forge`
   - `make -C map_forge test`
+- Managed Vulkan rollout proof:
+  - `make -C map_forge vulkan-rollout-contract`
+  - `make -C map_forge vulkan-rollout-self-test`
+  - the self-test requires Vulkan validation, verifies runtime/renderer handle
+    identity, captures a nontrivial frame, performs a real resize with bounded
+    out-of-date/suboptimal recovery, and verifies the resized capture extent
+  - the 2026-08-05 Apple M2/MoltenVK run captured `2560x1440` from a logical
+    `1280x720` window and `2880x1600` from logical `1440x800`, with one
+    swapchain recreation and zero validation warnings/errors; this positively
+    preserves the existing 2x Retina drawable path
 - Primary smoke/stability gates:
   - `make -C map_forge visual-harness`
     - build/readiness target for manual visual validation
@@ -91,6 +111,10 @@ Last updated: 2026-06-23
 ## Packaging and Release Snapshot
 - Packaging lanes and release-readiness lanes are complete and maintained.
 - Standard package/release contract remains active via `package-desktop*` and release audit/sign/notary targets.
+- `package-desktop-self-test` now executes the bundled Vulkan rollout proof
+  when the local Vulkan development runtime is available. Its temporary
+  validation-layer manifest is self-test-only; normal Carta launch does not
+  ship or require the development validation layer.
 
 ## Current Boundary
 - Continue maintenance hardening only from fresh evidence while preserving contract-driven runtime behavior.
