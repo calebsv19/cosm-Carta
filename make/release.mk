@@ -45,6 +45,41 @@ release-verify-notarized:
 release-artifact:
 	@$(RELEASE_MAKE) release-artifact-internal
 
+# Create-only local artifact lane used before external authentication. It
+# deliberately emits beneath a job-scoped root and never refreshes Desktop.
+release-local-artifact: release-bundle-audit-internal
+	@mkdir -p "$(RELEASE_DIR)"
+	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
+	@shasum -a 256 "$(RELEASE_APP_ZIP)" > "$(RELEASE_APP_ZIP_SHA256)"
+	@{ \
+		echo "product=$(RELEASE_PRODUCT_NAME)"; \
+		echo "program=$(RELEASE_PROGRAM_KEY)"; \
+		echo "bundle_id=$(RELEASE_BUNDLE_ID)"; \
+		echo "version=$(RELEASE_VERSION)"; \
+		echo "platform=$(RELEASE_PLATFORM)"; \
+		echo "arch=$(RELEASE_ARCH)"; \
+		echo "channel=$(RELEASE_CHANNEL)"; \
+		echo "signed=ad-hoc"; \
+		echo "notarized=0"; \
+		echo "artifact=$(RELEASE_APP_ZIP)"; \
+		echo "sha256_file=$(RELEASE_APP_ZIP_SHA256)"; \
+	} > "$(RELEASE_MANIFEST)"
+	@echo "release-local-artifact complete: $(RELEASE_APP_ZIP)"
+
+release-output-root-contract:
+	@case "$(RELEASE_ROOT)" in build/release-authenticated/*) ;; *) echo "RELEASE_ROOT must be a job-scoped build/release-authenticated path"; exit 1;; esac
+	@case "$(RELEASE_ROOT)" in */../*|../*|*/..|build/release-authenticated/|*/./*|./*) echo "RELEASE_ROOT must not contain traversal or dot segments"; exit 1;; esac
+	@case "$(RELEASE_ROOT)" in *'//'*) echo "RELEASE_ROOT must not contain empty path segments"; exit 1;; esac
+
+release-output-root-conformance: release-output-root-contract
+	@test ! -e "$(RELEASE_ROOT)" || (echo "RELEASE_ROOT must be absent before package"; exit 1)
+	@$(MAKE) RELEASE_ROOT="$(RELEASE_ROOT)" release-local-artifact
+	@test -f "$(RELEASE_APP_ZIP)" || (echo "Missing release artifact at selected root"; exit 1)
+	@test -f "$(RELEASE_APP_ZIP_SHA256)" || (echo "Missing release checksum at selected root"; exit 1)
+	@test -f "$(RELEASE_MANIFEST)" || (echo "Missing release manifest at selected root"; exit 1)
+	@test "$(dir $(RELEASE_APP_ZIP))" = "$(RELEASE_ROOT)/" || (echo "Release artifact escaped selected root"; exit 1)
+	@echo "release-output-root-conformance passed: $(RELEASE_ROOT)"
+
 release-distribute:
 	@$(RELEASE_MAKE) release-distribute-internal
 

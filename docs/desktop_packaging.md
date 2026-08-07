@@ -2,7 +2,7 @@
 
 MapForge now supports standardized macOS app-bundle packaging via Makefile targets.
 
-Last updated: 2026-06-19
+Last updated: 2026-08-07
 
 ## Build Package
 
@@ -25,6 +25,21 @@ Example Intel package build from Apple Silicon:
 ```sh
 make release-artifact TARGET_ARCH=x86_64 BUILD_TOOLCHAIN=clang PACKAGE_TOOLCHAIN=clang
 ```
+
+## Production Registry Output Root
+
+The pre-authentication release lane is create-only and does not replace the
+installed Desktop app:
+
+```sh
+make RELEASE_ROOT=build/release-authenticated/<job-id> \
+  release-output-root-conformance
+```
+
+`RELEASE_ROOT` must be a new job-scoped relative path beneath
+`build/release-authenticated/`. The target emits the local ad-hoc ZIP, SHA-256
+file, and manifest there; Developer ID signing and notarization remain a later,
+separately authorized stage.
 
 ## Validate Package (Automated)
 

@@ -47,8 +47,12 @@ RELEASE_PRODUCT_NAME := Carta
 RELEASE_PROGRAM_KEY := map_forge
 RELEASE_BUNDLE_ID := com.cosm.carta
 RELEASE_ARTIFACT_BASENAME := $(RELEASE_PRODUCT_NAME)-$(RELEASE_VERSION)-$(RELEASE_PLATFORM)-$(RELEASE_ARCH)-$(RELEASE_CHANNEL)
-RELEASE_DIR := build/release
+# May be supplied by the Production Registry as a job-scoped relative root.
+# Keep the ordinary developer default for manual local releases.
+RELEASE_ROOT ?= build/release
+RELEASE_DIR := $(RELEASE_ROOT)
 RELEASE_APP_ZIP := $(RELEASE_DIR)/$(RELEASE_ARTIFACT_BASENAME).zip
+RELEASE_APP_ZIP_SHA256 := $(RELEASE_APP_ZIP).sha256
 RELEASE_MANIFEST := $(RELEASE_DIR)/$(RELEASE_ARTIFACT_BASENAME).manifest.txt
 RELEASE_CODESIGN_IDENTITY ?= $(if $(strip $(APPLE_SIGN_IDENTITY)),$(APPLE_SIGN_IDENTITY),$(PACKAGE_ADHOC_SIGN_IDENTITY))
 # Export/signing contract variables are intentionally unset by default.
