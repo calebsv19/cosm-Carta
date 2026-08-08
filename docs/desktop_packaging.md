@@ -38,8 +38,9 @@ make RELEASE_ROOT=build/release-authenticated/<job-id> \
 
 `RELEASE_ROOT` must be a new job-scoped relative path beneath
 `build/release-authenticated/`. The target emits the local ad-hoc ZIP, SHA-256
-file, and manifest there; Developer ID signing and notarization remain a later,
-separately authorized stage.
+file, and manifest there. The manifest binds the target and release
+OS/architecture/variant, ZIP basename, and exact artifact SHA-256; Developer ID
+signing and notarization remain a later, separately authorized stage.
 
 ## Validate Package (Automated)
 

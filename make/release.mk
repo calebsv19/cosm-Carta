@@ -51,16 +51,24 @@ release-local-artifact: release-bundle-audit-internal
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
 	@shasum -a 256 "$(RELEASE_APP_ZIP)" > "$(RELEASE_APP_ZIP_SHA256)"
-	@{ \
+	@artifact_sha256="$$(/usr/bin/awk '{print $$1}' "$(RELEASE_APP_ZIP_SHA256)")"; \
+	{ \
 		echo "product=$(RELEASE_PRODUCT_NAME)"; \
 		echo "program=$(RELEASE_PROGRAM_KEY)"; \
 		echo "bundle_id=$(RELEASE_BUNDLE_ID)"; \
 		echo "version=$(RELEASE_VERSION)"; \
+		echo "target_os=$(TARGET_OS)"; \
+		echo "target_arch=$(TARGET_ARCH)"; \
+		echo "target_variant=$(TARGET_VARIANT)"; \
+		echo "release_platform=$(RELEASE_PLATFORM)"; \
+		echo "release_arch=$(RELEASE_ARCH)"; \
 		echo "platform=$(RELEASE_PLATFORM)"; \
 		echo "arch=$(RELEASE_ARCH)"; \
 		echo "channel=$(RELEASE_CHANNEL)"; \
 		echo "signed=ad-hoc"; \
 		echo "notarized=0"; \
+		echo "zip=$(RELEASE_APP_ZIP)"; \
+		echo "sha256=$$artifact_sha256"; \
 		echo "artifact=$(RELEASE_APP_ZIP)"; \
 		echo "sha256_file=$(RELEASE_APP_ZIP_SHA256)"; \
 	} > "$(RELEASE_MANIFEST)"
