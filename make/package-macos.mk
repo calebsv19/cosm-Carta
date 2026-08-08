@@ -2,7 +2,7 @@ package-desktop: tools-build graph-build
 	@$(MAKE) --no-print-directory TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" BUILD_TOOLCHAIN="$(PACKAGE_TOOLCHAIN)" app
 	@echo "Preparing desktop package..."
 	@rm -rf "$(PACKAGE_APP_DIR)"
-	@mkdir -p "$(PACKAGE_MACOS_DIR)" "$(PACKAGE_RESOURCES_DIR)" "$(PACKAGE_FRAMEWORKS_DIR)" "$(PACKAGE_TOOLS_DIR)"
+	@mkdir -p "$(PACKAGE_MACOS_DIR)" "$(PACKAGE_HELPERS_DIR)" "$(PACKAGE_RESOURCES_DIR)" "$(PACKAGE_FRAMEWORKS_DIR)"
 	@cp "$(PACKAGE_INFO_PLIST_SRC)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(RELEASE_VERSION)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@cp "$(PACKAGE_BIN)" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
@@ -61,6 +61,7 @@ package-desktop-smoke: package-desktop
 	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_region" || (echo "Missing bundled mapforge_region tool"; exit 1)
 	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" || (echo "Missing bundled mapforge_region_validate tool"; exit 1)
 	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_graph" || (echo "Missing bundled mapforge_graph tool"; exit 1)
+	@test ! -d "$(PACKAGE_RESOURCES_DIR)/tools" || (echo "Executable tools must not be packaged under Resources"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/vk_renderer/shaders/textured.vert.spv" || (echo "Missing bundled shader"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/shaders/textured.vert.spv" || (echo "Missing runtime shader"; exit 1)
 	@test -d "$(PACKAGE_RESOURCES_DIR)/data/runtime" || (echo "Missing runtime state dir"; exit 1)

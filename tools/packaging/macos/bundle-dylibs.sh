@@ -58,6 +58,9 @@ replacement_path_for() {
         */Contents/MacOS/*)
             printf '%s\n' "@loader_path/../Frameworks/$dep_base"
             ;;
+        */Contents/Helpers/*)
+            printf '%s\n' "@loader_path/../Frameworks/$dep_base"
+            ;;
         */Contents/Resources/*)
             printf '%s\n' "@loader_path/../../Frameworks/$dep_base"
             ;;

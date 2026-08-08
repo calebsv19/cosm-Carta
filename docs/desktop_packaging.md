@@ -159,11 +159,14 @@ Package assembly stamps `CFBundleShortVersionString` from the committed
 `VERSION`. Release validation must archive and re-extract the app before
 trusting its signature; an in-place `codesign --verify` alone does not prove
 the downloadable ZIP preserves the signature.
+Mach-O helper tools are packaged under `Contents/Helpers`, not Resources, so
+they are explicit nested code for Developer ID signing and notarization.
+
 - `VK_RENDERER_SHADER_ROOT=<app>/Contents/Resources`
 - `MAPFORGE_FONT_PRESET=ide`
 - `MAPFORGE_IMPORT_TOOLS_DIR` selection order:
   1. explicit env override (`MAPFORGE_IMPORT_TOOLS_DIR`)
-  2. bundled tools dir (`<app>/Contents/Resources/tools`) when tools exist
+  2. bundled tools dir (`<app>/Contents/Helpers`) when tools exist
   3. development fallback (`$HOME/Desktop/CodeWork/map_forge/build/tools`)
 - `MAPFORGE_REGIONS_DIR` selection order:
   1. explicit env override (`MAPFORGE_REGIONS_DIR`)
