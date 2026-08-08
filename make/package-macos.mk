@@ -4,9 +4,11 @@ package-desktop: tools-build graph-build
 	@rm -rf "$(PACKAGE_APP_DIR)"
 	@mkdir -p "$(PACKAGE_MACOS_DIR)" "$(PACKAGE_RESOURCES_DIR)" "$(PACKAGE_FRAMEWORKS_DIR)" "$(PACKAGE_TOOLS_DIR)"
 	@cp "$(PACKAGE_INFO_PLIST_SRC)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(RELEASE_VERSION)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@cp "$(PACKAGE_BIN)" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
-	@cp "$(PACKAGE_LAUNCHER_SRC)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher"
-	@chmod +x "$(PACKAGE_MACOS_DIR)/mapforge-launcher" "$(PACKAGE_MACOS_DIR)/mapforge-bin"
+	@cp "$(PACKAGE_LAUNCHER_SCRIPT_SRC)" "$(PACKAGE_LAUNCHER_SCRIPT_PATH)"
+	@$(HOST_CC) -std=c11 -Os -Wall -Wextra -Werror -Wpedantic "$(PACKAGE_LAUNCHER_NATIVE_SRC)" -o "$(PACKAGE_MACOS_DIR)/mapforge-launcher"
+	@chmod +x "$(PACKAGE_MACOS_DIR)/mapforge-launcher" "$(PACKAGE_MACOS_DIR)/mapforge-bin" "$(PACKAGE_LAUNCHER_SCRIPT_PATH)"
 	@if [ -f "$(PACKAGE_APP_ICON_SRC)" ]; then \
 		cp "$(PACKAGE_APP_ICON_SRC)" "$(PACKAGE_BUNDLED_ICON_PATH)"; \
 		echo "Bundled app icon from $(PACKAGE_APP_ICON_SRC)"; \
@@ -45,8 +47,12 @@ package-desktop: tools-build graph-build
 
 package-desktop-smoke: package-desktop
 	@test -x "$(PACKAGE_MACOS_DIR)/mapforge-launcher" || (echo "Missing launcher"; exit 1)
+	@test -x "$(PACKAGE_LAUNCHER_SCRIPT_PATH)" || (echo "Missing launcher resource"; exit 1)
+	@file "$(PACKAGE_MACOS_DIR)/mapforge-launcher" | rg -q 'Mach-O' || (echo "Launcher must be native Mach-O code"; exit 1)
+	@file "$(PACKAGE_LAUNCHER_SCRIPT_PATH)" | rg -q 'shell script' || (echo "Launcher resource must be a shell script"; exit 1)
 	@test -x "$(PACKAGE_MACOS_DIR)/mapforge-bin" || (echo "Missing mapforge-bin"; exit 1)
 	@test -f "$(PACKAGE_CONTENTS_DIR)/Info.plist" || (echo "Missing Info.plist"; exit 1)
+	@test "$$('/usr/libexec/PlistBuddy' -c 'Print :CFBundleShortVersionString' "$(PACKAGE_CONTENTS_DIR)/Info.plist")" = "$(RELEASE_VERSION)" || (echo "Bundle version mismatch"; exit 1)
 	@if [ -f "$(PACKAGE_APP_ICON_SRC)" ] || [ -d "$(PACKAGE_APP_ICONSET_SRC)" ]; then \
 		test -f "$(PACKAGE_BUNDLED_ICON_PATH)" || (echo "Missing bundled AppIcon.icns"; exit 1); \
 	fi

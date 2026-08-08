@@ -150,7 +150,15 @@ Hardening now in place:
 
 ## Launcher Runtime Model
 
-`mapforge-launcher` sets app-relative defaults only when unset:
+The app's `CFBundleExecutable` is a small native Mach-O launcher so its
+Developer ID signature survives ZIP transport. It invokes the packaged
+`Contents/Resources/mapforge-launcher.sh`, which sets app-relative defaults
+only when unset:
+
+Package assembly stamps `CFBundleShortVersionString` from the committed
+`VERSION`. Release validation must archive and re-extract the app before
+trusting its signature; an in-place `codesign --verify` alone does not prove
+the downloadable ZIP preserves the signature.
 - `VK_RENDERER_SHADER_ROOT=<app>/Contents/Resources`
 - `MAPFORGE_FONT_PRESET=ide`
 - `MAPFORGE_IMPORT_TOOLS_DIR` selection order:

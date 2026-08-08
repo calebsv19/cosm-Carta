@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 APP_CONTENTS_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+APP_MACOS_DIR="$APP_CONTENTS_DIR/MacOS"
 RES_DIR="$APP_CONTENTS_DIR/Resources"
 APP_BUNDLE_REGIONS_DIR="$RES_DIR/data/regions"
 APP_BUNDLE_TOOLS_DIR="$RES_DIR/tools"
@@ -263,7 +264,7 @@ if [ "${1:-}" = "--print-config" ]; then
 fi
 
 if [ "${1:-}" = "--self-test" ]; then
-    launcher_require_executable "$SCRIPT_DIR/mapforge-bin" "mapforge-bin"
+    launcher_require_executable "$APP_MACOS_DIR/mapforge-bin" "mapforge-bin"
     launcher_require_file "$APP_CONTENTS_DIR/Info.plist" "Info.plist"
     launcher_require_file "$RES_DIR/assets/fonts/Montserrat-Regular.ttf" "bundled Montserrat"
     launcher_require_file "$RES_DIR/config/app.config.json" "bundled app.config.json"
@@ -291,7 +292,7 @@ if [ "${1:-}" = "--self-test" ]; then
         MAPFORGE_REQUIRE_VK_VALIDATION=1 \
         MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE="$rollout_initial" \
         MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE="$rollout_resized" \
-            "$SCRIPT_DIR/mapforge-bin" --vulkan-rollout-self-test
+            "$APP_MACOS_DIR/mapforge-bin" --vulkan-rollout-self-test
         launcher_require_file "$rollout_initial" "Vulkan rollout initial capture"
         launcher_require_file "$rollout_resized" "Vulkan rollout resized capture"
         echo "VULKAN_ROLLOUT_INITIAL_CAPTURE=$rollout_initial"
@@ -315,4 +316,4 @@ fi
 
 cd "$RES_DIR"
 log_line "launch begin pid=$$ cwd=$RES_DIR regions=$MAPFORGE_REGIONS_DIR reason=$selected_regions_reason backend=$MAPFORGE_RENDER_BACKEND shader_root=$VK_RENDERER_SHADER_ROOT args=$*"
-exec "$SCRIPT_DIR/mapforge-bin" "$@" >>"$LOG_FILE" 2>&1
+exec "$APP_MACOS_DIR/mapforge-bin" "$@" >>"$LOG_FILE" 2>&1
