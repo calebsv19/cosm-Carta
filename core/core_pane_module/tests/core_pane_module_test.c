@@ -27,6 +27,8 @@ static CorePaneModuleDescriptor make_valid_descriptor(uint32_t type_id, const ch
     descriptor.display_name = "Test";
     descriptor.version_major = 1u;
     descriptor.version_minor = 0u;
+    descriptor.state_schema_major = 1u;
+    descriptor.state_schema_minor = 0u;
     descriptor.capabilities = CORE_PANE_MODULE_CAP_RENDER |
                               CORE_PANE_MODULE_CAP_INPUT_KEYBOARD |
                               CORE_PANE_MODULE_CAP_INPUT_POINTER;
@@ -207,6 +209,28 @@ static void test_registry_with_invalid_entry_storage_rejects_validation(void) {
            CORE_PANE_MODULE_ERR_INVALID_ARG);
 }
 
+static void test_profile_requirement_compatibility(void) {
+    CorePaneModuleDescriptor entries[2];
+    CorePaneModuleRegistry registry;
+    CorePaneModuleDescriptor descriptor = make_valid_descriptor(1001u, "text_panel");
+    CorePaneModuleProfileRequirement good = { 1001u, 1u, 0u, 1u, 0u };
+    CorePaneModuleProfileRequirement newer = { 1001u, 1u, 1u, 1u, 0u };
+    CorePaneModuleProfileRequirement wrong_schema = { 1001u, 1u, 0u, 2u, 0u };
+    CorePaneModuleProfileRequirement duplicate[2] = {
+        { 1001u, 1u, 0u, 1u, 0u }, { 1001u, 1u, 0u, 1u, 0u }
+    };
+
+    assert(core_pane_module_registry_init(&registry, entries, 2u) == CORE_PANE_MODULE_OK);
+    assert(core_pane_module_register(&registry, &descriptor) == CORE_PANE_MODULE_OK);
+    assert(core_pane_module_validate_profile_requirements(&registry, &good, 1u) == CORE_PANE_MODULE_OK);
+    assert(core_pane_module_validate_profile_requirements(&registry, &newer, 1u) ==
+           CORE_PANE_MODULE_ERR_PROFILE_VERSION_UNSUPPORTED);
+    assert(core_pane_module_validate_profile_requirements(&registry, &wrong_schema, 1u) ==
+           CORE_PANE_MODULE_ERR_PROFILE_STATE_SCHEMA_UNSUPPORTED);
+    assert(core_pane_module_validate_profile_requirements(&registry, duplicate, 2u) ==
+           CORE_PANE_MODULE_ERR_DUP_TYPE_ID);
+}
+
 int main(void) {
     test_registry_register_and_lookup();
     test_registry_rejects_duplicates();
@@ -215,5 +239,6 @@ int main(void) {
     test_lookup_invalid_args_and_not_found();
     test_binding_validation();
     test_registry_with_invalid_entry_storage_rejects_validation();
+    test_profile_requirement_compatibility();
     return 0;
 }

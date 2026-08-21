@@ -1,0 +1,27 @@
+{
+  "schema_family": "codework_artifact",
+  "schema_variant": "artifact_manifest_v1",
+  "artifact_id": "artifact.physics-cache.001",
+  "logical_name": "PhysicsSim project-local cache",
+  "type": "directory_manifest",
+  "media_type": "application/json",
+  "data_contract": {
+    "schema_family": "physics_sim_cache",
+    "schema_variant": "active_cache_manifest_v1"
+  },
+  "digest_algorithm": "sha256",
+  "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "size_bytes": 42,
+  "producer_job_id": "job.physics-cache.001",
+  "producer_attempt_id": "attempt.physics-cache.001.1",
+  "parent_artifacts": [
+    "artifact.scene-project.001"
+  ],
+  "constituents": [
+    {
+      "path": "physics_sim/active_cache_manifest.json",
+      "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "size_bytes": 42
+    }
+  ]
+}

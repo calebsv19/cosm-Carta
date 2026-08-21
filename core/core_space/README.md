@@ -19,10 +19,19 @@ Shared spatial conversion contract for cross-app scene imports.
 - One-cell grids are supported intentionally. Their unit/world extent collapses to a single cell-size span anchored at the configured origin.
 - `core_space_fit_scale(...)` is a normalization helper with deterministic fallback defaults for non-positive or non-finite scale inputs.
 - `core_space_import_to_world(...)` validates descriptor state, rejects non-finite import payloads, and leaves the output transform unchanged on failure.
+- `core_space_frame_3d.*` defines the ecosystem canonical
+  `right_handed_z_up_meters` frame and a validated proper rigid basis for
+  legacy `right_handed_y_up_meters` data. It maps points/vectors, orientation
+  matrices, quaternions, planes, AABBs, and axis-aligned half extents without
+  renderer or solver policy.
 
 ## Ownership Boundary
-- `core_space` owns grid/window/import placement math only.
-- Projection, camera behavior, viewport gestures, scene parsing, asset loading, object insertion, renderer transforms, persistence, and 3D frame semantics remain host-owned.
+- `core_space` owns grid/window/import placement math and app-neutral
+  coordinate-frame meaning/conversion.
+- Projection, camera behavior, viewport gestures, scene parsing, asset loading,
+  object insertion, renderer transforms, solver interpretation, persistence,
+  and application frame-selection policy remain host-owned.
 
 ## Status
-- Patch-hardened shared spatial contract with boundary-condition unit tests.
+- Version `1.1.0` adds the backward-compatible canonical 3D Z-up frame
+  contract and exact legacy Y-up conversion while preserving all 2D APIs.

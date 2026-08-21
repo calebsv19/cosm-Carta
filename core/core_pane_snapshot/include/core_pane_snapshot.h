@@ -9,6 +9,9 @@ extern "C" {
 
 #define CORE_PANE_SNAPSHOT_SCHEMA_MAJOR_V1 1u
 #define CORE_PANE_SNAPSHOT_SCHEMA_MINOR_V1 0u
+#define CORE_PANE_WORKSPACE_PROFILE_SCHEMA_MAJOR_V1 1u
+#define CORE_PANE_WORKSPACE_PROFILE_SCHEMA_MINOR_V1 0u
+#define CORE_PANE_WORKSPACE_PROFILE_HOST_ID_CAPACITY 48u
 
 typedef enum CorePaneSnapshotNodeType {
     CORE_PANE_SNAPSHOT_NODE_LEAF = 0,
@@ -59,6 +62,30 @@ typedef struct CorePaneSnapshotV1 {
     const CorePaneSnapshotModuleBindingRecordV1 *module_bindings;
 } CorePaneSnapshotV1;
 
+typedef struct CorePaneWorkspaceProfileMetaV1 {
+    uint16_t schema_major;
+    uint16_t schema_minor;
+    uint16_t host_version_major;
+    uint16_t host_version_minor;
+    uint32_t flags;
+    uint32_t module_requirement_count;
+    char host_id[CORE_PANE_WORKSPACE_PROFILE_HOST_ID_CAPACITY];
+} CorePaneWorkspaceProfileMetaV1;
+
+typedef struct CorePaneWorkspaceProfileModuleRequirementV1 {
+    uint32_t module_type_id;
+    uint16_t min_version_major;
+    uint16_t min_version_minor;
+    uint16_t state_schema_major;
+    uint16_t state_schema_minor;
+} CorePaneWorkspaceProfileModuleRequirementV1;
+
+typedef struct CorePaneWorkspaceProfileV1 {
+    CorePaneWorkspaceProfileMetaV1 meta;
+    CorePaneSnapshotV1 snapshot;
+    const CorePaneWorkspaceProfileModuleRequirementV1 *module_requirements;
+} CorePaneWorkspaceProfileV1;
+
 typedef enum CorePaneSnapshotResult {
     CORE_PANE_SNAPSHOT_OK = 0,
     CORE_PANE_SNAPSHOT_ERR_INVALID_ARG = 1,
@@ -75,10 +102,14 @@ typedef enum CorePaneSnapshotResult {
     CORE_PANE_SNAPSHOT_ERR_INVALID_BINDING = 12,
     CORE_PANE_SNAPSHOT_ERR_DUP_BINDING_INSTANCE = 13,
     CORE_PANE_SNAPSHOT_ERR_DUP_BINDING_PANE = 14,
-    CORE_PANE_SNAPSHOT_ERR_BINDING_PANE_NOT_LEAF = 15
+    CORE_PANE_SNAPSHOT_ERR_BINDING_PANE_NOT_LEAF = 15,
+    CORE_PANE_SNAPSHOT_ERR_INVALID_PROFILE_META = 16,
+    CORE_PANE_SNAPSHOT_ERR_INVALID_PROFILE_REQUIREMENT = 17,
+    CORE_PANE_SNAPSHOT_ERR_DUP_PROFILE_REQUIREMENT = 18
 } CorePaneSnapshotResult;
 
 CorePaneSnapshotResult core_pane_snapshot_validate_v1(const CorePaneSnapshotV1 *snapshot);
+CorePaneSnapshotResult core_pane_workspace_profile_validate_v1(const CorePaneWorkspaceProfileV1 *profile);
 const char *core_pane_snapshot_result_string(CorePaneSnapshotResult result);
 
 #ifdef __cplusplus

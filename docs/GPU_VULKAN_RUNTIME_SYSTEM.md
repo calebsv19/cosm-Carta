@@ -1,7 +1,7 @@
 # CodeWork GPU and Vulkan Runtime System
 
 Status: current-state reference and approved architectural direction
-Last verified from source: 2026-08-05
+Last verified from source: 2026-08-09
 Owning lane: `shared`
 
 ## Purpose
@@ -48,7 +48,7 @@ The checked-in shared layers have distinct responsibilities:
 - `shared/vk_renderer` is a non-core shared Vulkan/SDL presentation backend.
   It owns the SDL window surface, swapchain lifecycle, graphics command
   submission, synchronization, buffers, textures, meshes, lines, and capture.
-  Its `1.3.0` device lifecycle delegates instance/device and graphics/present
+  Its `1.3.2` device lifecycle delegates instance/device and graphics/present
   queue ownership to `vk_runtime` while preserving its public device handles as
   compatibility mirrors.
 - Each program normally builds from its vendored
@@ -70,10 +70,10 @@ The checked-in shared layers have distinct responsibilities:
   rendering, nontrivial PPM readback, capture, real extent change, and
   out-of-date swapchain recovery.
 
-The canonical source versions observed on 2026-08-05 are:
+The canonical source versions observed on 2026-08-09 are:
 
 - `vk_runtime`: `0.6.0`
-- `vk_renderer`: `1.3.0`
+- `vk_renderer`: `1.3.2`
 - `kit_render`: `0.14.3`
 
 These are source-package versions. They are not Vulkan loader, Vulkan API,
@@ -87,22 +87,23 @@ program uses it.
 
 | Program | Current presentation path | Vendored `vk_renderer` | Current interpretation |
 | --- | --- | ---: | --- |
-| Ball Bounce | direct SDL | none observed | no active Vulkan path |
-| BehaviorSim | direct SDL | `1.1.1` | vendored but not the active renderer |
-| DAW | Vulkan default | `1.1.1` | active shared Vulkan host |
-| DataLab | direct SDL | `1.1.2` | vendored but not the active renderer |
-| Drawing Program | direct SDL | `1.1.2` | vendored but not the active renderer |
-| Dungeon | direct SDL | `1.1.2` | vendored but not the active renderer |
-| Gravity Orbit Sim | direct SDL | `1.1.1` | vendored but not the active renderer |
-| GrowthSim | direct SDL | `1.1.1` | future compute candidate, not an active Vulkan host |
-| IDE | Vulkan default | `1.1.1` | active shared Vulkan host |
-| LineDrawing | Vulkan default | `1.1.2` | active shared Vulkan host |
-| MapForge | Vulkan preferred, SDL fallback | `1.1.1` | conditional Vulkan host |
-| Memory Console | Vulkan default | `1.1.1` | active shared Vulkan host |
-| PhysicsSim | Vulkan default | `1.1.2` | active shared Vulkan host |
+| Ball Bounce | Vulkan preferred for menu, seeded-room family, and seeded-pair family; SDL fallback/oracle | live shared `1.3.2` | protected direct-source `vk_runtime 0.6.0` presentation adoption with exact-source binding, validation/readback/resize/capture/2x-Retina proof, CPU-depth recreation, and explicit SDL fallback; other hosts and compute remain unadopted |
+| BehaviorSim | Vulkan default; SDL/fisiCs oracle | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with exact-source, validation/readback/resize/Retina/restart, package, Traffic, and Population proof; no compute adoption |
+| Connected Mechanics Sim | Vulkan default | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with source/package validation, readback, resize/recovery, capture, and material-frame proof; no compute adoption |
+| DAW | Vulkan default | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption verified with validation/readback/resize/Retina/restart proof; not released and no compute adoption |
+| DataLab | Vulkan default; SDL fallback/oracle | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with exact-source validation/readback/resize/capture/restart, package, and real-host proof; no compute adoption |
+| Drawing Program | Vulkan default; SDL/fisiCs oracle | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with exact-source, validation/readback/resize/Retina/restart, real-frame, and package proof; no compute adoption |
+| Dungeon | Vulkan default; SDL dummy oracle | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with canonical-source, validation/readback/resize/Retina/restart, package, and live indexed-tileset application proof |
+| Gravity Orbit Sim | Vulkan default; fisiCs SDL oracle | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with validation/readback/resize/Retina/restart source and package proof; no compute adoption |
+| GrowthSim | Vulkan default | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with validation/readback/capture/real-resize/Retina/restart and real Mold-frame proof; fisiCs retains the SDL oracle, no compute adoption |
+| IDE | Vulkan default | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with exact-source, validation/readback/resize/Retina/restart and package proof |
+| LineDrawing | Vulkan default | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with validation/readback/capture/resize/Retina/restart proof; not released and no compute adoption |
+| MapForge | Vulkan preferred, SDL fallback | `1.3.1` | managed `vk_runtime 0.6.0` presentation adoption verified; SDL fallback remains app-owned |
+| Memory Console | Vulkan default | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with validation/readback/resize/Retina/restart proof |
+| PhysicsSim | Vulkan default | `1.3.1` | committed managed `vk_runtime 0.6.0` adoption verified through its shared-device singleton; not released |
 | RayTracing | Vulkan default | `1.1.2` | active presentation host; ray compute remains CPU-owned |
-| Video Editor | direct SDL | `1.1.1` | vendored but not the active renderer |
-| Workspace Sandbox | Vulkan default | `1.1.1` | live-shared `0.6.0`/`1.3.0` rollout proof passes; vendored default remains legacy pending managed sync |
+| Video Editor | Vulkan default; direct SDL fallback/oracle | `1.3.1` | committed managed `vk_runtime 0.6.0` presentation adoption with checksum-bound validation/readback/resize/Retina/restart, package, and installed-app proof; GPU video composition remains future work |
+| Workspace Sandbox | Vulkan default | `1.3.2` | committed managed `vk_runtime 0.6.0` presentation adoption with validation/readback/resize/capture/package proof and packaged shader-root resolution; no compute adoption |
 
 This snapshot is deliberately date-stamped. Before any rollout, re-read the
 program build files and vendored `VERSION` files rather than treating this
@@ -172,11 +173,17 @@ code, not a runtime fallback or a claim that unverified binaries are safe.
 that runtime through its staged instance/surface/device lifecycle. Existing
 public entry points and Vulkan handle fields remain available as compatibility
 wrappers/mirrors so programs can migrate incrementally. Consumers must add and
-link the sibling `vk_runtime`. Workspace Sandbox now proves that host
-build/lifecycle/package contract against the live shared root, including strict
-validation, resize recovery, and capture readback, but its managed vendored
-subtree has not been refreshed; the default checkout therefore still builds
-its legacy renderer snapshot.
+link the sibling `vk_runtime`. Committed managed presentation adoption is now
+proven in Workspace Sandbox (`vk_renderer 1.3.2`) and in MapForge, Memory
+Console, PhysicsSim, LineDrawing, DAW, Gravity Orbit Sim, GrowthSim, IDE,
+Dungeon, Video Editor/Capture, BehaviorSim, Drawing Program, DataLab, and
+Connected Mechanics Sim (`vk_renderer 1.3.1`). PhysicsSim specifically
+exercises its existing shared-device singleton; the other hosts retain thin
+app-local compatibility backends or established renderer seams.
+RayTracing remains an active native `vk_renderer 1.1.2`
+presentation consumer without the managed `vk_runtime` lifecycle rebase. These
+are presentation and lifecycle adoption claims only;
+they do not imply app compute-kernel use or a release/publish state.
 
 A later `shared/vk_compute` may own higher-level reusable kernel/dispatch
 policy if multiple adopters prove that boundary. It should not define
@@ -331,13 +338,13 @@ zero warnings and zero errors. The independently recomputed result SHA-256 is
 `dc791c5f3f7bff314054bac11b460b3943c045224a2096da93f474c565f87f95`.
 This closes the canonical physical RTX/Linux S4 boundary.
 
-Separately, the local S5 source is now `vk_runtime 0.6.0` and
-`vk_renderer 1.3.0`. Clean runtime build/tests/sanitizers and all four
+Separately, the committed S5 source is now `vk_runtime 0.6.0` and
+`vk_renderer 1.3.2`. Clean runtime build/tests/sanitizers and all four
 validation-required Apple M2 live lanes pass. The renderer hidden-window proof
 passes with validation enabled and zero errors, compatibility-handle parity,
 two nontrivial captures, an actual resize, and injected out-of-date recovery.
-No program subtree has been updated, so this is canonical shared-worktree proof
-of the new boundary, not application adoption or released/committed truth.
+The managed application rollout listed above has since landed program by
+program; this does not imply compute adoption, release, or publication.
 
 The retained profile is
 `shared/vk_runtime/docs/profiles/2026-08-05_linux_rtx3060_s4_hardware.md`.

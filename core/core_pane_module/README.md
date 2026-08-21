@@ -16,7 +16,7 @@ Shared pane-module registry and binding validation primitives for workspace host
 
 ## Status
 
-Initial scaffold (`v0.1.1`) aligned to pane/module contract Phase 1.
+Profile-compatibility extension (`v0.2.0`) aligned to WAP2.
 
 ## Contract Notes
 
@@ -24,6 +24,13 @@ Initial scaffold (`v0.1.1`) aligned to pane/module contract Phase 1.
 2. `CORE_PANE_MODULE_PROVIDER_EXTERNAL` is public vocabulary but intentionally rejected by registration in the current scaffold.
 3. `CORE_PANE_MODULE_CAP_FOCUS_REQUIRED`, `default_config_variant`, binding `config_variant`, and binding `runtime_flags` are currently stored/carried only; this module does not apply extra validation or behavior for them yet.
 4. `core_pane_module_validate_bindings(...)` now treats `binding_count == 0` as a valid no-op even when bindings and pane id arrays are omitted.
+5. Profile requirements express a minimum descriptor version and state-schema
+   version. The registry validates compatibility but does not migrate state.
+
+## Recent Changes (`v0.2.0`)
+
+1. Added explicit descriptor state-schema versions and profile-requirement
+   compatibility validation for host-owned workspace-profile adapters.
 
 ## Recent Changes (`v0.1.1`)
 

@@ -1,0 +1,19 @@
+{
+  "schema_family": "codework_job_result",
+  "schema_variant": "job_result_v1",
+  "job_id": "job.physics-cache.001",
+  "attempt_id": "attempt.physics-cache.001.1",
+  "outcome": "completed",
+  "finished_at": "2026-07-28T20:01:00Z",
+  "executor": {
+    "name": "physics_sim",
+    "version": "0.3.2",
+    "target_os": "macos",
+    "target_arch": "arm64"
+  },
+  "output_artifacts": [
+    "artifact.physics-cache.001"
+  ],
+  "failure_code": "",
+  "failure_message": ""
+}

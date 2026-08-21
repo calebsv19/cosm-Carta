@@ -1,0 +1,17 @@
+{
+  "schema_family": "codework_job_event",
+  "schema_variant": "job_event_v1",
+  "event_id": "event.job.physics-cache.001.000001",
+  "job_id": "job.physics-cache.001",
+  "attempt_id": "",
+  "worker_id": "",
+  "lease_id": "",
+  "sequence": 1,
+  "occurred_at": "2026-07-28T20:00:00Z",
+  "kind": "state_transition",
+  "previous_state": null,
+  "state": "submitted",
+  "progress": 0.0,
+  "code": "",
+  "message": "job accepted"
+}

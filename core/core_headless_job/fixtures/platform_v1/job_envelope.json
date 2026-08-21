@@ -1,0 +1,46 @@
+{
+  "schema_family": "codework_job",
+  "schema_variant": "job_envelope_v1",
+  "job_id": "job.physics-cache.001",
+  "idempotency_key": "physics-cache-fixture-v1",
+  "program": "physics_sim",
+  "adapter": {
+    "name": "physics_sim",
+    "version": "0.3.2",
+    "target_os": "macos",
+    "target_arch": "arm64"
+  },
+  "payload": {
+    "schema_family": "physics_sim_request",
+    "schema_variant": "detached_job_v1",
+    "path": "input/physics_request.json"
+  },
+  "input_artifacts": [
+    {
+      "artifact_id": "artifact.scene-project.001",
+      "role": "scene_project"
+    }
+  ],
+  "required_capabilities": [
+    {
+      "name": "physics-sim-headless",
+      "version_constraint": ">=0.3.2"
+    }
+  ],
+  "output_contract": {
+    "schema_family": "physics_sim_cache",
+    "schema_variant": "active_cache_manifest_v1"
+  },
+  "resources": {
+    "min_cpu_cores": 2,
+    "min_memory_bytes": 1073741824,
+    "min_gpu_count": 0,
+    "max_runtime_seconds": 600
+  },
+  "retry": {
+    "max_attempts": 2
+  },
+  "parent_jobs": [],
+  "created_by": "platform-contract-fixture",
+  "created_at": "2026-07-28T20:00:00Z"
+}

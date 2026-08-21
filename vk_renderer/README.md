@@ -220,6 +220,10 @@ If the renderer cannot find SPIR-V shaders at runtime, define
 the library in this repo the fallback path resolves correctly, but external
 projects may need the explicit define.
 
+`1.3.2` first uses that runtime environment root before its build-time source
+fallback. This keeps packaged applications independent of the source tree while
+preserving development builds that do not set a runtime root.
+
 ## Next Steps / TODO Hooks
 
 - Depth buffers and 3D support (current render pass is colour-only).
