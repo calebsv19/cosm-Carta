@@ -191,10 +191,16 @@ contract.
 - Unit-to-world/world-to-unit transforms
 - Import fit/scale normalization
 - Author-window span conversion
+- Canonical right-handed Z-up meter-frame meaning
+- Validated legacy right-handed Y-up conversion for vectors, orientation
+  matrices, quaternions, planes, AABBs, and axis-aligned half extents
 
 **Boundary:**
 - Defines *where/how to place*
+- Owns app-neutral coordinate-frame meaning and rigid conversion only
 - Does not parse scene bundles or own asset formats
+- Does not own projection, cameras, renderer/solver interpretation,
+  persistence, or application frame-selection policy
 
 ---
 
@@ -229,6 +235,23 @@ contract.
 
 ---
 
+### core_screen_pick (BOOTSTRAP)
+**Role:** Shared renderer-neutral projected-origin selection index.
+**Responsibilities:**
+- Uniform hashed-grid storage for viewport-local logical-pixel candidates
+- Deterministic nearest and bounded ranked queries
+- Default 28-pixel capture radius with distance, frontmost-depth, and stable-key ordering
+- Transactional rebuilds that preserve the prior valid index on invalid input or allocation failure
+
+**Boundary:**
+- Depends only on `core_base`; callers own projection and candidate eligibility
+- No SDL/input, camera, visibility/occlusion, scene identity, selection state,
+  handles/gizmos, topology/face picking, dragging, rendering, or authoring ownership
+- LineDrawing, RayTracing, and PhysicsSim retain thin adapters and their existing
+  higher-priority interaction arbitration
+
+---
+
 ### core_units (BOOTSTRAP)
 **Role:** Canonical unit vocabulary and conversion contract.
 **Responsibilities:**
@@ -258,16 +281,19 @@ contract.
 ---
 
 ### core_authored_texture (BOOTSTRAP)
-**Role:** Shared authored-texture manifest contract owner for cross-app texture export/runtime handoff.
+**Role:** Shared authored-texture manifest and indexed-atlas contract owner for cross-app texture export/runtime handoff.
 **Responsibilities:**
 - Authored-texture schema-version vocabulary
 - Binding-kind and emitted-output-kind vocabulary
 - Supported primitive and face-role vocabulary
 - Primitive-specific face completeness rules
 - JSON-free manifest-contract validation helpers
+- Exact indexed source-slot and palette-entry validation
+- Fixed-size atlas-cell rectangle, identifier, output-kind, bounds, overlap,
+  lookup, and revision semantics
 
 **Boundary:**
-- Owns authored-texture manifest meaning only
+- Owns authored-texture manifest and generic indexed-interchange meaning only
 - No JSON parsing or file/image IO
 - No scene-envelope ownership (`core_scene` owns scene/object semantics)
 - No renderer/editor/runtime UI behavior
@@ -347,15 +373,20 @@ contract.
 ---
 
 ### core_headless_job (BOOTSTRAP)
-**Role:** Shared outer headless job-envelope/report contract for cross-program worker bundles.
+**Role:** Shared outer job, workflow, event, result, artifact, and
+worker-capability semantic contract for cross-program compute.
 **Responsibilities:**
-- Shared schema-family/schema-variant vocabulary for bundle/report roots
-- Typed outer-envelope, payload-ref, outputs, metadata, artifact, and report structs
-- JSON-free validation helpers for required identity/schema/path/output fields
+- Backward-compatible bundle/report vocabulary and typed records
+- Platform-v1 job, append-only event, terminal result, content/provenance
+  artifact, ordered workflow, and worker-capability vocabulary
+- Closed job-state, event-kind, outcome, and transition semantics
+- JSON-free validation for identity, relative paths, UTC timestamps, SHA-256,
+  workflow order, attempt/claim/lease references, and capability records
 
 **Boundary:**
-- Owns only outer worker-job semantic meaning
-- No JSON parsing/writing, filesystem creation, or scheduler dispatch
+- Owns only cross-program execution-contract meaning
+- No JSON parsing/writing, filesystem creation, coordinator persistence,
+  transport, or scheduler dispatch
 - No program-specific scene payload semantics
 
 ---
@@ -725,6 +756,65 @@ contract.
 ---
 
 ## Shared Infrastructure (Non-core / Non-kit)
+
+### vk_runtime (ACTIVE FOUNDATION)
+**Role:** SDL-independent Vulkan device/runtime foundation.
+**Responsibilities (S1-S4 plus platform portability):**
+- Vulkan loader and API negotiation
+- Portability enumeration and validation/debug policy
+- Headless or staged presentation physical-device, queue-family, feature,
+  extension, memory, driver, and subgroup discovery
+- Explainable graphics/compute/transfer/present queue-role selection
+- Headless or surface-bound logical-device creation
+- Deterministic `codework_gpu_capability_report_v1` JSON
+- Canonical `VERSION`-derived library and report identity
+- Typed runtime and per-device rejection diagnostics
+- One-shot host-visible storage-buffer allocation and mapping
+- Sequential storage-buffer descriptor and compute-pipeline creation
+- Command recording, bounded fence wait, readback, and reverse teardown
+- Versioned shader identity and deterministic CPU/GPU parity evidence
+- Explicit coherent staging and device-local buffer roles
+- Persistent buffer, descriptor/pipeline, command-pool/buffer, and fence state
+- Dependent dispatch chains with explicit compute memory barriers
+- Final-only readback, bounded timeout recovery, and resource accounting
+- Persistent timestamp query pairs on timestamp-capable compute queues
+- Valid-bit wrap handling and conversion through device timestamp period
+- Separated CPU, host-copy, submit/wait, GPU, transfer, and wall timing
+- Seven-size deterministic parity sweep and explicit crossover evidence
+- Deterministic export and explicit consumption of source-bound precompiled
+  SPIR-V for compiler-free proof hosts
+- Prebuilt-bundle identity, safe-path, and tamper validation before dispatch
+- Compiler-free Linux llvmpipe S2-S4 portability evidence
+
+**Boundary:**
+- Vulkan-specific non-core infrastructure
+- No SDL surface creation, swapchains, presentation, render pipelines, or UI;
+  caller-provided Vulkan surfaces are accepted only for present suitability
+- No application workload semantics, CPU-oracle ownership, or fallback policy
+- No images, semaphores, cross-queue transfers, allocator suballocation,
+  application workload policy, or renderer presentation
+- No portable speedup guarantee; timing profiles remain device/driver specific
+- `vk_renderer 1.3.0` remains the presentation owner and consumes this
+  lifecycle through compatibility wrappers; no application rollout yet
+
+### vk_renderer (ACTIVE PRESENTATION INFRASTRUCTURE)
+**Role:** SDL/Vulkan presentation backend beneath `kit_render`.
+**Responsibilities:**
+- SDL window-surface creation and ownership handoff into `vk_runtime`
+- Swapchain, render-pass, framebuffer, graphics pipeline, and synchronization
+  lifecycle
+- Primitive, texture, mesh, and line drawing plus capture/readback
+- Compatibility mirrors for existing public Vulkan handles and entry points
+- Out-of-date/suboptimal recovery through bounded swapchain recreation
+
+**Boundary:**
+- Uses `vk_runtime 0.6.0` for instance/device/queue lifecycle
+- Does not own headless compute policy, application drawing semantics, or CPU
+  fallback/oracle policy
+- Local `1.3.0` proof is not program adoption; each consumer still requires a
+  separate shared-subtree and build-link update
+
+---
 
 ### sys_shims (BOOTSTRAP)
 **Role:** Local shim layer for system include compatibility and controlled extensions.

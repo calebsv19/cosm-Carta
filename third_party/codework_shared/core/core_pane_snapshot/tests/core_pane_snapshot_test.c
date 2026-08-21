@@ -249,6 +249,28 @@ static void test_unsupported_schema_fails(void) {
     assert(core_pane_snapshot_validate_v1(&snapshot) == CORE_PANE_SNAPSHOT_ERR_UNSUPPORTED_SCHEMA);
 }
 
+static void test_workspace_profile_validation(void) {
+    CorePaneWorkspaceProfileModuleRequirementV1 requirements[2] = {
+        { 1001u, 1u, 0u, 1u, 0u },
+        { 1002u, 1u, 0u, 1u, 0u }
+    };
+    CorePaneWorkspaceProfileV1 profile = {0};
+
+    profile.meta.schema_major = CORE_PANE_WORKSPACE_PROFILE_SCHEMA_MAJOR_V1;
+    profile.meta.schema_minor = CORE_PANE_WORKSPACE_PROFILE_SCHEMA_MINOR_V1;
+    profile.meta.module_requirement_count = 2u;
+    memcpy(profile.meta.host_id, "workspace_sandbox", sizeof("workspace_sandbox"));
+    profile.snapshot = make_valid_snapshot();
+    profile.module_requirements = requirements;
+    assert(core_pane_workspace_profile_validate_v1(&profile) == CORE_PANE_SNAPSHOT_OK);
+
+    profile.meta.host_id[0] = 'W';
+    assert(core_pane_workspace_profile_validate_v1(&profile) == CORE_PANE_SNAPSHOT_ERR_INVALID_PROFILE_META);
+    profile.meta.host_id[0] = 'w';
+    requirements[1].module_type_id = requirements[0].module_type_id;
+    assert(core_pane_workspace_profile_validate_v1(&profile) == CORE_PANE_SNAPSHOT_ERR_DUP_PROFILE_REQUIREMENT);
+}
+
 int main(void) {
     test_valid_snapshot_passes();
     test_invalid_args_and_meta_fail();
@@ -259,5 +281,6 @@ int main(void) {
     test_binding_validation_failures();
     test_result_strings_cover_all_values();
     test_unsupported_schema_fails();
+    test_workspace_profile_validation();
     return 0;
 }

@@ -1,0 +1,35 @@
+{
+  "schema_family": "codework_worker",
+  "schema_variant": "worker_capabilities_v1",
+  "worker_id": "worker.local.001",
+  "target_os": "macos",
+  "target_arch": "arm64",
+  "adapters": [
+    {
+      "name": "physics_sim",
+      "version": "0.3.2",
+      "executable_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "ray_tracing",
+      "version": "0.10.1",
+      "executable_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "scene-project-portable",
+      "version": "1"
+    },
+    {
+      "name": "physics-cache-project-local",
+      "version": "1"
+    }
+  ],
+  "resources": {
+    "cpu_cores": 8,
+    "memory_bytes": 17179869184,
+    "gpu_count": 0
+  },
+  "observed_at": "2026-07-28T20:00:00Z"
+}

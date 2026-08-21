@@ -33,7 +33,9 @@ typedef enum CorePaneModuleResult {
     CORE_PANE_MODULE_ERR_DUP_INSTANCE_ID = 9,
     CORE_PANE_MODULE_ERR_DUP_PANE_ID = 10,
     CORE_PANE_MODULE_ERR_UNKNOWN_MODULE_TYPE = 11,
-    CORE_PANE_MODULE_ERR_UNKNOWN_PANE_ID = 12
+    CORE_PANE_MODULE_ERR_UNKNOWN_PANE_ID = 12,
+    CORE_PANE_MODULE_ERR_PROFILE_VERSION_UNSUPPORTED = 13,
+    CORE_PANE_MODULE_ERR_PROFILE_STATE_SCHEMA_UNSUPPORTED = 14
 } CorePaneModuleResult;
 
 typedef void (*CorePaneModuleRenderFn)(void *host_context,
@@ -50,6 +52,8 @@ typedef struct CorePaneModuleDescriptor {
     const char *display_name;
     uint16_t version_major;
     uint16_t version_minor;
+    uint16_t state_schema_major;
+    uint16_t state_schema_minor;
     uint32_t capabilities;
     uint16_t default_config_variant;
     CorePaneModuleProviderKind provider_kind;
@@ -65,6 +69,14 @@ typedef struct CorePaneModuleBinding {
     uint16_t config_variant;
     uint16_t runtime_flags;
 } CorePaneModuleBinding;
+
+typedef struct CorePaneModuleProfileRequirement {
+    uint32_t module_type_id;
+    uint16_t min_version_major;
+    uint16_t min_version_minor;
+    uint16_t state_schema_major;
+    uint16_t state_schema_minor;
+} CorePaneModuleProfileRequirement;
 
 typedef struct CorePaneModuleRegistry {
     CorePaneModuleDescriptor *entries;
@@ -92,6 +104,10 @@ CorePaneModuleResult core_pane_module_validate_bindings(const CorePaneModuleRegi
                                                         uint32_t binding_count,
                                                         const uint32_t *leaf_pane_ids,
                                                         uint32_t leaf_pane_count);
+CorePaneModuleResult core_pane_module_validate_profile_requirements(
+    const CorePaneModuleRegistry *registry,
+    const CorePaneModuleProfileRequirement *requirements,
+    uint32_t requirement_count);
 
 #ifdef __cplusplus
 }

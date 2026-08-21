@@ -79,9 +79,18 @@ static const char* shader_fallback_root(void) {
 
 static VkShaderModule load_shader_module(VkDevice device,
                                          const char* path) {
+    const char* runtime_shader_root;
     VkShaderModule module = load_shader_module_from_path(device, path);
     if (module != VK_NULL_HANDLE) {
         return module;
+    }
+
+    runtime_shader_root = getenv("VK_RENDERER_SHADER_ROOT");
+    if (runtime_shader_root && runtime_shader_root[0]) {
+        char combined[PATH_MAX];
+        snprintf(combined, sizeof(combined), "%s/%s", runtime_shader_root, path);
+        module = load_shader_module_from_path(device, combined);
+        if (module != VK_NULL_HANDLE) return module;
     }
 
 #ifdef VK_RENDERER_SHADER_ROOT

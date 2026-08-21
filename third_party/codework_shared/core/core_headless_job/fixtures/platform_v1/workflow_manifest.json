@@ -1,0 +1,30 @@
+{
+  "schema_family": "codework_workflow",
+  "schema_variant": "workflow_manifest_v1",
+  "workflow_id": "workflow.physics-render.001",
+  "idempotency_key": "physics-render-fixture-v1",
+  "stages": [
+    {
+      "stage_id": "physics",
+      "job_template_id": "physics-cache-job-v1",
+      "dependencies": [],
+      "bindings": []
+    },
+    {
+      "stage_id": "render",
+      "job_template_id": "ray-render-job-v1",
+      "dependencies": [
+        "physics"
+      ],
+      "bindings": [
+        {
+          "input_role": "physics_cache",
+          "source_stage_id": "physics",
+          "source_artifact_role": "active_cache"
+        }
+      ]
+    }
+  ],
+  "created_by": "platform-contract-fixture",
+  "created_at": "2026-07-28T20:00:00Z"
+}

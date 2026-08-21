@@ -19,7 +19,7 @@ Core:
 - `core_data`: `1.0.1`
 - `core_pack`: `1.1.1`
 - `core_scene`: `1.2.0`
-- `core_space`: `1.0.1`
+- `core_space`: `1.1.0`
 - `core_viewport2d`: `0.2.2`
 - `core_trace`: `1.0.2`
 - `core_math`: `1.0.1`

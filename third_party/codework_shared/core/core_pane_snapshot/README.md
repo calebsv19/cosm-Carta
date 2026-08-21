@@ -48,13 +48,18 @@ make -C shared/core/core_pane_snapshot test
 
 ## Status
 
-Hardened contract/docs/test pass complete (`v0.1.1`):
+Workspace-profile envelope extension complete (`v0.2.0`):
 
 - README now truth-locks borrowed-array lifetime, carried-but-unvalidated binding fields, and allocation-failure result behavior.
 - Standalone tests now cover meta validation, node identity/field-shape failures, non-finite split values, dense-index and disconnected-graph failures, duplicate binding pane and invalid binding ids, zero-binding/null-binding behavior, and full result-string coverage.
 - WorkspaceSandbox remains the proving host. Serializer ownership, `core_pack` adapters, JSON helpers, module registry lookup, and runtime mutation remain host or adapter concerns.
+- The additive `CorePaneWorkspaceProfileV1` envelope validates host identity,
+  profile schema, structural snapshot, and unique module requirements. It does
+  not own host compatibility policy, state migration, serialization, or import
+  mutation.
 
 ## Change Notes
 
 - `0.1.1`: truth-locked borrowed snapshot-array lifetime, carried binding-field boundaries, and allocation-failure result semantics, and expanded standalone validation coverage across meta, node, graph, binding, and result-string paths.
+- `0.2.0`: additive workspace-profile envelope and requirement validation.
 - `0.1.0`: initial v1 snapshot schema structs, validator, and result-string surface.

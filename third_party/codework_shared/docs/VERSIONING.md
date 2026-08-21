@@ -25,6 +25,7 @@ Modules covered:
 - `shared/core/core_sim_trace`
 - `shared/core/core_math`
 - `shared/core/core_viewport3d`
+- `shared/core/core_screen_pick`
 - `shared/core/core_collision2d`
 - `shared/core/core_rigid2d`
 - `shared/core/core_pane`
@@ -46,6 +47,7 @@ Modules covered:
 - `shared/kit/kit_graph_struct`
 - `shared/kit/kit_ui`
 - `shared/kit/kit_viz`
+- `shared/vk_runtime`
 - `shared/vk_renderer`
 
 Each module has a module-local `VERSION` file as source of truth.

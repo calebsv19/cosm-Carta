@@ -19,6 +19,14 @@ This lane is not yet for:
 - public website publication
 - replacing the trio worker-job pipeline
 
+One separately profiled fixed-helper exception is live-proven: exact
+Decision-two-derived create-only delivery of
+`read_codework_worker_installed_runtime.py` to its fixed `/srv` destination.
+The retained RayTracing worker `0.5.3` delivery receipt records one remote
+contact and one helper-install mutation, with package/current/service/queue/
+Registry/coordinator/cleanup operations all zero. This does not authorize or
+prove the distinct installed-runtime readback.
+
 ## Current Live Flow
 
 Preferred operator path on the Mac:
@@ -124,7 +132,6 @@ Allowlisted today:
 - `vps_validate_caddy_config`
 - `vps_apply_caddy_config`
 - `vps_service_status_web`
-- `vps_service_reload_web`
 - `vps_apply_systemd_units`
 - `vps_apply_trader_lab_runtime`
 - `vps_verify_trader_lab_app`
@@ -1125,39 +1132,17 @@ This lane is intentionally separate from `dashboard_workspace_write`.
       - `/usr/bin/systemctl status <unit> --no-pager --lines=12`
 
 - `vps_service_reload_web`
-  - status: live
-  - bounded privileged service-reload profile
-  - live audit findings now confirm:
-    - `systemctl reload caddy` requires interactive authentication from the
-      normal VPS shell
-    - `systemctl reload codework-worker-dispatcher` also requires interactive
-      authentication
-    - among the currently audited web units, only `caddy` reports:
-      - `CanReload=yes`
-    - `system-dashboard-api` and `codework-worker-dispatcher` currently report:
-      - `CanReload=no`
-  - current live privilege model:
-    - fixed wrapper:
-      - `/usr/local/bin/reload_caddy_service_privileged`
-    - fixed sudoers fragment:
-      - `/etc/sudoers.d/reload_caddy_service_privileged`
-    - outer-runner execution, not inner-sandbox `systemctl`
-    - caddy-only scope for the first reload lane
-  - fetched bootstrap + proof now confirm:
-    - wrapper install succeeded
-    - sudoers validation succeeded
-    - `vps_service_reload_web` executes through the outer runner
-    - `sudo -n /usr/local/bin/reload_caddy_service_privileged` completed with
-      exit code `0`
-    - proof thread:
-      - `vps-service-reload-web-proof-20260524a`
-    - recorded result:
-      - `active`
-  - excluded from this first reload lane:
-    - arbitrary unit names
-    - restart/start/stop
-    - journalctl
-    - generic service control beyond the fixed wrapper
+  - status: retired on August 8, 2026
+  - removed from active profile resolution and from restarted dashboard API,
+    worker-dispatcher, and history-sampler processes
+  - the former root wrapper path now contains only a root-owned exit-64
+    tombstone
+  - do not recreate the profile, wrapper authority, or sudoers grant
+  - current Caddy workflow is exclusively:
+    - `vps_validate_caddy_config`
+    - `vps_apply_caddy_config`
+  - historical proof thread `vps-service-reload-web-proof-20260524a` documents
+    the former lane only and is not current authority
 
 - `vps_apply_systemd_units`
   - status: live

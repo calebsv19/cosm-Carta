@@ -187,3 +187,41 @@ CorePaneModuleResult core_pane_module_validate_bindings(const CorePaneModuleRegi
 
     return CORE_PANE_MODULE_OK;
 }
+
+CorePaneModuleResult core_pane_module_validate_profile_requirements(
+    const CorePaneModuleRegistry *registry,
+    const CorePaneModuleProfileRequirement *requirements,
+    uint32_t requirement_count) {
+    uint32_t i;
+    if (!registry || !registry->entries || (requirement_count > 0u && !requirements)) {
+        return CORE_PANE_MODULE_ERR_INVALID_ARG;
+    }
+    for (i = 0u; i < requirement_count; ++i) {
+        const CorePaneModuleProfileRequirement *requirement = &requirements[i];
+        const CorePaneModuleDescriptor *descriptor = NULL;
+        uint32_t j;
+        if (requirement->module_type_id == 0u) {
+            return CORE_PANE_MODULE_ERR_INVALID_ARG;
+        }
+        if (core_pane_module_find_by_type_id(registry,
+                                             requirement->module_type_id,
+                                             &descriptor) != CORE_PANE_MODULE_OK) {
+            return CORE_PANE_MODULE_ERR_UNKNOWN_MODULE_TYPE;
+        }
+        if (descriptor->version_major < requirement->min_version_major ||
+            (descriptor->version_major == requirement->min_version_major &&
+             descriptor->version_minor < requirement->min_version_minor)) {
+            return CORE_PANE_MODULE_ERR_PROFILE_VERSION_UNSUPPORTED;
+        }
+        if (descriptor->state_schema_major != requirement->state_schema_major ||
+            descriptor->state_schema_minor < requirement->state_schema_minor) {
+            return CORE_PANE_MODULE_ERR_PROFILE_STATE_SCHEMA_UNSUPPORTED;
+        }
+        for (j = i + 1u; j < requirement_count; ++j) {
+            if (requirements[j].module_type_id == requirement->module_type_id) {
+                return CORE_PANE_MODULE_ERR_DUP_TYPE_ID;
+            }
+        }
+    }
+    return CORE_PANE_MODULE_OK;
+}

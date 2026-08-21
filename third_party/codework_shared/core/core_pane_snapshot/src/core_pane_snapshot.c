@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 
 enum {
@@ -250,6 +251,55 @@ done:
     return result;
 }
 
+static int core_pane_workspace_profile_host_id_is_valid(const char *host_id) {
+    uint32_t i;
+    if (!host_id || host_id[0] == '\0') {
+        return 0;
+    }
+    for (i = 0u; i < CORE_PANE_WORKSPACE_PROFILE_HOST_ID_CAPACITY; ++i) {
+        unsigned char c = (unsigned char)host_id[i];
+        if (c == '\0') {
+            return 1;
+        }
+        if (!islower((int)c) && !isdigit((int)c) && c != '_' && c != '-') {
+            return 0;
+        }
+    }
+    return 0;
+}
+
+CorePaneSnapshotResult core_pane_workspace_profile_validate_v1(const CorePaneWorkspaceProfileV1 *profile) {
+    CorePaneSnapshotResult snapshot_result;
+    uint32_t i;
+    if (!profile) {
+        return CORE_PANE_SNAPSHOT_ERR_INVALID_ARG;
+    }
+    if (profile->meta.schema_major != CORE_PANE_WORKSPACE_PROFILE_SCHEMA_MAJOR_V1 ||
+        profile->meta.schema_minor != CORE_PANE_WORKSPACE_PROFILE_SCHEMA_MINOR_V1 ||
+        profile->meta.flags != 0u ||
+        !core_pane_workspace_profile_host_id_is_valid(profile->meta.host_id) ||
+        (profile->meta.module_requirement_count > 0u && !profile->module_requirements)) {
+        return CORE_PANE_SNAPSHOT_ERR_INVALID_PROFILE_META;
+    }
+    snapshot_result = core_pane_snapshot_validate_v1(&profile->snapshot);
+    if (snapshot_result != CORE_PANE_SNAPSHOT_OK) {
+        return snapshot_result;
+    }
+    for (i = 0u; i < profile->meta.module_requirement_count; ++i) {
+        const CorePaneWorkspaceProfileModuleRequirementV1 *requirement = &profile->module_requirements[i];
+        uint32_t j;
+        if (requirement->module_type_id == 0u) {
+            return CORE_PANE_SNAPSHOT_ERR_INVALID_PROFILE_REQUIREMENT;
+        }
+        for (j = i + 1u; j < profile->meta.module_requirement_count; ++j) {
+            if (profile->module_requirements[j].module_type_id == requirement->module_type_id) {
+                return CORE_PANE_SNAPSHOT_ERR_DUP_PROFILE_REQUIREMENT;
+            }
+        }
+    }
+    return CORE_PANE_SNAPSHOT_OK;
+}
+
 const char *core_pane_snapshot_result_string(CorePaneSnapshotResult result) {
     switch (result) {
         case CORE_PANE_SNAPSHOT_OK:
@@ -284,6 +334,12 @@ const char *core_pane_snapshot_result_string(CorePaneSnapshotResult result) {
             return "duplicate_binding_pane";
         case CORE_PANE_SNAPSHOT_ERR_BINDING_PANE_NOT_LEAF:
             return "binding_pane_not_leaf";
+        case CORE_PANE_SNAPSHOT_ERR_INVALID_PROFILE_META:
+            return "invalid_profile_meta";
+        case CORE_PANE_SNAPSHOT_ERR_INVALID_PROFILE_REQUIREMENT:
+            return "invalid_profile_requirement";
+        case CORE_PANE_SNAPSHOT_ERR_DUP_PROFILE_REQUIREMENT:
+            return "duplicate_profile_requirement";
         default:
             return "unknown";
     }
