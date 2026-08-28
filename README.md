@@ -67,6 +67,7 @@ Start with the public operator docs:
 ## Docs
 
 - [docs/README.md](/Users/calebsv/Desktop/CodeWork/map_forge/docs/README.md): public docs index
+- [docs/main_edit_worktree.md](/Users/calebsv/Desktop/CodeWork/map_forge/docs/main_edit_worktree.md): persistent development lane
 - [MAPFORGE_SUMMARY.md](/Users/calebsv/Desktop/CodeWork/map_forge/MAPFORGE_SUMMARY.md): product summary and architecture snapshot
 
 Private planning and implementation docs do not live in this repository lane. They are kept in the top-level CodeWork private docs bucket:

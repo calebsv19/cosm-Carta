@@ -1,6 +1,6 @@
 # Carta Current Truth
 
-Last updated: 2026-08-05
+Last updated: 2026-08-27
 
 ## Program Identity
 - Public product name: `Carta`
@@ -60,6 +60,16 @@ Last updated: 2026-08-05
   - generated region directories still publish `meta.json`, tile payloads, and dataset/archive companions without changing operator-facing layout
 
 ## Verification Contract
+- Persistent Main Edit development:
+  - branch/worktree convention: `codex/map-forge-main-edit` at
+    `<workspace>/_worktrees/map_forge_main_edit`
+  - isolated package: `Carta Main Edit.app`, bundle ID
+    `com.cosm.carta.main-edit`, runtime/log namespace `MapForge-Main-Edit`
+  - `make -C map_forge main-edit-package-contract-checks`
+  - `make -C map_forge package-desktop-main-edit-self-test`
+  - source adoption remains separate from version, release, Registry,
+    publication, deployment, push, Desktop refresh, and worktree cleanup
+
 - Build/tests:
   - `make -C map_forge clean && make -C map_forge`
   - `make -C map_forge test`

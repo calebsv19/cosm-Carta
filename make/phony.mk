@@ -6,3 +6,4 @@
 .PHONY: test-r5-callable
 .PHONY: visual-artifact
 .PHONY: carta-local-proof
+.PHONY: package-desktop-main-edit package-desktop-main-edit-self-test package-desktop-main-edit-refresh main-edit-package-contract-checks

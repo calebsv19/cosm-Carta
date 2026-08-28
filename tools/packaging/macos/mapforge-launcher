@@ -10,12 +10,20 @@ APP_BUNDLE_TOOLS_DIR="$APP_CONTENTS_DIR/Helpers"
 DEV_REGIONS_DIR_DEFAULT="$HOME/Desktop/CodeWork/map_forge/data/regions"
 DEV_REGIONS_DIR="${MAPFORGE_DEV_REGIONS_DIR:-$DEV_REGIONS_DIR_DEFAULT}"
 DEV_TOOLS_DIR_DEFAULT="$HOME/Desktop/CodeWork/map_forge/build/tools"
-APP_SUPPORT_DIR_DEFAULT="${HOME}/Library/Application Support/Carta"
+PACKAGE_PROFILE="${MAPFORGE_PACKAGE_PROFILE:-standard}"
+RUNTIME_NAMESPACE="${MAPFORGE_RUNTIME_NAMESPACE:-Carta}"
+LOG_NAMESPACE="${MAPFORGE_LOG_NAMESPACE:-Carta}"
+BUILD_LABEL="${MAPFORGE_BUILD_LABEL:-Carta-local}"
+ALLOW_DEV_REGIONS_FALLBACK=1
+if [ "$PACKAGE_PROFILE" = "main-edit" ]; then
+    ALLOW_DEV_REGIONS_FALLBACK=0
+fi
+APP_SUPPORT_DIR_DEFAULT="${HOME}/Library/Application Support/${RUNTIME_NAMESPACE}"
 APP_SUPPORT_DIR="${MAPFORGE_APP_SUPPORT_DIR:-$APP_SUPPORT_DIR_DEFAULT}"
 APP_SUPPORT_REGIONS_DIR_DEFAULT="$APP_SUPPORT_DIR/regions"
 RUNTIME_DIR_DEFAULT="$APP_SUPPORT_DIR/runtime"
 THEME_PERSIST_PATH_DEFAULT="$APP_SUPPORT_DIR/config/theme_preset.txt"
-LOG_DIR="${HOME}/Library/Logs/Carta"
+LOG_DIR="${HOME}/Library/Logs/${LOG_NAMESPACE}"
 LOG_FILE="$LOG_DIR/launcher.log"
 FIND_BIN="/usr/bin/find"
 GREP_BIN="/usr/bin/grep"
@@ -56,20 +64,20 @@ select_regions_dir() {
         return 0
     fi
 
-    if has_region_packs "$DEV_REGIONS_DIR"; then
+    if [ "$ALLOW_DEV_REGIONS_FALLBACK" = "1" ] && has_region_packs "$DEV_REGIONS_DIR"; then
         selected_regions_reason="dev-fallback-env"
         printf '%s|%s\n' "$DEV_REGIONS_DIR" "$selected_regions_reason"
         return 0
     fi
 
     user_home="${HOME:-}"
-    if [ -n "$user_home" ] && has_region_packs "$user_home/Desktop/CodeWork/map_forge/data/regions"; then
+    if [ "$ALLOW_DEV_REGIONS_FALLBACK" = "1" ] && [ -n "$user_home" ] && has_region_packs "$user_home/Desktop/CodeWork/map_forge/data/regions"; then
         selected_regions_reason="dev-fallback-home"
         printf '%s|%s\n' "$user_home/Desktop/CodeWork/map_forge/data/regions" "$selected_regions_reason"
         return 0
     fi
 
-    if user_name="$("$ID_BIN" -un 2>/dev/null)"; then
+    if [ "$ALLOW_DEV_REGIONS_FALLBACK" = "1" ] && user_name="$("$ID_BIN" -un 2>/dev/null)"; then
         fallback_from_user_name="/Users/$user_name/Desktop/CodeWork/map_forge/data/regions"
         if has_region_packs "$fallback_from_user_name"; then
             selected_regions_reason="dev-fallback-user"
@@ -198,7 +206,7 @@ fi
 export MAPFORGE_IMPORT_TOOLS_DIR
 mkdir -p "$MAPFORGE_RUNTIME_DIR" "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" 2>/dev/null || true
 if [ ! -d "$MAPFORGE_RUNTIME_DIR" ] || [ ! -d "$("$DIRNAME_BIN" "$MAPFORGE_THEME_PERSIST_PATH")" ]; then
-    fallback_support_dir="${TMPDIR:-/tmp}/Carta"
+    fallback_support_dir="${TMPDIR:-/tmp}/${RUNTIME_NAMESPACE}"
     APP_SUPPORT_DIR="$fallback_support_dir"
     MAPFORGE_RUNTIME_DIR="$fallback_support_dir/runtime"
     MAPFORGE_THEME_PERSIST_PATH="$fallback_support_dir/config/theme_preset.txt"
@@ -211,7 +219,7 @@ export MAPFORGE_RUNTIME_DIR
 export MAPFORGE_THEME_PERSIST_PATH
 mkdir -p "$MAPFORGE_REGIONS_DIR" 2>/dev/null || true
 if [ ! -d "$MAPFORGE_REGIONS_DIR" ] && [ "$selected_regions_reason" = "app-support-empty-root" ]; then
-    fallback_support_dir="${TMPDIR:-/tmp}/Carta"
+    fallback_support_dir="${TMPDIR:-/tmp}/${RUNTIME_NAMESPACE}"
     APP_SUPPORT_DIR="$fallback_support_dir"
     MAPFORGE_REGIONS_DIR="$fallback_support_dir/regions"
     mkdir -p "$MAPFORGE_REGIONS_DIR" 2>/dev/null || true
@@ -222,13 +230,13 @@ if [ "${MAPFORGE_RENDER_BACKEND}" = "vulkan" ] && [ -f "$MOLTENVK_DYLIB" ]; then
     VK_RUNTIME_DIR="$MAPFORGE_RUNTIME_DIR/vk"
     VK_ICD_FILE="$VK_RUNTIME_DIR/MoltenVK_icd.json"
     if ! mkdir -p "$VK_RUNTIME_DIR" 2>/dev/null; then
-        VK_RUNTIME_DIR="${TMPDIR:-/tmp}/Carta/vk"
+        VK_RUNTIME_DIR="${TMPDIR:-/tmp}/${RUNTIME_NAMESPACE}/vk"
         VK_ICD_FILE="$VK_RUNTIME_DIR/MoltenVK_icd.json"
         mkdir -p "$VK_RUNTIME_DIR" 2>/dev/null || true
     fi
     if [ -d "$VK_RUNTIME_DIR" ]; then
         if ! write_vk_icd_file "$VK_ICD_FILE" 2>/dev/null; then
-            VK_RUNTIME_DIR="${TMPDIR:-/tmp}/Carta/vk"
+            VK_RUNTIME_DIR="${TMPDIR:-/tmp}/${RUNTIME_NAMESPACE}/vk"
             VK_ICD_FILE="$VK_RUNTIME_DIR/MoltenVK_icd.json"
             mkdir -p "$VK_RUNTIME_DIR" 2>/dev/null || true
             write_vk_icd_file "$VK_ICD_FILE" 2>/dev/null || true
@@ -245,6 +253,11 @@ if [ "${MAPFORGE_RENDER_BACKEND}" = "vulkan" ] && [ -f "$MOLTENVK_DYLIB" ]; then
 fi
 
 if [ "${1:-}" = "--print-config" ]; then
+    echo "MAPFORGE_PACKAGE_PROFILE=$PACKAGE_PROFILE"
+    echo "MAPFORGE_RUNTIME_NAMESPACE=$RUNTIME_NAMESPACE"
+    echo "MAPFORGE_LOG_NAMESPACE=$LOG_NAMESPACE"
+    echo "MAPFORGE_BUILD_LABEL=$BUILD_LABEL"
+    echo "MAPFORGE_ALLOW_DEV_REGIONS_FALLBACK=$ALLOW_DEV_REGIONS_FALLBACK"
     echo "APP_CONTENTS_DIR=$APP_CONTENTS_DIR"
     echo "RES_DIR=$RES_DIR"
     echo "LOG_FILE=$LOG_FILE"
@@ -299,6 +312,11 @@ if [ "${1:-}" = "--self-test" ]; then
         echo "VULKAN_ROLLOUT_RESIZED_CAPTURE=$rollout_resized"
     fi
     echo "self-test: ok"
+    echo "MAPFORGE_PACKAGE_PROFILE=$PACKAGE_PROFILE"
+    echo "MAPFORGE_RUNTIME_NAMESPACE=$RUNTIME_NAMESPACE"
+    echo "MAPFORGE_LOG_NAMESPACE=$LOG_NAMESPACE"
+    echo "MAPFORGE_BUILD_LABEL=$BUILD_LABEL"
+    echo "MAPFORGE_ALLOW_DEV_REGIONS_FALLBACK=$ALLOW_DEV_REGIONS_FALLBACK"
     echo "LOG_FILE=$LOG_FILE"
     echo "VK_RENDERER_SHADER_ROOT=$VK_RENDERER_SHADER_ROOT"
     echo "MAPFORGE_REGIONS_DIR=$MAPFORGE_REGIONS_DIR"

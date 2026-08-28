@@ -73,7 +73,7 @@ test-space: $(MAP_SPACE_TEST_TARGET)
 build-safety-check: tools graph
 	./tests/test_build_safety.sh
 
-test: test-space build-safety-check
+test: test-space build-safety-check main-edit-package-contract-checks
 test: test-region-validate-strict
 test: test-region-validate-contract
 test: test-region-publish-safety

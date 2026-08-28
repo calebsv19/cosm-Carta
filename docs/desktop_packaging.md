@@ -2,7 +2,7 @@
 
 MapForge now supports standardized macOS app-bundle packaging via Makefile targets.
 
-Last updated: 2026-08-07
+Last updated: 2026-08-27
 
 ## Build Package
 
@@ -66,6 +66,21 @@ M2/MoltenVK proof retained the existing Retina relationship: logical
 `1280x720` produced `2560x1440`, and logical `1440x800` produced `2880x1600`.
 
 ## Desktop Copy + Refresh Flow
+
+The persistent development profile provides:
+
+```sh
+make package-desktop-main-edit
+make package-desktop-main-edit-self-test
+make package-desktop-main-edit-refresh
+```
+
+It packages `Carta Main Edit.app` under the target-specific ignored development
+root, with bundle ID `com.cosm.carta.main-edit`, runtime/log namespace
+`MapForge-Main-Edit`, and the shared exact source/binary identity envelope. The
+guarded refresh refuses the canonical Desktop destination and a running
+development app. See `docs/main_edit_worktree.md` for lane and integration
+rules.
 
 ```sh
 make package-desktop-copy-desktop
