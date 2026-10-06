@@ -1,6 +1,7 @@
 # Carta shared renderer checkpoint
 
-Qualified 2026-10-06 in retained Main Edit before toolbar/hiking UI migration.
+The renderer foundation was qualified 2026-10-06 in retained Main Edit before
+the separately documented toolbar/hiking control adoption.
 
 ## Exact dependency
 

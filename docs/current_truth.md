@@ -26,8 +26,8 @@ Carta delegates frame/surface recovery to shared ownership and links the separat
 render command-validation module. Fresh build, focused tests, native road and
 rotated terrain replay, SDL fallback and Retina resize/readback qualify the
 renderer adoption. See `docs/shared_dependency_checkpoint.md` for provenance,
-limits and the next boundary. Newer UI/pane/text modules are available, but
-The four workspace tabs and normal Hiking & History actions now use shared
+limits and the next boundary. Newer UI/pane/text modules are available for
+incremental host adoption. The four workspace tabs and normal Hiking & History actions now use shared
 rounded presentation and semantic release/keyboard activation. Existing action
 bodies, geometry, persistence and map/terrain policy remain app-owned.
 See `docs/shared_control_adoption.md` for the adopted scope and remaining hosts.
