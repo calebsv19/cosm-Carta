@@ -165,3 +165,5 @@ Private plans, execution checklists, and internal runbooks were moved out of thi
 
 - [Shared text/modal adoption](shared_text_modal_adoption.md): bounded fields,
   shared presentation, native caret/session and semantic modal focus boundaries.
+
+- [Shared UI rollout](shared_ui_rollout.md): adopted hosts, subtle resizing, pane ownership, fullscreen/window behavior and remaining qualification.

@@ -4,12 +4,6 @@
 
 #include <string.h>
 
-enum {
-    APP_PIN_PANE_ROOT_ID = 1u,
-    APP_PIN_PANE_LEFT_ID = 2u,
-    APP_PIN_PANE_MAP_ID = 3u
-};
-
 static SDL_FRect app_full_map_rect(const AppState *app) {
     SDL_FRect rect = {0.0f, APP_HEADER_HEIGHT, 0.0f, 0.0f};
     if (!app) {
@@ -73,70 +67,6 @@ static void app_pin_panel_clear_layout(AppState *app) {
     app_pin_panel_clear_rows(app);
 }
 
-static void app_pin_panel_assign_leaf_rects(AppState *app,
-                                            const CorePaneLeafRect *leaf_rects,
-                                            uint32_t leaf_count) {
-    if (!app) {
-        return;
-    }
-    app->ui_state_bridge.left_pane_rect = (SDL_FRect){0};
-    app->ui_state_bridge.map_viewport_rect = app_full_map_rect(app);
-    for (uint32_t i = 0; i < leaf_count; ++i) {
-        SDL_FRect rect = {
-            leaf_rects[i].rect.x,
-            leaf_rects[i].rect.y,
-            leaf_rects[i].rect.width,
-            leaf_rects[i].rect.height
-        };
-        if (leaf_rects[i].id == APP_PIN_PANE_LEFT_ID) {
-            app->ui_state_bridge.left_pane_rect = rect;
-        }
-    }
-}
-
-static void app_pin_panel_build_shell(AppState *app) {
-    CorePaneNode nodes[3];
-    CorePaneLeafRect leaf_rects[2];
-    uint32_t leaf_count = 0u;
-    CorePaneRect bounds;
-
-    if (!app) {
-        return;
-    }
-
-    bounds.x = 0.0f;
-    bounds.y = APP_HEADER_HEIGHT;
-    bounds.width = (float)app->width;
-    bounds.height = (float)app->height - APP_HEADER_HEIGHT;
-    if (bounds.width <= 1.0f || bounds.height <= 1.0f) {
-        app->ui_state_bridge.left_pane_rect = (SDL_FRect){0};
-        app->ui_state_bridge.map_viewport_rect = app_full_map_rect(app);
-        return;
-    }
-
-    memset(nodes, 0, sizeof(nodes));
-    nodes[0].type = CORE_PANE_NODE_SPLIT;
-    nodes[0].id = APP_PIN_PANE_ROOT_ID;
-    nodes[0].axis = CORE_PANE_AXIS_HORIZONTAL;
-    nodes[0].ratio_01 = 0.28f;
-    nodes[0].child_a = 1u;
-    nodes[0].child_b = 2u;
-    nodes[0].constraints.min_size_a = 280.0f;
-    nodes[0].constraints.min_size_b = 480.0f;
-    nodes[1].type = CORE_PANE_NODE_LEAF;
-    nodes[1].id = APP_PIN_PANE_LEFT_ID;
-    nodes[2].type = CORE_PANE_NODE_LEAF;
-    nodes[2].id = APP_PIN_PANE_MAP_ID;
-
-    if (!core_pane_solve(nodes, 3u, 0u, bounds, leaf_rects, 2u, &leaf_count)) {
-        app->ui_state_bridge.left_pane_rect = (SDL_FRect){0};
-        app->ui_state_bridge.map_viewport_rect = app_full_map_rect(app);
-        return;
-    }
-
-    app_pin_panel_assign_leaf_rects(app, leaf_rects, leaf_count);
-}
-
 static void app_pin_panel_build_rows(AppState *app, float row_h) {
     int max_rows = 0;
     int available = 0;
@@ -196,6 +126,7 @@ void app_pin_panel_layout(AppState *app) {
     app_pin_panel_clear_layout(app);
 
     if (!app->ui_state_bridge.left_pane_open) {
+        carta_panes_layout(app);
         app->ui_state_bridge.pin_pane_closed_rect = (SDL_FRect){
             8.0f,
             APP_HEADER_HEIGHT + 8.0f,
@@ -205,7 +136,7 @@ void app_pin_panel_layout(AppState *app) {
         return;
     }
 
-    app_pin_panel_build_shell(app);
+    carta_panes_layout(app);
     if (app->ui_state_bridge.left_pane_rect.w <= 1.0f ||
         app->ui_state_bridge.left_pane_rect.h <= 1.0f) {
         return;
@@ -231,9 +162,7 @@ void app_pin_panel_layout(AppState *app) {
         float tab_area_w = app->ui_state_bridge.pin_pane_header_rect.w - close_size - tab_gap - 4.0f;
         float tab_w = (tab_area_w - tab_gap * (float)(APP_LEFT_PANE_SECTION_COUNT - 1)) /
                       (float)APP_LEFT_PANE_SECTION_COUNT;
-        if (tab_w < 72.0f) {
-            tab_w = 72.0f;
-        }
+        if (tab_w < 1.0f) tab_w = 1.0f;
         for (int i = 0; i < APP_LEFT_PANE_SECTION_COUNT; ++i) {
             app->ui_state_bridge.pin_pane_tab_rects[i] = (SDL_FRect){
                 tab_x + (tab_w + tab_gap) * (float)i,
@@ -267,9 +196,7 @@ void app_pin_panel_layout(AppState *app) {
         float button_gap = 8.0f;
         float button_w = (body_w - button_gap * 3.0f) / 4.0f;
         float y = app->ui_state_bridge.pin_pane_summary_rect.y + app->ui_state_bridge.pin_pane_summary_rect.h + 8.0f;
-        if (button_w < 64.0f) {
-            button_w = 64.0f;
-        }
+        if (button_w < 1.0f) button_w = 1.0f;
         app->ui_state_bridge.pin_pane_add_rect = (SDL_FRect){body_x, y, button_w, button_h};
         app->ui_state_bridge.pin_pane_save_rect = (SDL_FRect){body_x + button_w + button_gap, y, button_w, button_h};
         app->ui_state_bridge.pin_pane_delete_rect = (SDL_FRect){body_x + (button_w + button_gap) * 2.0f, y, button_w, button_h};
@@ -317,9 +244,7 @@ void app_pin_panel_layout(AppState *app) {
         float button_gap = 8.0f;
         float button_w = (body_w - button_gap * 3.0f) / 4.0f;
         float y = app->ui_state_bridge.pin_pane_content_rect.y + 86.0f;
-        if (button_w < 64.0f) {
-            button_w = 64.0f;
-        }
+        if (button_w < 1.0f) button_w = 1.0f;
         app->ui_state_bridge.pin_pane_add_rect = (SDL_FRect){body_x, y, button_w, button_h};
         app->ui_state_bridge.pin_pane_save_rect = (SDL_FRect){body_x + button_w + button_gap, y, button_w, button_h};
         app->ui_state_bridge.pin_pane_delete_rect = (SDL_FRect){body_x + (button_w + button_gap) * 2.0f, y, button_w, button_h};

@@ -3,7 +3,8 @@
 #include "app/app_internal.h"
 #define HISTORY_ROW_HEIGHT 38.0f
 // Owns an multi-view chooser without touching personal records.
-typedef struct HistoryBrowser { bool open; int focus; float offset; } HistoryBrowser;
+typedef struct HistoryBrowser { bool open; int focus; float offset;
+    KitUiSurface controls; unsigned scope; char identities[16][140]; } HistoryBrowser;
 // Computes a finite pixel offset using the existing shared scroll evaluator.
 float history_browser_scroll(SDL_FRect viewport, int total, float row_height, float offset, float wheel);
 // Reads fractional SDL scrolling with discrete-wheel fallback and flipped direction.

@@ -20,6 +20,14 @@ void app_runtime_dispatch_frame(AppState *app,
                                     &out_frame->input,
                                     &out_frame->frame_begin,
                                     &out_frame->after_events);
+    bool presentable=carta_window_refresh(app);
+    (void)carta_window_probe_tick(app);
+    if(!presentable) {
+        *io_last_time=out_frame->after_events;
+        out_frame->after_render=out_frame->after_events;
+        out_frame->skipped_for_idle=true;
+        return;
+    }
     bool frame_needed = app_runtime_frame_needed(app, &out_frame->input, out_frame->after_events);
     if (app_runtime_handle_global_controls(app)) {
         out_frame->skipped_for_global_controls = true;
@@ -59,8 +67,9 @@ void app_runtime_dispatch_frame(AppState *app,
                              &out_frame->render_invalidation_reason_bits,
                              &out_frame->before_present,
                              &out_frame->after_render);
-    app->runtime_frame_presented = true;
-    app->runtime_redraw_requested = false;
+    app->runtime_frame_presented = app->renderer.last_presented;
+    app->runtime_redraw_requested = !app->renderer.last_presented;
+    if(app->renderer.last_presented)++app->ui_state_bridge.rollout.presented_frames;
     out_frame->visible_tiles = tile_stats.visible_tiles;
     out_frame->loading_expected = tile_stats.loading_expected;
     out_frame->loading_done = tile_stats.loading_done;

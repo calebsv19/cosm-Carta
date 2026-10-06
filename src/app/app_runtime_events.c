@@ -32,10 +32,7 @@ static void app_runtime_input_record_event(AppState *app,
             break;
         case SDL_WINDOWEVENT:
             out_raw->window_event_count += 1u;
-            if (event->window.event == SDL_WINDOWEVENT_RESIZED ||
-                event->window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                (void)app_runtime_apply_window_size(app, event->window.data1, event->window.data2);
-            }
+            /* The shared observer reads current logical/drawable geometry. */
             break;
         case SDL_MOUSEMOTION:
         case SDL_MOUSEBUTTONDOWN:
@@ -55,8 +52,15 @@ static void app_runtime_input_record_event(AppState *app,
             out_raw->other_event_count += 1u;
             break;
     }
+    if(carta_window_event(app,event))return;
     carta_text_window_event(app,event);
-    if (carta_ui_controls_event(app,event)) return;
+    if(event->type==SDL_QUIT) {input_handle_event(&app->ui_state_bridge.input,event);return;}
+    if (carta_text_hosts_event(app,event)) return;
+    if (carta_panes_event(app,event)) return;
+    if (carta_ui_controls_event(app,event)) {
+        (void)kit_pane_pointer_route(&app->ui_state_bridge.rollout.pointer,NULL,0,0,0,0,1);
+        return;
+    }
     if (app_region_transition_handle_event(app, event)) return;
     if (app_place_tools_handle_event(app,event)) return;
     if (history_ui_modal() && history_ui_event(app,event)) return;

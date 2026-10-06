@@ -1,4 +1,7 @@
 #include "app/app_pin_panel_internal.h"
+#include "ui/control_surface.h"
+SDL_FRect carta_remaining_control_rect(AppState *a,uint32_t d,unsigned i){(void)a;(void)d;(void)i;return (SDL_FRect){0};}
+void carta_remaining_control_activate(AppState *a,uint32_t d,unsigned i,uint32_t m){(void)a;(void)d;(void)i;(void)m;__builtin_trap();}
 #include "app/app_place_tools_internal.h"
 #include "app/place_repository.h"
 #include "app/place_runtime.h"
@@ -140,6 +143,7 @@ static void draw(AppState *app) {
     app_place_tools_draw(app);
 }
 static void button(AppState *app, const char *name) {
+    if(app_place_tools_active())draw(app); /* Refresh modal inventory after accepted action. */
     Label v = label(name);
     click(app, v.x + 8, v.y + 5);
 }

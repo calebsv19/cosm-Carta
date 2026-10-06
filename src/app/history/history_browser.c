@@ -2,6 +2,7 @@
 #include "app/app_ui_internal.h"
 #include "ui/font.h"
 #include "kit_ui.h"
+#include "ui/modal_controls.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -42,8 +43,39 @@ static SDL_FRect box(AppState *a) {
 }
 // Separates scrolling choices from the heading and keyboard help.
 static SDL_FRect list(AppState *a) { SDL_FRect b=box(a);return (SDL_FRect){b.x+12,b.y+46,b.w-24,b.h-98}; }
+// Action keys identify choices within a visible identity-bound modal snapshot.
+static SDL_FRect cell(SDL_FRect v,float y,int action) {
+    float right=v.x+v.w;
+    if(action==3)return (SDL_FRect){right-48,y,40,29};
+    if(action==1)return (SDL_FRect){right-101,y,50,29};
+    if(action==2)return (SDL_FRect){right-129,y,25,29};
+    return (SDL_FRect){v.x,y,fmaxf(1,v.w-132),29};
+}
+static void sync(HistoryBrowser *b,AppState *a) {
+    SDL_FRect v=list(a),r=box(a);int total=history_views_choice_count(a);
+    b->offset=history_browser_scroll(v,total,32,b->offset,0);
+    char identities[16][140]={{0}};int first=(int)(b->offset/32),visible=0;
+    for(int n=first;n<total && n*32-b->offset<v.h && visible<16;n++,visible++) {
+        HistoryViewSelection c=history_views_choice(a,n);
+        snprintf(identities[visible],sizeof(identities[visible]),"%d:%s",c.filter,c.collection);
+    }
+    if(memcmp(identities,b->identities,sizeof(identities))) {
+        memcpy(b->identities,identities,sizeof(identities));kit_ui_surface_set_scope(&b->controls,++b->scope);
+    }
+    carta_modal_controls_begin(&b->controls,b->scope?b->scope:1);
+    carta_modal_controls_add(&b->controls,0,(SDL_FRect){r.x+r.w-70,r.y+6,58,30},(SDL_FRect){0,0,a->width,a->height},true);
+    for(int n=first;n<first+visible;n++) {
+        HistoryViewSelection c=history_views_choice(a,n);int slot=history_views_find(a,c);
+        for(int action=0;action<4;action++)
+            carta_modal_controls_add(&b->controls,1+n*4+action,cell(v,v.y+n*32-b->offset,action),v,slot>=0 || action==0 || action==3);
+    }
+    carta_modal_controls_end(&b->controls);
+    if(!b->controls.interaction.focused_id)for(unsigned i=0;i<b->controls.count;i++)
+        if(b->controls.keys[i].value==1u+(unsigned)b->focus*4)b->controls.interaction.focused_id=b->controls.controls[i].id;
+}
 void history_browser_open(HistoryBrowser *b, AppState *a) {
     history_views_ensure(a);b->open=true;b->focus=0;b->offset=0;
+    kit_ui_surface_set_scope(&b->controls,++b->scope);
     for(int i=0;i<history_views_choice_count(a);i++)
         if(history_views_find(a,history_views_choice(a,i))>=0){b->focus=i;break;}
     b->offset=history_browser_scroll(list(a),history_views_choice_count(a),32,fmaxf(0,b->focus*32-list(a).h+32),0);
@@ -65,30 +97,41 @@ static bool change(HistoryBrowser *b, AppState *a, int n, int action) {
 // Consumes modal input; toggles keep the chooser open for further group selection.
 bool history_browser_event(HistoryBrowser *b, AppState *a, const SDL_Event *e) {
     if(e->type==SDL_DROPFILE){SDL_free(e->drop.file);return false;}
+    sync(b,a);uint64_t action;uint32_t modifiers;
+    SDL_Event normalized=*e;
+    bool solo_key=(e->type==SDL_KEYDOWN || e->type==SDL_KEYUP) &&
+        (e->key.keysym.sym==SDLK_RETURN || e->key.keysym.sym==SDLK_KP_ENTER) &&
+        (e->key.keysym.mod&KMOD_SHIFT) && !(e->key.keysym.mod&(KMOD_CTRL|KMOD_ALT|KMOD_GUI));
+    if(solo_key)normalized.key.keysym.mod=KMOD_NONE;
+    (void)carta_modal_controls_event(&b->controls,&normalized,&action,&modifiers);
+    if(solo_key)modifiers|=KIT_UI_INTERACTION_MOD_SHIFT;
+    if(action!=UINT64_MAX) {
+        if(action==0){b->open=false;kit_ui_surface_set_scope(&b->controls,++b->scope);return false;}
+        int n=(int)((action-1)/4),kind=(int)((action-1)%4);
+        if(kind==0 && (modifiers&KIT_UI_INTERACTION_MOD_SHIFT))kind=3;
+        return change(b,a,n,kind);
+    }
     SDL_FRect v=list(a),r=box(a);int total=history_views_choice_count(a);
-    b->offset=history_browser_scroll(v,total,32,b->offset,0);
     if(e->type==SDL_KEYDOWN) {
         SDL_Keycode k=e->key.keysym.sym;
-        if(k==SDLK_ESCAPE)b->open=false;
+        if(k==SDLK_ESCAPE && !e->key.repeat){b->open=false;kit_ui_surface_set_scope(&b->controls,++b->scope);}
+        bool navigation=k==SDLK_UP || k==SDLK_DOWN || k==SDLK_HOME || k==SDLK_END;
         if(k==SDLK_UP)b->focus=fmax(0,b->focus-1);
         if(k==SDLK_DOWN)b->focus=fmin(total-1,b->focus+1);
         if(k==SDLK_HOME)b->focus=0;
         if(k==SDLK_END)b->focus=total-1;
-        if(k==SDLK_RETURN || k==SDLK_SPACE)return change(b,a,b->focus,(e->key.keysym.mod&KMOD_SHIFT)?3:0);
-        if(k==SDLK_m)return change(b,a,b->focus,1);
-        if(k==SDLK_c)return change(b,a,b->focus,2);
-        b->offset=history_browser_scroll(v,total,32,fmaxf(b->focus*32-v.h+32,fminf(b->offset,b->focus*32)),0);
-    } else if(e->type==SDL_MOUSEWHEEL) {
-        b->offset=history_browser_scroll(v,total,32,b->offset,history_browser_wheel(e));
-    } else if(e->type==SDL_MOUSEBUTTONDOWN && e->button.button==SDL_BUTTON_LEFT) {
-        int n=history_browser_row(v,b->offset,32,e->button.x,e->button.y);
-        if(n>=0 && n<total) {
-            int action=e->button.x>=v.x+v.w-48?3:e->button.x>=v.x+v.w-101?1:
-                e->button.x>=v.x+v.w-129?2:0;
-            return change(b,a,n,action);
+        if(!e->key.repeat && k==SDLK_m)return change(b,a,b->focus,1);
+        if(!e->key.repeat && k==SDLK_c)return change(b,a,b->focus,2);
+        if(navigation) {
+            b->offset=history_browser_scroll(v,total,32,fmaxf(b->focus*32-v.h+32,fminf(b->offset,b->focus*32)),0);sync(b,a);
+            for(unsigned i=0;i<b->controls.count;i++)if(b->controls.keys[i].value==1u+(unsigned)b->focus*4)
+                b->controls.interaction.focused_id=b->controls.controls[i].id;
         }
-        if(e->button.x<r.x || e->button.x>=r.x+r.w || e->button.y<r.y || e->button.y>=r.y+r.h ||
-            (e->button.x>=r.x+r.w-64 && e->button.y<r.y+40))b->open=false;
+    } else if(e->type==SDL_MOUSEWHEEL) {
+        b->offset=history_browser_scroll(v,total,32,b->offset,history_browser_wheel(e));sync(b,a);
+    } else if(e->type==SDL_MOUSEBUTTONDOWN && e->button.button==SDL_BUTTON_LEFT &&
+        (e->button.x<r.x || e->button.x>=r.x+r.w || e->button.y<r.y || e->button.y>=r.y+r.h)) {
+        b->open=false;kit_ui_surface_set_scope(&b->controls,++b->scope);
     }
     return false;
 }
@@ -98,10 +141,10 @@ static void fill(AppState *a, SDL_FRect r, SDL_Color c) {
 }
 void history_browser_draw(HistoryBrowser *b, AppState *a) {
     if(!b->open)return;
-    MapForgeThemePalette c=app_ui_theme_palette();SDL_FRect r=box(a),v=list(a);
+    sync(b,a);MapForgeThemePalette c=app_ui_theme_palette();SDL_FRect r=box(a),v=list(a);
     fill(a,r,c.route_panel_fill);
     ui_draw_text_clipped(&a->renderer,r.x+12,r.y+12,"Views & route colors",c.text_primary,.85f,r.w-84);
-    ui_draw_text_clipped(&a->renderer,r.x+r.w-60,r.y+12,"Done",c.text_primary,.8f,48);
+    carta_ui_control_draw_surface(a,&b->controls,(SDL_FRect){r.x+r.w-70,r.y+6,58,30},"Done",false,(KitUiSurfaceKey){1,0},.8f);
     int total=history_views_choice_count(a);b->offset=history_browser_scroll(v,total,32,b->offset,0);
     if(renderer_set_viewport(&a->renderer,v.x,v.y,v.w,v.h)) {
         for(int n=(int)(b->offset/32);n<total;n++) {
@@ -116,8 +159,8 @@ void history_browser_draw(HistoryBrowser *b, AppState *a) {
             snprintf(title,sizeof(title),"%s%s",choice.filter<0?"List · ":"",name);
             ui_draw_text_clipped(&a->renderer,v.x+27,v.y+y+5,title,c.text_primary,.75f,fmaxf(1,v.w-163));
             fill(a,(SDL_FRect){v.w-124,y+7,18,16},color);
-            ui_draw_text_clipped(&a->renderer,v.x+v.w-98,v.y+y+6,slot<0?"":choice.map_visible?"Hide":"Show",c.text_primary,.7f,48);
-            ui_draw_text_clipped(&a->renderer,v.x+v.w-45,v.y+y+6,"Solo",c.text_muted,.7f,36);
+            carta_ui_control_draw_surface(a,&b->controls,cell(v,v.y+y,1),slot<0?"":choice.map_visible?"Hide":"Show",false,(KitUiSurfaceKey){1,1+n*4+1},.7f);
+            carta_ui_control_draw_surface(a,&b->controls,cell(v,v.y+y,3),"Solo",false,(KitUiSurfaceKey){1,1+n*4+3},.7f);
             if(n==b->focus)fill(a,(SDL_FRect){0,y,2,29},c.text_primary);
         }
         renderer_reset_viewport(&a->renderer);

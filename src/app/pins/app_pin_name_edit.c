@@ -1,87 +1,29 @@
-#include "app/app_internal.h"
-
+#include "app/app_pin_panel_internal.h"
+#include "kit_ui_text_edit.h"
 #include <string.h>
-
-static int app_pin_name_edit_clamp_cursor(const char *buffer, int cursor) {
-    size_t len = 0u;
-    if (!buffer) {
-        return 0;
-    }
-    len = strnlen(buffer, MAPFORGE_PIN_NAME_CAPACITY);
-    if (cursor < 0) {
-        return 0;
-    }
-    if ((size_t)cursor > len) {
-        return (int)len;
-    }
-    return cursor;
+// Legacy cursor facade uses shared scalar boundaries and atomic capacity refusal.
+static bool bind(KitUiTextEdit *edit,char *buffer,size_t cap,int *cursor) {
+    if(!buffer || !cursor || kit_ui_text_bind(edit,buffer,cap,KIT_UI_TEXT_SINGLE_LINE).code!=CORE_OK)return false;
+    size_t p=*cursor<0?0:(size_t)*cursor;
+    return kit_ui_text_position(edit,p,p).code==CORE_OK;
 }
-
-bool app_pin_name_edit_insert_text(char *buffer, size_t cap, int *cursor, const char *text) {
-    size_t len = 0u;
-    size_t add_len = 0u;
-    int cursor_index = 0;
-    if (!buffer || cap == 0u || !cursor || !text || text[0] == '\0') {
-        return false;
-    }
-    len = strnlen(buffer, cap);
-    add_len = strnlen(text, 31u);
-    cursor_index = app_pin_name_edit_clamp_cursor(buffer, *cursor);
-    if (len >= cap || add_len == 0u || len + add_len >= cap) {
-        return false;
-    }
-    memmove(buffer + cursor_index + (int)add_len,
-            buffer + cursor_index,
-            len - (size_t)cursor_index + 1u);
-    memcpy(buffer + cursor_index, text, add_len);
-    *cursor = cursor_index + (int)add_len;
-    return true;
+bool app_pin_name_edit_insert_text(char *buffer,size_t cap,int *cursor,const char *text) {
+    KitUiTextEdit edit={0};if(!text || !*text || !bind(&edit,buffer,cap,cursor))return false;
+    size_t before=strlen(buffer);CoreResult r=kit_ui_text_insert(&edit,text);*cursor=(int)edit.cursor;
+    return r.code==CORE_OK && strlen(buffer)!=before;
 }
-
-bool app_pin_name_edit_backspace(char *buffer, int *cursor) {
-    size_t len = 0u;
-    int cursor_index = 0;
-    if (!buffer || !cursor) {
-        return false;
-    }
-    len = strnlen(buffer, MAPFORGE_PIN_NAME_CAPACITY);
-    cursor_index = app_pin_name_edit_clamp_cursor(buffer, *cursor);
-    if (cursor_index <= 0 || len == 0u) {
-        return false;
-    }
-    memmove(buffer + cursor_index - 1,
-            buffer + cursor_index,
-            len - (size_t)cursor_index + 1u);
-    *cursor = cursor_index - 1;
-    return true;
+bool app_pin_name_edit_backspace(char *buffer,int *cursor) {
+    if(!buffer || !cursor)return false;
+    KitUiTextEdit edit={0};size_t cap=strnlen(buffer,MAPFORGE_PIN_NAME_CAPACITY)+1;
+    if(!bind(&edit,buffer,cap,cursor))return false;
+    size_t before=strlen(buffer);CoreResult r=kit_ui_text_command(&edit,KIT_UI_TEXT_BACKSPACE,0);*cursor=(int)edit.cursor;
+    return r.code==CORE_OK && before!=strlen(buffer);
 }
-
-bool app_pin_name_edit_move_left(const char *buffer, int *cursor) {
-    int cursor_index = 0;
-    if (!buffer || !cursor) {
-        return false;
-    }
-    cursor_index = app_pin_name_edit_clamp_cursor(buffer, *cursor);
-    if (cursor_index <= 0) {
-        *cursor = 0;
-        return false;
-    }
-    *cursor = cursor_index - 1;
-    return true;
+static bool move(const char *buffer,int *cursor,int direction) {
+    if(!buffer || !cursor)return false;
+    KitUiTextEdit edit={0};if(!bind(&edit,(char *)buffer,strnlen(buffer,MAPFORGE_PIN_NAME_CAPACITY)+1,cursor))return false;
+    size_t before=edit.cursor;CoreResult r=kit_ui_text_command(&edit,direction<0?KIT_UI_TEXT_LEFT:KIT_UI_TEXT_RIGHT,0);*cursor=(int)edit.cursor;
+    return r.code==CORE_OK && before!=edit.cursor;
 }
-
-bool app_pin_name_edit_move_right(const char *buffer, int *cursor) {
-    size_t len = 0u;
-    int cursor_index = 0;
-    if (!buffer || !cursor) {
-        return false;
-    }
-    len = strnlen(buffer, MAPFORGE_PIN_NAME_CAPACITY);
-    cursor_index = app_pin_name_edit_clamp_cursor(buffer, *cursor);
-    if ((size_t)cursor_index >= len) {
-        *cursor = (int)len;
-        return false;
-    }
-    *cursor = cursor_index + 1;
-    return true;
-}
+bool app_pin_name_edit_move_left(const char *buffer,int *cursor){return move(buffer,cursor,-1);}
+bool app_pin_name_edit_move_right(const char *buffer,int *cursor){return move(buffer,cursor,1);}

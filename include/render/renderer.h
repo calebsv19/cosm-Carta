@@ -19,6 +19,7 @@ typedef struct Renderer {
     uintptr_t vk_cmd;
     SDL_Window *window;
     bool vulkan_available;
+    bool last_presented;
     uint32_t vk_geom_budget;
     uint32_t vk_geom_used;
     uint32_t vk_lines_drawn;

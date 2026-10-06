@@ -155,3 +155,13 @@ Last updated: 2026-05-04
 - No feature expansion unrelated to scaffold alignment.
 - No shared subtree redesign in migration commits.
 - No broad naming churn in one pass; only bounded slices with verification gates.
+
+## Shared UI follow-up after host adoption — 2026-10-06
+
+The retained Main Edit completion rollout covers remaining text, controls, pane
+composition/ownership and actual fullscreen/window lifecycle wiring against shared
+09ff89a. Continue with combined field/button Tab ordering only where useful,
+actual OS IME/font acceptance and selected external-monitor/native-platform proof.
+Keep ordinary resizing subtle and separate from explicit workspace authoring.
+Canonical adoption/release requires its own reviewed delivery boundary. Preserve
+controlled performance gates independently from UI replay/capture qualification.

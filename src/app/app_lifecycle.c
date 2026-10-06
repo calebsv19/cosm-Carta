@@ -217,9 +217,9 @@ bool app_init(AppState *app) {
              backend_env ? backend_env : "",
              renderer_backend_name(renderer_get_backend(&app->renderer)));
 
-    uint32_t window_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
+    uint32_t window_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
     if (renderer_get_backend(&app->renderer) == RENDERER_BACKEND_VULKAN) {
-        window_flags |= SDL_WINDOW_VULKAN | SDL_WINDOW_ALLOW_HIGHDPI;
+        window_flags |= SDL_WINDOW_VULKAN;
     }
 
     app->window = SDL_CreateWindow(
@@ -241,7 +241,7 @@ bool app_init(AppState *app) {
                 SDL_WINDOWPOS_CENTERED,
                 app->width,
                 app->height,
-                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
             );
             if (!app->window) {
                 log_error("SDL_CreateWindow fallback failed: %s", SDL_GetError());
@@ -267,7 +267,7 @@ bool app_init(AppState *app) {
                 SDL_WINDOWPOS_CENTERED,
                 app->width,
                 app->height,
-                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
             );
             if (!app->window) {
                 log_error("SDL_CreateWindow fallback failed: %s", SDL_GetError());

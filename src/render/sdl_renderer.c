@@ -259,6 +259,7 @@ bool renderer_init(Renderer *renderer, SDL_Window *window, int width, int height
         return false;
     }
     SDL_SetRenderDrawBlendMode(renderer->sdl, SDL_BLENDMODE_BLEND);
+    SDL_RenderSetLogicalSize(renderer->sdl,width,height);
 
     renderer->width = width;
     renderer->height = height;
@@ -310,6 +311,7 @@ bool renderer_resize(Renderer *renderer, int width, int height) {
     }
 #endif
 
+    if(renderer->sdl)SDL_RenderSetLogicalSize(renderer->sdl,width,height);
     renderer_apply_backend_clip(renderer);
     return true;
 }
@@ -365,6 +367,7 @@ void renderer_begin_frame(Renderer *renderer) {
     if (!renderer) {
         return;
     }
+    renderer->last_presented=false;
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vulkan_available && renderer->vk && renderer->window) {
         VkRenderer *vk = (VkRenderer *)renderer->vk;
@@ -450,6 +453,7 @@ void renderer_end_frame(Renderer *renderer) {
         VkRenderer *vk = (VkRenderer *)renderer->vk;
         VkCommandBuffer cmd = (VkCommandBuffer)renderer->vk_cmd;
         VkResult result = vk_renderer_end_frame(vk, cmd);
+        renderer->last_presented=result==VK_SUCCESS;
         bool abandoned = result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR;
         if (abandoned) {
 #if defined(MAPFORGE_HAVE_VK_RUNTIME)
@@ -473,6 +477,7 @@ void renderer_end_frame(Renderer *renderer) {
         return;
     }
     SDL_RenderPresent(renderer->sdl);
+    renderer->last_presented=true;
 }
 
 void renderer_set_draw_color(Renderer *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {

@@ -1,4 +1,12 @@
 #include "app/app_map_viewport_internal.h"
+bool app_place_tools_text_active(void){return false;}
+unsigned app_place_tools_control_count(void){return 0;}
+SDL_FRect app_place_tools_control_rect(unsigned i){(void)i;return (SDL_FRect){0};}
+uint64_t app_place_tools_control_key(unsigned i){(void)i;return 0;}
+void app_place_tools_control_activate(AppState *a,uint64_t k){(void)a;(void)k;__builtin_trap();}
+#include "ui/control_surface.h"
+SDL_FRect carta_remaining_control_rect(AppState *a,uint32_t d,unsigned i){(void)a;(void)d;(void)i;return (SDL_FRect){0};}
+void carta_remaining_control_activate(AppState *a,uint32_t d,unsigned i,uint32_t m){(void)a;(void)d;(void)i;(void)m;__builtin_trap();}
 #include "app/app_persist_state.h"
 #include "app/app_ui_internal.h"
 #include "app/history.h"
@@ -101,7 +109,8 @@ static void choose_view(AppState *a,int n) {
     SDL_Event e={0};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_HOME;assert(history_ui_event(a,&e));e.key.keysym.sym=SDLK_DOWN;
     for(int i=0;i<n;i++)assert(history_ui_event(a,&e));
     e.key.keysym.sym=SDLK_RETURN;e.key.keysym.mod=KMOD_SHIFT;assert(history_ui_event(a,&e));
-    e.key.keysym.sym=SDLK_ESCAPE;e.key.keysym.mod=0;assert(history_ui_event(a,&e));assert(!history_ui_modal());
+    e.type=SDL_KEYUP;assert(history_ui_event(a,&e));
+    e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;e.key.keysym.mod=0;assert(history_ui_event(a,&e));assert(!history_ui_modal());
 }
 // Supplies real viewport clipping ownership without a GPU in this production-event fixture.
 bool renderer_set_viewport(Renderer *r,int x,int y,int w,int h) {
@@ -272,7 +281,11 @@ int main(void) {
     choose_view(a,1);assert(!history_ui_record_visible(a,record));choose_view(a,0);assert(history_ui_record_visible(a,record));
     action(a,26);assert(!history_ui_geographic_labels_enabled(a));action(a,26);assert(history_ui_geographic_labels_enabled(a));
     // A peak goal can be selected by official name without asking the user for coordinates.
-    action(a,27);assert(history_ui_modal());click(a,200,158);assert(!history_ui_modal());
+    action(a,27);assert(history_ui_modal());
+    press=(SDL_Event){0};press.type=SDL_MOUSEBUTTONDOWN;press.button.button=SDL_BUTTON_LEFT;press.button.x=200;press.button.y=158;
+    assert(history_ui_event(a,&press));assert(history_ui_modal());history_ui_cancel_transient();
+    press.type=SDL_MOUSEBUTTONUP;assert(history_ui_event(a,&press));assert(history_ui_modal());
+    click(a,200,158);assert(!history_ui_modal());
     json_object_object_get_ex(a->pins_file.source_json,"hiking",&h);assert(json_object_array_length(h)==3);
     struct json_object *goal=json_object_array_get_idx(h,2);assert(!strcmp(history_progress(a->pins_file.source_json,goal),"planned"));
     // Actual modal controls capture map input and require a second action before removal.
@@ -347,9 +360,12 @@ int main(void) {
     assert(history_ui_event(a,&key));key.key.keysym.sym=SDLK_DOWN;
     for(int i=0;i<2;i++)assert(history_ui_event(a,&key));
     key.key.keysym.sym=SDLK_SPACE;assert(history_ui_event(a,&key));assert(history_ui_modal());
+    assert(a->ui_state_bridge.history_views.count==1); /* Press arms only. */
+    key.type=SDL_KEYUP;assert(history_ui_event(a,&key));key.type=SDL_KEYDOWN;
     assert(a->ui_state_bridge.history_views.count==2);
     assert(history_ui_record_visible(a,first)); // User partial is included by To do + partial.
     key.key.keysym.sym=SDLK_END;assert(history_ui_event(a,&key));key.key.keysym.sym=SDLK_SPACE;assert(history_ui_event(a,&key));
+    key.type=SDL_KEYUP;assert(history_ui_event(a,&key));key.type=SDL_KEYDOWN;
     assert(a->ui_state_bridge.history_views.count==3 && history_ui_record_visible(a,bad));
     assert(history_views_membership(a,first,false)==6); // Both To do and named list, exactly once.
     SDL_Color before_color=history_views_record_color(a,first);

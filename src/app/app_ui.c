@@ -3,6 +3,7 @@
 #include "app/app_ui_internal.h"
 
 #include "ui/font.h"
+#include "ui/control_surface.h"
 #include "ui/shared_theme_font_adapter.h"
 
 #if defined(MAPFORGE_HAVE_VK)
@@ -13,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static SDL_FRect app_header_button_rect(const AppState *app) {
+SDL_FRect app_header_button_rect(const AppState *app) {
     float width = 140.0f;
     float height = 22.0f;
     float pad = 8.0f;
@@ -209,7 +210,7 @@ static void app_draw_header_layer_chips(AppState *app,
     const float base_toggle_w = 24.0f;
     const float toggle_text_pad_x = 6.0f;
     const float progress_h = 3.0f;
-    SDL_Color text_color = palette ? palette->text_primary : (SDL_Color){225, 230, 240, 255};
+    (void)text_h;
     SDL_FRect strip = {0};
     AppHeaderClipState clip_state = {0};
     int toggle_on_w = ui_measure_text_width("ON", 1.0f);
@@ -342,12 +343,7 @@ static void app_draw_header_layer_chips(AppState *app,
             snprintf(chip_text, sizeof(chip_text), "%s", tag);
         }
 
-        ui_draw_text(&app->renderer,
-                     (int)(label_rect.x + text_pad_x),
-                     (int)(box_y + (box_h - (float)text_h) * 0.5f),
-                     chip_text,
-                     text_color,
-                     1.0f);
+        carta_ui_control_draw(app,label_rect,chip_text,runtime_active,(KitUiSurfaceKey){CARTA_CONTROL_HEADER,40+kind},1);
 
         if (is_loading && runtime_enabled && expected > 0) {
             float progress = app_clampf((float)done / (float)expected, 0.0f, 1.0f);
@@ -361,25 +357,8 @@ static void app_draw_header_layer_chips(AppState *app,
             renderer_fill_rect(&app->renderer, &bar_fg);
         }
 
-        SDL_Color toggle_fill = runtime_enabled ? palette->button_active_success : palette->button_fill;
-        SDL_Color toggle_text_color = palette->text_primary;
-        renderer_set_draw_color(&app->renderer, toggle_fill.r, toggle_fill.g, toggle_fill.b, toggle_fill.a);
-        renderer_fill_rect(&app->renderer, &toggle_rect);
-        renderer_set_draw_color(&app->renderer,
-                                palette->button_outline.r, palette->button_outline.g, palette->button_outline.b, palette->button_outline.a);
-        renderer_draw_rect(&app->renderer, &toggle_rect);
-        const char *toggle_label = runtime_enabled ? "ON" : "OFF";
-        int toggle_label_w = ui_measure_text_width(toggle_label, 1.0f);
-        float toggle_text_x = toggle_rect.x + (toggle_rect.w - (float)toggle_label_w) * 0.5f;
-        if (toggle_text_x < toggle_rect.x + 2.0f) {
-            toggle_text_x = toggle_rect.x + 2.0f;
-        }
-        ui_draw_text(&app->renderer,
-                     (int)toggle_text_x,
-                     (int)(toggle_rect.y + (toggle_rect.h - (float)text_h) * 0.5f),
-                     toggle_label,
-                     toggle_text_color,
-                     1.0f);
+        carta_ui_control_draw(app,toggle_rect,runtime_enabled?"ON":"OFF",runtime_enabled,
+            (KitUiSurfaceKey){CARTA_CONTROL_HEADER,10+kind},1);
     }
     app_header_pop_clip(&app->renderer, &clip_state);
 }
@@ -410,39 +389,11 @@ void app_draw_header_bar(AppState *app) {
     }
 
     SDL_FRect button = app_header_button_rect(app);
-    renderer_set_draw_color(&app->renderer, palette.button_outline.r, palette.button_outline.g, palette.button_outline.b, palette.button_outline.a);
-    renderer_draw_rect(&app->renderer, &button);
-
-    SDL_FRect left = {button.x + 1.0f, button.y + 1.0f, (button.w * 0.5f) - 2.0f, button.h - 2.0f};
-    SDL_FRect right = {button.x + button.w * 0.5f + 1.0f, button.y + 1.0f, (button.w * 0.5f) - 2.0f, button.h - 2.0f};
-
-    if (app->route_state_bridge.route.mode == ROUTE_MODE_CAR) {
-        renderer_set_draw_color(&app->renderer,
-                                palette.button_active_primary.r, palette.button_active_primary.g,
-                                palette.button_active_primary.b, palette.button_active_primary.a);
-        renderer_fill_rect(&app->renderer, &left);
-        renderer_set_draw_color(&app->renderer, palette.button_fill.r, palette.button_fill.g, palette.button_fill.b, palette.button_fill.a);
-        renderer_fill_rect(&app->renderer, &right);
-    } else {
-        renderer_set_draw_color(&app->renderer, palette.button_fill.r, palette.button_fill.g, palette.button_fill.b, palette.button_fill.a);
-        renderer_fill_rect(&app->renderer, &left);
-        renderer_set_draw_color(&app->renderer,
-                                palette.button_active_success.r, palette.button_active_success.g,
-                                palette.button_active_success.b, palette.button_active_success.a);
-        renderer_fill_rect(&app->renderer, &right);
-    }
-
-    SDL_Color label_color = palette.text_primary;
-    int text_h = ui_font_line_height(1.0f);
-    if (text_h > 0) {
-        int car_w = ui_measure_text_width("CAR", 1.0f);
-        int walk_w = ui_measure_text_width("WALK", 1.0f);
-        int car_x = (int)(left.x + (left.w - car_w) * 0.5f);
-        int walk_x = (int)(right.x + (right.w - walk_w) * 0.5f);
-        int label_y = (int)(button.y + (button.h - (float)text_h) * 0.5f);
-        ui_draw_text(&app->renderer, car_x, label_y, "CAR", label_color, 1.0f);
-        ui_draw_text(&app->renderer, walk_x, label_y, "WALK", label_color, 1.0f);
-    }
+    SDL_FRect left={button.x,button.y,button.w*.5f,button.h},right={button.x+button.w*.5f,button.y,button.w*.5f,button.h};
+    carta_ui_control_draw(app,left,"CAR",app->route_state_bridge.route.mode==ROUTE_MODE_CAR,(KitUiSurfaceKey){CARTA_CONTROL_HEADER,0},1);
+    carta_ui_control_draw(app,right,"WALK",app->route_state_bridge.route.mode==ROUTE_MODE_WALK,(KitUiSurfaceKey){CARTA_CONTROL_HEADER,1},1);
+    SDL_Color label_color=palette.text_primary;
+    int text_h=ui_font_line_height(1);
 
     float cursor_x = button.x + button.w + 18.0f;
     char speed_text[32];
@@ -584,26 +535,7 @@ void app_draw_header_bar(AppState *app) {
     bool show_zoom_toggle = (strip_right - strip_left) >= (zoom_toggle_w + zoom_toggle_gap + strip_min_w);
     if (show_zoom_toggle) {
         app->ui_state_bridge.header_zoom_toggle_rect = (SDL_FRect){strip_left, box_y, zoom_toggle_w, box_h};
-        renderer_set_draw_color(&app->renderer,
-                                palette.button_outline.r, palette.button_outline.g, palette.button_outline.b, palette.button_outline.a);
-        renderer_draw_rect(&app->renderer, &app->ui_state_bridge.header_zoom_toggle_rect);
-        renderer_set_draw_color(&app->renderer,
-                                app->view_state_bridge.zoom_logic_enabled ? palette.button_active_primary.r : palette.button_fill.r,
-                                app->view_state_bridge.zoom_logic_enabled ? palette.button_active_primary.g : palette.button_fill.g,
-                                app->view_state_bridge.zoom_logic_enabled ? palette.button_active_primary.b : palette.button_fill.b,
-                                app->view_state_bridge.zoom_logic_enabled ? palette.button_active_primary.a : palette.button_fill.a);
-        renderer_fill_rect(&app->renderer, &(SDL_FRect){
-            app->ui_state_bridge.header_zoom_toggle_rect.x + 1.0f,
-            app->ui_state_bridge.header_zoom_toggle_rect.y + 1.0f,
-            app->ui_state_bridge.header_zoom_toggle_rect.w - 2.0f,
-            app->ui_state_bridge.header_zoom_toggle_rect.h - 2.0f
-        });
-        ui_draw_text(&app->renderer,
-                     (int)(app->ui_state_bridge.header_zoom_toggle_rect.x + 7.0f),
-                     (int)(app->ui_state_bridge.header_zoom_toggle_rect.y + (box_h - (float)text_h) * 0.5f),
-                     app->view_state_bridge.zoom_logic_enabled ? "ZOOM ON" : "ZOOM OFF",
-                     label_color,
-                     1.0f);
+        carta_ui_control_draw(app,app->ui_state_bridge.header_zoom_toggle_rect,app->view_state_bridge.zoom_logic_enabled?"ZOOM ON":"ZOOM OFF",app->view_state_bridge.zoom_logic_enabled,(KitUiSurfaceKey){CARTA_CONTROL_HEADER,2},1);
         strip_left += zoom_toggle_w + zoom_toggle_gap;
     } else {
         memset(&app->ui_state_bridge.header_zoom_toggle_rect, 0, sizeof(app->ui_state_bridge.header_zoom_toggle_rect));

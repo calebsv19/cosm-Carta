@@ -5,6 +5,7 @@
 #include "app/app_ui_internal.h"
 
 #include "ui/font.h"
+#include "ui/control_surface.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -56,28 +57,13 @@ static void app_pin_metadata_draw_button(AppState *app,
                                          const SDL_FRect *rect,
                                          const char *label,
                                          bool active) {
-    MapForgeThemePalette palette = app_ui_theme_palette();
-    SDL_Color text = {225, 230, 240, 255};
-    SDL_Color fill = active ? palette.button_active_primary : palette.button_fill;
-    if ((299u * fill.r + 587u * fill.g + 114u * fill.b) / 1000u > 160u) text = (SDL_Color){20, 28, 38, 255};
-    if (!app || !rect || rect->w <= 0.0f || rect->h <= 0.0f || !label) {
-        return;
+    if(!app || !rect || !label)return;
+    unsigned action=0;
+    for(unsigned i=0;i<8;i++) {
+        SDL_FRect candidate=app_pin_panel_metadata_rect(app,i);
+        if(candidate.x==rect->x && candidate.y==rect->y){action=i;break;}
     }
-    renderer_set_draw_color(&app->renderer, fill.r, fill.g, fill.b, 220);
-    renderer_fill_rect(&app->renderer, rect);
-    renderer_set_draw_color(&app->renderer,
-                            palette.button_outline.r,
-                            palette.button_outline.g,
-                            palette.button_outline.b,
-                            palette.button_outline.a);
-    renderer_draw_rect(&app->renderer, rect);
-    ui_draw_text_clipped(&app->renderer,
-                         (int)(rect->x + 8.0f),
-                         (int)(rect->y + 4.0f),
-                         label,
-                         text,
-                         0.8f,
-                         (int)rect->w - 12);
+    carta_ui_control_draw(app,*rect,label,active,(KitUiSurfaceKey){CARTA_CONTROL_PANEL,9+action},.8f);
 }
 
 static void app_pin_metadata_draw_fact(AppState *app,
@@ -118,6 +104,14 @@ static SDL_FRect app_pin_collection_rect(const AppState *app, uint32_t index) {
     return (SDL_FRect){app->ui_state_bridge.pin_pane_content_rect.x + (index % 3u) * width,
         app->ui_state_bridge.pin_pane_type_rect.y + app->ui_state_bridge.pin_pane_type_rect.h + 48.0f + (index / 3u) * 25.0f,
         width - 4.0f, 22.0f};
+}
+
+SDL_FRect app_pin_panel_metadata_rect(const AppState *app,unsigned action) {
+    if(action<5)return app_pin_collection_rect(app,action);
+    if(action==5)return app->ui_state_bridge.pin_pane_type_rect;
+    if(action==6)return app->ui_state_bridge.pin_pane_color_rect;
+    if(action==7)return app->ui_state_bridge.pin_pane_private_rect;
+    return (SDL_FRect){0};
 }
 
 void app_pin_panel_draw_metadata(AppState *app) {
@@ -179,13 +173,12 @@ void app_pin_panel_draw_metadata(AppState *app) {
     }
 }
 
-bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y) {
+bool app_pin_panel_activate_metadata(AppState *app,unsigned action) {
     if (!app || !app->ui_state_bridge.pin_editor_has_draft) {
         return false;
     }
     for (uint32_t i = 0u; i < 5u; ++i) {
-        SDL_FRect rect = app_pin_collection_rect(app, i);
-        if (x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h) {
+        if (action==i) {
             if ((i == 1u || i == 2u) && !app->ui_state_bridge.pin_editor_is_new) {
                 struct json_object *services = NULL;
                 json_object_object_get_ex(app->pins_file.source_json, "services", &services);
@@ -203,10 +196,7 @@ bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y) {
             return true;
         }
     }
-    if ((float)x >= app->ui_state_bridge.pin_pane_type_rect.x &&
-        (float)x <= app->ui_state_bridge.pin_pane_type_rect.x + app->ui_state_bridge.pin_pane_type_rect.w &&
-        (float)y >= app->ui_state_bridge.pin_pane_type_rect.y &&
-        (float)y <= app->ui_state_bridge.pin_pane_type_rect.y + app->ui_state_bridge.pin_pane_type_rect.h) {
+    if (action==5) {
         app_pin_cycle_option(app->ui_state_bridge.pin_editor_draft.type,
                              sizeof(app->ui_state_bridge.pin_editor_draft.type),
                              app_pin_type_options);
@@ -215,10 +205,7 @@ bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y) {
                                    app->ui_state_bridge.pin_editor_draft.type);
         return true;
     }
-    if ((float)x >= app->ui_state_bridge.pin_pane_color_rect.x &&
-        (float)x <= app->ui_state_bridge.pin_pane_color_rect.x + app->ui_state_bridge.pin_pane_color_rect.w &&
-        (float)y >= app->ui_state_bridge.pin_pane_color_rect.y &&
-        (float)y <= app->ui_state_bridge.pin_pane_color_rect.y + app->ui_state_bridge.pin_pane_color_rect.h) {
+    if (action==6) {
         app_pin_cycle_option(app->ui_state_bridge.pin_editor_draft.color,
                              sizeof(app->ui_state_bridge.pin_editor_draft.color),
                              app_pin_color_options);
@@ -227,15 +214,21 @@ bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y) {
                                    app->ui_state_bridge.pin_editor_draft.color);
         return true;
     }
-    if ((float)x >= app->ui_state_bridge.pin_pane_private_rect.x &&
-        (float)x <= app->ui_state_bridge.pin_pane_private_rect.x + app->ui_state_bridge.pin_pane_private_rect.w &&
-        (float)y >= app->ui_state_bridge.pin_pane_private_rect.y &&
-        (float)y <= app->ui_state_bridge.pin_pane_private_rect.y + app->ui_state_bridge.pin_pane_private_rect.h) {
+    if (action==7) {
         app->ui_state_bridge.pin_editor_draft.private_flag = !app->ui_state_bridge.pin_editor_draft.private_flag;
         app_pin_editor_set_statusf(app,
                                    "Private flag %s.",
                                    app->ui_state_bridge.pin_editor_draft.private_flag ? "enabled" : "disabled");
         return true;
+    }
+    return false;
+}
+
+bool app_pin_panel_handle_metadata_click(AppState *app,int x,int y) {
+    if(!app)return false;
+    for(unsigned i=0;i<8;i++) {
+        SDL_FRect r=app_pin_panel_metadata_rect(app,i);
+        if(x>=r.x && x<r.x+r.w && y>=r.y && y<r.y+r.h)return app_pin_panel_activate_metadata(app,i);
     }
     return false;
 }

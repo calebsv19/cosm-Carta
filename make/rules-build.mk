@@ -161,3 +161,7 @@ clean:
 $(HOST_BUILD_ROOT)/kit_ui/%.o: $(KIT_UI_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
+$(HOST_BUILD_ROOT)/kit_pane/%.o: $(KIT_PANE_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -c $< -o $@

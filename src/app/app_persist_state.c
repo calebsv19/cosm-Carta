@@ -250,6 +250,11 @@ void app_load_persisted_view_state(AppState *app) {
     struct json_object *history_pref=NULL;
     if(json_object_object_get_ex(root,"history_selected_only",&history_pref))app->ui_state_bridge.history_selected_only=json_object_get_boolean(history_pref);
     if(json_object_object_get_ex(root,"history_hide_geographic_labels",&history_pref))app->ui_state_bridge.history_hide_geographic_labels=json_object_get_boolean(history_pref);
+    struct json_object *sidebar=NULL;
+    if(json_object_object_get_ex(root,"sidebar_ratio",&sidebar)) {
+        double value=json_object_get_double(sidebar);
+        if(value>=.05 && value<=.95)app->ui_state_bridge.rollout.sidebar_ratio=(float)value;
+    }
     if (app_json_get_int(root, "utility_workspace", &workspace) && workspace >= 0 && workspace <= 3) app_utility_workspace_select(app, (uint32_t)workspace);
     struct json_object *view = NULL;
     if (!json_object_object_get_ex(root, "map_view", &view) ||
@@ -358,6 +363,7 @@ void app_save_persisted_view_state(const AppState *app) {
     json_object_object_add(root,"history_collection_id",json_object_new_string(app->ui_state_bridge.history_collection_id));
     json_object_object_add(root,"history_selected_only",json_object_new_boolean(app->ui_state_bridge.history_selected_only));
     json_object_object_add(root,"history_hide_geographic_labels",json_object_new_boolean(app->ui_state_bridge.history_hide_geographic_labels));
+    json_object_object_add(root,"sidebar_ratio",json_object_new_double(app->ui_state_bridge.rollout.sidebar_ratio>0?app->ui_state_bridge.rollout.sidebar_ratio:.28));
     json_object_object_add(root, "utility_workspace", json_object_new_int((int)app->ui_state_bridge.utility_workspace));
     struct json_object *view = json_object_new_object();
     if (!view) {

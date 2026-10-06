@@ -763,6 +763,7 @@ static bool app_runtime_handle_ingest_controls(AppState *app) {
         app->ingest_edit_mode = !app->ingest_edit_mode;
         if (app->ingest_edit_mode) {
             snprintf(app->input_root_edit, sizeof(app->input_root_edit), "%s", app->input_root);
+            carta_text_bind(&app->ui_state_bridge.rollout.ingest_root,app->input_root_edit,sizeof(app->input_root_edit),true);
             app_runtime_set_ingest_status(app, "Edit mode enabled");
         } else {
             app_runtime_set_ingest_status(app, "Edit mode disabled");
@@ -781,24 +782,6 @@ static bool app_runtime_handle_ingest_controls(AppState *app) {
         }
         consumed = true;
     }
-    if (app->ingest_edit_mode) {
-        if (app->ui_state_bridge.input.backspace_pressed) {
-            size_t len = strlen(app->input_root_edit);
-            if (len > 0u) {
-                app->input_root_edit[len - 1u] = '\0';
-            }
-            consumed = true;
-        }
-        if (app->ui_state_bridge.input.text_input_received) {
-            size_t cur = strlen(app->input_root_edit);
-            size_t add = strlen(app->ui_state_bridge.input.text_input);
-            if (cur + add + 1u < sizeof(app->input_root_edit)) {
-                strncat(app->input_root_edit, app->ui_state_bridge.input.text_input, sizeof(app->input_root_edit) - cur - 1u);
-            }
-            consumed = true;
-        }
-    }
-
     if (app->ui_state_bridge.input.ingest_select_prev_pressed) {
         if (app->ingest_show_active_tab) {
             if (app->ingest_selected_active > 0) {

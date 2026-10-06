@@ -16,6 +16,7 @@ typedef enum AppUiTextRole {
 float app_ui_text_scale(AppUiTextRole role);
 int app_ui_text_line_height(AppUiTextRole role);
 int app_ui_text_width(const char *text, AppUiTextRole role);
+SDL_FRect app_header_button_rect(const AppState *);
 bool app_handle_hud_clicks(AppState *app);
 
 #endif

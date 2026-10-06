@@ -1,14 +1,14 @@
 #include "ui/control_surface.h"
+#include "ui/modal_controls.h"
 #include "app/app_ui_internal.h"
 #include "ui/font.h"
 #include <math.h>
 
 // Converts the host's resolved palette without changing theme persistence.
 static CoreThemeColor color(SDL_Color c) { return (CoreThemeColor){c.r,c.g,c.b,c.a}; }
-void carta_ui_control_draw(AppState *app, SDL_FRect r, const char *label,
+void carta_ui_control_draw_surface(AppState *app, KitUiSurface *s, SDL_FRect r, const char *label,
                            bool selected, KitUiSurfaceKey key, float scale) {
     if (!app || !label || r.w<=0 || r.h<=0) return;
-    KitUiSurface *s=&app->ui_state_bridge.controls;
     KitUiButtonSpec spec; kit_ui_button_spec_init(&spec,label);
     spec.state.selected=selected;
     if (key.domain) for (unsigned i=0;i<s->count;i++)
@@ -25,10 +25,12 @@ void carta_ui_control_draw(AppState *app, SDL_FRect r, const char *label,
         (SDL_Color){20,28,38,255}:(SDL_Color){235,240,248,255};
     KitUiButtonAppearance appearance;
     kit_ui_button_appearance_preset(KIT_UI_BUTTON_APPEARANCE_COMPACT_ROUNDED,&appearance);
+    SDL_FRect paint=r;
+    if(app->renderer.viewport_enabled){paint.x-=app->renderer.viewport_x;paint.y-=app->renderer.viewport_y;}
     float radius=kit_ui_corner_radius_clamp(appearance.corner_radius,r.w,r.h);
     renderer_set_draw_color(&app->renderer,style.outline.r,style.outline.g,style.outline.b,style.outline.a);
-    renderer_fill_rounded_rect(&app->renderer,&r,radius);
-    KitRenderRect inner=kit_ui_rect_inset((KitRenderRect){r.x,r.y,r.w,r.h},appearance.border_thickness);
+    renderer_fill_rounded_rect(&app->renderer,&paint,radius);
+    KitRenderRect inner=kit_ui_rect_inset((KitRenderRect){paint.x,paint.y,paint.w,paint.h},appearance.border_thickness);
     SDL_FRect inside={inner.x,inner.y,inner.width,inner.height};
     renderer_set_draw_color(&app->renderer,style.fill.r,style.fill.g,style.fill.b,style.fill.a);
     renderer_fill_rounded_rect(&app->renderer,&inside,
@@ -52,7 +54,11 @@ void carta_ui_control_draw(AppState *app, SDL_FRect r, const char *label,
         KitRenderRect marker;
         if (kit_ui_interaction_focus_marker(&s->interaction,s->controls,s->count,&marker)) {
             renderer_set_draw_color(&app->renderer,ink.r,ink.g,ink.b,ink.a);
-            renderer_fill_rect(&app->renderer,&(SDL_FRect){marker.x,marker.y,marker.width,marker.height});
+            renderer_fill_rect(&app->renderer,&(SDL_FRect){marker.x+(paint.x-r.x),marker.y+(paint.y-r.y),marker.width,marker.height});
         }
     }
+}
+
+void carta_ui_control_draw(AppState *app,SDL_FRect r,const char *label,bool selected,KitUiSurfaceKey key,float scale) {
+    if(app)carta_ui_control_draw_surface(app,&app->ui_state_bridge.controls,r,label,selected,key,scale);
 }

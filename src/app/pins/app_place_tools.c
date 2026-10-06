@@ -509,6 +509,159 @@ void app_place_tools_activate_toolbar(AppState *app,unsigned i) {
                 }
     carta_ui_controls_sync(app);
 }
+// Dispatches the existing product action after shared capture/release qualification.
+void tools_activate(AppState *app,uint64_t action) {
+        if (action==1) {
+            app_place_tools_close();
+            return;
+        }
+        if (tools.kind == 1) {
+            if (action==2) {
+                tools_profile_save(app);
+                return;
+            }
+            if (action==3) {
+                app_place_tools_close();
+                return;
+            }
+            struct json_object *p = NULL, *pets = NULL, *home = NULL;
+            json_object_object_get_ex(tools.draft, "profile", &p);
+            json_object_object_get_ex(p, "pets", &pets);
+            json_object_object_get_ex(p, "home_services", &home);
+            for (unsigned j = 0; j < 4; ++j)
+                if (action==100+j) {
+                    tools_service_toggle(home, j);
+                    return;
+                }
+            if (action==20) {
+                tools_field_finish();
+                tools.field = -1;
+                if (json_object_array_length(pets) >= 32) {
+                    snprintf(tools.status, sizeof(tools.status), "Editor limit: 32 pets per home.");
+                    return;
+                }
+                struct json_object *pet = json_object_new_object();
+                char id[96];
+                snprintf(id, sizeof(id), "native-pet-%llu", (unsigned long long)SDL_GetPerformanceCounter());
+                json_object_object_add(pet, "id", json_object_new_string(id));
+                json_object_object_add(pet, "name", json_object_new_string(""));
+                json_object_object_add(pet, "species", json_object_new_string(""));
+                json_object_object_add(pet, "services", json_object_new_array());
+                json_object_array_add(pets, pet);
+                snprintf(tools.status, sizeof(tools.status),
+                         "New pet added to draft; enter its name and service roles, then Save.");
+                return;
+            }
+            if (action==21) {
+                tools.linking = !tools.linking;
+                return;
+            }
+            if (tools.linking) {
+                struct json_object *all = NULL;
+                json_object_object_get_ex(app->pins_file.source_json, "pets", &all);
+                size_t count = all ? json_object_array_length(all) : 0;
+                if (action==22) {
+                    ++tools.link_index;
+                    return;
+                }
+                if (count && action==23) {
+                    struct json_object *pet =
+                        json_object_array_get_idx(all, (size_t)tools.link_index % count);
+                    bool duplicate = false;
+                    for (size_t i = 0; i < json_object_array_length(pets); ++i)
+                        if (!strcmp(tools_text(json_object_array_get_idx(pets, i), "id"),
+                                    tools_text(pet, "id")))
+                            duplicate = true;
+                    if (!duplicate && json_object_array_length(pets) < 32) {
+                        struct json_object *copy = tools_clone(pet);
+                        json_object_object_add(copy, "services", json_object_new_array());
+                        json_object_array_add(pets, copy);
+                        tools.linking = false;
+                    } else
+                        snprintf(tools.status, sizeof(tools.status),
+                                 "Pet already linked or editor capacity reached.");
+                    return;
+                }
+                }
+            for (size_t i = 0; i < json_object_array_length(pets); ++i) {
+                struct json_object *pet = json_object_array_get_idx(pets, i), *kinds = NULL;
+                json_object_object_get_ex(pet, "services", &kinds);
+                    if (action==105+(1+i)*8) {
+                    tools_field_finish();
+                    tools.field = -1;
+                    json_object_array_del_idx(pets, i, 1);
+                    snprintf(tools.status, sizeof(tools.status),
+                             "Detached in draft; the pet record and other homes will be preserved.");
+                    return;
+                }
+                for (unsigned j = 0; j < 4; ++j)
+                    if (action==100+(1+i)*8+j) {
+                        tools_service_toggle(kinds, j);
+                        return;
+                    }
+            }
+        } else if (tools.kind == 2) {
+            if (action==300) {
+                tools.archived = !tools.archived;
+                tools.selected = -1;
+                tools.scroll = 0;
+                tools.field = -1;
+                return;
+            }
+            int ordinal=(int)action-600-tools.route_page*100;
+            if(action>=600 && ordinal>=0 && tools_route_row(ordinal)) {
+                    tools.selected = ordinal;
+                    struct json_object *row = tools_route_row(tools.selected), *intent = NULL;
+                    json_object_object_get_ex(row, "saved_intent", &intent);
+                    tools_field_begin(0, tools_text(intent, "name"));
+                    return;
+                }
+            for (unsigned i = 0; i < 5; ++i)
+                if (action==310+i) {
+                    if (i == 0) {
+                        struct json_object *row = tools_route_row(tools.selected), *intent = NULL;
+                        if (row) {
+                            json_object_object_get_ex(row, "saved_intent", &intent);
+                            char id[128];
+                            snprintf(id, sizeof(id), "%s", tools_text(intent, "id"));
+                            app_place_tools_close();
+                            app_places_open_route(app, id);
+                        }
+                    }
+                    if (i == 1 || i == 2)
+                        tools_route_manage(app, i == 1);
+                    if (i == 3 && tools.route_page > 0) {
+                        --tools.route_page;
+                        tools_routes_load(app);
+                    }
+                    if (i == 4 && (tools.route_page + 1) * 100 < tools_int(tools.routes, "total")) {
+                        ++tools.route_page;
+                        tools_routes_load(app);
+                    }
+                    return;
+                }
+        } else {
+            for (unsigned i = 0; i < 4; ++i)
+                if (action==400+i) {
+                    tools_recovery(app, i);
+                    return;
+                }
+            if(action>=700 && tools.draft && action-700<json_object_array_length(tools.draft)) {
+                    tools_field_finish();
+                    tools.field = -1;
+                    SDL_StopTextInput();
+                    struct json_object *v =
+                        json_object_array_get_idx(tools.draft, (size_t)(action-700));
+                    snprintf(tools.source, sizeof(tools.source), "%s", tools_text(v, "path"));
+                    if (tools.restore)
+                        json_object_put(tools.restore);
+                    tools.restore = NULL;
+                    return;
+                }
+        }
+        return;
+}
+
 // Consumes modal text editing, bounded scrolling and explicit actions before map input.
 bool app_place_tools_handle_event(AppState *app, const SDL_Event *event) {
     if (!tools.kind)return carta_ui_controls_event(app,event);
@@ -537,6 +690,7 @@ bool app_place_tools_handle_event(AppState *app, const SDL_Event *event) {
         }
         if(text.consumed)return true;
     }
+    if(carta_ui_controls_event(app,event))return true;
     if(event->type==SDL_KEYDOWN){if(event->key.keysym.sym==SDLK_ESCAPE && !event->key.repeat)app_place_tools_close();return true;}
     if (event->type == SDL_MOUSEWHEEL) {
         tools_field_finish();
@@ -564,6 +718,7 @@ bool app_place_tools_handle_event(AppState *app, const SDL_Event *event) {
                 visible = 1;
             max -= visible;
         }
+        tools.controls_ready=false;
         tools.scroll -= event->wheel.y * (tools.kind == 1 ? 36 : 1);
         if (tools.scroll < 0)
             tools.scroll = 0;
@@ -571,14 +726,8 @@ bool app_place_tools_handle_event(AppState *app, const SDL_Event *event) {
             tools.scroll = max > 0 ? max : 0;
         return true;
     }
-    if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT) {
-        int mx = event->button.x, my = event->button.y;
-        SDL_FRect r = tools_rect(app);
-        float x = r.x + 14, w = r.w - 28;
-        if (tools_hit((SDL_FRect){r.x + r.w - 74, r.y + 8, 64, 26}, mx, my)) {
-            app_place_tools_close();
-            return true;
-        }
+    if(event->type==SDL_MOUSEBUTTONDOWN && event->button.button==SDL_BUTTON_LEFT) {
+        int mx=event->button.x,my=event->button.y;
         for (unsigned i = 0; i < tools.field_count; ++i)
             if (tools.fields[i].w > 0 && tools_hit(tools.fields[i], mx, my)) {
                 const char *key = NULL;
@@ -595,169 +744,6 @@ bool app_place_tools_handle_event(AppState *app, const SDL_Event *event) {
                     tools_field_begin((int)i, tools.kind == 3 ? tools.source : tools_text(v, key));
                 return true;
             }
-        if (tools.kind == 1) {
-            float fy = r.y + r.h - 62;
-            if (tools_hit((SDL_FRect){x, fy, 140, 24}, mx, my)) {
-                tools_profile_save(app);
-                return true;
-            }
-            if (tools_hit((SDL_FRect){x + 148, fy, 120, 24}, mx, my)) {
-                app_place_tools_close();
-                return true;
-            }
-            float y = r.y + 54 - tools.scroll + 66 + 144;
-            struct json_object *p = NULL, *pets = NULL, *home = NULL;
-            json_object_object_get_ex(tools.draft, "profile", &p);
-            json_object_object_get_ex(p, "pets", &pets);
-            json_object_object_get_ex(p, "home_services", &home);
-            if (my < r.y + 52 || my >= r.y + r.h - 72)
-                return true;
-            for (unsigned j = 0; j < 4; ++j)
-                if (tools_hit((SDL_FRect){x + j * w / 4, y + 18, w / 4 - 4, 22}, mx, my)) {
-                    tools_service_toggle(home, j);
-                    return true;
-                }
-            y += 48;
-            if (tools_hit((SDL_FRect){x, y, 110, 22}, mx, my)) {
-                tools_field_finish();
-                tools.field = -1;
-                if (json_object_array_length(pets) >= 32) {
-                    snprintf(tools.status, sizeof(tools.status), "Editor limit: 32 pets per home.");
-                    return true;
-                }
-                struct json_object *pet = json_object_new_object();
-                char id[96];
-                snprintf(id, sizeof(id), "native-pet-%llu", (unsigned long long)SDL_GetPerformanceCounter());
-                json_object_object_add(pet, "id", json_object_new_string(id));
-                json_object_object_add(pet, "name", json_object_new_string(""));
-                json_object_object_add(pet, "species", json_object_new_string(""));
-                json_object_object_add(pet, "services", json_object_new_array());
-                json_object_array_add(pets, pet);
-                snprintf(tools.status, sizeof(tools.status),
-                         "New pet added to draft; enter its name and service roles, then Save.");
-                return true;
-            }
-            if (tools_hit((SDL_FRect){x + 118, y, 150, 22}, mx, my)) {
-                tools.linking = !tools.linking;
-                return true;
-            }
-            y += 30;
-            if (tools.linking) {
-                struct json_object *all = NULL;
-                json_object_object_get_ex(app->pins_file.source_json, "pets", &all);
-                size_t count = all ? json_object_array_length(all) : 0;
-                if (tools_hit((SDL_FRect){x, y, w - 82, 22}, mx, my)) {
-                    ++tools.link_index;
-                    return true;
-                }
-                if (count && tools_hit((SDL_FRect){x + w - 76, y, 76, 22}, mx, my)) {
-                    struct json_object *pet =
-                        json_object_array_get_idx(all, (size_t)tools.link_index % count);
-                    bool duplicate = false;
-                    for (size_t i = 0; i < json_object_array_length(pets); ++i)
-                        if (!strcmp(tools_text(json_object_array_get_idx(pets, i), "id"),
-                                    tools_text(pet, "id")))
-                            duplicate = true;
-                    if (!duplicate && json_object_array_length(pets) < 32) {
-                        struct json_object *copy = tools_clone(pet);
-                        json_object_object_add(copy, "services", json_object_new_array());
-                        json_object_array_add(pets, copy);
-                        tools.linking = false;
-                    } else
-                        snprintf(tools.status, sizeof(tools.status),
-                                 "Pet already linked or editor capacity reached.");
-                    return true;
-                }
-                y += 30;
-            }
-            for (size_t i = 0; i < json_object_array_length(pets); ++i) {
-                struct json_object *pet = json_object_array_get_idx(pets, i), *kinds = NULL;
-                json_object_object_get_ex(pet, "services", &kinds);
-                y += 48;
-                if (tools_hit((SDL_FRect){x + w - 84, y, 84, 22}, mx, my)) {
-                    tools_field_finish();
-                    tools.field = -1;
-                    json_object_array_del_idx(pets, i, 1);
-                    snprintf(tools.status, sizeof(tools.status),
-                             "Detached in draft; the pet record and other homes will be preserved.");
-                    return true;
-                }
-                for (unsigned j = 0; j < 4; ++j)
-                    if (tools_hit((SDL_FRect){x + j * (w - 90) / 4, y, (w - 90) / 4 - 4, 22}, mx, my)) {
-                        tools_service_toggle(kinds, j);
-                        return true;
-                    }
-                y += 34;
-            }
-        } else if (tools.kind == 2) {
-            if (tools_hit((SDL_FRect){x, r.y + 54, 160, 24}, mx, my)) {
-                tools.archived = !tools.archived;
-                tools.selected = -1;
-                tools.scroll = 0;
-                tools.field = -1;
-                return true;
-            }
-            int visible = (int)(r.h - 186) / 36;
-            if (visible < 1)
-                visible = 1;
-            for (int i = 0; i < visible; ++i)
-                if (tools_hit((SDL_FRect){x, r.y + 104 + i * 36, w * .46f, 30}, mx, my) &&
-                    tools_route_row(tools.scroll + i)) {
-                    tools.selected = tools.scroll + i;
-                    struct json_object *row = tools_route_row(tools.selected), *intent = NULL;
-                    json_object_object_get_ex(row, "saved_intent", &intent);
-                    tools_field_begin(0, tools_text(intent, "name"));
-                    return true;
-                }
-            for (unsigned i = 0; i < 5; ++i)
-                if (tools_hit((SDL_FRect){x + i * w / 5, r.y + r.h - 62, w / 5 - 5, 24}, mx, my)) {
-                    if (i == 0) {
-                        struct json_object *row = tools_route_row(tools.selected), *intent = NULL;
-                        if (row) {
-                            json_object_object_get_ex(row, "saved_intent", &intent);
-                            char id[128];
-                            snprintf(id, sizeof(id), "%s", tools_text(intent, "id"));
-                            app_place_tools_close();
-                            app_places_open_route(app, id);
-                        }
-                    }
-                    if (i == 1 || i == 2)
-                        tools_route_manage(app, i == 1);
-                    if (i == 3 && tools.route_page > 0) {
-                        --tools.route_page;
-                        tools_routes_load(app);
-                    }
-                    if (i == 4 && (tools.route_page + 1) * 100 < tools_int(tools.routes, "total")) {
-                        ++tools.route_page;
-                        tools_routes_load(app);
-                    }
-                    return true;
-                }
-        } else {
-            for (unsigned i = 0; i < 4; ++i)
-                if (tools_hit((SDL_FRect){x + i * w / 4, r.y + 180, w / 4 - 6, 26}, mx, my)) {
-                    tools_recovery(app, i);
-                    return true;
-                }
-            int visible = (int)(r.h - 410) / 28;
-            if (visible < 1)
-                visible = 1;
-            for (int i = 0; i < visible && tools.draft &&
-                            (size_t)(tools.scroll + i) < json_object_array_length(tools.draft);
-                 ++i)
-                if (tools_hit((SDL_FRect){x, r.y + 330 + i * 28, w, 24}, mx, my)) {
-                    tools_field_finish();
-                    tools.field = -1;
-                    SDL_StopTextInput();
-                    struct json_object *v =
-                        json_object_array_get_idx(tools.draft, (size_t)(tools.scroll + i));
-                    snprintf(tools.source, sizeof(tools.source), "%s", tools_text(v, "path"));
-                    if (tools.restore)
-                        json_object_put(tools.restore);
-                    tools.restore = NULL;
-                    return true;
-                }
-        }
         return true;
     }
     return event->type == SDL_MOUSEBUTTONDOWN || event->type == SDL_MOUSEBUTTONUP ||

@@ -33,13 +33,35 @@ void carta_ui_controls_sync(AppState *app) {
                                       app_utility_workspace_rect(app,i),clip);
         for(unsigned i=0;i<9;i++)add(s,CARTA_CONTROL_PLACES,i,carta_places_control_rect(app,CARTA_CONTROL_PLACES,i),clip);
         for(unsigned i=0;i<2;i++)add(s,CARTA_CONTROL_ROUTES,i,carta_places_control_rect(app,CARTA_CONTROL_ROUTES,i),clip);
+        for(unsigned i=0;i<17;i++)add(s,CARTA_CONTROL_PANEL,i,carta_remaining_control_rect(app,CARTA_CONTROL_PANEL,i),clip);
+        for(unsigned i=0;i<40+TILE_LAYER_COUNT;i++)add(s,CARTA_CONTROL_HEADER,i,carta_remaining_control_rect(app,CARTA_CONTROL_HEADER,i),clip);
+        for(unsigned i=0;i<40+ROUTE_ALTERNATIVE_MAX;i++)add(s,CARTA_CONTROL_ROUTE_PANEL,i,carta_remaining_control_rect(app,CARTA_CONTROL_ROUTE_PANEL,i),clip);
         if (app->ui_state_bridge.utility_workspace == APP_UTILITY_HIKING_HISTORY)
-            for (unsigned i=0;i<29;i++) add(s,CARTA_CONTROL_HISTORY,i,
+            for (unsigned i=0;i<32;i++) add(s,CARTA_CONTROL_HISTORY,i,
                                            history_ui_control_rect(app,i),clip);
     }
     if(unavailable && history_ui_modal())
         for(unsigned i=0;i<3;i++)add(s,CARTA_CONTROL_HISTORY_FORM,i,history_ui_form_control_rect(app,i),clip);
-    bool changed = s->count != s->next_count ||
+    if(unavailable && app_place_tools_active())
+        for(unsigned i=0;i<app_place_tools_control_count();i++)
+            add(s,CARTA_CONTROL_PLACE_FORM,app_place_tools_control_key(i),app_place_tools_control_rect(i),clip);
+    HistoryViewSelection bindings[3]={{0}};
+    if(app->ui_state_bridge.utility_workspace==APP_UTILITY_HIKING_HISTORY)
+        for(unsigned i=0;i<3 && i<app->ui_state_bridge.history_views.count;i++) {
+            bindings[i].filter=app->ui_state_bridge.history_views.items[i].filter;
+            SDL_strlcpy(bindings[i].collection,app->ui_state_bridge.history_views.items[i].collection,sizeof(bindings[i].collection));
+        }
+    bool bindings_changed=memcmp(bindings,app->ui_state_bridge.rollout.history_bindings,sizeof(bindings))!=0;
+    memcpy(app->ui_state_bridge.rollout.history_bindings,bindings,sizeof(bindings));
+    uint64_t route_bindings=app->route_state_bridge.route.alternatives.count;
+    for(unsigned i=0;i<app->route_state_bridge.route.alternatives.count && i<ROUTE_ALTERNATIVE_MAX;i++)
+        route_bindings=route_bindings*31u+1u+(unsigned)app->route_state_bridge.route.alternatives.objectives[i];
+    CartaUiRollout *rollout=&app->ui_state_bridge.rollout;
+    bool target_changed=strcmp(rollout->pin_target,app->ui_state_bridge.pin_editor_draft.id) ||
+        rollout->store_signature!=app->pins_file.source_signature || rollout->route_bindings!=route_bindings;
+    SDL_strlcpy(rollout->pin_target,app->ui_state_bridge.pin_editor_draft.id,sizeof(rollout->pin_target));
+    rollout->store_signature=app->pins_file.source_signature;rollout->route_bindings=route_bindings;
+    bool changed = target_changed || bindings_changed || s->count != s->next_count ||
         app->ui_state_bridge.controls_width!=app->width ||
         app->ui_state_bridge.controls_height!=app->height ||
         app->ui_state_bridge.controls_workspace != app->ui_state_bridge.utility_workspace ||
@@ -66,6 +88,13 @@ bool carta_ui_controls_event(AppState *app, const SDL_Event *event) {
     KitUiSurface *s = &app->ui_state_bridge.controls;
     KitUiInteractionEvent input;
     if (!kit_ui_interaction_event_from_sdl(event,&input)) return false;
+    if(input.type==KIT_UI_INTERACTION_POINTER_DOWN || input.type==KIT_UI_INTERACTION_POINTER_UP) {
+        SDL_Keymod mods=SDL_GetModState();
+        if(mods&KMOD_SHIFT)input.modifiers|=KIT_UI_INTERACTION_MOD_SHIFT;
+        if(mods&KMOD_ALT)input.modifiers|=KIT_UI_INTERACTION_MOD_ALT;
+        if(mods&KMOD_CTRL)input.modifiers|=KIT_UI_INTERACTION_MOD_CTRL;
+        if(mods&KMOD_GUI)input.modifiers|=KIT_UI_INTERACTION_MOD_GUI;
+    }
     if (input.type==KIT_UI_INTERACTION_CANCEL) {
         // Forget restoration without resetting the surface's outstanding release guard.
         memset(&app->ui_state_bridge.controls_focus,0,sizeof(app->ui_state_bridge.controls_focus));
@@ -73,7 +102,7 @@ bool carta_ui_controls_event(AppState *app, const SDL_Event *event) {
         return false; /* Window/quit events still reach host lifecycle handling. */
     }
     // Existing search editing retains its keys; an armed button cannot submit it.
-    if ((app->ui_state_bridge.place_search_active || app->ui_state_bridge.route_plan_name_active) &&
+    if ((app->ui_state_bridge.place_search_active || app->ui_state_bridge.route_plan_name_active || app->ui_state_bridge.pin_name_edit_active || app->ingest_edit_mode || app_place_tools_text_active()) &&
         (input.type==KIT_UI_INTERACTION_KEY_DOWN || input.type==KIT_UI_INTERACTION_KEY_UP)) {
         kit_ui_surface_set_scope(s,0);
         return false;
@@ -93,6 +122,8 @@ bool carta_ui_controls_event(AppState *app, const SDL_Event *event) {
             else if(key.domain==CARTA_CONTROL_PLACES || key.domain==CARTA_CONTROL_ROUTES)
                 carta_places_control_activate(app,key.domain,key.value);
             else if(key.domain==CARTA_CONTROL_HISTORY_FORM)history_ui_form_control_activate(app,(unsigned)key.value);
+            else if(key.domain==CARTA_CONTROL_PLACE_FORM)app_place_tools_control_activate(app,key.value);
+            else carta_remaining_control_activate(app,key.domain,(unsigned)key.value,input.modifiers);
             carta_ui_controls_sync(app);
         }
     }

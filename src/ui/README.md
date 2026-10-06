@@ -25,7 +25,7 @@ This module provides reusable UI helpers for runtime overlays and text rendering
 
 See `docs/shared_control_adoption.md` for activation/cancellation, scope limits
 and qualification. Layout, product data, map/terrain policy and persistence remain
-with the app. This adapter does not turn legacy forms into shared text editors.
+with the app. The bounded text adapter owns editing for the declared migrated fields.
 
 - `text_input.c` / `text_presentation.c`: caller-owned bounded shared editor,
   measured clipped selection/preedit/caret, visible native-session ownership and
@@ -36,3 +36,16 @@ with the app. This adapter does not turn legacy forms into shared text editors.
   buttons and eligible background focus restoration through shared focus scopes.
 
 See `docs/shared_text_modal_adoption.md` for adopted text owners and remaining hosts.
+
+## Completion adapters
+
+- `control_remaining.c`: direct Map HUD, sidebar, metadata and route objective intent.
+- `modal_controls.c`: per-modal visible surfaces, inventory invalidation and release routing.
+- `text_hosts.c`: pin-name/Ingest per-event ownership above map shortcuts; window notifications never insert text.
+- `pane_layout.c` / `panes.c`: core topology, composed geometry/hit and pointer ownership, subtle splitter and persisted ratio policy.
+- `window.c` / `window_probe.c`: actual geometry/presentability, F11, domain cancellation and finite actual-loop qualification.
+- `app/history/history_picker.c`: separated peak button inventory/presentation; the history host keeps goal creation and persistence.
+
+See `docs/shared_ui_rollout.md`. These reuse the exact vendored shared snapshot;
+application-specific policy remains outside the kit. Draws are synchronous and
+per-item picker text has retained storage.

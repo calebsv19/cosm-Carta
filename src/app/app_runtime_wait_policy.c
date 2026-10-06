@@ -156,6 +156,7 @@ bool app_runtime_frame_needed(const AppState *app, const AppRuntimeInputFrame *i
 }
 
 int app_runtime_compute_wait_timeout_ms(const AppState *app, double now_sec) {
+    if(app && app->ui_state_bridge.rollout.window.initialized && !app->ui_state_bridge.rollout.window.presentable)return 50;
     if (app_runtime_has_immediate_work(app, now_sec)) {
         return 0;
     }

@@ -22,6 +22,10 @@ SDL_FRect app_map_viewport_rect(const AppState *app) {
         SDL_FRect empty = {0};
         return empty;
     }
+    const KitPaneComposition *composition=&app->ui_state_bridge.rollout.panes;
+    const KitPaneCompositionEntry *entry=kit_pane_composition_find(composition,3);
+    if(entry && composition->viewport.width==app->width && composition->viewport.height==app->height)
+        return (SDL_FRect){entry->visible_content.x,entry->visible_content.y,entry->visible_content.width,entry->visible_content.height};
     SDL_FRect rect = app->ui_state_bridge.map_viewport_rect;
     if (rect.w <= 1 || rect.h <= 1)
         rect = app_default_map_viewport_rect(app);
@@ -40,9 +44,14 @@ SDL_FRect app_map_viewport_rect(const AppState *app) {
 
 bool app_map_viewport_contains_screen_point(const AppState *app, int screen_x, int screen_y) {
     SDL_FRect rect = app_map_viewport_rect(app);
+    if(app && app->ui_state_bridge.rollout.panes.count) {
+        const CartaUiRollout *r=&app->ui_state_bridge.rollout;
+        if(r->pointer.down && r->pointer.captured_id!=3)return false;
+        if(!r->pointer.down && kit_pane_composition_hit(&r->panes,screen_x,screen_y).id!=3)return false;
+    }
     return rect.w > 0.0f && rect.h > 0.0f && (float)screen_x >= rect.x &&
-           (float)screen_x <= rect.x + rect.w && (float)screen_y >= rect.y &&
-           (float)screen_y <= rect.y + rect.h;
+           (float)screen_x < rect.x + rect.w && (float)screen_y >= rect.y &&
+           (float)screen_y < rect.y + rect.h;
 }
 
 bool app_map_screen_to_world(const AppState *app, float screen_x, float screen_y, float *out_world_x,

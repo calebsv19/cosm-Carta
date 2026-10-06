@@ -4,6 +4,7 @@
 
 #include "route/route_render.h"
 #include "ui/font.h"
+#include "ui/control_surface.h"
 #include "ui/shared_theme_font_adapter.h"
 
 #include <math.h>
@@ -398,19 +399,7 @@ void app_draw_route_panel(AppState *app) {
 
     if (app->ui_state_bridge.hud_route_panel_collapsed) {
         SDL_FRect handle = app->ui_state_bridge.hud_route_panel_handle_rect;
-        renderer_set_draw_color(&app->renderer,
-                                palette.route_panel_fill.r,
-                                palette.route_panel_fill.g,
-                                palette.route_panel_fill.b,
-                                palette.route_panel_fill.a);
-        renderer_fill_rect(&app->renderer, &handle);
-        renderer_set_draw_color(&app->renderer,
-                                palette.route_panel_outline.r,
-                                palette.route_panel_outline.g,
-                                palette.route_panel_outline.b,
-                                palette.route_panel_outline.a);
-        renderer_draw_rect(&app->renderer, &handle);
-        ui_draw_text(&app->renderer, (int)handle.x + 6, (int)handle.y + 4, "<", (SDL_Color){226, 232, 242, 255}, 1.0f);
+        carta_ui_control_draw(app,handle,"<",false,(KitUiSurfaceKey){CARTA_CONTROL_ROUTE_PANEL,0},1);
         return;
     }
 
@@ -444,13 +433,8 @@ void app_draw_route_panel(AppState *app) {
     int text_x = (int)(panel.x + 10.0f);
     int text_y = (int)(panel.y + 8.0f);
 
-    renderer_set_draw_color(&app->renderer, palette.route_panel_fill.r, palette.route_panel_fill.g, palette.route_panel_fill.b, 245);
-    renderer_fill_rect(&app->renderer, &collapse);
-    renderer_set_draw_color(&app->renderer, palette.route_panel_outline.r, palette.route_panel_outline.g, palette.route_panel_outline.b, palette.route_panel_outline.a);
-    renderer_draw_rect(&app->renderer, &collapse);
-    ui_draw_text(&app->renderer, (int)collapse.x + 4, (int)collapse.y + 1, "-", text_primary, 1.0f);
-
-    ui_draw_text(&app->renderer, text_x, text_y, "Route Comparison", text_primary, 1.0f);
+    carta_ui_control_draw(app,collapse,">",false,(KitUiSurfaceKey){CARTA_CONTROL_ROUTE_PANEL,0},1);
+    ui_draw_text(&app->renderer,text_x,text_y,"Route",text_primary,1);
     text_y += line_h + 2;
 
     {
@@ -468,29 +452,15 @@ void app_draw_route_panel(AppState *app) {
         bool visible = app->route_state_bridge.route_alt_visible[i];
         SDL_Color swatch = playback_route_color(app->route_state_bridge.route.alternatives.objectives[i], selected);
         SDL_FRect swatch_rect = {(float)text_x, (float)(text_y + 3), 8.0f, 8.0f};
-        renderer_set_draw_color(&app->renderer, swatch.r, swatch.g, swatch.b, swatch.a);
-        renderer_fill_rect(&app->renderer, &swatch_rect);
+
 
         SDL_FRect toggle_rect = app->ui_state_bridge.hud_route_panel_toggle_rects[i];
-        SDL_FRect row_rect = app->ui_state_bridge.hud_route_panel_row_rects[i];
+        SDL_FRect row_rect = carta_remaining_control_rect(app,CARTA_CONTROL_ROUTE_PANEL,10+i);
 
-        renderer_set_draw_color(&app->renderer, selected ? 46 : 34, selected ? 74 : 44, selected ? 88 : 56, 236);
-        renderer_fill_rect(&app->renderer, &row_rect);
-
-        renderer_set_draw_color(&app->renderer, visible ? 52 : 46, visible ? 128 : 64, visible ? 84 : 68, 240);
-        renderer_fill_rect(&app->renderer, &toggle_rect);
-        renderer_set_draw_color(&app->renderer, 86, 100, 120, 230);
-        renderer_draw_rect(&app->renderer, &toggle_rect);
-        ui_draw_text(&app->renderer, (int)toggle_rect.x + 4, (int)toggle_rect.y + 1, visible ? "ON" : "OFF", text_primary, 1.0f);
-
-        int row_text_max = (int)(toggle_rect.x - (float)(text_x + 14) - 6.0f);
-        ui_draw_text_clipped(&app->renderer,
-                             text_x + 14,
-                             text_y,
-                             app->ui_state_bridge.hud_route_panel_row_text[i][0] != '\0' ? app->ui_state_bridge.hud_route_panel_row_text[i] : playback_objective_label(app->route_state_bridge.route.alternatives.objectives[i]),
-                             selected ? text_primary : text_muted,
-                             1.0f,
-                             row_text_max);
+        carta_ui_control_draw(app,row_rect,app->ui_state_bridge.hud_route_panel_row_text[i][0]?app->ui_state_bridge.hud_route_panel_row_text[i]:playback_objective_label(app->route_state_bridge.route.alternatives.objectives[i]),selected,(KitUiSurfaceKey){CARTA_CONTROL_ROUTE_PANEL,10+i},1);
+        carta_ui_control_draw(app,toggle_rect,visible?"ON":"OFF",visible,(KitUiSurfaceKey){CARTA_CONTROL_ROUTE_PANEL,40+i},1);
+        renderer_set_draw_color(&app->renderer,swatch.r,swatch.g,swatch.b,swatch.a);
+        renderer_fill_rect(&app->renderer,&swatch_rect);
         text_y += line_h + 1;
     }
 
@@ -533,31 +503,8 @@ bool app_route_panel_handle_click(AppState *app) {
     int mx = app->ui_state_bridge.input.mouse_x;
     int my = app->ui_state_bridge.input.mouse_y;
 
-    if (app->ui_state_bridge.hud_route_panel_collapsed) {
-        if (app->ui_state_bridge.input.left_click_pressed && playback_point_in_rect(mx, my, &app->ui_state_bridge.hud_route_panel_handle_rect)) {
-            app->ui_state_bridge.hud_route_panel_collapsed = false;
-            return true;
-        }
-        return playback_point_in_rect(mx, my, &app->ui_state_bridge.hud_route_panel_handle_rect);
-    }
-
-    if (app->ui_state_bridge.input.left_click_pressed && playback_point_in_rect(mx, my, &app->ui_state_bridge.hud_route_panel_collapse_rect)) {
-        app->ui_state_bridge.hud_route_panel_collapsed = true;
-        return true;
-    }
-
-    for (uint32_t i = 0; i < ROUTE_ALTERNATIVE_MAX; ++i) {
-        if (app->ui_state_bridge.input.left_click_pressed && playback_point_in_rect(mx, my, &app->ui_state_bridge.hud_route_panel_row_rects[i])) {
-            app_route_service_select_alternative(app, i);
-            return true;
-        }
-        if (app->ui_state_bridge.input.left_click_pressed && playback_point_in_rect(mx, my, &app->ui_state_bridge.hud_route_panel_toggle_rects[i])) {
-            app_route_service_toggle_alternative_visibility(app, i);
-            return true;
-        }
-    }
-
-    return playback_point_in_rect(mx, my, &app->ui_state_bridge.hud_route_panel_rect);
+    if(app->ui_state_bridge.hud_route_panel_collapsed)return playback_point_in_rect(mx,my,&app->ui_state_bridge.hud_route_panel_handle_rect);
+    return playback_point_in_rect(mx,my,&app->ui_state_bridge.hud_route_panel_rect);
 }
 
 float app_next_playback_speed(float current, int direction) {

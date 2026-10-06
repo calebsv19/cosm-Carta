@@ -32,36 +32,11 @@ static void app_draw_left_pane_header(AppState *app,
         return;
     }
 
-    renderer_set_draw_color(&app->renderer, palette->button_fill.r, palette->button_fill.g, palette->button_fill.b, palette->button_fill.a);
-    renderer_fill_rect(&app->renderer, &app->ui_state_bridge.pin_pane_close_rect);
-    renderer_set_draw_color(&app->renderer, palette->button_outline.r, palette->button_outline.g, palette->button_outline.b, palette->button_outline.a);
-    renderer_draw_rect(&app->renderer, &app->ui_state_bridge.pin_pane_close_rect);
-    ui_draw_text(&app->renderer,
-                 (int)(app->ui_state_bridge.pin_pane_close_rect.x + 6.0f),
-                 (int)(app->ui_state_bridge.pin_pane_close_rect.y + 2.0f),
-                 "-",
-                 text,
-                 1.0f);
-
-    for (int i = 0; i < APP_LEFT_PANE_SECTION_COUNT; ++i) {
-        SDL_FRect rect = app->ui_state_bridge.pin_pane_tab_rects[i];
-        const bool active = i == (int)app->ui_state_bridge.left_pane_section;
-        SDL_Color fill = active ? palette->button_active_primary : palette->button_fill;
-        SDL_Color outline = active ? palette->overlay_accent : palette->button_outline;
-        SDL_Color label = active && (299u * fill.r + 587u * fill.g + 114u * fill.b) / 1000u <= 160u
-            ? (SDL_Color){225, 230, 240, 255} : text;
-        renderer_set_draw_color(&app->renderer, fill.r, fill.g, fill.b, fill.a);
-        renderer_fill_rect(&app->renderer, &rect);
-        renderer_set_draw_color(&app->renderer, outline.r, outline.g, outline.b, outline.a);
-        renderer_draw_rect(&app->renderer, &rect);
-        ui_draw_text_clipped(&app->renderer,
-                             (int)(rect.x + 8.0f),
-                             (int)(rect.y + 4.0f),
-                             app_left_pane_section_label((AppLeftPaneSection)i),
-                             label,
-                             0.85f,
-                             (int)rect.w - 12);
-    }
+    (void)text;
+    carta_ui_control_draw(app,app->ui_state_bridge.pin_pane_close_rect,"-",false,(KitUiSurfaceKey){CARTA_CONTROL_PANEL,1},.85f);
+    for(unsigned i=0;i<APP_LEFT_PANE_SECTION_COUNT;i++)
+        carta_ui_control_draw(app,app->ui_state_bridge.pin_pane_tab_rects[i],app_left_pane_section_label(i),
+            i==(unsigned)app->ui_state_bridge.left_pane_section,(KitUiSurfaceKey){CARTA_CONTROL_PANEL,2+i},.85f);
 }
 
 static void app_draw_left_pane_pins(AppState *app,
@@ -106,23 +81,9 @@ static void app_draw_left_pane_pins(AppState *app,
         app->ui_state_bridge.pin_pane_cancel_rect
     };
     const char *labels[4] = {"ADD", "SAVE", "DELETE", "CANCEL"};
-    for (int i = 0; i < 4; ++i) {
-        SDL_Color fill = palette->button_fill;
-        if (i == 0 && app->ui_state_bridge.pin_add_mode_active) {
-            fill = palette->button_active_primary;
-        }
-        renderer_set_draw_color(&app->renderer, fill.r, fill.g, fill.b, 220);
-        renderer_fill_rect(&app->renderer, &buttons[i]);
-        renderer_set_draw_color(&app->renderer, palette->button_outline.r, palette->button_outline.g, palette->button_outline.b, palette->button_outline.a);
-        renderer_draw_rect(&app->renderer, &buttons[i]);
-        ui_draw_text_clipped(&app->renderer,
-                             (int)(buttons[i].x + 8.0f),
-                             (int)(buttons[i].y + 4.0f),
-                             labels[i],
-                             text,
-                             0.8f,
-                             (int)buttons[i].w - 12);
-    }
+    for(unsigned i=0;i<4;i++)carta_ui_control_draw(app,buttons[i],labels[i],
+        i==0 && (app->ui_state_bridge.left_pane_section==APP_LEFT_PANE_SECTION_PINS?app->ui_state_bridge.pin_add_mode_active:app->ingest_import_running),
+        (KitUiSurfaceKey){CARTA_CONTROL_PANEL,5+i},.8f);
 
     app_pin_panel_draw_name_field(app, palette, text, muted);
     app_pin_panel_draw_metadata(app);
@@ -301,18 +262,19 @@ static void app_draw_left_pane_ingest(AppState *app,
                  list_label,
                  muted,
                  0.85f);
-    snprintf(line, sizeof(line), "Input root: %s", app->input_root);
-    ui_draw_text_clipped(&app->renderer,
-                         (int)(app->ui_state_bridge.pin_pane_content_rect.x + 2.0f),
-                         (int)(app->ui_state_bridge.pin_pane_content_rect.y + 42.0f),
-                         line,
-                         muted,
-                         0.85f,
-                         (int)app->ui_state_bridge.pin_pane_content_rect.w - 8);
+    SDL_FRect root_box={app->ui_state_bridge.pin_pane_content_rect.x+2,
+        app->ui_state_bridge.pin_pane_content_rect.y+40,app->ui_state_bridge.pin_pane_content_rect.w-4,24};
+    if(app->ingest_edit_mode) {
+        carta_text_bind(&app->ui_state_bridge.rollout.ingest_root,app->input_root_edit,sizeof(app->input_root_edit),false);
+        carta_text_draw(app,&app->ui_state_bridge.rollout.ingest_root,root_box,.85f);
+    } else {
+        snprintf(line,sizeof(line),"Input root: %s [E to edit]",app->input_root);
+        ui_draw_text_clipped(&app->renderer,(int)root_box.x,(int)root_box.y,line,muted,.85f,(int)root_box.w);
+    }
     snprintf(line, sizeof(line), "Status: %s", app->ingest_status);
     ui_draw_text_clipped(&app->renderer,
                          (int)(app->ui_state_bridge.pin_pane_content_rect.x + 2.0f),
-                         (int)(app->ui_state_bridge.pin_pane_content_rect.y + 60.0f),
+                         (int)(app->ui_state_bridge.pin_pane_content_rect.y + 68.0f),
                          line,
                          muted,
                          0.85f,
@@ -348,23 +310,9 @@ static void app_draw_left_pane_ingest(AppState *app,
     const char *labels_source[4] = {"IMPORT", "ALL", "FILE", "RESCAN"};
     const char *labels_active[4] = {"OPEN", "SOURCES", "FILE", "RESCAN"};
     const char **labels = app->ingest_show_active_tab ? labels_active : labels_source;
-    for (int i = 0; i < 4; ++i) {
-        SDL_Color fill = palette->button_fill;
-        if (i == 0 && app->ingest_import_running) {
-            fill = palette->button_active_primary;
-        }
-        renderer_set_draw_color(&app->renderer, fill.r, fill.g, fill.b, 220);
-        renderer_fill_rect(&app->renderer, &buttons[i]);
-        renderer_set_draw_color(&app->renderer, palette->button_outline.r, palette->button_outline.g, palette->button_outline.b, palette->button_outline.a);
-        renderer_draw_rect(&app->renderer, &buttons[i]);
-        ui_draw_text_clipped(&app->renderer,
-                             (int)(buttons[i].x + 8.0f),
-                             (int)(buttons[i].y + 4.0f),
-                             labels[i],
-                             text,
-                             0.82f,
-                             (int)buttons[i].w - 12);
-    }
+    for(unsigned i=0;i<4;i++)carta_ui_control_draw(app,buttons[i],labels[i],
+        i==0 && (app->ui_state_bridge.left_pane_section==APP_LEFT_PANE_SECTION_PINS?app->ui_state_bridge.pin_add_mode_active:app->ingest_import_running),
+        (KitUiSurfaceKey){CARTA_CONTROL_PANEL,5+i},.82f);
 
     app_place_tools_draw_toolbar(app);
     renderer_set_draw_color(&app->renderer, palette->route_panel_fill.r, palette->route_panel_fill.g, palette->route_panel_fill.b, 220);
@@ -479,15 +427,7 @@ void app_draw_pin_panel(AppState *app) {
     text = palette.text_primary;
     muted = palette.text_muted;
     if (!app->ui_state_bridge.left_pane_open) {
-        SDL_FRect handle = app->ui_state_bridge.pin_pane_closed_rect;
-        if (handle.w <= 1.0f || handle.h <= 1.0f) {
-            return;
-        }
-        renderer_set_draw_color(&app->renderer, palette.overlay_fill.r, palette.overlay_fill.g, palette.overlay_fill.b, 232);
-        renderer_fill_rect(&app->renderer, &handle);
-        renderer_set_draw_color(&app->renderer, palette.overlay_outline.r, palette.overlay_outline.g, palette.overlay_outline.b, palette.overlay_outline.a);
-        renderer_draw_rect(&app->renderer, &handle);
-        ui_draw_text(&app->renderer, (int)(handle.x + 9.0f), (int)(handle.y + 4.0f), "PINS", text, 0.9f);
+        carta_ui_control_draw(app,app->ui_state_bridge.pin_pane_closed_rect,"PINS",false,(KitUiSurfaceKey){CARTA_CONTROL_PANEL,0},.9f);
         return;
     }
     if (app->ui_state_bridge.left_pane_rect.w <= 1.0f || app->ui_state_bridge.left_pane_rect.h <= 1.0f) {

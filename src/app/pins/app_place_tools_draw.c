@@ -14,16 +14,7 @@ SDL_FRect tools_rect(const AppState *app) {
 
 // Draws one existing-style button/field with readable selected contrast.
 static void tools_box(AppState *app, SDL_FRect r, const char *label, bool active) {
-    MapForgeThemePalette p = app_ui_theme_palette();
-    SDL_Color fill = active ? p.button_active_primary : p.button_fill;
-    renderer_set_draw_color(&app->renderer, fill.r, fill.g, fill.b, 255);
-    renderer_fill_rect(&app->renderer, &r);
-    renderer_set_draw_color(&app->renderer, p.button_outline.r, p.button_outline.g, p.button_outline.b, 255);
-    renderer_draw_rect(&app->renderer, &r);
-    SDL_Color text = (299u * fill.r + 587u * fill.g + 114u * fill.b) / 1000u > 160u
-                         ? (SDL_Color){20, 28, 38, 255}
-                         : p.text_primary;
-    ui_draw_text_clipped(&app->renderer, (int)r.x + 6, (int)r.y + 5, label, text, .78f, (int)r.w - 12);
+    carta_ui_control_draw(app,r,label,active,(KitUiSurfaceKey){0},.78f);
 }
 
 // Draws bounded text in the modal content region.
@@ -59,13 +50,13 @@ static void tools_field_draw(AppState *app, int index, float x, float y, float w
 }
 
 // Draws/chips one explicit service selection list.
-static void tools_services_draw(AppState *app, float x, float y, float width, struct json_object *kinds) {
+static void tools_services_draw(AppState *app, float x, float y, float width, struct json_object *kinds,unsigned owner) {
     for (unsigned i = 0; i < 4; ++i) {
         bool active = false;
         for (size_t j = 0; kinds && j < json_object_array_length(kinds); ++j)
             if (!strcmp(service_keys[i], json_object_get_string(json_object_array_get_idx(kinds, j))))
                 active = true;
-        tools_box(app, (SDL_FRect){x + i * (width / 4), y, width / 4 - 4, 22}, service_labels[i], active);
+        tools_button(app, (SDL_FRect){x + i * (width / 4), y, width / 4 - 4, 22}, service_labels[i], active,100+owner*8+i);
     }
 }
 
@@ -118,12 +109,12 @@ static void tools_profile_draw(AppState *app, SDL_FRect r) {
     json_object_object_get_ex(p, "home_services", &home);
     if (y >= top && y + 40 < bottom) {
         tools_line(app, x, y, w, "Home services without a specific pet");
-        tools_services_draw(app, x, y + 18, w, home);
+        tools_services_draw(app, x, y + 18, w, home,0);
     }
     y += 48;
     if (y >= top && y + 22 < bottom) {
-        tools_box(app, (SDL_FRect){x, y, 110, 22}, "ADD PET", false);
-        tools_box(app, (SDL_FRect){x + 118, y, 150, 22}, "LINK EXISTING PET", tools.linking);
+        tools_button(app, (SDL_FRect){x, y, 110, 22}, "ADD PET", false,20);
+        tools_button(app, (SDL_FRect){x + 118, y, 150, 22}, "LINK EXISTING PET", tools.linking,21);
     }
     y += 30;
     if (tools.linking) {
@@ -135,8 +126,8 @@ static void tools_profile_draw(AppState *app, SDL_FRect r) {
                 : NULL;
         if (y >= top && y + 22 < bottom) {
             snprintf(line, sizeof(line), "%s | %s", tools_text(pet, "name"), tools_text(pet, "id"));
-            tools_box(app, (SDL_FRect){x, y, w - 82, 22}, pet ? line : "No existing pets", false);
-            tools_box(app, (SDL_FRect){x + w - 76, y, 76, 22}, "LINK", false);
+            tools_button(app, (SDL_FRect){x, y, w - 82, 22}, pet ? line : "No existing pets", false,22);
+            tools_button(app, (SDL_FRect){x + w - 76, y, 76, 22}, "LINK", false,23);
         }
         y += 30;
     }
@@ -148,14 +139,14 @@ static void tools_profile_draw(AppState *app, SDL_FRect r) {
                          tools_text(pet, "species"));
         y += 48;
         if (y >= top && y + 22 < bottom) {
-            tools_services_draw(app, x, y, w - 90, kinds);
-            tools_box(app, (SDL_FRect){x + w - 84, y, 84, 22}, "DETACH", false);
+            tools_services_draw(app, x, y, w - 90, kinds,1+(unsigned)i);
+            tools_button(app, (SDL_FRect){x + w - 84, y, 84, 22}, "DETACH", false,105+(1+i)*8);
         }
         y += 34;
     }
     float fy = r.y + r.h - 62;
-    tools_box(app, (SDL_FRect){x, fy, 140, 24}, "SAVE DETAILS", false);
-    tools_box(app, (SDL_FRect){x + 148, fy, 120, 24}, "CANCEL", false);
+    tools_button(app, (SDL_FRect){x, fy, 140, 24}, "SAVE DETAILS", false,2);
+    tools_button(app, (SDL_FRect){x + 148, fy, 120, 24}, "CANCEL", false,3);
 }
 
 // Draws a native saved-intent list and independently readable endpoint/staleness details.
@@ -164,8 +155,8 @@ static void tools_routes_draw(AppState *app, SDL_FRect r) {
     int visible = (int)(r.h - 186) / 36;
     if (visible < 1)
         visible = 1;
-    tools_box(app, (SDL_FRect){x, r.y + 54, 160, 24}, tools.archived ? "INCLUDING ARCHIVED" : "ACTIVE ROUTES",
-              tools.archived);
+    tools_button(app, (SDL_FRect){x, r.y + 54, 160, 24}, tools.archived ? "INCLUDING ARCHIVED" : "ACTIVE ROUTES",
+              tools.archived,300);
     tools_line(app, x + 170, r.y + 59, w - 180, "Select a route; opening recomputes it on the current map.");
     for (int i = 0; i < visible; ++i) {
         struct json_object *row = tools_route_row(tools.scroll + i), *intent = NULL;
@@ -175,7 +166,7 @@ static void tools_routes_draw(AppState *app, SDL_FRect r) {
         char label[160];
         snprintf(label, sizeof(label), "%s%s", tools_int(intent, "archived") ? "[archived] " : "",
                  tools_text(intent, "name"));
-        tools_box(app, (SDL_FRect){x, top + i * 36, w * .46f, 30}, label, tools.selected == tools.scroll + i);
+        tools_button(app, (SDL_FRect){x, top + i * 36, w * .46f, 30}, label, tools.selected == tools.scroll + i,600+tools.scroll+i+tools.route_page*100);
     }
     struct json_object *row = tools_route_row(tools.selected), *intent = NULL;
     if (row)
@@ -214,7 +205,7 @@ static void tools_routes_draw(AppState *app, SDL_FRect r) {
     const char *labels[] = {"OPEN", "RENAME", intent && tools_int(intent, "archived") ? "RESTORE" : "ARCHIVE",
                             "PREV PAGE", "NEXT PAGE"};
     for (unsigned i = 0; i < 5; ++i)
-        tools_box(app, (SDL_FRect){x + i * (w / 5), fy, w / 5 - 5, 24}, labels[i], false);
+        tools_button(app, (SDL_FRect){x + i * (w / 5), fy, w / 5 - 5, 24}, labels[i], false,310+i);
 }
 
 // Draws personal backup/export controls with an explicit restore preview boundary.
@@ -228,8 +219,8 @@ static void tools_recovery_draw(AppState *app, SDL_FRect r) {
     tools_field_draw(app, 0, x, r.y + 114, w, "SQLite backup to restore (absolute path)", tools.source);
     for (unsigned i = 0; i < 4; ++i) {
         const char *labels[] = {"CREATE BACKUP", "EXPORT JSON", "PREVIEW RESTORE", "RESTORE BACKUP"};
-        tools_box(app, (SDL_FRect){x + i * w / 4, r.y + 180, w / 4 - 6, 26}, labels[i],
-                  i == 3 && tools.restore);
+        tools_button(app, (SDL_FRect){x + i * w / 4, r.y + 180, w / 4 - 6, 26}, labels[i],
+                  i == 3 && tools.restore,400+i);
     }
     if (tools.restore) {
         char line[200];
@@ -250,8 +241,8 @@ static void tools_recovery_draw(AppState *app, SDL_FRect r) {
          i < visible && tools.draft && (size_t)(tools.scroll + i) < json_object_array_length(tools.draft);
          ++i) {
         struct json_object *v = json_object_array_get_idx(tools.draft, (size_t)(tools.scroll + i));
-        tools_box(app, (SDL_FRect){x, r.y + 330 + i * 28, w, 24}, tools_text(v, "name"),
-                  !strcmp(tools.source, tools_text(v, "path")));
+        tools_button(app, (SDL_FRect){x, r.y + 330 + i * 28, w, 24}, tools_text(v, "name"),
+                  !strcmp(tools.source, tools_text(v, "path")),700+tools.scroll+i);
     }
 }
 
@@ -259,6 +250,7 @@ static void tools_recovery_draw(AppState *app, SDL_FRect r) {
 void app_place_tools_draw(AppState *app) {
     if (!tools.kind)
         return;
+    tools.button_count=0;tools.controls_ready=false;
     SDL_FRect r = tools_rect(app), shade = {0, 0, (float)app->width, (float)app->height};
     renderer_set_draw_color(&app->renderer, 0, 0, 0, 190);
     renderer_fill_rect(&app->renderer, &shade);
@@ -270,7 +262,7 @@ void app_place_tools_draw(AppState *app) {
                tools.kind == 1   ? "HOME DETAILS & SERVICES"
                : tools.kind == 2 ? "SAVED ROUTES"
                                  : "PERSONAL BACKUP & RESTORE");
-    tools_box(app, (SDL_FRect){r.x + r.w - 74, r.y + 8, 64, 26}, "CLOSE", false);
+    tools_button(app, (SDL_FRect){r.x + r.w - 74, r.y + 8, 64, 26}, "CLOSE", false,1);
     memset(tools.fields, 0, sizeof(tools.fields));
     tools.field_count = 0;
     if (tools.kind == 1)
@@ -279,5 +271,7 @@ void app_place_tools_draw(AppState *app) {
         tools_routes_draw(app, r);
     else
         tools_recovery_draw(app, r);
+    tools.controls_ready=true;
+    carta_ui_controls_sync(app);
     tools_line(app, r.x + 14, r.y + r.h - 28, r.w - 28, tools.status);
 }

@@ -10,6 +10,8 @@ typedef enum TerrainUIControl {
 } TerrainUIControl;
 // Returns the actual visible terrain-control rectangle for input and diagnostics.
 SDL_FRect terrain_ui_control_rect(const struct AppState *app,TerrainUIControl type,int row);
+// Cancels outstanding controls while preserving the pending confirmation.
+void terrain_ui_cancel_transient(void);
 // Clears modal presentation state without touching background files or personal records.
 void terrain_ui_close(void);
 // Opens the native terrain coverage/storage panel without editing personal history.

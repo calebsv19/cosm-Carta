@@ -24,6 +24,7 @@
 #include "core_trace.h"
 #include "core_queue.h"
 #include "core_pane.h"
+#include "ui/rollout.h"
 
 #include <SDL.h>
 #include <stdbool.h>
@@ -622,6 +623,7 @@ typedef struct AppUiState {
     KitUiSurface controls;
     KitUiFocusScope controls_focus;
     CartaTextInput search_text, route_name_text;
+    CartaUiRollout rollout;
     CartaTextInput *native_text_owner;
     CartaTextInput *native_text_previous;
     uint32_t controls_workspace;

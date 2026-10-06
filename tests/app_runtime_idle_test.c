@@ -9,6 +9,11 @@ static TileLoaderStats loader_stats;
 static VkPolyPrepStats prep_stats;
 static unsigned update_calls, render_calls;
 static double update_previous_time;
+static bool window_presentable = true, presentation_succeeds = true;
+
+// Isolates dispatch policy from native window observation and the opt-in probe.
+bool carta_window_refresh(AppState *app) { (void)app; return window_presentable; }
+int carta_window_probe_tick(AppState *app) { (void)app; return 0; }
 
 // Supplies a deterministic asynchronous loader snapshot.
 void tile_loader_get_stats(TileLoader *loader, TileLoaderStats *stats) {
@@ -40,7 +45,8 @@ void app_runtime_render_frame(AppState *app, RendererBackend *backend,
                               const AppRuntimeInputFrame *input, AppVisibleTileRenderStats *stats,
                               double *derive, uint32_t *passes, uint32_t *reasons,
                               double *before, double *after) {
-    (void)app; (void)backend; (void)input; ++render_calls;
+    (void)backend; (void)input; ++render_calls;
+    app->renderer.last_presented = presentation_succeeds;
     stats->loading_expected = 3; stats->loading_done = 3;
     *derive = *before = *after = 10.02; *passes = 1; *reasons = 0;
 }
@@ -105,5 +111,27 @@ int main(void) {
     assert(app_runtime_frame_needed(app, &test_input, 10.0));
     app->ingest_import_running = false;
     assert(app_runtime_compute_wait_timeout_ms(app, 10.0) == 1000);
+    // Native suspension prevents update/render even with a pending redraw.
+    app->ui_state_bridge.rollout.window_initialized = true;
+    app->ui_state_bridge.rollout.window.initialized = true;
+    app->ui_state_bridge.rollout.window.presentable = false;
+    window_presentable = false; app->runtime_redraw_requested = true; last = 2.0;
+    unsigned updates = update_calls, renders = render_calls;
+    uint64_t presented = app->ui_state_bridge.rollout.presented_frames;
+    assert(app_runtime_compute_wait_timeout_ms(app, 10.0) == 50);
+    app_runtime_dispatch_frame(app, &last, &backend, &frame);
+    assert(frame.skipped_for_idle && update_calls == updates && render_calls == renders);
+    assert(last == 10.0 && app->runtime_redraw_requested);
+    // Resumption uses a fresh clock; only successful presentation advances proof.
+    window_presentable = true; app->ui_state_bridge.rollout.window.presentable = true;
+    presentation_succeeds = false;
+    app_runtime_dispatch_frame(app, &last, &backend, &frame);
+    assert(update_previous_time == 10.0 && render_calls == renders + 1);
+    assert(!app->runtime_frame_presented && app->runtime_redraw_requested);
+    assert(app->ui_state_bridge.rollout.presented_frames == presented);
+    presentation_succeeds = true;
+    app_runtime_dispatch_frame(app, &last, &backend, &frame);
+    assert(app->runtime_frame_presented && !app->runtime_redraw_requested);
+    assert(app->ui_state_bridge.rollout.presented_frames == presented + 1);
     free(app); puts("app_runtime_idle_test: success"); return 0;
 }

@@ -3,6 +3,7 @@
 #include "app/history_browser.h"
 #include "app/terrain.h"
 #include "app/terrain_ui.h"
+#include "app/history_picker.h"
 #include "app/app_map_viewport_internal.h"
 #include "app/app_persist_state.h"
 #include "app/app_ui_internal.h"
@@ -34,6 +35,7 @@ typedef struct HistoryUI {
     bool cache_blocked;
     int point, field, type, visit_state, peak_offset;
     bool archived, form, exporting, editing, tools, inspect, peak_picker;
+    HistoryPickerControls picker;
     char undo_id[64], undo_progress[24];
     int64_t undo_revision;
     char fields[7][2048], status[256], form_id[64];
@@ -159,10 +161,12 @@ SDL_FRect history_ui_action_rect(AppState *app, int n) {
     return n >= 0 && n < 29 ? l.actions[n] : (SDL_FRect){0};
 }
 static HistoryTrack *track(AppState *app, struct json_object *v, bool load);
+static SDL_FRect legend_chip(HistoryLayout layout,int n);
 // Omits hidden detail/point controls and keeps guarded Undo visible after filtering.
 SDL_FRect history_ui_control_rect(AppState *app, unsigned action) {
-    if (!app || action>=29 || app->ui_state_bridge.utility_workspace!=APP_UTILITY_HIKING_HISTORY)
+    if (!app || action>=32 || app->ui_state_bridge.utility_workspace!=APP_UTILITY_HIKING_HISTORY)
         return (SDL_FRect){0};
+    if(action>=29)return action-29<app->ui_state_bridge.history_views.count?legend_chip(history_layout(pane(app),ui.tools,ui.inspect),action-29):(SDL_FRect){0};
     struct json_object *v=selected(app);
     if (action==24 && !v && !*ui.undo_id) return (SDL_FRect){0};
     if ((action==13 || (action>=20 && action<=23) || action==7 || action==8) && !v)
@@ -535,6 +539,11 @@ void history_ui_form_control_activate(AppState *app,unsigned action) {
     if(action==1){clear_preview();ui.visit_state=(ui.visit_state+2)%5-1;}
     if(action==2){submit(app);if(!ui.form)carta_text_end(&ui.text);}
 }
+void history_ui_cancel_transient(void) {
+    ui.scroll_dragging=false;kit_ui_text_cancel_composition(&ui.text.edit);
+    kit_ui_surface_set_scope(&ui.browser.controls,++ui.browser.scope);
+    history_picker_cancel(&ui.picker);terrain_ui_cancel_transient();
+}
 // Reports whether native history input owns pointer and keyboard events.
 bool history_ui_modal(void) {
     return ui.form || ui.peak_picker || ui.browser.open || terrain_ui_active();
@@ -558,10 +567,13 @@ bool history_ui_event(AppState *app, const SDL_Event *e) {
     if(ui.peak_picker) {
         (void)carta_text_bind(&ui.text,ui.fields[0],128,false);
         KitUiTextEventResult text=carta_text_event(&ui.text,e);
-        if(text.cancel){ui.peak_picker=false;carta_text_end(&ui.text);return true;}
+        if(text.cancel){ui.peak_picker=false;history_picker_cancel(&ui.picker);carta_text_end(&ui.text);return true;}
         if(text.changed)ui.peak_offset=0;
         if(text.consumed)return true;
-        if(e->type==SDL_MOUSEBUTTONDOWN){SDL_FRect b=field_rect(app,0);for(int i=0;i<6;i++){SDL_FRect row={b.x,b.y+42+i*38,b.w,34};if(hit(row,e->button.x,e->button.y))choose_peak(app,i);}SDL_FRect prev={b.x,b.y+280,b.w*.48f,28},next={b.x+b.w*.52f,b.y+280,b.w*.48f,28};if(hit(prev,e->button.x,e->button.y))ui.peak_offset=fmax(0,ui.peak_offset-6);if(hit(next,e->button.x,e->button.y))ui.peak_offset+=6;return true;}
+        int action=history_picker_event(&ui.picker,app,ui.fields[0],ui.peak_offset,field_rect(app,0),e);
+        if(action>=0 && action<6){choose_peak(app,action);history_picker_cancel(&ui.picker);}
+        if(action==6)ui.peak_offset=fmax(0,ui.peak_offset-6);
+        if(action==7)ui.peak_offset+=6;
         return true;
     }
     if (e->type == SDL_DROPFILE) {
@@ -603,13 +615,6 @@ bool history_ui_event(AppState *app, const SDL_Event *e) {
     HistoryLayout layout = history_layout(p, ui.tools, ui.inspect);
     int total=0; while(row(app,total))total++;
     ui.scroll=history_browser_scroll(layout.list,total,HISTORY_ROW_HEIGHT,ui.scroll,0);
-    if(e->type==SDL_MOUSEBUTTONDOWN && e->button.button==SDL_BUTTON_LEFT) {
-        for(size_t i=0;i<app->ui_state_bridge.history_views.count && i<3;i++)
-            if(hit(legend_chip(layout,i),e->button.x,e->button.y)) {
-                HistoryViewSelection *group=&app->ui_state_bridge.history_views.items[i];
-                group->map_visible=!group->map_visible;app_save_persisted_view_state(app);return true;
-            }
-    }
     if(e->type==SDL_MOUSEBUTTONUP && ui.scroll_dragging){ui.scroll_dragging=false;return true;}
     if(e->type==SDL_MOUSEMOTION && ui.scroll_dragging) {
         SDL_FRect thumb=history_browser_thumb(layout.list,total,HISTORY_ROW_HEIGHT,ui.scroll);
@@ -651,9 +656,11 @@ bool history_ui_event(AppState *app, const SDL_Event *e) {
 }
 // Executes the existing product action only after an eligible shared activation.
 void history_ui_activate(AppState *app, unsigned action) {
-    if (!app || action>=29 || history_ui_modal() ||
+    if (!app || action>=32 || history_ui_modal() ||
         app->ui_state_bridge.utility_workspace!=APP_UTILITY_HIKING_HISTORY ||
         history_ui_control_rect(app,action).w<=0) return;
+    if(action>=29){HistoryViewSelection *group=&app->ui_state_bridge.history_views.items[action-29];
+        group->map_visible=!group->map_visible;app_save_persisted_view_state(app);return;}
     switch (action) {
     case 12: ui.tools = !ui.tools; break;
     case 28: terrain_ui_open(); break;
@@ -666,7 +673,7 @@ void history_ui_activate(AppState *app, unsigned action) {
     case 24:set_progress(app,ui.undo_progress,true);break;
 
     case 26:app->ui_state_bridge.history_hide_geographic_labels=!app->ui_state_bridge.history_hide_geographic_labels;app_save_persisted_view_state(app);break;
-    case 27:ui.peak_picker=true;ui.peak_offset=0;ui.fields[0][0]=0;carta_text_bind(&ui.text,ui.fields[0],128,true);break;
+    case 27:history_picker_cancel(&ui.picker);ui.peak_picker=true;ui.peak_offset=0;ui.fields[0][0]=0;carta_text_bind(&ui.text,ui.fields[0],128,true);break;
     case 15: ui.archived = !ui.archived; ui.scroll = 0; break;
     case 16: app->ui_state_bridge.place_search_active = true; carta_text_bind(&app->ui_state_bridge.search_text,app->ui_state_bridge.place_search,sizeof(app->ui_state_bridge.place_search),true); SDL_StartTextInput(); break;
     case 0:
@@ -905,7 +912,8 @@ static void draw_legend(AppState *app, HistoryLayout layout, MapForgeThemePalett
         fill(app,(SDL_FRect){box.x,box.y,3,box.h},group.map_visible?color:colors.text_muted);
         char name[129],text[160];history_views_name(app,group,name,sizeof(name));
         snprintf(text,sizeof(text),"%s%s",group.map_visible?"":"Off · ",name);
-        ui_draw_text_clipped(&app->renderer,box.x+7,box.y+5,text,colors.text_primary,.65f,box.w-11);
+        carta_ui_control_draw(app,box,text,group.map_visible,(KitUiSurfaceKey){CARTA_CONTROL_HISTORY,29+i},.65f);
+        fill(app,(SDL_FRect){box.x+2,box.y+3,2,fmaxf(1,box.h-6)},group.map_visible?color:colors.text_muted);
     }
 }
 // Draws a concise route library, optional tools and an independently bounded selected-route card.
@@ -1017,8 +1025,7 @@ void history_ui_panel_draw(AppState *app) {
         label(app,base.x,82,"Add a peak goal · choose an official name · Esc cancels",colors.text_primary,base.w);
         carta_text_bind(&ui.text,ui.fields[0],128,false);
         carta_text_draw(app,&ui.text,base,.78f);
-        for(int i=0;i<6;i++){char name[128];double lat,lon;if(!terrain_vectors_peak_query(ui.fields[0],ui.peak_offset+i,name,sizeof(name),&lat,&lon))break;cell(app,(SDL_FRect){base.x,base.y+42+i*38,base.w,34},name,false);}
-        cell(app,(SDL_FRect){base.x,base.y+280,base.w*.48f,28},"Previous",false);cell(app,(SDL_FRect){base.x+base.w*.52f,base.y+280,base.w*.48f,28},"Next",false);
+        history_picker_draw(&ui.picker,app,ui.fields[0],ui.peak_offset,base);
     }
     if (ui.form) {
         SDL_FRect base = field_rect(app, 0), box = {base.x - 8, 76, base.w + 16, 424};

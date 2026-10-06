@@ -57,9 +57,9 @@ MapForge rollout audit. The opt-in finite S5 text replay never submits its draft
 Native session/mapping and simulated preedit do not certify OS IME candidate UI,
 Vulkan/SDL pixel equality, external-monitor/DPI transitions or all-platform behavior.
 
-Remaining hosts: main pin-name editor, Ingest path editor, Map HUD/layer controls,
-list/legend and peak/browser/terrain chooser actions, place-modal action buttons,
-full mixed field/button traversal, pane composition and fullscreen/window lifecycle
-qualification. Preserve their existing behavior until each bounded replacement has
-positive product and cancellation proof. App VERSION remains 0.3.0; canonical
-adoption and release remain separate from Main Edit source and comparison package.
+Pin-name and Ingest path now adopt the same bounded editor and presentation.
+Remaining HUD, place-modal, chooser/legend, pane and window hosts are implemented
+in the [completion rollout](shared_ui_rollout.md). Mixed field/button ordering,
+actual OS IME acceptance and multilingual glyph coverage remain separate refinement
+and qualification. App VERSION remains 0.3.0; canonical adoption and release remain
+separate from Main Edit source and comparison package.

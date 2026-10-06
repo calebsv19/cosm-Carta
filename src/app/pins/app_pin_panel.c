@@ -48,31 +48,6 @@ static bool app_pin_panel_handle_ingest_click(AppState *app, int x, int y) {
         }
         return true;
     }
-    if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_add_rect)) {
-        if (app->ingest_show_active_tab) {
-            (void)app_ingest_open_selected_active_region(app);
-        } else {
-            (void)app_ingest_open_or_import_selected_source(app);
-        }
-        return true;
-    }
-    if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_save_rect)) {
-        if (app->ingest_show_active_tab) {
-            app->ingest_show_active_tab = false;
-        } else {
-            (void)app_ingest_import_selected_osm(app, true);
-        }
-        return true;
-    }
-    if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_delete_rect)) {
-        (void)app_ingest_pick_source_file(app);
-        return true;
-    }
-    if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_cancel_rect)) {
-        app_ingest_rescan_sources(app);
-        app_ingest_rescan_active_regions(app);
-        return true;
-    }
     return false;
 }
 
@@ -81,16 +56,7 @@ bool app_pin_panel_handle_click(AppState *app, int x, int y) {
         return false;
     }
     app_pin_panel_layout(app);
-    if (!app->ui_state_bridge.left_pane_open) {
-        if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_closed_rect) &&
-            app->ui_state_bridge.input.left_click_pressed) {
-            app->ui_state_bridge.left_pane_open = true;
-            app_pin_panel_layout(app);
-            app_tile_viewport_invalidate(app);
-            return true;
-        }
-        return false;
-    }
+    if (!app->ui_state_bridge.left_pane_open)return false;
     if (!app_point_in_rect(x, y, &app->ui_state_bridge.left_pane_rect)) {
         return false;
     }
@@ -104,61 +70,8 @@ bool app_pin_panel_handle_click(AppState *app, int x, int y) {
     if (!app->ui_state_bridge.input.left_click_pressed) {
         return true;
     }
-    if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_close_rect)) {
-        app_pin_panel_cancel_list_drag(app);
-        app->ui_state_bridge.left_pane_open = false;
-        app_pin_panel_layout(app);
-        app_tile_viewport_invalidate(app);
-        return true;
-    }
-    for (int i = 0; i < APP_LEFT_PANE_SECTION_COUNT; ++i) {
-        if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_tab_rects[i])) {
-            app_pin_panel_cancel_list_drag(app);
-            app->ui_state_bridge.left_pane_section = (AppLeftPaneSection)i;
-            if (app->ui_state_bridge.left_pane_section == APP_LEFT_PANE_SECTION_INGEST) {
-                app->ingest_panel_open = true;
-                app->ui_state_bridge.hud_ingest_panel_collapsed = false;
-                app_ingest_rescan_sources(app);
-                app_ingest_rescan_active_regions(app);
-            }
-            app_pin_panel_layout(app);
-            return true;
-        }
-    }
-    if (app->ui_state_bridge.left_pane_section == APP_LEFT_PANE_SECTION_PINS) {
-        if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_add_rect)) {
-            if (app->ui_state_bridge.pin_add_mode_active) {
-                app->ui_state_bridge.pin_add_mode_active = false;
-                app->ui_state_bridge.pin_editor_waiting_for_map_click = false;
-                if (app->ui_state_bridge.pin_selected_index >= 0 &&
-                    app->ui_state_bridge.pin_selected_index < (int)app->pins_file.pin_count) {
-                    app_pin_editor_select_saved_pin(app, app->ui_state_bridge.pin_selected_index);
-                }
-                app_pin_editor_set_status(app, "Add mode disabled.");
-            } else {
-                app_pin_editor_begin_new_pin(app);
-            }
-            return true;
-        }
-        if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_save_rect)) {
-            (void)app_pin_editor_save_draft(app);
-            return true;
-        }
-        if (app_pin_panel_handle_name_click(app, x, y)) {
-            return true;
-        }
-        if (app_pin_panel_handle_metadata_click(app, x, y)) {
-            return true;
-        }
-        if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_delete_rect)) {
-            (void)app_pin_editor_delete_selected(app);
-            return true;
-        }
-        if (app_point_in_rect(x, y, &app->ui_state_bridge.pin_pane_cancel_rect)) {
-            app_pin_editor_cancel_draft(app);
-            return true;
-        }
-    }
+    if(app->ui_state_bridge.left_pane_section==APP_LEFT_PANE_SECTION_PINS)
+        (void)app_pin_panel_handle_name_click(app,x,y);
     return true;
 }
 

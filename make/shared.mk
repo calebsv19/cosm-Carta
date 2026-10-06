@@ -75,5 +75,9 @@ VK_BUILD_SHADER_DIR := $(TARGET_BUILD_ROOT)/vk/shaders
 VK_REQUIRED_SHADERS := fill.vert.spv fill.frag.spv line.vert.spv line.frag.spv textured.vert.spv textured.frag.spv
 VK_APP_ENABLED := $(if $(wildcard $(VK_RENDERER_INCLUDE)/vk_renderer.h),1,)
 
-KIT_UI_CONTROL_SRCS := $(addprefix $(KIT_UI_DIR)/src/,kit_ui_surface.c kit_ui_interaction.c kit_ui_interaction_sdl.c kit_ui_window_sdl.c kit_ui_sdl.c kit_ui_button.c kit_ui_hud.c kit_ui_focus_scope.c kit_ui_text_edit.c kit_ui_text_edit_sdl.c kit_ui_text_presentation.c kit_ui_native_text_sdl.c)
+KIT_UI_CONTROL_SRCS := $(addprefix $(KIT_UI_DIR)/src/,kit_ui_surface.c kit_ui_interaction.c kit_ui_interaction_sdl.c kit_ui_window_sdl.c kit_ui_sdl.c kit_ui_button.c kit_ui_hud.c kit_ui_focus_scope.c kit_ui_text_edit.c kit_ui_text_edit_sdl.c kit_ui_text_presentation.c kit_ui_native_text_sdl.c kit_ui_window_probe_sdl.c)
 KIT_UI_CONTROL_OBJS := $(patsubst $(KIT_UI_DIR)/src/%.c,$(HOST_BUILD_ROOT)/kit_ui/%.o,$(KIT_UI_CONTROL_SRCS))
+
+KIT_PANE_DIR := $(SHARED_ROOT)/kit/kit_pane
+KIT_PANE_SRCS := $(addprefix $(KIT_PANE_DIR)/src/,kit_pane.c kit_pane_composition.c)
+KIT_PANE_OBJS := $(patsubst $(KIT_PANE_DIR)/src/%.c,$(HOST_BUILD_ROOT)/kit_pane/%.o,$(KIT_PANE_SRCS))

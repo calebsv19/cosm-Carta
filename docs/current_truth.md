@@ -26,8 +26,7 @@ Carta delegates frame/surface recovery to shared ownership and links the separat
 render command-validation module. Fresh build, focused tests, native road and
 rotated terrain replay, SDL fallback and Retina resize/readback qualify the
 renderer adoption. See `docs/shared_dependency_checkpoint.md` for provenance,
-limits and the next boundary. Newer UI/pane/text modules are available for
-incremental host adoption. The four workspace tabs and normal Hiking & History actions now use shared
+limits and provenance. The four workspace tabs and normal Hiking & History actions now use shared
 rounded presentation and semantic release/keyboard activation. Existing action
 bodies, geometry, persistence and map/terrain policy remain app-owned.
 See `docs/shared_control_adoption.md` for the adopted scope and remaining hosts.
@@ -35,7 +34,10 @@ History/place forms, peak search, ordinary search and route naming now use share
 bounded text editing/presentation and modal button-focus restoration. Places/service,
 saved-route and history form action buttons adopt semantic release activation.
 See `docs/shared_text_modal_adoption.md` for native session/caret behavior and the
-remaining main pin-name/Ingest, Map HUD/list, pane and fullscreen hosts.
+field behavior. The remaining main pin-name/Ingest, HUD/list/modal controls,
+pane composition and fullscreen/window hosts now adopt the same contracts;
+see `docs/shared_ui_rollout.md` for the complete host inventory and qualification
+boundaries.
 Program VERSION remains 0.3.0.
 
 ## Accepted canonical state (2026-08-27 baseline)
@@ -175,3 +177,18 @@ Program VERSION remains 0.3.0.
 - Full phase ledgers and archived docs are in:
   - `/Users/calebsv/Desktop/CodeWork/docs/private_program_docs/map_forge/`
 - This file is the compressed public current-state contract.
+
+## Remaining-host UI adoption checkpoint — 2026-10-06
+
+Main Edit now adopts shared bounded editing for pin-name/Ingest, semantic release
+activation and measured rounded presentation for remaining HUD/sidebar/modal/
+chooser/legend buttons, and shared pane topology/composition/hit/pointer/splitter
+ownership. Normal resize uses a 14-pixel hit area around one-pixel chrome and
+never opens workspace authoring. Optional sidebar ratio persists in view preferences.
+The actual runtime uses shared fullscreen/window observation, logical/drawable
+geometry, suspension and transient cancellation with retained drafts. Map mode
+keeps overlay projection; Hiking reserves composed map bounds. Product list,
+slider, map, history, import, backup and persistence policies remain authoritative.
+See [rollout inventory and qualification boundaries](shared_ui_rollout.md).
+Combined field/button ordering, native IME/font and wider-platform qualification
+remain separate. Exact shared pin and VERSION0.3.0 are unchanged.

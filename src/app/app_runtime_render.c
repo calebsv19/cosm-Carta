@@ -193,6 +193,7 @@ void app_runtime_render_submit_frame(AppState *app,
     terrain_credit_draw(app);
     app_draw_pin_labels(app);
     app_draw_pin_panel(app);
+    carta_panes_draw(app);
     app_draw_route_panel(app);
     app_draw_header_bar(app);
     app_draw_layer_debug(app);

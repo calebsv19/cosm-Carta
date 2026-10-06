@@ -29,6 +29,9 @@ void app_pin_panel_draw_name_field(AppState *app,
                                    SDL_Color muted);
 bool app_pin_panel_handle_name_click(AppState *app, int x, int y);
 bool app_pin_panel_handle_name_runtime_inputs(AppState *app);
+bool app_pin_panel_activate_metadata(AppState *,unsigned);
+SDL_FRect app_pin_panel_metadata_rect(const AppState *,unsigned);
+void app_pin_panel_activate_action(AppState *,unsigned);
 void app_pin_panel_draw_metadata(AppState *app);
 bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y);
 bool app_pin_panel_row_has_route_start(const AppState *app, int pin_index);

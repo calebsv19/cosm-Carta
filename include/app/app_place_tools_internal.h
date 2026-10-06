@@ -15,6 +15,10 @@ typedef struct PlaceTools {
     SDL_FRect fields[68];
     unsigned field_count;
     CartaTextInput text;
+    SDL_FRect buttons[256];
+    uint64_t button_keys[256];
+    unsigned button_count;
+    bool controls_ready;
 } PlaceTools;
 // Single native-dialog state shared only by its input and rendering adapters.
 extern PlaceTools tools;
@@ -31,4 +35,7 @@ SDL_FRect tools_rect(const AppState *app);
 SDL_FRect tools_toolbar(const AppState *app, unsigned index);
 // Shares current dialog geometry or typed snapshot inspection between input and draw.
 struct json_object *tools_route_row(int ordinal);
+// Accepts an eligible semantic button and invokes existing product policy.
+void tools_activate(AppState *,uint64_t);
+void tools_button(AppState *,SDL_FRect,const char *,bool,uint64_t);
 #endif

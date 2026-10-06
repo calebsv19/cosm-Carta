@@ -47,13 +47,13 @@ road/terrain and SDL fallback replays, build/regression/headless and Main Edit
 package checks qualify each adoption checkpoint; private rollout receipts record
 exact source/package identities and capture limits.
 
-This is an incremental control slice. Other Map HUD/layer controls,
-collection/list rows and place-modal action buttons retain their prior hosts.
-History/place form fields and search/route naming use the separately documented
-shared text host. This does not establish complete mixed field/button traversal,
-pane composition, fullscreen or all-platform presentation for Carta. Those are
-separate migrations. Canonical source, app VERSION, release and installed package
-identity are separate delivery boundaries.
+This initial control slice is extended by the [completion rollout](shared_ui_rollout.md):
+Map HUD, sidebar and place-modal buttons, view/peak/terrain chooser and legend
+controls now share presentation and activation. Product spatial list/slider/map
+gestures remain authoritative within shared pane/window ownership. Shared editing
+covers declared fields; combined field/button ordering and native platform
+acceptance remain explicit boundaries. Canonical source, VERSION and release are
+separate from the Main Edit comparison package.
 
-See `docs/shared_text_modal_adoption.md` for bounded editing, focus restoration,
-native session/caret ownership and remaining legacy editing endpoints.
+See [text/modal adoption](shared_text_modal_adoption.md) for bounded editing,
+focus restoration and native session/caret ownership.

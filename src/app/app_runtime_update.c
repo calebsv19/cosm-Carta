@@ -354,18 +354,8 @@ void app_runtime_update_frame(AppState *app,
     double after_integrate = time_now_seconds();
 
     bool consumed_click = app_header_layer_slider_update(app);
-    if (app->ui_state_bridge.input.left_click_pressed && app_header_button_hit(app, app->ui_state_bridge.input.mouse_x, app->ui_state_bridge.input.mouse_y)) {
-        app->route_state_bridge.route.mode = (app->route_state_bridge.route.mode == ROUTE_MODE_CAR) ? ROUTE_MODE_WALK : ROUTE_MODE_CAR;
-        if (app->route_state_bridge.route.has_start && app->route_state_bridge.route.has_goal) {
-            app_route_schedule_recompute(app, 0.0);
-        }
-        consumed_click = true;
-    } else if (app->ui_state_bridge.input.left_click_pressed && app_header_layer_toggle_click(app, app->ui_state_bridge.input.mouse_x, app->ui_state_bridge.input.mouse_y)) {
-        consumed_click = true;
-    } else if ((app->ui_state_bridge.input.left_click_pressed || app->ui_state_bridge.input.right_click_pressed || app->ui_state_bridge.input.middle_click_pressed) &&
-               app->ui_state_bridge.input.mouse_y <= (int)APP_HEADER_HEIGHT) {
-        consumed_click = true;
-    }
+    if ((app->ui_state_bridge.input.left_click_pressed || app->ui_state_bridge.input.right_click_pressed || app->ui_state_bridge.input.middle_click_pressed) &&
+        app->ui_state_bridge.input.mouse_y <= (int)APP_HEADER_HEIGHT)consumed_click=true;
     if (app_pin_panel_handle_runtime_inputs(app)) {
         consumed_click = true;
     }

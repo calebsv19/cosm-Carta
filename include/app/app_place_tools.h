@@ -16,4 +16,9 @@ void app_place_tools_draw_toolbar(AppState *app);
 void app_place_tools_draw(AppState *app);
 // Opens a selected saved route through the common query/activation boundary.
 void app_places_open_route(AppState *app, const char *route_id);
+bool app_place_tools_text_active(void);
+unsigned app_place_tools_control_count(void);
+SDL_FRect app_place_tools_control_rect(unsigned);
+uint64_t app_place_tools_control_key(unsigned);
+void app_place_tools_control_activate(AppState *,uint64_t);
 #endif

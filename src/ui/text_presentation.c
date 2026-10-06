@@ -77,14 +77,11 @@ void carta_text_frame_end(AppState *app) {
        app->ui_state_bridge.native_text_previous)
         kit_ui_text_cancel_composition(&app->ui_state_bridge.native_text_previous->edit);
     if (!app->ui_state_bridge.native_text_owner) {
-        // Legacy pin-name/Ingest editors still need a session until their migration.
-        bool legacy=app->ui_state_bridge.pin_name_edit_active || app->ingest_edit_mode;
-        if(legacy && app->window && (SDL_GetWindowFlags(app->window)&SDL_WINDOW_INPUT_FOCUS)) {
-            if(!SDL_IsTextInputActive())SDL_StartTextInput();
-        } else if(SDL_IsTextInputActive())SDL_StopTextInput();
+        if(SDL_IsTextInputActive())SDL_StopTextInput();
     }
 }
 void carta_text_window_event(AppState *app,const SDL_Event *event) {
+    if(!app || !event || (event->type!=SDL_WINDOWEVENT && event->type!=SDL_QUIT))return;
     CartaTextInput *owner=app->ui_state_bridge.native_text_owner;
     if (owner) (void)carta_text_event(owner,event);
     if(owner && event->type==SDL_WINDOWEVENT &&

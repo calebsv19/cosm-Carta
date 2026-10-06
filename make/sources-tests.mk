@@ -37,9 +37,9 @@ APP_RUNTIME_WINDOW_RESIZE_TEST_SRCS := tests/app_runtime_window_resize_test.c sr
 APP_MAP_VIEWPORT_TEST_TARGET := $(TEST_BIN_DIR)/app_map_viewport_test
 APP_MAP_VIEWPORT_TEST_SRCS := tests/app_map_viewport_test.c src/app/app_map_viewport.c src/camera/camera.c src/camera/camera_viewport_bridge.c src/map/mercator.c
 APP_PIN_PANEL_LAYOUT_TEST_TARGET := $(TEST_BIN_DIR)/app_pin_panel_layout_test
-APP_PIN_PANEL_LAYOUT_TEST_SRCS := tests/app_pin_panel_layout_test.c src/app/pins/app_pin_panel_layout.c
+APP_PIN_PANEL_LAYOUT_TEST_SRCS := tests/app_pin_panel_layout_test.c src/app/pins/app_pin_panel_layout.c src/ui/pane_layout.c $(KIT_PANE_SRCS) $(KIT_RENDER_DIR)/src/kit_render.c $(KIT_RENDER_DIR)/src/kit_render_command_validation.c $(KIT_RENDER_DIR)/src/kit_render_backend_null.c $(KIT_RENDER_DIR)/src/kit_render_backend_vk.c
 APP_PIN_PANEL_RENAME_TEST_TARGET := $(TEST_BIN_DIR)/app_pin_panel_rename_test
-APP_PIN_PANEL_RENAME_TEST_SRCS := tests/app_pin_panel_rename_test.c src/app/pins/app_pin_name_edit.c
+APP_PIN_PANEL_RENAME_TEST_SRCS := tests/app_pin_panel_rename_test.c src/app/pins/app_pin_name_edit.c $(KIT_UI_DIR)/src/kit_ui_text_edit.c
 TILE_MANAGER_RESIDENCY_TEST_TARGET := $(TEST_BIN_DIR)/tile_manager_residency_test
 TILE_MANAGER_RESIDENCY_TEST_SRCS := tests/tile_manager_residency_test.c src/map/tile_manager.c src/map/tile_source.c src/map/mft_loader.c src/core/log.c
 APP_PINS_TEST_TARGET := $(TEST_BIN_DIR)/app_pins_test
@@ -54,7 +54,7 @@ ROUTE_QUERY_TEST_TARGET := $(TEST_BIN_DIR)/test_route_query
 ROUTE_QUERY_TEST_SRCS := tests/test_route_query.c src/route/query.c src/route/route.c src/route/astar.c src/route/cost.c src/route/graph.c src/map/mercator.c src/map/geodesic.c src/core/log.c
 
 PLACE_TOOLS_TEST_TARGET := $(TEST_BIN_DIR)/test_place_tools
-PLACE_TOOLS_TEST_SRCS := src/app/history/history_gpx.c src/app/history/history_store.c src/app/history/history_commands.c src/app/history/history_status.c tests/test_place_tools.c src/app/pins/app_place_tools.c src/app/pins/app_place_tools_draw.c src/app/pins/app_pins.c src/app/pins/app_pins_workspace.c src/app/pins/place_repository.c src/app/pins/place_commands.c src/app/pins/place_routes.c src/app/pins/place_maintenance.c src/app/pins/place_profile.c src/route/query.c src/route/route.c src/route/astar.c src/route/cost.c src/route/graph.c src/map/mercator.c src/map/geodesic.c src/core/log.c
+PLACE_TOOLS_TEST_SRCS := src/app/history/history_gpx.c src/app/history/history_store.c src/app/history/history_commands.c src/app/history/history_status.c tests/test_place_tools.c src/app/pins/app_place_tools.c src/app/pins/app_place_tools_draw.c src/app/pins/app_place_tools_controls.c src/app/pins/app_pins.c src/app/pins/app_pins_workspace.c src/app/pins/place_repository.c src/app/pins/place_commands.c src/app/pins/place_routes.c src/app/pins/place_maintenance.c src/app/pins/place_profile.c src/route/query.c src/route/route.c src/route/astar.c src/route/cost.c src/route/graph.c src/map/mercator.c src/map/geodesic.c src/core/log.c
 
 REGION_BAND_SELECTION_TEST_TARGET := $(TEST_BIN_DIR)/test_region_band_selection
 REGION_BAND_SELECTION_TEST_SRCS := tests/test_region_band_selection.c src/app/region.c src/map/tile_source.c
@@ -84,3 +84,17 @@ CARTA_TEXT_INPUT_SRCS := tests/test_carta_text_input.c src/ui/text_input.c $(KIT
 PLACE_TOOLS_TEST_SRCS := $(sort $(PLACE_TOOLS_TEST_SRCS) $(KIT_UI_CONTROL_SRCS))
 
 PLACE_TOOLS_TEST_SRCS := $(sort $(PLACE_TOOLS_TEST_SRCS) src/ui/control_surface.c src/ui/control_presentation.c src/ui/control_places.c src/app/app_utility_workspace.c)
+
+UTILITY_WORKSPACE_TEST_SRCS += src/ui/modal_controls.c
+PLACE_TOOLS_TEST_SRCS += src/ui/modal_controls.c
+HISTORY_UI_TEST_SRCS += src/ui/modal_controls.c
+CARTA_ROLLOUT_TEST_TARGET := $(TEST_BIN_DIR)/test_carta_rollout
+CARTA_ROLLOUT_TEST_SRCS := tests/test_carta_rollout.c src/ui/text_hosts.c src/ui/pane_layout.c src/ui/panes.c src/ui/window.c src/app/pins/app_pin_panel_layout.c $(CARTA_TEXT_TEST_SRCS) $(KIT_PANE_SRCS) $(filter-out src/ui/control_surface.c,$(CARTA_CONTROL_TEST_SRCS)) $(KIT_UI_DIR)/src/kit_ui_window_probe_sdl.c $(KIT_UI_DIR)/src/kit_ui.c $(KIT_RENDER_DIR)/src/kit_render.c $(KIT_RENDER_DIR)/src/kit_render_command_validation.c $(KIT_RENDER_DIR)/src/kit_render_backend_null.c $(KIT_RENDER_DIR)/src/kit_render_backend_vk.c
+
+HISTORY_UI_TEST_SRCS += src/app/history/history_picker.c
+
+CARTA_ROLLOUT_TEST_SRCS += $(KIT_UI_DIR)/src/kit_ui_button.c $(KIT_UI_DIR)/src/kit_ui_hud.c
+
+UTILITY_WORKSPACE_TEST_SRCS += src/ui/control_remaining.c src/ui/text_input.c $(KIT_UI_DIR)/src/kit_ui_text_edit.c $(KIT_UI_DIR)/src/kit_ui_text_edit_sdl.c
+
+APP_MAP_VIEWPORT_TEST_SRCS += $(KIT_PANE_DIR)/src/kit_pane_composition.c
