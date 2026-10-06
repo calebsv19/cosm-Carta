@@ -6,6 +6,23 @@ core_pane, kit_render 0.14.6, vk_renderer 1.7.0 and vk_runtime 0.6.0.
 This is development adoption. Canonical source and application VERSION 0.3.0
 remain separate from the Main Edit comparison app and any future release.
 
+## Presentation ownership
+
+Semantic adoption does not imply replacing product status colors with the generic
+selected-button palette. Hiking view chips retain their group tint and one narrow
+map-visibility strip; Map header chips retain idle/loading/ready colors. Both use
+the same rounded, measured, synchronous control painter with app-supplied colors,
+shared hover/press/focus state and existing release actions. Legacy full-control
+fills/outlines must be removed when that painter becomes the owner. Panel/list
+backgrounds, distinct swatches and loading progress are separate product visuals.
+
+The targeted history fixture checks one caption, one strip and one rounded surface
+(outline plus inset fill), with no legacy underlay in visible/hovered/map-hidden
+states. Native dark-theme captures of the Completed / To do + partial combination
+and the Map header complement behavior tests; semantic checks alone cannot prove
+presentation fidelity. Remaining migrated call sites were checked for this same
+layering pattern. This fixes paint ownership without changing layout or commands.
+
 ## Adopted hosts
 
 | Host | Shared behavior | Product ownership |

@@ -34,10 +34,18 @@ static unsigned lines, persisted, labels, terrain_removals;
 static int first_row_y;
 static bool capture_rows, capture_text_field;
 static SDL_Color draw_color,last_line_color;
+static bool trace_legend;
+static SDL_FRect legend_bounds;
+static unsigned legend_underlays,legend_surfaces,legend_accents,legend_captions;
+static SDL_Color legend_fill;
 // Supplies deterministic font metrics and records native rounded presentation.
 static unsigned rounded_controls;
 void renderer_fill_rounded_rect(Renderer *r,const SDL_FRect *p,float radius) {
     (void)r;assert(p->w>0 && p->h>0 && radius>0);rounded_controls++;
+    if(trace_legend && p->x>=legend_bounds.x && p->x<=legend_bounds.x+1 &&
+       p->y>=legend_bounds.y && p->y<=legend_bounds.y+1) {
+        legend_surfaces++;legend_fill=draw_color;
+    }
 }
 int ui_font_line_height(float scale) { return (int)(20*scale); }
 bool app_place_tools_active(void) { return false; }
@@ -55,7 +63,10 @@ void renderer_set_draw_color(Renderer *r, uint8_t a, uint8_t b, uint8_t c, uint8
 }
 void renderer_fill_rect(Renderer *r, const SDL_FRect *p) {
     (void)r;
-    (void)p;
+    if(trace_legend && p->y==legend_bounds.y && p->x==legend_bounds.x && p->w==legend_bounds.w)
+        legend_underlays++;
+    if(trace_legend && p->x==legend_bounds.x+2 && p->y==legend_bounds.y+3 && p->w==2)
+        legend_accents++;
 }
 void ui_draw_text_clipped(Renderer *r, int x, int y, const char *s, SDL_Color c, float scale, int w) {
     (void)r;
@@ -67,6 +78,7 @@ void ui_draw_text_clipped(Renderer *r, int x, int y, const char *s, SDL_Color c,
     assert(w > 0);
     if(capture_text_field && !strcmp(s,"Café trail")) {assert(r->viewport_enabled);assert(x>=r->viewport_x && y>=r->viewport_y);}
     if(capture_rows && !strcmp(s,"Native import"))first_row_y=y;
+    if(trace_legend && (!strcmp(s,"Completed") || !strcmp(s,"Off · Completed")))legend_captions++;
     labels++;
 }
 // Supplies a deterministic native theme for history form verification.
@@ -436,6 +448,24 @@ int main(void) {
     a->width = 500;
     a->ui_state_bridge.left_pane_rect.w = 225;
     history_ui_panel_draw(a);
+    // Map visibility is a legend tint, not a generic pale selected-button fill.
+    // Catch both the overwritten product surface and duplicate full-height strip.
+    history_views_single(a,1,NULL);history_views_toggle(a,history_views_choice(a,2));
+    legend_bounds=history_ui_control_rect(a,29);trace_legend=true;
+    history_ui_panel_draw(a);
+    assert(legend_underlays==0 && legend_surfaces==2 && legend_accents==1 && legend_captions==1);
+    assert(legend_fill.g>legend_fill.r && legend_fill.r<160 && legend_fill.g<160 && legend_fill.a==255);
+    legend_underlays=legend_surfaces=legend_accents=legend_captions=0;
+    SDL_Event hover={0};hover.type=SDL_MOUSEMOTION;
+    hover.motion.x=legend_bounds.x+4;hover.motion.y=legend_bounds.y+4;
+    history_ui_event(a,&hover);history_ui_panel_draw(a);
+    assert(legend_underlays==0 && legend_surfaces==2 && legend_accents==1 && legend_captions==1);
+    assert(legend_fill.g<160);
+    a->ui_state_bridge.history_views.items[0].map_visible=false;
+    legend_underlays=legend_surfaces=legend_accents=legend_captions=0;
+    history_ui_panel_draw(a);
+    assert(legend_underlays==0 && legend_surfaces==2 && legend_accents==1 && legend_captions==1);
+    assert(legend_fill.g<160);trace_legend=false;
     history_ui_shutdown();
     map_forge_pins_file_free(&a->pins_file);
     free(a);

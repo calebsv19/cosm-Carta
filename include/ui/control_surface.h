@@ -18,4 +18,8 @@ void carta_remaining_control_activate(struct AppState *,uint32_t,unsigned,uint32
 /* Draws a synchronous rounded control through the current native backend. */
 void carta_ui_control_draw(struct AppState *app, SDL_FRect rect, const char *label,
                            bool selected, KitUiSurfaceKey key, float text_scale);
+/* One painter for product-colored status controls; never add button underlays. */
+void carta_ui_control_draw_colors(struct AppState *app, SDL_FRect rect, const char *label,
+                           bool selected, KitUiSurfaceKey key, float text_scale,
+                           SDL_Color fill, SDL_Color outline);
 #endif

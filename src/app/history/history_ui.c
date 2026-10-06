@@ -908,11 +908,11 @@ static void draw_legend(AppState *app, HistoryLayout layout, MapForgeThemePalett
     for(size_t i=0;i<views->count && i<3;i++) {
         HistoryViewSelection group=views->items[i];SDL_FRect box=legend_chip(layout,i);
         SDL_Color color=history_views_color(group);
-        fill(app,box,history_views_tint(surface(colors.route_panel_fill,true),color,group.map_visible?.22f:.06f));
-        fill(app,(SDL_FRect){box.x,box.y,3,box.h},group.map_visible?color:colors.text_muted);
+        SDL_Color tint=history_views_tint(surface(colors.route_panel_fill,true),color,group.map_visible?.22f:.06f);
         char name[129],text[160];history_views_name(app,group,name,sizeof(name));
         snprintf(text,sizeof(text),"%s%s",group.map_visible?"":"Off · ",name);
-        carta_ui_control_draw(app,box,text,group.map_visible,(KitUiSurfaceKey){CARTA_CONTROL_HISTORY,29+i},.65f);
+        carta_ui_control_draw_colors(app,box,text,group.map_visible,
+            (KitUiSurfaceKey){CARTA_CONTROL_HISTORY,29+i},.65f,tint,colors.button_outline);
         fill(app,(SDL_FRect){box.x+2,box.y+3,2,fmaxf(1,box.h-6)},group.map_visible?color:colors.text_muted);
     }
 }

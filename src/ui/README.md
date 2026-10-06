@@ -22,6 +22,10 @@ This module provides reusable UI helpers for runtime overlays and text rendering
   bodies stay authoritative. Ownership/geometry changes invalidate presses.
 - `control_presentation.c`: shared compact rounded style, native backend
   expression and measured synchronous caption placement through existing fonts.
+  Product-colored legend/status controls supply their fill and outline to this
+  same painter. Each control has one surface and one caption; migration must
+  remove its legacy chrome rather than painting a generic button over it.
+  Group color strips and loading progress remain separate product indicators.
 
 See `docs/shared_control_adoption.md` for activation/cancellation, scope limits
 and qualification. Layout, product data, map/terrain policy and persistence remain

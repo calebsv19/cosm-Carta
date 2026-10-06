@@ -292,47 +292,15 @@ static void app_draw_header_layer_chips(AppState *app,
         bool is_ready = app->tile_state_bridge.layer_state[kind] == LAYER_READINESS_READY;
         bool is_loading = app->tile_state_bridge.layer_state[kind] == LAYER_READINESS_LOADING && expected > 0;
 
-        renderer_set_draw_color(&app->renderer,
-                                palette->chip_idle_outline.r, palette->chip_idle_outline.g, palette->chip_idle_outline.b, palette->chip_idle_outline.a);
-        renderer_draw_rect(&app->renderer, &row_rect);
-
+        SDL_Color chip_fill=palette->badge_fill, chip_outline=palette->badge_outline;
         if (!runtime_enabled) {
-            renderer_set_draw_color(&app->renderer,
-                                    palette->chip_idle_fill.r, palette->chip_idle_fill.g, palette->chip_idle_fill.b, palette->chip_idle_fill.a);
-            renderer_fill_rect(&app->renderer, &label_rect);
-            renderer_set_draw_color(&app->renderer,
-                                    palette->chip_idle_outline.r, palette->chip_idle_outline.g, palette->chip_idle_outline.b, palette->chip_idle_outline.a);
-            renderer_draw_rect(&app->renderer, &label_rect);
-        } else if (!runtime_active || app->tile_state_bridge.layer_state[kind] == LAYER_READINESS_HIDDEN) {
-            renderer_set_draw_color(&app->renderer,
-                                    palette->badge_fill.r, palette->badge_fill.g, palette->badge_fill.b, palette->badge_fill.a);
-            renderer_fill_rect(&app->renderer, &label_rect);
-            renderer_set_draw_color(&app->renderer,
-                                    palette->badge_outline.r, palette->badge_outline.g, palette->badge_outline.b, palette->badge_outline.a);
-            renderer_draw_rect(&app->renderer, &label_rect);
-        } else if (is_loading) {
-            renderer_set_draw_color(&app->renderer,
-                                    palette->chip_loading_fill.r, palette->chip_loading_fill.g, palette->chip_loading_fill.b, palette->chip_loading_fill.a);
-            renderer_fill_rect(&app->renderer, &label_rect);
-            renderer_set_draw_color(&app->renderer,
-                                    palette->chip_loading_outline.r, palette->chip_loading_outline.g,
-                                    palette->chip_loading_outline.b, palette->chip_loading_outline.a);
-            renderer_draw_rect(&app->renderer, &label_rect);
-        } else if (is_ready) {
-            renderer_set_draw_color(&app->renderer,
-                                    palette->chip_ready_fill.r, palette->chip_ready_fill.g, palette->chip_ready_fill.b, palette->chip_ready_fill.a);
-            renderer_fill_rect(&app->renderer, &label_rect);
-            renderer_set_draw_color(&app->renderer,
-                                    palette->chip_ready_outline.r, palette->chip_ready_outline.g,
-                                    palette->chip_ready_outline.b, palette->chip_ready_outline.a);
-            renderer_draw_rect(&app->renderer, &label_rect);
-        } else {
-            renderer_set_draw_color(&app->renderer,
-                                    palette->badge_fill.r, palette->badge_fill.g, palette->badge_fill.b, palette->badge_fill.a);
-            renderer_fill_rect(&app->renderer, &label_rect);
-            renderer_set_draw_color(&app->renderer,
-                                    palette->badge_outline.r, palette->badge_outline.g, palette->badge_outline.b, palette->badge_outline.a);
-            renderer_draw_rect(&app->renderer, &label_rect);
+            chip_fill=palette->chip_idle_fill; chip_outline=palette->chip_idle_outline;
+        } else if (runtime_active && app->tile_state_bridge.layer_state[kind] != LAYER_READINESS_HIDDEN) {
+            if (is_loading) {
+                chip_fill=palette->chip_loading_fill; chip_outline=palette->chip_loading_outline;
+            } else if (is_ready) {
+                chip_fill=palette->chip_ready_fill; chip_outline=palette->chip_ready_outline;
+            }
         }
 
         char chip_text[24];
@@ -343,7 +311,8 @@ static void app_draw_header_layer_chips(AppState *app,
             snprintf(chip_text, sizeof(chip_text), "%s", tag);
         }
 
-        carta_ui_control_draw(app,label_rect,chip_text,runtime_active,(KitUiSurfaceKey){CARTA_CONTROL_HEADER,40+kind},1);
+        carta_ui_control_draw_colors(app,label_rect,chip_text,runtime_active,
+            (KitUiSurfaceKey){CARTA_CONTROL_HEADER,40+kind},1,chip_fill,chip_outline);
 
         if (is_loading && runtime_enabled && expected > 0) {
             float progress = app_clampf((float)done / (float)expected, 0.0f, 1.0f);

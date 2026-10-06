@@ -6,8 +6,9 @@
 
 // Converts the host's resolved palette without changing theme persistence.
 static CoreThemeColor color(SDL_Color c) { return (CoreThemeColor){c.r,c.g,c.b,c.a}; }
-void carta_ui_control_draw_surface(AppState *app, KitUiSurface *s, SDL_FRect r, const char *label,
-                           bool selected, KitUiSurfaceKey key, float scale) {
+static void draw_control(AppState *app, KitUiSurface *s, SDL_FRect r, const char *label,
+                           bool selected, KitUiSurfaceKey key, float scale,
+                           const SDL_Color *fill, const SDL_Color *outline) {
     if (!app || !label || r.w<=0 || r.h<=0) return;
     KitUiButtonSpec spec; kit_ui_button_spec_init(&spec,label);
     spec.state.selected=selected;
@@ -19,6 +20,14 @@ void carta_ui_control_draw_surface(AppState *app, KitUiSurface *s, SDL_FRect r, 
         color(p.button_active_primary),color(p.button_active_success),
         color(p.button_outline),color(p.button_active_primary),
         color(p.text_primary),color(p.text_muted)};
+    // Product status colors belong to this single painter, not an underlay hidden
+    // by generic selected chrome. Shared focus/activation still use the same key.
+    if (fill && outline) {
+        theme.idle_fill=theme.selected_fill=theme.positive_fill=color(*fill);
+        theme.hover_fill=(CoreThemeColor){fill->r+(255-fill->r)/12,
+            fill->g+(255-fill->g)/12,fill->b+(255-fill->b)/12,fill->a};
+        theme.outline_idle=theme.outline_highlight=color(*outline);
+    }
     KitUiButtonStyle style; if (!kit_ui_button_style_resolve(&theme,&spec,&style)) return;
     // Preserve readable captions for both pale and dark selected host palettes.
     SDL_Color ink=(299u*style.fill.r+587u*style.fill.g+114u*style.fill.b)/1000u>160u ?
@@ -59,6 +68,16 @@ void carta_ui_control_draw_surface(AppState *app, KitUiSurface *s, SDL_FRect r, 
     }
 }
 
+void carta_ui_control_draw_surface(AppState *app,KitUiSurface *s,SDL_FRect r,const char *label,
+                           bool selected,KitUiSurfaceKey key,float scale) {
+    draw_control(app,s,r,label,selected,key,scale,NULL,NULL);
+}
+
 void carta_ui_control_draw(AppState *app,SDL_FRect r,const char *label,bool selected,KitUiSurfaceKey key,float scale) {
     if(app)carta_ui_control_draw_surface(app,&app->ui_state_bridge.controls,r,label,selected,key,scale);
+}
+
+void carta_ui_control_draw_colors(AppState *app,SDL_FRect r,const char *label,bool selected,
+                           KitUiSurfaceKey key,float scale,SDL_Color fill,SDL_Color outline) {
+    if(app)draw_control(app,&app->ui_state_bridge.controls,r,label,selected,key,scale,&fill,&outline);
 }
