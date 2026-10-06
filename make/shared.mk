@@ -49,6 +49,7 @@ CORE_PANE_LIB := $(SHARED_BUILD_DIR)/libcore_pane.a
 CORE_VIEWPORT2D_LIB := $(SHARED_BUILD_DIR)/libcore_viewport2d.a
 KIT_RUNTIME_DIAG_LIB := $(SHARED_BUILD_DIR)/libkit_runtime_diag.a
 KIT_RENDER_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render.o
+KIT_RENDER_VALIDATION_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_command_validation.o
 KIT_RENDER_BACKEND_NULL_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_backend_null.o
 KIT_RENDER_BACKEND_VK_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_backend_vk.o
 KIT_RENDER_EXTERNAL_TEXT_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_external_text.o

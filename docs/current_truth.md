@@ -20,12 +20,15 @@ packs remain external mutable/read-only data rather than source payloads.
 Public operating references are indexed in `docs/README.md`; dated internal
 execution checklists are preserved in the workspace private MapForge archive.
 
-The vendor renderer remains its 1.3.2-based compatibility snapshot with documented
-presentation and texture-corner backports. The texture-corner implementation is
-now available at an exact committed upstream `vk_renderer 1.7.0` checkpoint.
-See `docs/shared_dependency_checkpoint.md` for source provenance and the retained
-differences. This checkpoint does not update the shared subtree or adopt the
-new cross-program UI contract. Program VERSION remains 0.3.0.
+Main Edit now imports exact shared `09ff89a` through a dedicated managed
+subtree commit, providing `vk_renderer 1.7.0` and `vk_runtime 0.6.0`.
+Carta delegates frame/surface recovery to shared ownership and links the separate
+render command-validation module. Fresh build, focused tests, native road and
+rotated terrain replay, SDL fallback and Retina resize/readback qualify the
+renderer adoption. See `docs/shared_dependency_checkpoint.md` for provenance,
+limits and the next boundary. Newer UI/pane/text modules are available, but
+Carta toolbar and Hiking & History control migration has not started.
+Program VERSION remains 0.3.0.
 
 ## Accepted canonical state (2026-08-27 baseline)
 - Managed Vulkan presentation adoption is complete for the current source

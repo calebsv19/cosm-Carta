@@ -1,32 +1,64 @@
 # Carta shared renderer checkpoint
 
-Prepared 2026-10-06 before the cross-program UI migration.
+Qualified 2026-10-06 in retained Main Edit before toolbar/hiking UI migration.
 
-The exact committed upstream dependency available for the next managed import is
-shared commit `09ff89a0a32d80981010b15a7d45a2cdf8e5fd9f`, with
-`vk_renderer 1.7.0`, `vk_runtime 0.6.0`, `kit_ui 0.18.0`, `kit_pane 0.5.0`,
-`kit_render 0.14.6`, and `kit_workspace_authoring 0.6.1`.
-The additive renderer version checkpoints the ordered texture-corner API that
-was working-tree-only when the earlier 1.6.0 shared pin was accepted.
+## Exact dependency
 
-Carta currently retains its `third_party/codework_shared` snapshot and its
-documented 1.3.2 renderer backports. The separate texture-corner source is byte
-identical to the committed 1.7.0 source. The command header also matches, but
-the command source differs because Carta's older snapshot retains frame
-submission implementations in that file. Upstream owns those implementations
-in the separate frame-submission module, including improved fence and
-out-of-date/suboptimal handling. Exact-file differences therefore need a semantic
-review and a full clean rebuild at adoption; copying selected command files is
-not the update procedure.
+The managed archive import uses shared commit
+`09ff89a0a32d80981010b15a7d45a2cdf8e5fd9f` and subtree tree
+`c5a9cfed9ac92388ee071804990dc982b1449639`.
+The dedicated import commit is `4f1105d`; application integration fixes follow
+separately. The selected snapshot contains `vk_renderer 1.7.0`,
+`vk_runtime 0.6.0`, `kit_ui 0.18.0`, `kit_pane 0.5.0`, `kit_render 0.14.6`,
+and `kit_workspace_authoring 0.6.1`. Uncommitted upstream work was excluded.
 
-This feature checkpoint preserves existing vendor bytes. No subtree update has
-occurred. The next managed import must use a bounded target manifest with
-`bin/update_shared_subtrees.sh`, select the exact shared commit and record its
-manifest. Keep the import commit separate from application integration fixes.
-Requalify terrain texture corners, map projection, clipping, drawable changes,
-presentation recovery and SDL fallback against the imported dependency.
+The single-target manifest pins the full commit, rather than a moving branch.
+`bin/update_shared_subtrees.sh --method archive` now resolves full immutable
+commit IDs directly after fetch. Its fixture tests qualify both normal branch
+imports and an older exact commit after the branch advances, including a clean
+no-change repeat. Carta's prior vendor backports remain recoverable at `d12a1d7`;
+no hand-edited vendor patch is layered over this exact snapshot.
 
-Application VERSION 0.3.0, canonical source, stable Desktop app, personal data
-and published region packs remain separate from these local source checkpoints.
-The installed comparison app may retain its prior dirty-source identity after
-the source commit; an identity change alone does not refresh the Desktop app.
+## Integration boundary
+
+Carta links the newly separate `kit_render_command_validation.c` translation
+unit in the application and direct-source tests. Vulkan frame synchronization,
+retired resources and surface recovery belong to shared `vk_renderer`.
+Carta delegates failed frame acquisition to `vk_renderer_recover_surface` rather
+than rebuilding shared frame internals. App-owned geography, camera policy,
+terrain readers, tile residency, route drawing, input and diagnostics remain
+local. These small compatibility repairs do not migrate toolbar or hiking UI.
+
+## Qualification
+
+A fresh `build/ui-adoption-09ff89a` avoids stale shared ABI/object reuse.
+Focused viewport, terrain raster/vector, history, pin layout, idle and Main Edit
+contract tests pass, along with shared texture-corner, frame-submission and render
+command-validation tests. Native 32-second road and rotated hiking/terrain
+replays each cover eight phases, with zero Vulkan validation messages and no
+tile-presenter/lifecycle invariant failures. The terrain replay exercises
+resident raster tiles, vector contours and labels. Lossless captures confirm
+rotated texture/route alignment and sidebar clipping.
+
+The same terrain replay runs continuously on SDL dummy/software fallback;
+that lane establishes execution and invariants, not Vulkan/SDL pixel equality.
+A separate native resize/readback proof establishes Retina drawable extents
+`2560x1440 -> 2880x1600`, one surface recreation and zero validation warnings
+or errors. Fullscreen, external monitor/DPI changes, device loss and native
+Linux/Windows presentation are not newly qualified by this slice.
+
+See the workspace private MapForge adoption audit for aggregate/headless and
+clean-source package results, exact receipts and preservation checks.
+
+## Next boundary
+
+Migrate Carta toolbar and Hiking & History controls through small shared
+presentation/semantic-activation adapters, preserving product action bodies,
+layout and persistence. Availability of newer kit modules is not complete
+adoption of text, modal focus, pane composition or window contracts. Requalify
+map/terrain rendering after each integration slice.
+
+Application VERSION remains 0.3.0. Canonical source, installed Desktop apps,
+personal data and published region packs remain separate from these local
+source/package checkpoints. Local proof does not establish a release or a
+Desktop replacement.

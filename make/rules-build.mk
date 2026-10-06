@@ -126,6 +126,10 @@ $(KIT_RENDER_OBJ): $(KIT_RENDER_DIR)/src/kit_render.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
 
+$(KIT_RENDER_VALIDATION_OBJ): $(KIT_RENDER_DIR)/src/kit_render_command_validation.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@
+
 $(KIT_RENDER_BACKEND_NULL_OBJ): $(KIT_RENDER_DIR)/src/kit_render_backend_null.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@

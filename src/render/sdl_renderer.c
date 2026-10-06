@@ -55,40 +55,6 @@ static void renderer_disable_vulkan(Renderer *renderer, const char *reason) {
             reason ? reason : "unknown");
 }
 
-#if defined(MAPFORGE_HAVE_VK_RUNTIME)
-// Rebuilds abandoned frame synchronization while preserving completed frame drawing allocations.
-static VkResult renderer_recover_abandoned_frame(Renderer *renderer, VkResult cause) {
-    VkRenderer *vk = (VkRenderer *)renderer->vk;
-    uint32_t count = vk->frame_count;
-    VkRendererFrameState *saved = calloc(count, sizeof(*saved));
-    VkResult recover_result = saved ? vk_renderer_recover_surface(vk, renderer->window, cause)
-           : VK_ERROR_OUT_OF_HOST_MEMORY;
-    if (recover_result == VK_SUCCESS) {
-        memcpy(saved, vk->frames, count * sizeof(*saved));
-        vk_renderer_commands_destroy(vk, &vk->command_pool);
-        recover_result = vk_renderer_commands_init(vk, &vk->command_pool, count);
-        if (recover_result == VK_SUCCESS) {
-            for (uint32_t i = 0; i < count; ++i) {
-                vk->frames[i].vertex_buffer = saved[i].vertex_buffer;
-                vk->frames[i].transient_textures = saved[i].transient_textures;
-                vk->frames[i].transient_texture_count = saved[i].transient_texture_count;
-                vk->frames[i].transient_texture_capacity = saved[i].transient_texture_capacity;
-            }
-        } else {
-            for (uint32_t i = 0; i < count; ++i) {
-                if (saved[i].vertex_buffer.buffer)
-                    vk_renderer_memory_destroy_buffer(&vk->context, &saved[i].vertex_buffer);
-                for (uint32_t j = 0; j < saved[i].transient_texture_count; ++j)
-                    vk_renderer_texture_destroy(vk, &saved[i].transient_textures[j]);
-                free(saved[i].transient_textures);
-            }
-        }
-    }
-    free(saved);
-    return recover_result;
-}
-#endif
-
 static SDL_bool renderer_vk_validation_requested(void) {
     const char *value = getenv("MAPFORGE_REQUIRE_VK_VALIDATION");
     return value &&
@@ -410,7 +376,7 @@ void renderer_begin_frame(Renderer *renderer) {
         bool abandoned = result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR;
         if (abandoned) {
 #if defined(MAPFORGE_HAVE_VK_RUNTIME)
-            VkResult recover_result = renderer_recover_abandoned_frame(renderer, result);
+            VkResult recover_result = vk_renderer_recover_surface(vk, renderer->window, result);
 #else
             VkResult recover_result = vk_renderer_recreate_swapchain(vk,
                                                                       renderer->window);
