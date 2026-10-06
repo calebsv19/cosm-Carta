@@ -6,7 +6,7 @@ Schema: `codework_scene_project_v1`
 
 Programs: LineDrawing, PhysicsSim, RayTracing
 
-Last updated: 2026-07-18
+Last updated: 2026-08-22
 
 ## Purpose
 
@@ -44,6 +44,13 @@ Every v1 project has this minimum shape:
 v1. `scene_project.json` may contain pointers to them, but consumers must not
 use those pointers to relocate either file in this schema version. Flexible
 authoring/runtime locations require a later compatible contract or schema.
+
+New compiled publications should also include `scene_export_receipt.json`
+using `scene_export_receipt_v1`. It binds the authoring, runtime, compiler, and
+dependency-set digests without changing the required v1 root-file locations.
+Existing v1 projects without a receipt remain structurally valid, but consumers
+must treat their compiled runtime provenance as unverified. See
+`SCENE_EXPORT_RECEIPT_V1.md`.
 
 The initial manifest written by LineDrawing contains:
 

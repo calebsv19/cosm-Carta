@@ -7,7 +7,9 @@
 
 #include "kit_render.h"
 #include "kit_render_backend.h"
+#include "kit_render_command_validation.h"
 
+#include <limits.h>
 #include <string.h>
 
 static CoreResult kit_render_invalid(const char *message) {
@@ -214,6 +216,9 @@ static CoreResult kit_render_append(KitRenderFrame *frame, const KitRenderComman
         return kit_render_invalid("command buffer full");
     }
 
+    CoreResult validation = kit_render_validate_command(cmd);
+    if (validation.code != CORE_OK) return validation;
+
     buffer->commands[buffer->count++] = *cmd;
     return core_result_ok();
 }
@@ -229,7 +234,7 @@ CoreResult kit_render_begin_frame(KitRenderContext *ctx,
     if (!ctx || !command_buffer || !out_frame) {
         return kit_render_invalid("invalid argument");
     }
-    if (width_px == 0 || height_px == 0) {
+    if (width_px == 0 || height_px == 0 || width_px > INT_MAX || height_px > INT_MAX) {
         return kit_render_invalid("invalid frame size");
     }
     if (ctx->frame_open) {
@@ -274,6 +279,9 @@ CoreResult kit_render_end_frame(KitRenderContext *ctx, KitRenderFrame *frame) {
         return kit_render_invalid("backend not initialized");
     }
 
+    /* Validate the entire borrowed command stream before emitting any draw. */
+    result = kit_render_validate_frame(frame);
+    if (result.code != CORE_OK) return result;
     result = ops->submit(ctx, frame);
     if (result.code != CORE_OK) {
         return result;

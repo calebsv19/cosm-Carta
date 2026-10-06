@@ -543,6 +543,14 @@ Gaps:
   persistence expands beyond the current plain-text authoring seam.
 
 ### `growth_sim`
+GrowthSim Main Edit MCP closure (2026-10-04): installed headless and explicit
+desktop control directly use vendored `core_jobs 1.0.1` for cooperative owner-queue
+execution, `core_time 1.0.1` for monotonic deadlines and `core_headless_job 0.2.0`
+envelope/report validation. Both-toolchain native/wire, packaged/installed desktop
+and actual Codex four-mode/timeout acceptance pass. GrowthSim owns domain policy,
+quotas, provenance and terminal artifacts. Canonical adoption remains separate;
+no shared API/version change or distributed worker claim follows.
+
 Current shared profile:
 - `core_sim` is adopted through the vendored subtree host for Mold and Fire
   pass execution.
@@ -894,6 +902,17 @@ Gaps:
 ### `line_drawing`
 Current shared profile:
 - Broad shared adoption: `core_base/core_scene/core_trace/core_math/core_time`, theme/font, and vendored shape dependencies.
+- `core_scene_compile >= 0.8.0` is now adopted through the managed subtree for
+  Sculpt's File-pane export boundary. Sculpt owns discovery and content hashing
+  for its file-backed runtime mesh dependencies; shared compilation owns
+  canonical manifest sorting/digesting, derived content-addressed payload paths,
+  payload staging, and publication of authoring, runtime, dependency manifest,
+  packaged bytes, Sculpt's app-owned `scene_package.json` entrypoint, and
+  `scene_export_receipt_v1` with one create-only atomic directory transaction.
+  The receipt and bundle digest bind the optional package entrypoint. Shared
+  no-follow receipt, package-entrypoint, and payload verification is
+  the acceptance gate for downstream consumers. Sculpt retains iteration
+  naming, dependency discovery/kind meaning, UI status, and promotion policy.
 - the host now consumes that shared surface through a vendored `third_party/codework_shared` subtree instead of direct workspace-local `../shared` linkage.
 - first `kit_render` adoption slice is now in place for the font migration: Makefile wiring, shared role/tier/zoom bridge policy, active Vulkan UTF-8 draw/measure runtime, and packaged launcher/runtime default alignment to the shared `ide` font baseline.
 - first pane-host interaction slice is now in place for layout resizing: shared `core_pane` owns pane solve and shared `kit_pane` owns splitter hover/drag state while pane purpose stays app-local.
@@ -1047,3 +1066,288 @@ When any app materially changes shared-lib usage:
 - Update this doc first (gap state + next steps).
 - Update `11_version_compat_matrix.md` if minimum required versions changed.
 - Update `SHARED_LIBS_CURRENT_STATE.md` if adoption level changed.
+
+## Rounded UI First-Host Adoption (2026-10-04)
+
+- WorkspaceSandbox Main Edit: `Partial` shared compact rounded button drawing
+  now covers Font/Theme presets and controls through `kit_ui 0.11.3`,
+  `kit_render 0.14.5`, and `vk_renderer 1.4.0`. Other host-local HUD/authoring
+  controls remain a separate migration boundary.
+- MemConsole Main Edit: `Partial` common DB/browser/graph inspector buttons now
+  use the same shared appearance/state resolver. App hit testing, selection,
+  DB mutations, refresh scheduling, and caption anchors remain host-owned.
+- Renderer contract: positive rounded rectangles are now proven by actual
+  pixels at 1x/2x, including clipping/borders/alpha and buffer growth/fence reuse.
+  Transform fidelity, texture UV/tint, shared focus/navigation, and pane/layout
+  unification remain later slices. This slice proves macOS/MoltenVK only.
+- Canonical app adoption and release rollout remain pending separate decisions;
+  no other program's working lane was updated.
+
+### WorkspaceSandbox Main Edit HUD follow-up (2026-10-04)
+
+`d9b5982` imports shared `51b331a` and adopts `kit_workspace_authoring 0.5.2`
+for top-level compact rounded controls. Font/Theme and both floating Workspace
+HUD tabs share one small host caption adapter. Clean build, shared kit contracts,
+app regression/headless/visual checks, validation-clean native Vulkan resize and
+Main Edit package/installed-app review pass. MemConsole's earlier common-button
+adoption is unchanged; its authoring HUD has not yet imported this follow-up.
+Panel chrome, module-picker rows, retained focus/capture, full render-command
+fidelity and Linux presentation remain separate gaps. Canonical app rows remain
+on their existing snapshots; no app VERSION or publication changes.
+
+## DataLab Rounded Button Adoption — 2026-10-04 Main Edit
+
+The bounded appearance gap is closed in retained Main Edit `d640b7d` using
+managed shared `5b017d4`. `kit_ui 0.12.0`'s optional SDL adapter carries the
+existing shared state/appearance contract into playback, authoring top bar,
+Font/Theme/custom-theme, and Recent Directories buttons. Captions use common
+measurement; the two-line directory title/path no longer overlap. Shared pixel
+checks and host build/contract/stable/headless/native/package checks pass.
+
+Remaining gaps are narrower: retained focus/capture and keyboard navigation,
+transform and texture UV/tint command conformance, generalized pane editing,
+and native Linux presentation qualification still need independent slices.
+DataLab's UI remains CPU-composed in its SDL compatibility canvas; the existing
+native image-session path does not imply all-UI native GPU adoption. Broader
+picker/list/pane chrome stays app-specific. No other app or canonical/release
+snapshot was migrated by this cohort.
+
+
+## Render Fidelity Trio Closure (2026-10-04)
+
+- Shared transform and textured-quad field handling: **Resolved for the bounded
+  translation/signed-scale/UV/tint contract** in `kit_render 0.14.6` and
+  `vk_renderer 1.5.0`, with actual 1x/2x captured output and zero Vulkan
+  validation warnings/errors on Apple M2/MoltenVK.
+- orChestra/eCho Main Edit: **Adopted and proven locally** at `4b0f57d`/`4a6e093`
+  using normal host archives. The orChestra cold-build target now clears the
+  Vulkan kit archive and forwards source checks to avoid stale linkage.
+- DataLab Main Edit: **Adopted and proven locally** at `a291e7d`. Explicit native
+  source lists include both new renderer modules. The harness uses native app
+  objects plus an isolated Vulkan kit; SDL button drawing remains the UI
+  reference, so this is not all-UI GPU migration.
+- Cross-program integration proof: **Partial by design**. Product/headless,
+  native lifecycle and isolated package/installed identity pass for this trio.
+  Canonical source adoption, publication, interactive workflow review, native
+  Linux and remaining program consumers are separate boundaries.
+- Next shared contracts: focus/keyboard/pointer capture and pane/layout
+  composition. Transform stacks, rotation/shear and performance optimization
+  are not implied by this slice. [Full contract](../RENDER_COMMAND_FIDELITY.md).
+
+
+## Button interaction cohort (2026-10-04)
+
+Shared `ad3b83b` supplies `kit_ui 0.13.1` and
+`kit_workspace_authoring 0.6.1`. The optional caller-owned context standardizes
+press-origin capture, visual-order Tab/Shift-Tab focus and Enter/Space activation
+on release. Its generic archive remains independent of SDL; the optional SDL
+event/marker adapter and shared Font/Theme registration stay in the kits.
+Controls have half-open bounds and stable semantic IDs; repeat, cancellation,
+hidden/disabled owners, clipped controls and invalid registration are covered.
+The context retains no widget tree, actions, labels, layout or persistence.
+
+The retained Main Edit cohort uses separate managed imports and host integrations:
+- workspace_sandbox: `d9e07d9` — common Font/Theme authoring controls.
+- mem_console: `99f91dd` — common Font/Theme authoring controls.
+- datalab: `ea732ad` — common Font/Theme authoring controls.
+
+Each host routes normalized events to the kit and dispatches the returned action
+through its existing domain adapter. Apply/Cancel, custom-theme popup/rename,
+picker/text entry, coordinates, lifecycle and persistence stay host-owned.
+DataLab remains the SDL UI appearance reference; native image/Vulkan presentation
+retain their own paths. Normal-runtime HUD/inspector input and pane editing are
+not migrated by this slice. Shared and host replays, product/headless regression,
+native lifecycle and isolated Main Edit package gates pass on the local Mac.
+Native orChestra/eCho captured focus-marker pixels at 1x/2x and the SDL reference
+marker/coordinate checks pass. Human interactive acceptance and native Linux
+qualification remain distinct.
+
+See [the interaction contract](../UI_INTERACTION_CONTRACT.md). The next slice should
+extend this contract to ordinary HUD/inspector controls in the same trio, followed
+by bounded text-entry/modal and pane/layout composition. Canonical app source,
+app VERSION, stable Desktop bundles and release state remain outside this
+Development rollout.
+
+
+eCho Font/Theme follow-up `f919d51` separates the text-size chip from the
+increment control identity and clips its shorter readout before Reset. Full
+eCho regression and real panel native focus captures pass again. The shared
+module pin remains `ad3b83b`; this small host cleanup adds no shared API or
+program version change.
+
+
+## Complete trio button surface adoption (2026-10-04)
+
+The retained orChestra, eCho and DataLab Main Edit lanes now adopt `kit_ui 0.14.1`
+optional semantic surface snapshots across their inventoried runtime, authoring,
+modal and auxiliary-picker button surfaces. The shared source pin is `b1c67d7`;
+`kit_workspace_authoring 0.6.1`, `kit_render 0.14.6`, `vk_renderer 1.5.0` and
+`vk_runtime 0.6.0` retain their preceding contracts.
+
+The snapshot bridges normalized input and immediate drawing: 256 visible controls,
+full-width domain/value keys, opaque identity stable across row reordering,
+visible clipping, transactional registration and a bounded 32-activation FIFO.
+Direct hosts collect per event; drawing-time hosts claim one action per frame and
+redraw while pending. Modal scopes remove background targets while swallowing
+old owned releases. Hosts own actions, text/caret/IME, label lifetime, coordinates,
+pane/scrollbar gestures, domain state and persistence. No Core UI dependency or
+mandatory SDL dependency was introduced.
+
+orChestra covers top controls, ingest HUD/root actions/authoring shortcuts,
+Font/Theme and module assignment. eCho covers left browse/project/item controls,
+graph settings/actions, relationships, legend filters, DB modal and authoring.
+DataLab covers playback, Recent roots, common/custom authoring and picker roots/
+artifacts. eCho copies transient captions into a UI-frame arena; DataLab remains
+the SDL UI reference while native image rendering/Vulkan presentation stay distinct.
+
+Generic/SDL state tests, production-linked host replays, exact accepted-source
+and tamper checks, ordinary orChestra/eCho native focus output at 1x/2x with zero
+validation messages, and DataLab SDL pixel/output mapping are proved. Product,
+lifecycle and package/installed identity gates remain separately reported by each
+host. Human workflow review, text-edit/IME and modal-focus composition, pane
+composition, native Linux and wider/canonical release rollout are next boundaries.
+See [the interaction contract](../UI_INTERACTION_CONTRACT.md) and each host's
+`docs/ui_interaction.md`; this Development checkpoint changes no app VERSION.
+
+Accepted-source verification compares vendored module bytes with immutable Git
+snapshot bytes. `--require-current-canonical` additionally checks mutable upstream
+state for a deliberate adoption audit. Concurrent upstream renderer work is neither
+reset nor silently imported into these accepted programs.
+
+
+## 2026-10-05 bounded text editing and modal focus
+
+`kit_ui 0.15.1` at accepted shared `0cc23aa` provides optional caller-owned bounded UTF-8 editing, Shift selection, clipboard/preedit normalization and one-modal semantic button focus restoration. Orchestra Main Edit adopts ingest input root; Echo Main Edit adopts search/title/body/DB path/edge limit/relationship target; DataLab Main Edit adopts picker root/filter and viewer modal focus. Minimum for these APIs is 0.15.1; no portfolio-wide minimum or renderer change is implied. `kit_workspace_authoring 0.6.1`, `kit_render 0.14.6`, `vk_renderer 1.5.0`, `vk_runtime 0.6.0` remain unchanged. Stable canonical app versions remain outside this Development adoption. Text presentation/native IME, panes and other programs remain incremental follow-ons. See `UI_TEXT_FOCUS_CONTRACT.md` in shared docs.
+
+
+## 2026-10-05 shared text presentation
+
+`kit_ui 0.16.0` at accepted shared `e469445` supplies optional caller-owned measured text presentation: scalar-safe rows/hit, caret, selection, transient replacement preedit/underline, horizontal caret-follow and multiline hard wrapping. Queued and optional SDL adapters preserve clipping/storage conventions. Orchestra ingest root, Echo six fields and DataLab picker root/filter adopt it in Main Edit. The API minimum is 0.16.0; no portfolio-wide minimum is implied. Companion/render module versions remain unchanged. Core remains domain-owned and hosts retain eligibility, font/viewport, save/cancel/session/persistence policy. Next mixed traversal/native IME acceptance, then panes/wider rollout. See `UI_TEXT_PRESENTATION_CONTRACT.md`.
+
+## 2026-10-05 pane composition foundation
+
+Accepted shared source `86037d7` supplies `kit_pane 0.4.0` and `kit_ui 0.17.0`.
+The trio Main Edit adopts stable pane identities, viewport/content clipping and
+small host adapters. Orchestra uses shared geometry for leaf chrome/content and
+authoring hover; Echo uses navigation/detail/graph clips and pane pointer capture;
+DataLab uses picker pane scopes and shared list paint/hit clipping. Core pane,
+module, layout transaction and snapshot responsibilities remain unchanged.
+Mixed field/button focus order is available as a tested optional primitive;
+product mixed-order wiring remains a follow-on. Native SDL caret anchoring is
+adopted in the existing trio editable fields. Real macOS SDL window/session tests
+qualify the adapter; human IME candidate/commit/cancel and native Linux/Windows
+acceptance remain separate. Existing backend versions remain kit_render 0.14.6,
+vk_renderer 1.5.0 and vk_runtime 0.6.0; no mutable renderer work was imported.
+See [pane composition contract](../UI_PANE_COMPOSITION_CONTRACT.md).
+Next priority is a reusable pane-host composition/dispatch lifecycle with explicit
+splitter transactions and focus takeover, followed by per-program adoption.
+Canonical source, app VERSION, stable Desktop bundles and releases are unchanged.
+
+## 2026-10-05 pane host behavior adoption
+
+Accepted shared source `ddc9fee6e17482dcd64cf777d7a105b7ed9b157d` adds `kit_pane 0.5.0`, with
+`core_layout 0.2.1` supplying revisions and existing authoring transactions.
+The generic pane host adds stable mount/unmount/resize dispatch, pointer ownership,
+pane focus invalidation, and takeover cancellation. Drag-sized edits nest inside
+an existing authoring draft; hosts restore their own topology/ratios on cancel,
+retain domain actions/history, and persist only accepted changes. Shared bounded
+header slots reserve title space and register only visible actions through the
+existing kit_ui surface. Header labels use the existing centered button painter.
+No rendering backend is replaced: kit_render 0.14.6, vk_renderer 1.5.0,
+vk_runtime 0.6.0 and kit_ui 0.17.0 remain at their accepted versions.
+
+Orchestra wraps its existing snap/rewrite splitter controller and adds a MODULE
+header slot opening the existing picker. Echo isolates nested metadata,
+relationships and body input/paint clips, fixes parent-span ratio clamping,
+commits preferences on accepted release, restores all four ratios on Escape,
+focus loss or takeover, and adds a GRAPH-header REFRESH action. DataLab keeps its
+actual viewer canvas with source-control/header overlays, gives those regions
+stable ownership and SDL clipping, uses a RECENT DIRECTORIES header slot, and
+wraps its existing authoring projection drag in a nested layout transaction.
+DataLab's fixed authoring projection remains a projection; this does not turn
+all profile viewers into a generic movable pane tree.
+
+The proving scope remains the three retained Main Edit lanes. Canonical program
+source and VERSION, production bundles, release/Registry and remote hosts are
+unchanged. Fullscreen lifecycle qualification is next; docking, generalized
+pane provider insertion/persistence, product-wide mixed field/button traversal,
+human OS IME candidate/commit/cancel acceptance, native Linux/Windows and other
+programs remain separate. See the pane host contract and migration guide.
+
+## 2026-10-05 fullscreen/window lifecycle candidate
+
+The proving-trio slice uses committed `kit_ui 0.18.0` optional SDL window observation/mapping and `vk_renderer 1.6.0` fence/acquire/recovery corrections. Hosts retain event loops, window lifetimes, domain cancellation and persistence; `vk_runtime 0.6.0`, `kit_render 0.14.6` and `kit_pane 0.5.0` retain their responsibilities. The shared unit and macOS native standalone lifecycle/retained-texture gates pass; per-program adoption requires its own actual-loop/native proof. See `docs/UI_WINDOW_LIFECYCLE_CONTRACT.md`. The accepted branch is `codex/ui-window-lifecycle-20261005`, isolated from unrelated uncommitted shared renderer/mesh work; version equality alone is insufficient, so exact source pins remain required.
+
+## Fullscreen/window lifecycle acceptance — 2026-10-05
+
+Accepted shared source `854b51ff57c756b4565021fe759c27a459efbfd3` supplies `kit_ui 0.18.0` optional SDL window
+observation, coordinate mapping, F11 desktop-fullscreen and bounded native proof;
+`vk_renderer 1.6.0` resets fences only before submission, consumes suboptimal
+acquired images and performs bounded out-of-date recovery. Hosts own their loops,
+window/resource lifetimes, layouts, domain state, edit restoration and persistence.
+Logical size, actual drawable size and an explicitly bounded render extent are
+separate. Resize/move/display/maximize/restore/hide/minimize/focus loss cancel stale
+pane/control ownership before consumers. Non-presentable windows defer submissions.
+
+Orchestra and Echo use logical command UI coordinates. DataLab retains SDL drawing
+and Vulkan canvas presentation, including a bounded 4096x4096 canvas; large
+presentation extents scale that canvas with matched paint/input geometry. Both
+DataLab viewer and startup picker adopt the lifecycle; the plain SDL viewer path
+also passes. Native macOS actual loops pass all eight stages (initial, resize,
+fullscreen, windowed, hidden, shown, minimized, restored), six captures each and
+continued rendering, with zero Vulkan validation warnings/errors. DataLab also
+passes a 5000x1440 drawable. Unit fault injection proves acquire-out-of-date and
+suboptimal fence behavior; production-linked pane tests prove canceled payload
+and revision restoration for all ten invalidating event kinds.
+
+Scope is the proving trio retained Main Edit lanes. Canonical/stable programs and
+app VERSION remain unchanged. macOS proof does not qualify Linux/Windows,
+exclusive fullscreen, external-monitor migration, device-loss recovery, human IME
+workflow or every program. The native proof drives SDL desktop fullscreen; it does
+not automate clicking macOS's green window control. Next: apply the established
+migration recipe to one selected program, then qualify its actual UI/native paths.
+Mixed field/button traversal and OS IME sessions remain bounded follow-on work;
+generalized docking/provider insertion/persistence needs its own contract.
+
+
+## 2026-10-05 — sketCh pane header/content follow-on
+
+Retained Main Edit reuses kit_pane 0.5.0 composition and bounded header slots;
+there is no new shared API, module VERSION or subtree import. The app owns fixed
+module header policy and direct FIT/LAYOUT actions; kit_pane owns the header/
+content partition and slot allocation, kit_ui owns release/focus semantics.
+Content paint, hit testing and projection share content bounds. Production
+header tests and actual macOS standard/indexed loops qualify clipping, omission,
+release rejection and modal restoration. Provider remount/docking/persistence,
+content command extraction, human comparison and other platforms remain later
+boundaries. Canonical/stable source is unchanged. See
+[migration feedback](../UI_MIGRATION_GUIDE.md#sketch-pane-header-follow-on-feedback).
+
+## sketCh fixed-pane Main Edit lifecycle — 2026-10-06
+
+Existing shared pane/core contracts now support explicit app controllers, binding
+remount/cancellation, accepted resize/layout persistence and staged snapshot loads.
+Renderer resources stay host-owned; successful document replacement drops pending
+borrowed-source work before release. No dependency minimum or shared code/API/VERSION
+change. Native standard/indexed Vulkan and SDL plus production regression pass;
+Main Edit delivery remains distinct from canonical adoption. See
+[rollout feedback](../UI_MIGRATION_GUIDE.md#fixed-module-lifecycle-and-accepted-persistence--sketch-2026-10-06).
+
+## sketCh direct-command pilot feedback — 2026-10-06
+
+The retained Main Edit follow-on reuses the existing kit_ui semantic key and
+kit_pane composition contracts; shared code/API/module versions do not change.
+Registered content/header/authoring activations carry operation plus domain
+identity directly to app commands. Do not resolve an accepted command to a button
+center, manufacture a pointer event or hit-test another row to recover meaning.
+Keep app action bodies authoritative and shared by typed semantic and applicable
+spatial entry points. Claim activations once; invalidate pending meaning on scope
+or geometry changes. Reject modal/hidden/disabled/stale targets without fallback.
+
+Bind object-inspector edits to object IDs; resolve dynamic lists by current domain
+identity. An operation explicitly named for the active target may retain that
+product policy, with current eligibility rechecked. Preserve real coordinates for
+color/picker/opacity/drawing/scrolling controls. Test semantic dispatch with a hit
+hook that fails on spatial fallback, plus positive domain effects, stale/reordered
+targets, keyboard/pointer parity and native modal transition checks. UI rendering
+and GPU composition remain separate qualification boundaries.

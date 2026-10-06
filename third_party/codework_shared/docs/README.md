@@ -3,6 +3,8 @@
 This directory contains public-facing shared-library documentation.
 
 ## Primary Public References
+- [Render command fidelity](RENDER_COMMAND_FIDELITY.md)
+- [Shared rounded UI rendering](UI_ROUNDED_RENDERING.md)
 - `GPU_VULKAN_RUNTIME_SYSTEM.md`
 - `VERSIONING.md`
 - `SHARED_LIB_OWNERSHIP_BOUNDARIES.md`
@@ -11,6 +13,7 @@ This directory contains public-facing shared-library documentation.
 - `SHIMS_VS_RUNTIME_LIBS_BOUNDARY.md`
 - `SHARED_THEME_FONT_ROLLOUT_CONTRACT.md`
 - `PHYSICS_TRIO_SCENE_PROJECT_V1.md`
+- `SCENE_EXPORT_RECEIPT_V1.md`
 - `THEME_FONT_ADAPTER_COVERAGE_STATUS.md`
 - `WORKSPACE_AUTHORING_HOST_ADOPTION_GUIDE.md`
 - `MAC_VPS_REPORT_INBOX_EXEC_CURRENT_STATE.md`
@@ -38,3 +41,5 @@ This directory contains public-facing shared-library documentation.
 Internal planning and historical/operator docs are maintained outside `shared/`.
 Current workspace docs root for this cleanup lane:
 - `CodeWork/docs/`
+
+- [Shared button interaction](UI_INTERACTION_CONTRACT.md): optional focus/capture state and common Font/Theme registration.

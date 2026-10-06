@@ -254,8 +254,8 @@ printf '[]\n' > "${tmp_rollup}"
 "${MEM_CLI}" query --db "${db_path}" --workspace "${workspace_key}" --project "${project_key}" --canonical-only --limit "${canonical_limit}" --format json > "${canonical_path}"
 "${MEM_CLI}" query --db "${db_path}" --workspace "${workspace_key}" --project "${project_key}" --pinned-only --limit "${pinned_limit}" --format json > "${pinned_path}"
 "${MEM_CLI}" query --db "${db_path}" --workspace "${workspace_key}" --project "${project_key}" --limit "${recent_limit}" --format json > "${recent_path}"
-"${MEM_CLI}" event-list --db "${db_path}" --limit "${events_limit}" --format json > "${events_path}"
-"${MEM_CLI}" audit-list --db "${db_path}" --limit "${audits_limit}" --format json > "${audits_path}"
+"${MEM_CLI}" event-list --db "${db_path}" --limit "${events_limit}" --order recent --format json > "${events_path}"
+"${MEM_CLI}" audit-list --db "${db_path}" --limit "${audits_limit}" --order recent --format json > "${audits_path}"
 
 offset=0
 scanned=0

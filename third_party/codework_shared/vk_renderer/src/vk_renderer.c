@@ -6,6 +6,7 @@
  */
 
 #include "vk_renderer.h"
+#include "vk_renderer_draw_internal.h"
 
 #include <SDL2/SDL_surface.h>
 #include <SDL2/SDL_vulkan.h>
@@ -226,11 +227,16 @@ static VkResult ensure_frame_vertex_buffer(VkRenderer* renderer,
     }
     s_logged_vertex_buffer_failure = 0;
 
-    if (frame->vertex_buffer.buffer != VK_NULL_HANDLE && frame->vertex_offset > 0) {
-        if (new_buffer.mapped && frame->vertex_buffer.mapped) {
+    if (frame->vertex_buffer.buffer != VK_NULL_HANDLE) {
+        if (frame->vertex_offset > 0 && new_buffer.mapped && frame->vertex_buffer.mapped) {
             memcpy(new_buffer.mapped, frame->vertex_buffer.mapped, (size_t)frame->vertex_offset);
         }
-        vk_renderer_memory_destroy_buffer(&renderer->context, &frame->vertex_buffer);
+        /* Recorded draws still refer to this allocation until the frame completes. */
+        result = vk_renderer_retire_frame_buffer(frame, &frame->vertex_buffer);
+        if (result != VK_SUCCESS) {
+            vk_renderer_memory_destroy_buffer(&renderer->context, &new_buffer);
+            return result;
+        }
     }
 
     frame->vertex_buffer = new_buffer;
@@ -281,9 +287,11 @@ static void push_basic_constants_affine(VkRenderer* renderer,
 static void push_basic_constants(VkRenderer* renderer,
                                  VkCommandBuffer cmd,
                                  VkRendererPipelineKind kind) {
-    push_basic_constants_affine(renderer, cmd, kind, 0.0f,
-                                1.0f, 0.0f, 0.0f,
-                                0.0f, 1.0f, 0.0f,
+    const float *transform = renderer->draw_state.transform;
+    int enabled = renderer->draw_state.transform_enabled == SDL_TRUE;
+    push_basic_constants_affine(renderer, cmd, kind, enabled ? 1.0f : 0.0f,
+                                enabled ? transform[2] : 1.0f, 0.0f, enabled ? transform[0] : 0.0f,
+                                0.0f, enabled ? transform[3] : 1.0f, enabled ? transform[1] : 0.0f,
                                 1.0f, 1.0f, 1.0f, 1.0f);
 }
 
@@ -626,6 +634,7 @@ VkResult vk_renderer_init(VkRenderer* renderer,
     renderer->draw_state.clip_enabled = SDL_FALSE;
     renderer->draw_state.clip_rect = (SDL_Rect){0, 0, 0, 0};
     renderer->draw_state.draw_call_count = 0;
+    vk_renderer_reset_draw_transform(renderer);
 
     return VK_SUCCESS;
 }
@@ -706,6 +715,7 @@ VkResult vk_renderer_init_with_device(VkRenderer* renderer,
     renderer->draw_state.clip_enabled = SDL_FALSE;
     renderer->draw_state.clip_rect = (SDL_Rect){0, 0, 0, 0};
     renderer->draw_state.draw_call_count = 0;
+    vk_renderer_reset_draw_transform(renderer);
 
     return VK_SUCCESS;
 }
@@ -728,6 +738,11 @@ VkResult vk_renderer_begin_frame(VkRenderer* renderer,
     uint32_t frame_index = 0;
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkResult result = vk_renderer_commands_begin_frame(renderer, &frame_index, &cmd);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        result = vk_renderer_recover_surface(renderer, renderer->context.window, result);
+        if (result == VK_SUCCESS)
+            result = vk_renderer_commands_begin_frame(renderer, &frame_index, &cmd);
+    }
     if (result != VK_SUCCESS) return result;
 
     renderer->current_frame_index = frame_index;
@@ -735,8 +750,10 @@ VkResult vk_renderer_begin_frame(VkRenderer* renderer,
     VkRendererFrameState* frame = active_frame(renderer);
     if (!frame) return VK_ERROR_INITIALIZATION_FAILED;
     flush_transient_textures(renderer, frame);
+    vk_renderer_release_frame_buffers(renderer, frame, 0);
     frame->vertex_offset = 0;
     renderer->draw_state.draw_call_count = 0;
+    vk_renderer_reset_draw_transform(renderer);
 
     VkExtent2D extent = renderer->context.swapchain.extent;
     VkViewport viewport = {
@@ -899,7 +916,9 @@ VkResult vk_renderer_end_frame(VkRenderer* renderer,
     VkResult result =
         vk_renderer_commands_end_frame(renderer, renderer->current_frame_index, cmd);
     renderer->current_frame_index = UINT32_MAX;
-    if (capture->requested && !capture->dumped) {
+    if (capture->requested && !capture->dumped &&
+        (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR ||
+         result == VK_ERROR_OUT_OF_DATE_KHR)) {
         if (renderer->context.device) {
             vkWaitForFences(renderer->context.device->device,
                             1,
@@ -909,12 +928,17 @@ VkResult vk_renderer_end_frame(VkRenderer* renderer,
         }
         vk_renderer_debug_capture_dump(renderer);
     }
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+        return vk_renderer_recover_surface(renderer, renderer->context.window, result);
     return result;
 }
 
 VkResult vk_renderer_recreate_swapchain(VkRenderer* renderer, SDL_Window* window) {
     if (!renderer || !window) return VK_ERROR_INITIALIZATION_FAILED;
     if (!renderer->context.device) return VK_ERROR_INITIALIZATION_FAILED;
+    int drawable_width=0, drawable_height=0;
+    SDL_Vulkan_GetDrawableSize(window,&drawable_width,&drawable_height);
+    if (drawable_width<=0 || drawable_height<=0) return VK_NOT_READY;
     vk_renderer_device_wait_idle(renderer->context.device);
 
     destroy_framebuffers(renderer);
@@ -926,7 +950,9 @@ VkResult vk_renderer_recreate_swapchain(VkRenderer* renderer, SDL_Window* window
     if (result != VK_SUCCESS) return result;
 
     result = vk_renderer_commands_recreate_present_semaphores(
-        renderer, &renderer->command_pool, renderer->context.swapchain.image_count);
+        renderer,
+        &renderer->command_pool,
+        renderer->context.swapchain.image_count);
     if (result != VK_SUCCESS) return result;
 
     result = vk_renderer_pipeline_create_all(&renderer->context, renderer->render_pass,
@@ -1586,6 +1612,14 @@ static void emit_filled_quad(VkRenderer* renderer,
     }
 }
 
+void vk_renderer_emit_solid_vertices(VkRenderer* renderer,
+                                      const float (*vertices)[6],
+                                      uint32_t vertex_count) {
+    VkRendererFrameState* frame = active_frame(renderer);
+    if (!frame || !vertices || vertex_count == 0) return;
+    emit_filled_quad(renderer, frame, vertices, VK_RENDERER_PIPELINE_SOLID, vertex_count);
+}
+
 void vk_renderer_draw_rect(VkRenderer* renderer, const SDL_Rect* rect) {
     if (!rect) return;
     float x = (float)rect->x;
@@ -1639,137 +1673,35 @@ void vk_renderer_fill_rect(VkRenderer* renderer, const SDL_Rect* rect) {
     emit_filled_quad(renderer, frame, quad, VK_RENDERER_PIPELINE_SOLID, 6);
 }
 
-void vk_renderer_draw_texture(VkRenderer* renderer,
-                              const VkRendererTexture* texture,
-                              const SDL_Rect* src,
-                              const SDL_Rect* dst) {
-    VkRendererFrameState* frame = active_frame(renderer);
-    // Skip invalid textures or draw regions to avoid NaNs in UVs.
-    if (!frame || !texture || texture->width == 0 || texture->height == 0) return;
-    if (!renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].pipeline ||
-        !renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].layout) {
-        static int logged_missing = 0;
-        if (!logged_missing) {
-            VK_RENDERER_DEBUG_LOG("[vulkan] vk_renderer_draw_texture skipped: pipeline not ready.\n");
-            logged_missing = 1;
-        }
-        return;
-    }
-    if (!texture->descriptor_set || !texture->image.view || !texture->sampler) {
-        static int logged_invalid = 0;
-        if (!logged_invalid) {
-            VK_RENDERER_DEBUG_LOG("[vulkan] vk_renderer_draw_texture skipped: texture missing GPU handles.\n");
-            logged_invalid = 1;
-        }
-        return;
-    }
-
-    static int logged_texture = 0;
-    if (!logged_texture) {
-        VK_RENDERER_FRAME_DEBUG_LOG(
-            "[vulkan] vk_renderer_draw_texture first call dst=(%d,%d %dx%d) texExtent=%ux%u\n",
-            dst ? dst->x : 0,
-            dst ? dst->y : 0,
-            dst ? dst->w : (int)texture->width,
-            dst ? dst->h : (int)texture->height,
-            texture->width,
-            texture->height);
-        logged_texture = 1;
-    }
-
-    SDL_Rect local_dst;
-    if (!dst) {
-        local_dst.x = 0;
-        local_dst.y = 0;
-        local_dst.w = (int)texture->width;
-        local_dst.h = (int)texture->height;
-        dst = &local_dst;
-    }
-    if (dst->w <= 0 || dst->h <= 0) {
-        return;
-    }
-
-    float sx = 0.0f;
-    float sy = 0.0f;
-    float sw = (float)texture->width;
-    float sh = (float)texture->height;
-
-    if (src) {
-        sx = (float)src->x;
-        sy = (float)src->y;
-        sw = (float)src->w;
-        sh = (float)src->h;
-    }
-    if (sw <= 0.0f || sh <= 0.0f) {
-        return;
-    }
-
-    float u0 = sx / (float)texture->width;
-    float v0 = sy / (float)texture->height;
-    float u1 = (sx + sw) / (float)texture->width;
-    float v1 = (sy + sh) / (float)texture->height;
-
-    float x = (float)dst->x;
-    float y = (float)dst->y;
-    float w = (float)dst->w;
-    float h = (float)dst->h;
-
-    float textured_vertices[6][8] = {
-        {x, y, u0, v0, 1.0f, 1.0f, 1.0f, 1.0f},
-        {x + w, y, u1, v0, 1.0f, 1.0f, 1.0f, 1.0f},
-        {x + w, y + h, u1, v1, 1.0f, 1.0f, 1.0f, 1.0f},
-        {x, y, u0, v0, 1.0f, 1.0f, 1.0f, 1.0f},
-        {x + w, y + h, u1, v1, 1.0f, 1.0f, 1.0f, 1.0f},
-        {x, y + h, u0, v1, 1.0f, 1.0f, 1.0f, 1.0f},
-    };
-
-    VkDeviceSize bytes = sizeof(textured_vertices);
-    if (ensure_frame_vertex_buffer(renderer, frame, bytes) != VK_SUCCESS) return;
-
-    if (!frame->vertex_buffer.mapped) {
-        static int logged_unmapped = 0;
-        if (!logged_unmapped) {
-            VK_RENDERER_DEBUG_LOG("[vulkan] vk_renderer_draw_texture skipped: vertex buffer not mapped.\n");
-            logged_unmapped = 1;
-        }
-        return;
-    }
-    uint8_t* dst_ptr = (uint8_t*)frame->vertex_buffer.mapped + frame->vertex_offset;
-    memcpy(dst_ptr, textured_vertices, bytes);
-
+VkResult vk_renderer_emit_textured_vertices(VkRenderer *renderer, const VkRendererTexture *texture,
+                                             const float (*vertices)[8], uint32_t vertex_count) {
+    VkRendererFrameState *frame = active_frame(renderer);
+    if (!frame || !texture || !vertices || !vertex_count ||
+        !renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].pipeline ||
+        !renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].layout)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    VkDeviceSize bytes = (VkDeviceSize)vertex_count * 8 * sizeof(float);
+    VkResult result = ensure_frame_vertex_buffer(renderer, frame, bytes);
+    if (result != VK_SUCCESS) return result;
+    if (!frame->vertex_buffer.mapped) return VK_ERROR_MEMORY_MAP_FAILED;
     VkDeviceSize offset = frame->vertex_offset;
+    memcpy((uint8_t *)frame->vertex_buffer.mapped + offset, vertices, (size_t)bytes);
     frame->vertex_offset += bytes;
-
     flush_vertex_range(renderer, frame, offset, bytes);
-
     VkBuffer buffers[] = {frame->vertex_buffer.buffer};
     VkDeviceSize offsets[] = {offset};
     VkCommandBuffer cmd = frame->command_buffer;
-
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].pipeline);
     vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
     push_basic_constants(renderer, cmd, VK_RENDERER_PIPELINE_TEXTURED);
     apply_active_scissor(renderer, cmd);
-
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].layout, 0, 1,
-                            &texture->descriptor_set, 0, NULL);
-
-    vkCmdDraw(cmd, 6, 1, 0, 0);
+                            renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].layout,
+                            0, 1, &texture->descriptor_set, 0, NULL);
+    vkCmdDraw(cmd, vertex_count, 1, 0, 0);
     renderer->draw_state.draw_call_count++;
-    if (renderer->debug_capture.frame_counter == renderer->debug_capture.frame_trigger) {
-        VK_RENDERER_FRAME_DEBUG_LOG(
-            "[vulkan] texture draw dst=(%d,%d %dx%d) color=%.2f %.2f %.2f %.2f\n",
-            dst ? dst->x : 0,
-            dst ? dst->y : 0,
-            dst ? dst->w : (int)texture->width,
-            dst ? dst->h : (int)texture->height,
-            renderer->draw_state.current_color[0],
-            renderer->draw_state.current_color[1],
-            renderer->draw_state.current_color[2],
-            renderer->draw_state.current_color[3]);
-    }
+    return VK_SUCCESS;
 }
 
 VkResult vk_renderer_upload_sdl_surface_with_filter(VkRenderer* renderer,
@@ -1853,6 +1785,7 @@ void vk_renderer_shutdown_surface(VkRenderer* renderer) {
             frame->transient_textures = NULL;
             frame->transient_texture_capacity = 0;
             frame->transient_texture_count = 0;
+            vk_renderer_release_frame_buffers(renderer, frame, 1);
             vk_renderer_memory_destroy_buffer(&renderer->context, &frame->vertex_buffer);
         }
     }
@@ -1900,6 +1833,7 @@ void vk_renderer_shutdown(VkRenderer* renderer) {
             frame->transient_textures = NULL;
             frame->transient_texture_capacity = 0;
             frame->transient_texture_count = 0;
+            vk_renderer_release_frame_buffers(renderer, frame, 1);
             vk_renderer_memory_destroy_buffer(&renderer->context, &frame->vertex_buffer);
         }
     }
@@ -1931,36 +1865,3 @@ void vk_renderer_shutdown(VkRenderer* renderer) {
 
     vk_renderer_context_destroy(&renderer->context);
 }
-
-// Backports the canonical textured vertex emitter for the S8 corner API.
-VkResult vk_renderer_emit_textured_vertices(VkRenderer *renderer, const VkRendererTexture *texture,
-                                             const float (*vertices)[8], uint32_t vertex_count) {
-    VkRendererFrameState *frame = active_frame(renderer);
-    if (!frame || !texture || !vertices || !vertex_count ||
-        !renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].pipeline ||
-        !renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].layout)
-        return VK_ERROR_INITIALIZATION_FAILED;
-    VkDeviceSize bytes = (VkDeviceSize)vertex_count * 8 * sizeof(float);
-    VkResult result = ensure_frame_vertex_buffer(renderer, frame, bytes);
-    if (result != VK_SUCCESS) return result;
-    if (!frame->vertex_buffer.mapped) return VK_ERROR_MEMORY_MAP_FAILED;
-    VkDeviceSize offset = frame->vertex_offset;
-    memcpy((uint8_t *)frame->vertex_buffer.mapped + offset, vertices, (size_t)bytes);
-    frame->vertex_offset += bytes;
-    flush_vertex_range(renderer, frame, offset, bytes);
-    VkBuffer buffers[] = {frame->vertex_buffer.buffer};
-    VkDeviceSize offsets[] = {offset};
-    VkCommandBuffer cmd = frame->command_buffer;
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].pipeline);
-    vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
-    push_basic_constants(renderer, cmd, VK_RENDERER_PIPELINE_TEXTURED);
-    apply_active_scissor(renderer, cmd);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].layout,
-                            0, 1, &texture->descriptor_set, 0, NULL);
-    vkCmdDraw(cmd, vertex_count, 1, 0, 0);
-    renderer->draw_state.draw_call_count++;
-    return VK_SUCCESS;
-}
-

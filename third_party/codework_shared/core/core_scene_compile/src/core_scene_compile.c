@@ -15,7 +15,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 
 typedef struct JsonSlice {
     const char *begin;
@@ -48,7 +47,16 @@ typedef struct NormalizedArray {
 
 static const char *k_schema_family = "codework_scene";
 static const char *k_authoring_variant = "scene_authoring_v1";
-static const char *k_compiler_version = "0.4.0";
+static const char *k_compiler_version = CORE_SCENE_COMPILE_VERSION;
+static const char *k_normalization_version = "v0.7_content_addressed_dependency_payloads";
+
+static bool is_sha256_hex(const char *text) {
+    if (!text || strlen(text) != 64u) return false;
+    for (size_t i = 0; i < 64u; ++i) {
+        if (!((text[i] >= '0' && text[i] <= '9') || (text[i] >= 'a' && text[i] <= 'f'))) return false;
+    }
+    return true;
+}
 
 static bool json_slice_is_string(const JsonSlice *slice);
 static bool json_slice_eq_string(const JsonSlice *slice, const char *text);
@@ -1282,14 +1290,10 @@ done:
     return out;
 }
 
-static long long unix_ns_now(void) {
-    time_t now = time(NULL);
-    if (now < 0) return 0;
-    return (long long)now * 1000000000LL;
-}
-
 static CoreResult compile_inner(const char *authoring_json,
+                                const CoreSceneCompileOptions *options,
                                 char **out_runtime_json,
+                                CoreSceneCompileProvenance *out_provenance,
                                 char *diagnostics,
                                 size_t diagnostics_size) {
     JsonSlice scene_id = {0};
@@ -1321,7 +1325,10 @@ static CoreResult compile_inner(const char *authoring_json,
     char *norm_materials_json = NULL;
     char *norm_lights_json = NULL;
     char *norm_cameras_json = NULL;
-    char compile_meta[192];
+    char compile_meta[512];
+    char authoring_sha256[CORE_SCENE_COMPILE_SHA256_HEX_SIZE];
+    char dependency_sha256[CORE_SCENE_COMPILE_SHA256_HEX_SIZE];
+    size_t dependency_count = 0u;
     double world_scale_number = 1.0;
     CoreResult validate_result;
 
@@ -1329,7 +1336,42 @@ static CoreResult compile_inner(const char *authoring_json,
         return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid argument" };
     }
     *out_runtime_json = NULL;
+    if (out_provenance) memset(out_provenance, 0, sizeof(*out_provenance));
     if (diagnostics && diagnostics_size > 0) diagnostics[0] = '\0';
+
+    if (core_scene_compile_sha256(authoring_json, strlen(authoring_json), authoring_sha256).code != CORE_OK ||
+        core_scene_compile_sha256("", 0u, dependency_sha256).code != CORE_OK) {
+        return (CoreResult){ CORE_ERR_FORMAT, "failed to calculate scene digest" };
+    }
+    if (options && options->dependency_manifest_json) {
+        char manifest_sha256[CORE_SCENE_COMPILE_SHA256_HEX_SIZE];
+        size_t manifest_count = 0u;
+        CoreResult manifest_result = core_scene_compile_dependency_manifest_inspect(
+            options->dependency_manifest_json,
+            &manifest_count,
+            manifest_sha256,
+            diagnostics,
+            diagnostics_size);
+        if (manifest_result.code != CORE_OK) return manifest_result;
+        if ((options->dependency_digest_sha256 &&
+             strcmp(options->dependency_digest_sha256, manifest_sha256) != 0) ||
+            (options->dependency_count != 0u && options->dependency_count != manifest_count)) {
+            diag_write(diagnostics, diagnostics_size, "dependency manifest metadata does not match supplied digest/count");
+            return (CoreResult){ CORE_ERR_INVALID_ARG, "dependency manifest metadata mismatch" };
+        }
+        memcpy(dependency_sha256, manifest_sha256, sizeof(dependency_sha256));
+        dependency_count = manifest_count;
+    } else if (options && options->dependency_digest_sha256) {
+        if (!is_sha256_hex(options->dependency_digest_sha256)) {
+            diag_write(diagnostics, diagnostics_size, "dependency digest must be lowercase SHA-256 hex");
+            return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid dependency digest" };
+        }
+        memcpy(dependency_sha256, options->dependency_digest_sha256, sizeof(dependency_sha256));
+        dependency_count = options->dependency_count;
+    } else if (options && options->dependency_count != 0u) {
+        diag_write(diagnostics, diagnostics_size, "dependency count requires a dependency digest");
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "missing dependency digest" };
+    }
 
     if (!json_is_single_top_level_object(authoring_json)) {
         diag_write(diagnostics, diagnostics_size, "authoring JSON must be one complete top-level object");
@@ -1498,9 +1540,14 @@ static CoreResult compile_inner(const char *authoring_json,
     }
 
     snprintf(compile_meta, sizeof(compile_meta),
-             "{\"compiler_version\":\"%s\",\"compiled_at_ns\":%lld,\"normalization\":\"v0.3_sorted_lanes_primitive_contract\"}",
+             "{\"compiler_version\":\"%s\",\"normalization\":\"%s\","
+             "\"authoring_sha256\":\"%s\",\"dependency_sha256\":\"%s\","
+             "\"dependency_count\":%zu}",
              k_compiler_version,
-             unix_ns_now());
+             k_normalization_version,
+             authoring_sha256,
+             dependency_sha256,
+             dependency_count);
 
     sb_init(&out);
     if (!sb_append(&out, "{\n")) goto oom;
@@ -1548,6 +1595,18 @@ static CoreResult compile_inner(const char *authoring_json,
     if (!sb_append(&out, "\n}\n")) goto oom;
 
     *out_runtime_json = out.data;
+    if (out_provenance) {
+        memcpy(out_provenance->authoring_sha256, authoring_sha256, sizeof(authoring_sha256));
+        memcpy(out_provenance->dependency_sha256, dependency_sha256, sizeof(dependency_sha256));
+        out_provenance->dependency_count = dependency_count;
+        out_provenance->compiler_version = k_compiler_version;
+        out_provenance->normalization_version = k_normalization_version;
+        if (core_scene_compile_sha256(out.data, out.len, out_provenance->runtime_sha256).code != CORE_OK) {
+            sb_free(&out);
+            *out_runtime_json = NULL;
+            return (CoreResult){ CORE_ERR_FORMAT, "failed to calculate runtime digest" };
+        }
+    }
     core_free(norm_objects_json);
     core_free(norm_hierarchy_json);
     core_free(norm_materials_json);
@@ -1605,7 +1664,22 @@ CoreResult core_scene_compile_authoring_to_runtime(const char *authoring_json,
                                                    char **out_runtime_json,
                                                    char *diagnostics,
                                                    size_t diagnostics_size) {
-    return compile_inner(authoring_json, out_runtime_json, diagnostics, diagnostics_size);
+    return compile_inner(authoring_json, NULL, out_runtime_json, NULL, diagnostics, diagnostics_size);
+}
+
+CoreResult core_scene_compile_authoring_to_runtime_with_provenance(
+    const char *authoring_json,
+    const CoreSceneCompileOptions *options,
+    char **out_runtime_json,
+    CoreSceneCompileProvenance *out_provenance,
+    char *diagnostics,
+    size_t diagnostics_size) {
+    return compile_inner(authoring_json,
+                         options,
+                         out_runtime_json,
+                         out_provenance,
+                         diagnostics,
+                         diagnostics_size);
 }
 
 CoreResult core_scene_compile_authoring_file_to_runtime_file(const char *authoring_path,
@@ -1637,11 +1711,11 @@ CoreResult core_scene_compile_authoring_file_to_runtime_file(const char *authori
     text[data.size] = '\0';
     core_io_buffer_free(&data);
 
-    r = compile_inner(text, &runtime_json, diagnostics, diagnostics_size);
+    r = compile_inner(text, NULL, &runtime_json, NULL, diagnostics, diagnostics_size);
     core_free(text);
     if (r.code != CORE_OK) return r;
 
-    r = core_io_write_all(runtime_path, runtime_json, strlen(runtime_json));
+    r = core_io_write_all_atomic(runtime_path, runtime_json, strlen(runtime_json));
     core_free(runtime_json);
     if (r.code != CORE_OK) {
         diag_write(diagnostics, diagnostics_size, "failed to write runtime file: %s", runtime_path);

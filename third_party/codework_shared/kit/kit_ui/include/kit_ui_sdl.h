@@ -50,6 +50,17 @@ void kit_ui_sdl_draw_button(SDL_Renderer *renderer,
                             const KitUiButtonState *state,
                             const KitUiHudStyle *style,
                             const KitUiSdlTextApi *text_api);
+/* Optional direct-SDL expression of the same appearance and state resolver as
+ * command-frame buttons. Coordinates, radius and border are drawable pixels;
+ * callers scale the appearance once. Text is measured and drawn synchronously
+ * with a top-left origin, so the label only needs to live through this call.
+ * Action routing, focus ownership and pointer capture remain host-owned. */
+void kit_ui_sdl_draw_button_spec_appearance(SDL_Renderer *renderer,
+                                           const SDL_Rect *rect,
+                                           const KitUiButtonSpec *spec,
+                                           const KitUiButtonTheme *theme,
+                                           const KitUiButtonAppearance *appearance,
+                                           const KitUiSdlTextApi *text_api);
 void kit_ui_sdl_draw_readout(SDL_Renderer *renderer,
                              const SDL_Rect *rect,
                              const char *text,

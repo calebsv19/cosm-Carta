@@ -16,14 +16,16 @@ Optional wrapper for skill/runtime integration:
 - linked-write helper:
   - `mem_agent_flow.sh write-linked --db <path> --title <text> --body <text> [add flags...] --link-from <id>...|--link-to <id>... [--link-kind <kind>] [--link-note <text>]`
   - `mem_agent_flow.sh write-hier-linked --db <path> --title <text> --body <text> --workspace <key> --project <key> --kind <value> [--parent-id <id>...] [--related-id <id>...] [--importance low|normal|high|critical] [--max-links <1-5>] [--link-note <text>]`
+  - `mem_agent_flow.sh write-lane-head --db <path> --workspace <key> --project <key> --lane <key> --title <text> --body <history-baseline text> --anchor-id <id> --latest-id <id> [--session-id <id>] [--session-max-writes <n>]`
 
 Required commands:
 - bounded retrieval:
-  - `mem_cli query --db <path> [--query <fts>] [--limit <n>] [--offset <n>] [--pinned-only] [--canonical-only] [--include-archived] [--workspace <key>] [--project <key>] [--kind <value>] [--format text|tsv|json]`
+  - `mem_cli query --db <path> [--query <fts>] [--limit <n>] [--offset <n>] [--order default|recent] [--pinned-only] [--canonical-only] [--include-archived] [--workspace <key>] [--project <key>] [--kind <value>] [--format text|tsv|json]`
 - focused detail read:
   - `mem_cli show --db <path> --id <rowid> [--include-archived] [--format text|tsv|json]`
 - write/update:
-  - `mem_cli add --db <path> --title <text> --body <text> [--stable-id <id>] [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>]`
+  - `mem_cli add --db <path> --title <text> --body <text> [--stable-id <id>] [--upsert-stable-id] [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>]`
+  - `mem_cli lane-head-upsert --db <path> --workspace codework --project <key> --lane <key> --stable-id <id> --title <text> --body <text> --anchor-id <id> --latest-id <id> [--session-id <id>] [--session-max-writes <n>]`
   - `mem_cli batch-add --db <path> --input <tsv_path> [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>] [--continue-on-error] [--max-errors <n>] [--retry-attempts <n>] [--retry-delay-ms <ms>]`
 - control lanes:
   - `mem_cli pin --db <path> --id <rowid> --on|--off [--session-id <id>] [--session-max-writes <n>]`
@@ -33,7 +35,8 @@ Required commands:
 - maintenance:
   - `mem_cli rollup --db <path> --before <timestamp_ns> [--workspace <key>] [--project <key>] [--kind <value>] [--limit <n>] [--session-id <id>] [--session-max-writes <n>]`
   - `mem_cli health --db <path> [--format text|json]`
-  - `mem_cli audit-list --db <path> [--session-id <id>] [--limit <n>] [--format text|tsv|json]`
+  - `mem_cli audit-list --db <path> [--session-id <id>] [--limit <n>] [--order oldest|recent] [--format text|tsv|json]`
+  - `mem_cli event-list --db <path> [--session-id <id>] [--event-type <type>] [--limit <n>] [--order oldest|recent] [--format text|tsv|json]`
   - `mem_cli neighbors --db <path> --item-id <rowid> [--kind <value>] [--max-edges <n>] [--max-nodes <n>] [--format text|tsv|json]`
   - `mem_cli link-add --db <path> --from <item_id> --to <item_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>] [--session-max-writes <n>]`
   - `mem_cli link-update --db <path> --id <link_id> --kind <text> [--weight <real>] [--note <text>] [--session-id <id>] [--session-max-writes <n>]`
@@ -47,14 +50,14 @@ Default retrieval budget per request:
 - `limit=8` for narrow follow-up lookup
 
 Recommended retrieval sequence:
-1. canonical lane:
+1. strict project-recent lane when the project is known:
+   - `mem_cli query --db <path> --workspace "<workspace>" --project "<project>" --order recent --limit 12`
+2. canonical lane for stable current-state context:
    - `mem_cli query --db <path> --canonical-only --limit 8`
-2. pinned lane:
+3. pinned lane:
    - `mem_cli query --db <path> --pinned-only --limit 8`
-3. query lane:
+4. query lane:
    - `mem_cli query --db <path> --query "<fts>" --limit 24`
-4. scoped lane when session context is known:
-   - `mem_cli query --db <path> --workspace "<workspace>" --project "<project>" --limit 24`
 5. after any same-lane `add`:
    - capture the returned `id=<rowid>` from command output immediately
    - treat that returned row id as the only valid target for follow-up commands in the lane
@@ -67,8 +70,11 @@ Agent write guardrails:
 - max new writes per session: `<= 6`
 - prefer `--stable-id` for durable concepts
 - dedupe behavior is update-over-insert by fingerprint
+- explicit `--upsert-stable-id` updates only an active exact stable identity or creates that identity; it never falls back to fingerprint dedupe, while ordinary add behavior is unchanged when the flag is absent
 - do not write if retrieval already returns a canonical equivalent
-- enforce caps with `--session-id <session>` + `--session-max-writes <n>` on `add`/`batch-add` and the mutation lanes that already accept `--session-id`
+- enforce caps with `--session-id <session>` + `--session-max-writes <n>` on `add`/`batch-add` and every mutation lane that accepts `--session-id`, including changed `lane-head-upsert` calls
+- treat `health` as a write-free, non-migrating read-only check; it must not add audit/event rows
+- use `--order recent` explicitly when a bounded audit/event tail is intended; omitted order remains oldest-first for compatibility
 - archived rows are hidden from `show` by default; use `--include-archived` only when direct archived inspection is intentional
 
 When to pin/canonical:
@@ -91,6 +97,9 @@ Graph link policy:
   - front-loaded target distribution: `1` default, `2` occasional, `3` uncommon, `4` rare, `5` exceptional
   - most nodes should end at `1-2` links; use `3-5` only for high-importance bridge nodes
   - minimum `1` link required (non-isolation invariant)
+- material closeout continuity:
+  - when a known plan, issue, decision, milestone, or prior state directly precedes a material closeout, prefer one hierarchy link plus one direct continuity link
+  - use the strongest true relationship (`implements`, `blocks`, `depends_on`, `summarizes`, `contradicts`, or `references`) instead of generic `related`
 - fallback anchor:
   - if no high-confidence semantic target exists, link to `misc-<project>`
 - cross-project link gate:
@@ -119,6 +128,18 @@ Graph link policy:
     - `importance=high` -> up to 3 (bounded by `--max-links`)
     - `importance=critical` -> up to 4 (bounded by `--max-links`)
   - hard cap remains `--max-links <= 5`
+- lane-head helper behavior (`write-lane-head`):
+  - reserve it for named high-volume active lanes whose receipt chain is no longer a concise handoff
+  - maintain reusable stable id `lane-head-<project>-<lane>` as a canonical `kind=summary` projection in `workspace=codework`
+  - require ordered, non-empty Outcome, Evidence, Remaining boundary, and Next fields in at most 900 bytes
+  - cite the latest receipt plus only `1-3` decisive checks instead of duplicating its full evidence ledger
+  - require the anchor and latest receipt to resolve inside the same `(workspace, project)` scope
+  - reject a different canonical lane key when that project's managed anchor/latest pair is already owned; use the returned established stable identity or select genuinely distinct receipts
+  - own one noted `references` anchor link and one noted `summarizes` latest-receipt link; replace only prior helper-owned targets
+  - apply item/canonical/link changes in one transaction and count them as one logical session mutation
+  - return `unchanged` with no new event or audit when item and managed links already match
+  - fail before mutation on stable identity/scope collisions or an unrelated edge that occupies a desired managed edge
+  - update at a phase boundary or material accepted-state transition, never for routine mechanical substeps
 
 Light recategorization policy (migration-safe):
 - when reorganizing existing memory graphs, prioritize high-confidence relinking first
@@ -151,6 +172,12 @@ Wrapper retrieval profiles (`mem_agent_flow.sh`):
 - `retrieve-pinned`
 - `retrieve-recent`
 - `retrieve-search`
+
+`retrieve-recent` always invokes `query --order recent`, which sorts strictly by `updated_ns DESC, id DESC` and does not boost canonical or pinned rows.
+
+Material checkpoint and closeout bodies must make four facts explicit in concise readable prose: outcome/current state, verification evidence, remaining boundary or unblock condition, and next bounded action.
+
+For projects with lane heads, canonical retrieval should surface the current stable handoff while strict recent retrieval remains the evidence chronology. Lane heads complement receipts; they never replace or archive them.
 
 ## Failure Handling
 

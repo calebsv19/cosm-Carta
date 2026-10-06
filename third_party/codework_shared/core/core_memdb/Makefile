@@ -35,14 +35,15 @@ $(LIB): $(LIB_OBJ)
 $(TEST_BIN): tests/core_memdb_test.c $(LIB) $(CORE_BASE_DIR)/build/libcore_base.a | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(INC) $< $(LIB) $(CORE_BASE_DIR)/build/libcore_base.a -o $@
 
-$(CLI_BIN): tools/mem_cli.c tools/mem_cli_args.c tools/mem_cli_args.h tools/mem_cli_output.c tools/mem_cli_output.h tools/mem_cli_db_helpers.c tools/mem_cli_db_helpers.h tools/mem_cli_cmd_read.c tools/mem_cli_cmd_read.h tools/mem_cli_cmd_write_item.c tools/mem_cli_cmd_write_item.h tools/mem_cli_cmd_write_link.c tools/mem_cli_cmd_write_link.h tools/mem_cli_cmd_event.c tools/mem_cli_cmd_event.h $(LIB) $(CORE_BASE_DIR)/build/libcore_base.a | $(OBJ_DIR)
-	$(CC) $(CFLAGS) $(INC) tools/mem_cli.c tools/mem_cli_args.c tools/mem_cli_output.c tools/mem_cli_db_helpers.c tools/mem_cli_cmd_read.c tools/mem_cli_cmd_write_item.c tools/mem_cli_cmd_write_link.c tools/mem_cli_cmd_event.c $(LIB) $(CORE_BASE_DIR)/build/libcore_base.a -o $@
+$(CLI_BIN): tools/mem_cli.c tools/mem_cli_args.c tools/mem_cli_args.h tools/mem_cli_output.c tools/mem_cli_output.h tools/mem_cli_db_helpers.c tools/mem_cli_db_helpers.h tools/mem_cli_cmd_read.c tools/mem_cli_cmd_read.h tools/mem_cli_cmd_write_item.c tools/mem_cli_cmd_write_item.h tools/mem_cli_cmd_write_link.c tools/mem_cli_cmd_write_link.h tools/mem_cli_cmd_lane_head.c tools/mem_cli_cmd_lane_head.h tools/mem_cli_cmd_event.c tools/mem_cli_cmd_event.h $(LIB) $(CORE_BASE_DIR)/build/libcore_base.a | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) tools/mem_cli.c tools/mem_cli_args.c tools/mem_cli_output.c tools/mem_cli_db_helpers.c tools/mem_cli_cmd_read.c tools/mem_cli_cmd_write_item.c tools/mem_cli_cmd_write_link.c tools/mem_cli_cmd_lane_head.c tools/mem_cli_cmd_event.c $(LIB) $(CORE_BASE_DIR)/build/libcore_base.a -o $@
 
 tools: $(CLI_BIN)
 
 test: $(TEST_BIN) $(CLI_BIN)
 	./$(TEST_BIN)
 	sh tests/core_memdb_cli_smoke.sh ./$(CLI_BIN) $(OBJ_DIR)/core_memdb_cli_smoke.sqlite
+	sh tests/core_memdb_lane_head_hardening.sh ./$(CLI_BIN) $(OBJ_DIR)/core_memdb_lane_head_hardening.sqlite
 
 clean:
 	rm -rf $(OBJ_DIR)

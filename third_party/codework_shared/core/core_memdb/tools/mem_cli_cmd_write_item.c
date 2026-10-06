@@ -111,6 +111,55 @@ cleanup:
     return result;
 }
 
+static CoreResult find_active_item_by_stable_id(CoreMemDb *db,
+                                                const char *stable_id,
+                                                int64_t *out_item_id,
+                                                int *out_found) {
+    CoreMemStmt stmt = {0};
+    CoreResult result;
+    int has_row = 0;
+
+    if (!db || !stable_id || stable_id[0] == '\0' || !out_item_id || !out_found) {
+        return (CoreResult){ CORE_ERR_INVALID_ARG, "invalid argument" };
+    }
+
+    *out_item_id = 0;
+    *out_found = 0;
+    result = core_memdb_prepare(db,
+                                "SELECT id FROM mem_item "
+                                "WHERE stable_id = ?1 AND archived_ns IS NULL "
+                                "LIMIT 1;",
+                                &stmt);
+    if (result.code != CORE_OK) {
+        return result;
+    }
+    result = core_memdb_stmt_bind_text(&stmt, 1, stable_id);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    result = core_memdb_stmt_step(&stmt, &has_row);
+    if (result.code != CORE_OK) {
+        goto cleanup;
+    }
+    if (has_row) {
+        result = core_memdb_stmt_column_i64(&stmt, 0, out_item_id);
+        if (result.code != CORE_OK) {
+            goto cleanup;
+        }
+        *out_found = 1;
+    }
+    result = core_result_ok();
+
+cleanup:
+    {
+        CoreResult finalize_result = core_memdb_stmt_finalize(&stmt);
+        if (result.code == CORE_OK && finalize_result.code != CORE_OK) {
+            result = finalize_result;
+        }
+    }
+    return result;
+}
+
 static int build_fingerprint(const char *title,
                              const char *body,
                              char *out_fingerprint,
@@ -665,6 +714,7 @@ int cmd_add(int argc, char **argv) {
     const char *item_kind = find_flag_value(argc, argv, "--kind");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
     const char *session_max_writes_text = find_flag_value(argc, argv, "--session-max-writes");
+    int upsert_stable_id = has_flag(argc, argv, "--upsert-stable-id");
     const char *event_type = 0;
     const char *event_stable_id = 0;
     const char *event_workspace_key = 0;
@@ -705,6 +755,10 @@ int cmd_add(int argc, char **argv) {
 
     if (!db_path || !title || !body) {
         print_usage(argv[0]);
+        return 1;
+    }
+    if (upsert_stable_id && (!stable_id || stable_id[0] == '\0')) {
+        fprintf(stderr, "add: --upsert-stable-id requires --stable-id <id>\n");
         return 1;
     }
     if (!parse_session_budget_arg("add",
@@ -752,10 +806,19 @@ int cmd_add(int argc, char **argv) {
     fallback_created_ns = now_ns;
     fallback_updated_ns = now_ns;
 
-    result = find_duplicate_item(&db, fingerprint, &item_id, &duplicate_found);
-    if (result.code != CORE_OK) {
-        print_core_error("add", result);
-        goto cleanup;
+    if (upsert_stable_id) {
+        result = find_active_item_by_stable_id(&db, stable_id, &item_id, &duplicate_found);
+        if (result.code != CORE_OK) {
+            print_core_error("add", result);
+            goto cleanup;
+        }
+    }
+    if (!upsert_stable_id && !duplicate_found) {
+        result = find_duplicate_item(&db, fingerprint, &item_id, &duplicate_found);
+        if (result.code != CORE_OK) {
+            print_core_error("add", result);
+            goto cleanup;
+        }
     }
 
     if (duplicate_found) {

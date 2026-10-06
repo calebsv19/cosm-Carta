@@ -2,6 +2,8 @@
 .DS_Store
 
 # Local analyzer/cache artifacts
+**/__pycache__/
+*.pyc
 ide_files/
 test/ide_files/
 kit/kit_ui/ide_files/

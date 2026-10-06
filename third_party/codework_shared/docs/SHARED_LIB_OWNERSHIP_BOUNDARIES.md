@@ -7,7 +7,7 @@ This document defines what each shared library owns so behavior does not overlap
 - `core_base`: error/result types, common primitives, shared low-level utilities.
 - `core_io`: filesystem/text/binary IO helpers and load/save boundaries.
 - `core_data`: structured in-memory data containers and typed table/object model.
-- `core_memdb`: durable memory database connection, query, and migration boundary (scaffolded).
+- `core_memdb`: active durable SQLite connection, query, migration, event/replay, and graph-storage boundary; CLI and agent workflows remain higher tooling layers in the same shared subtree.
 - `core_math`: generic numeric primitives and math helpers.
 - `core_collision2d`: UI-free 2D collision shape, geometry, AABB, manifold, bounded compound-descriptor and compound mass-property helpers, and primitive contact-generation semantics.
 - `core_rigid2d`: UI-free 2D rigid-body descriptors, mass/inertia helpers, integration helpers, and deterministic contact-solver primitives over `core_collision2d`.
@@ -19,7 +19,9 @@ This document defines what each shared library owns so behavior does not overlap
 - `core_wake`: cross-thread wake/wait abstraction for kernel orchestration.
 - `core_kernel`: runtime phase orchestration and module lifecycle policy.
 - `core_scene`: scene schema and scene-level object grouping/state metadata.
-- `core_scene_compile`: shared authoring-to-runtime scene compile and normalization boundary.
+- `core_scene_compile`: shared authoring-to-runtime scene compile,
+  normalization, content-addressed dependency payload publication, and bundle
+  verification boundary; apps retain discovery and dependency-kind meaning.
 - `core_scene_view`: renderer-free scene-view packet schema/readback vocabulary, including preview quality, degraded reason, display flags, pick ids, compact JSON readback validation, and compact summary derivation from validated readback metadata.
 - `core_mesh_preview`: viewport-safe runtime mesh preview sidecar contract,
   bounded feature-edge payload generation, local bounds/source-count metadata,
@@ -64,7 +66,7 @@ This document defines what each shared library owns so behavior does not overlap
 ## Kit Libs
 
 - `kit_render`: shared render command vocabulary, frame-recording/submission contract, backend attach/adopt boundary, shared theme/font/text policy resolution, and renderer-adjacent external text helpers. It does not own widget behavior, pane semantics, host event loops/window lifetimes, persistence, or app-local layout/cursor policy.
-- `kit_ui`: shared immediate-mode widget expression, reusable button/state/style semantics, HUD button-row/readout layout, alpha-aware floating HUD style fields, nested corner/inset math, and optional SDL rounded-surface draw adapters. It does not own app action dispatch, playback/session policy, active theme persistence, event loops, retained focus, pane topology, or renderer lifecycle.
+- `kit_ui`: shared immediate-mode widget expression, reusable button/state/style semantics, HUD button-row/readout layout, alpha-aware floating HUD style fields, nested corner/inset math, and optional SDL rounded-surface draw adapters. It does not own app action dispatch, playback/session policy, active theme persistence, event loops, pane topology, or renderer lifecycle. Optional caller-owned interaction contexts and surface snapshots retain bounded button focus/capture handles, visible geometry and activation state; optional caller-owned text editors and presentation snapshots own bounded scalar editing and measured row/caret/selection/preedit/hit mechanics. Hosts own scope/field eligibility, actual font/viewport, native text-input session policy, domain actions and persistence.
 - `kit_viz`: visualization-specific helpers layered on top of core contracts.
 - `kit_viewport3d`: optional renderer-neutral 3D viewport presentation helpers
   for semantic object-outline palettes plus CPU color/depth/owner-buffer
@@ -128,7 +130,7 @@ This document defines what each shared library owns so behavior does not overlap
 - Data interchange:
   - Serialize durable interchange via `core_pack`.
   - Use `core_data` as shared in-memory schema source.
-  - Use `core_memdb` as the shared durable queryable memory state boundary as implementation fills in.
+  - Use `core_memdb` as the shared durable queryable memory state and event-replay boundary; keep agent curation policy in CLI/wrapper/skill layers.
   - Use `core_io` for physical IO path operations.
 
 - Execution orchestration:
@@ -161,3 +163,57 @@ This document defines what each shared library owns so behavior does not overlap
 - Do not place pane geometry solve or hit-testing semantics in `core_layout`.
 - Do not add persistence/file-IO behavior to `core_config`.
 - Do not couple `core_action` to platform keycode parsing or UI command widgets.
+
+## 2026-10-05 pane composition foundation
+
+Accepted shared source `86037d7` supplies `kit_pane 0.4.0` and `kit_ui 0.17.0`.
+The trio Main Edit adopts stable pane identities, viewport/content clipping and
+small host adapters. Orchestra uses shared geometry for leaf chrome/content and
+authoring hover; Echo uses navigation/detail/graph clips and pane pointer capture;
+DataLab uses picker pane scopes and shared list paint/hit clipping. Core pane,
+module, layout transaction and snapshot responsibilities remain unchanged.
+Mixed field/button focus order is available as a tested optional primitive;
+product mixed-order wiring remains a follow-on. Native SDL caret anchoring is
+adopted in the existing trio editable fields. Real macOS SDL window/session tests
+qualify the adapter; human IME candidate/commit/cancel and native Linux/Windows
+acceptance remain separate. Existing backend versions remain kit_render 0.14.6,
+vk_renderer 1.5.0 and vk_runtime 0.6.0; no mutable renderer work was imported.
+See [pane composition contract](UI_PANE_COMPOSITION_CONTRACT.md).
+Next priority is a reusable pane-host composition/dispatch lifecycle with explicit
+splitter transactions and focus takeover, followed by per-program adoption.
+Canonical source, app VERSION, stable Desktop bundles and releases are unchanged.
+
+## 2026-10-05 pane host behavior adoption
+
+Accepted shared source `ddc9fee6e17482dcd64cf777d7a105b7ed9b157d` adds `kit_pane 0.5.0`, with
+`core_layout 0.2.1` supplying revisions and existing authoring transactions.
+The generic pane host adds stable mount/unmount/resize dispatch, pointer ownership,
+pane focus invalidation, and takeover cancellation. Drag-sized edits nest inside
+an existing authoring draft; hosts restore their own topology/ratios on cancel,
+retain domain actions/history, and persist only accepted changes. Shared bounded
+header slots reserve title space and register only visible actions through the
+existing kit_ui surface. Header labels use the existing centered button painter.
+No rendering backend is replaced: kit_render 0.14.6, vk_renderer 1.5.0,
+vk_runtime 0.6.0 and kit_ui 0.17.0 remain at their accepted versions.
+
+Orchestra wraps its existing snap/rewrite splitter controller and adds a MODULE
+header slot opening the existing picker. Echo isolates nested metadata,
+relationships and body input/paint clips, fixes parent-span ratio clamping,
+commits preferences on accepted release, restores all four ratios on Escape,
+focus loss or takeover, and adds a GRAPH-header REFRESH action. DataLab keeps its
+actual viewer canvas with source-control/header overlays, gives those regions
+stable ownership and SDL clipping, uses a RECENT DIRECTORIES header slot, and
+wraps its existing authoring projection drag in a nested layout transaction.
+DataLab's fixed authoring projection remains a projection; this does not turn
+all profile viewers into a generic movable pane tree.
+
+The proving scope remains the three retained Main Edit lanes. Canonical program
+source and VERSION, production bundles, release/Registry and remote hosts are
+unchanged. Fullscreen lifecycle qualification is next; docking, generalized
+pane provider insertion/persistence, product-wide mixed field/button traversal,
+human OS IME candidate/commit/cancel acceptance, native Linux/Windows and other
+programs remain separate. See the pane host contract and migration guide.
+
+## 2026-10-05 fullscreen/window lifecycle candidate
+
+The proving-trio slice uses committed `kit_ui 0.18.0` optional SDL window observation/mapping and `vk_renderer 1.6.0` fence/acquire/recovery corrections. Hosts retain event loops, window lifetimes, domain cancellation and persistence; `vk_runtime 0.6.0`, `kit_render 0.14.6` and `kit_pane 0.5.0` retain their responsibilities. The shared unit and macOS native standalone lifecycle/retained-texture gates pass; per-program adoption requires its own actual-loop/native proof. See `docs/UI_WINDOW_LIFECYCLE_CONTRACT.md`. The accepted branch is `codex/ui-window-lifecycle-20261005`, isolated from unrelated uncommitted shared renderer/mesh work; version equality alone is insufficient, so exact source pins remain required.

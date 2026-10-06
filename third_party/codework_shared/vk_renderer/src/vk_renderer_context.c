@@ -239,6 +239,7 @@ VkResult vk_renderer_context_create_with_device(VkRendererContext* ctx,
                                                 const VkRendererConfig* config) {
     if (!ctx || !device || !window || !config) return VK_ERROR_INITIALIZATION_FAILED;
 
+    ctx->window = window;
     ctx->device = device;
     ctx->surface = VK_NULL_HANDLE;
     ctx->swapchain = (VkRendererSwapchain){0};

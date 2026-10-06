@@ -86,6 +86,9 @@ static void kit_ui_sdl_draw_text_centered(SDL_Renderer *renderer,
     (void)text_api->measure_text(text_api->user, text, scale, &text_w, &text_h);
     line_h = text_api->line_height(text_api->user, scale);
     clip = (SDL_Rect){rect->x + pad_x, rect->y, rect->w - (pad_x * 2), rect->h};
+    if (clip.w <= 0 || clip.h <= 0) {
+        return;
+    }
     x = rect->x + (rect->w - text_w) / 2;
     y = rect->y + (rect->h - line_h) / 2;
     if (x < clip.x) {
@@ -125,6 +128,47 @@ void kit_ui_sdl_draw_button(SDL_Renderer *renderer,
                                  kit_ui_sdl_round_float(style->button_corner_radius),
                                  fill);
     kit_ui_sdl_draw_text_centered(renderer, rect, label, text, text_api);
+}
+
+void kit_ui_sdl_draw_button_spec_appearance(SDL_Renderer *renderer,
+                                           const SDL_Rect *rect,
+                                           const KitUiButtonSpec *spec,
+                                           const KitUiButtonTheme *theme,
+                                           const KitUiButtonAppearance *appearance,
+                                           const KitUiSdlTextApi *text_api) {
+    KitUiButtonStyle style;
+    KitRenderRect bounds;
+    SDL_Rect inner;
+    float radius;
+    int border;
+
+    if (!renderer || !rect || rect->w <= 0 || rect->h <= 0 ||
+        !spec || !spec->label || !appearance ||
+        !isfinite(appearance->corner_radius) || appearance->corner_radius < 0.0f ||
+        !isfinite(appearance->border_thickness) || appearance->border_thickness < 0.0f ||
+        !kit_ui_button_style_resolve(theme, spec, &style)) {
+        return;
+    }
+    bounds = (KitRenderRect){(float)rect->x, (float)rect->y,
+                             (float)rect->w, (float)rect->h};
+    radius = kit_ui_corner_radius_clamp(appearance->corner_radius,
+                                         bounds.width, bounds.height);
+    border = kit_ui_sdl_round_float(fminf(appearance->border_thickness,
+                                          fminf(bounds.width, bounds.height) * 0.5f));
+    if (border > 0) {
+        kit_ui_sdl_fill_rounded_rect(renderer, rect, kit_ui_sdl_round_float(radius),
+                                      (KitRenderColor){style.outline.r, style.outline.g,
+                                                       style.outline.b, style.outline.a});
+    }
+    inner = kit_ui_sdl_rect_from_render(kit_ui_rect_inset(bounds, (float)border));
+    kit_ui_sdl_fill_rounded_rect(renderer, &inner,
+                                  kit_ui_sdl_round_float(
+                                      kit_ui_corner_radius_for_inset(radius, (float)border)),
+                                  (KitRenderColor){style.fill.r, style.fill.g,
+                                                   style.fill.b, style.fill.a});
+    kit_ui_sdl_draw_text_centered(renderer, rect, spec->label,
+                                    (KitRenderColor){style.text.r, style.text.g,
+                                                     style.text.b, style.text.a}, text_api);
 }
 
 void kit_ui_sdl_draw_readout(SDL_Renderer *renderer,

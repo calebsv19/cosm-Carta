@@ -18,7 +18,9 @@ INC = -Iinclude -I$(CORE_BASE_DIR)/include -I$(CORE_IO_DIR)/include -I$(CORE_SCE
 OBJ_DIR = build
 
 LIB = $(OBJ_DIR)/libcore_scene_compile.a
-LIB_OBJ = $(OBJ_DIR)/core_scene_compile.o
+LIB_OBJ = $(OBJ_DIR)/core_scene_compile.o $(OBJ_DIR)/core_scene_compile_digest.o \
+	$(OBJ_DIR)/core_scene_compile_dependencies.o $(OBJ_DIR)/core_scene_compile_bundle.o \
+	$(OBJ_DIR)/core_scene_compile_payload.o $(OBJ_DIR)/core_scene_compile_verify.o
 TEST_BIN = $(OBJ_DIR)/core_scene_compile_test
 DIFF_BIN = $(OBJ_DIR)/scene_contract_diff
 COMPILE_TOOL_BIN = $(OBJ_DIR)/scene_compile_tool
@@ -45,7 +47,22 @@ $(CORE_OBJECT_DIR)/build/libcore_object.a:
 $(CORE_UNITS_DIR)/build/libcore_units.a:
 	$(MAKE) -C $(CORE_UNITS_DIR)
 
-$(LIB_OBJ): src/core_scene_compile.c | $(OBJ_DIR)
+$(OBJ_DIR)/core_scene_compile.o: src/core_scene_compile.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJ_DIR)/core_scene_compile_digest.o: src/core_scene_compile_digest.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJ_DIR)/core_scene_compile_dependencies.o: src/core_scene_compile_dependencies.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJ_DIR)/core_scene_compile_bundle.o: src/core_scene_compile_bundle.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJ_DIR)/core_scene_compile_payload.o: src/core_scene_compile_payload.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+
+$(OBJ_DIR)/core_scene_compile_verify.o: src/core_scene_compile_verify.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(INC) -c $< -o $@
 
 $(LIB): $(LIB_OBJ)

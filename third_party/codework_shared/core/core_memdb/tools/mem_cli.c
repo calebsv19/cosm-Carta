@@ -3,6 +3,7 @@
 
 #include "mem_cli_args.h"
 #include "mem_cli_cmd_event.h"
+#include "mem_cli_cmd_lane_head.h"
 #include "mem_cli_cmd_read.h"
 #include "mem_cli_cmd_write_item.h"
 #include "mem_cli_cmd_write_link.h"
@@ -25,6 +26,9 @@ int main(int argc, char **argv) {
     }
     if (strcmp(command, "batch-add") == 0) {
         return cmd_batch_add(argc, argv);
+    }
+    if (strcmp(command, "lane-head-upsert") == 0) {
+        return cmd_lane_head_upsert(argc, argv);
     }
     if (strcmp(command, "list") == 0) {
         return cmd_list(argc, argv);

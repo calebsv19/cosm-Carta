@@ -530,6 +530,26 @@ static void test_overlay_draw_and_splitter_preview_edges(void) {
                                                              KIT_WORKSPACE_AUTHORING_OVERLAY_BUTTON_NONE);
     assert(result.code == CORE_OK);
 
+    /* The HUD must emit nested rounded borders, not square edge strips. */
+    assert(buffer.count == 6u);
+    assert(commands[0].kind == KIT_RENDER_CMD_RECT);
+    assert(commands[0].data.rect.corner_radius == 7.0f);
+    assert(commands[1].kind == KIT_RENDER_CMD_RECT);
+    assert(commands[1].data.rect.corner_radius == 6.0f);
+    assert(commands[1].data.rect.rect.x == buttons[0].rect.x + 1.0f);
+    assert(commands[2].kind == KIT_RENDER_CMD_TEXT);
+    assert(commands[2].data.text.text == buttons[0].label);
+    assert(commands[2].data.text.origin.y == buttons[0].rect.y + buttons[0].rect.height * 0.5f);
+    {
+        KitRenderTextMetrics metrics = {0};
+        result = kit_render_measure_text(&render_ctx, CORE_FONT_ROLE_UI_MEDIUM,
+                                         CORE_FONT_TEXT_SIZE_CAPTION, buttons[0].label,
+                                         &metrics);
+        assert(result.code == CORE_OK);
+        assert(fabsf(commands[2].data.text.origin.x + metrics.width_px * 0.5f -
+                     (buttons[0].rect.x + buttons[0].rect.width * 0.5f)) < 0.01f);
+    }
+
     result = kit_workspace_authoring_ui_draw_splitter_preview(&render_ctx,
                                                               &frame,
                                                               0,
@@ -557,6 +577,23 @@ static void test_overlay_draw_and_splitter_preview_edges(void) {
 
     result = kit_render_end_frame(&render_ctx, &frame);
     assert(result.code == CORE_OK);
+
+    buffer.count = 0;
+    buffer.capacity = 16;
+    buttons[0].visible = 0u;
+    buttons[1].enabled = 0u;
+    result = kit_render_begin_frame(&render_ctx, 640u, 480u, &buffer, &frame);
+    assert(result.code == CORE_OK);
+    result = kit_workspace_authoring_ui_draw_overlay_buttons(&render_ctx, &frame,
+                                                             buttons, 2u,
+                                                             buttons[1].id, buttons[1].id);
+    assert(result.code == CORE_OK);
+    assert(buffer.count == 3u);
+    assert(commands[2].data.text.text == buttons[1].label);
+    assert(commands[2].data.text.color_token == CORE_THEME_COLOR_TEXT_MUTED);
+    assert(kit_render_end_frame(&render_ctx, &frame).code == CORE_OK);
+    buttons[0].visible = 1u;
+    buttons[1].enabled = 1u;
 
     buffer.count = 0;
     buffer.capacity = 4;

@@ -50,6 +50,8 @@ typedef struct KitRenderColor {
 } KitRenderColor;
 
 typedef struct KitRenderTransform {
+    /* Command-local x*sx+tx, y*sy+ty. Signed scales mirror; zero collapses.
+     * Clip commands use frame coordinates and are not transformed. */
     float tx;
     float ty;
     float sx;
@@ -90,6 +92,8 @@ typedef struct KitRenderPolylineCommand {
 typedef struct KitRenderTexturedQuadCommand {
     KitRenderRect rect;
     uint64_t texture_id;
+    /* Normalized UV endpoints; reversal flips. Native sampler clamps at edges.
+     * Vulkan texture_id borrows a VkRendererTexture pointer through submission. */
     KitRenderVec2 uv_min;
     KitRenderVec2 uv_max;
     KitRenderColor tint;

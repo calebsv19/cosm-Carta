@@ -87,7 +87,7 @@ Use `drawing_program` as a second concrete reference for a completed first-host 
    - `/Users/calebsv/Desktop/CodeWork/drawing_program/src/io/session/drawing_program_snapshot.c`
    - `/Users/calebsv/Desktop/CodeWork/drawing_program/src/io/session/drawing_program_snapshot_ui_settings.c`
 
-Use `line_drawing` / `sCulpt` as another completed production-style attach when the host uses app-local SDL/Vulkan drawing and a mature pane/editor shell:
+Use `line_drawing` / `Sculpt` as another completed production-style attach when the host uses app-local SDL/Vulkan drawing and a mature pane/editor shell:
 1. Host adapter + accepted-state ownership:
    - `/Users/calebsv/Desktop/CodeWork/line_drawing/src/UI/workspace_authoring/line_drawing_workspace_authoring_host.c`
    - `/Users/calebsv/Desktop/CodeWork/line_drawing/src/UI/workspace_authoring/line_drawing_workspace_authoring_overlay.c`
@@ -126,3 +126,29 @@ Use `growth_sim` / `Change` as the current in-progress low-conflict attach:
 Two independent tracks can proceed in parallel once this contract is met:
 1. **Host adoption track**: attach additional programs to shared authoring contract.
 2. **Capability expansion track**: expand authoring features (new controls/workflows) in shared kit while preserving host contract and parity rules.
+
+
+## Optional Font/Theme button interaction
+
+The retained orChestra, eCho and DataLab Main Edit hosts adopt
+`kit_ui >= 0.13.1` and `kit_workspace_authoring >= 0.6.1` for the common
+Font/Theme controls. Build the shared layout in current control coordinates,
+register visible controls with stable IDs, normalize events with the optional
+SDL adapter or a host adapter, and route them through one caller-owned context
+per input scope. Dispatch returned IDs through the existing host action adapter
+during Update. RenderDerive reads the context; drawing emits shared appearance
+and the focus underline without changing input ownership.
+
+Reset when the scope is inactive or blocked by a picker, popup or text entry;
+forward lifecycle cancellation and preserve each host's coordinates/occlusion.
+Logical capture does not configure OS pointer delivery. The new registration
+uses half-open bounds; legacy hit-test helpers keep their historical behavior.
+Tab/Shift-Tab focus and Enter/Space release activation own unmodified keys on
+this surface. Ctrl-Tab cycles authoring surfaces; Ctrl-Enter applies the draft.
+Enter without focused button retains Apply. Pane-mode shortcuts retain their
+existing path. Focus/keyboard migration of the top bar, normal runtime controls,
+popups, text entry and panes requires an explicit later scope.
+
+Use the [interaction contract](UI_INTERACTION_CONTRACT.md) and each host's
+`docs/ui_interaction.md` plus `make ui-interaction-self-test`; shared linkage
+alone does not demonstrate host behavior.

@@ -2,6 +2,9 @@
 
 Current milestone:
 - null backend recording contract is live and test-backed
+- command-local translation/signed scale and textured UV/tint fidelity are
+  captured-image tested at 1x/2x; CPU command validation precedes draw emission
+- native rounded rectangles preserve local radii under non-uniform scaling
 - Vulkan backend attachment path is live behind the shared `vk_renderer` bridge
 - shared text policy resolution and external text helper runtime are both live
 - the module boundary is now truth-locked around frame recording, backend attachment, and shared text-runtime ownership
@@ -12,7 +15,7 @@ Current milestone:
 
 Next implementation steps:
 - improve transform-stack ergonomics beyond per-command transforms
-- improve rounded-rect fidelity beyond plain rect fallback
+- expand portability proof and retain measured rounded/text coverage behavior
 - continue glyph/string cache work for dense UI text workloads
 - keep Vulkan text/runtime parity tuning additive and validation-backed
 - decide whether any repeated external-text cache helpers should be narrowed further without moving app policy into `kit_render`

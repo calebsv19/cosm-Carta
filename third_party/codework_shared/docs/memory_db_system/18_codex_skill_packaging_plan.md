@@ -1,6 +1,6 @@
 # Codex Skill Packaging Plan
 
-Status: phase-ready scaffold plan
+Status: active packaged skill; baseline history-communication pass implemented
 
 ## Goal
 
@@ -25,6 +25,10 @@ Exit criteria:
 
 Current progress:
 - Phase A tool contract is now implemented in CLI and smoke tests
+- strict chronological `query --order recent` and wrapper `retrieve-recent` behavior are implemented and smoke-tested
+- `health` now opens the existing DB read-only without migration or audit noise, and bounded `audit-list`/`event-list` tails can explicitly request `--order recent`
+- changed Lane Head upserts now consume the same shared session mutation budget as ordinary item/link writes; exact converged no-ops remain free
+- stable-id-only upsert and transactional wrapper `write-lane-head` create/update/link replacement are implemented, adversarially tested, and demo-validated
 
 ## Phase B: Skill Prompt Contract
 
@@ -45,6 +49,9 @@ Checklist:
    - nightly rollup recommendation must remain policy-gated (`min_active_nodes_before_rollup`, `min_stale_candidates_before_rollup`)
    - preserve canonical connection-pass shape (including neighbor-link propagation bounds) when rollup is enabled
    - emit one suggestion memory node per codex nightly run so improvement ideas can be graph-clustered over time
+   - use one stable canonical lane head only for high-volume active lanes, refreshing it at material state transitions rather than every receipt
+   - keep each lane head within the 900-byte current-handoff contract and point to receipt evidence instead of copying it
+   - treat exact `unchanged` output as successful write-free convergence; do not retry it as a missing write
 2. define default db path policy per project/workspace
 3. define id-follow-up flow (`query -> show -> optional add`)
 
@@ -68,6 +75,8 @@ Checklist:
    - health check
    - audit-list session verification
    - neighbors retrieval with explicit max bounds
+   - lane-head create/update identity preservation, canonical visibility, required body fields, and managed latest-link replacement
+   - fingerprint-collision isolation, scope collision rejection, duplicate anchor/latest ownership rejection, exact no-op event/audit silence, session-budget atomicity, unrelated-edge conflict rollback, and exact event replay
 
 Exit criteria:
 - all commands succeed on a clean DB
@@ -85,6 +94,7 @@ Skill bundle should include:
 ## Near-Term Follow-On
 
 After initial skill release:
-1. add optional typed output mode (`--format tsv|json`) if needed for tighter parsing
-2. add retrieval profile presets (canonical-first, recent-first)
-3. add graph profile presets (link-kind filters and bounded neighbor templates)
+1. evaluate the hardened Lane Head V1 through fresh-agent orientation in the two existing active lanes
+2. add a read-only conformance report only if lane-head/body/link drift appears after the hardened path is in normal use
+3. consider project-alias normalization only after the retrieval/write/lane-head baseline proves stable
+4. consider legacy phase rollups only after direct continuity links provide a reliable history spine

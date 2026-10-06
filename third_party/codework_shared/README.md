@@ -15,6 +15,8 @@ Core defines meaning. Kits define expression. Apps define purpose.
 - `timer_hud/`: shared timing/profiling HUD utilities.
 - `assets/`: shared assets (fonts/scenes/shapes).
 - `showcase/`: demonstration apps (not required for consumers).
+- `scripts/`: non-runtime ecosystem build/operations helpers, including MEW1
+  topology and local-development identity tooling.
 - `docs/`: public shared-library documentation.
 
 ## Public Release Policy
@@ -29,6 +31,9 @@ Root checks:
 Module checks:
 - `make -C shared/core/<module> test`
 - `make -C shared/kit/<module> test`
+
+MEW1 build-operations helper checks:
+- `python3 -m unittest discover -s shared/scripts/mew1/tests -v`
 
 ## Versioning
 Shared module versioning policy is documented in `docs/VERSIONING.md`.

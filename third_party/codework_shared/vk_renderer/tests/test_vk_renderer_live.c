@@ -12,6 +12,19 @@ static int fail(const char* message, VkResult result) {
     return 1;
 }
 
+static int render_uncaptured_frame(VkRenderer* renderer, int width, int height) {
+    VkCommandBuffer command = VK_NULL_HANDLE;
+    VkFramebuffer framebuffer = VK_NULL_HANDLE;
+    VkResult result = vk_renderer_begin_frame(renderer, &command, &framebuffer, NULL);
+    if (result != VK_SUCCESS) return fail("multi-frame begin", result);
+    vk_renderer_set_logical_size(renderer, (float)width, (float)height);
+    vk_renderer_set_draw_color(renderer, 0.08f, 0.12f, 0.18f, 1.0f);
+    SDL_Rect background = {0, 0, width, height};
+    vk_renderer_fill_rect(renderer, &background);
+    result = vk_renderer_end_frame(renderer, command);
+    return result == VK_SUCCESS ? 0 : fail("multi-frame end", result);
+}
+
 static int render_capture(VkRenderer* renderer,
                           const char* path,
                           int width,
@@ -144,6 +157,14 @@ int main(void) {
     }
 
     VkExtent2D first_extent = renderer.context.swapchain.extent;
+    for (int frame_index = 0; frame_index < 8; ++frame_index) {
+        if (render_uncaptured_frame(&renderer, 320, 240) != 0) {
+            vk_renderer_shutdown(&renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            return fail("multi-frame presentation", VK_ERROR_UNKNOWN);
+        }
+    }
     if (render_capture(&renderer, first_path, 320, 240) != 0 ||
         verify_ppm(first_path, first_extent.width, first_extent.height) != 0) {
         vk_renderer_shutdown(&renderer);

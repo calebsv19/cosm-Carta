@@ -5,7 +5,7 @@ Shared authoring-to-runtime scene compiler for the CodeWork scene pipeline.
 ## Purpose
 Compile `scene_authoring_v1` JSON into deterministic `scene_runtime_v1` JSON that downstream apps such as `ray_tracing`, `physics_sim`, and `line_drawing` can consume.
 
-## Current Scope (v0.4.0)
+## Current Scope (v0.8.0)
 - owns the shared authoring-to-runtime normalization boundary only:
   - validates core authoring contract keys and semantic lanes,
   - emits deterministic runtime JSON with normalized canonical lanes,
@@ -18,7 +18,20 @@ Compile `scene_authoring_v1` JSON into deterministic `scene_runtime_v1` JSON tha
   - object/material uniqueness and `material_ref.id` resolution,
   - hierarchy parent/child object reference integrity,
   - additive fallback generation for missing light/camera ids.
-- emits runtime scene envelope with `compile_meta` including the current normalization marker.
+- emits a deterministic runtime scene envelope whose `compile_meta` binds the
+  compiler version, normalization version, authoring SHA-256, dependency-set
+  SHA-256, and dependency count. Publication time is deliberately excluded.
+- exposes canonical dependency-manifest construction, SHA-256/provenance
+  results, a create-only atomic directory publisher for
+  `scene_authoring.json`, `scene_runtime.json`, `scene_dependencies.json`, and
+  `scene_export_receipt.json`, plus a strict consumer verification API.
+- derives content-addressed payload paths as
+  `dependencies/<kind>/<sha256>`, materializes caller-retained bytes inside the
+  atomic staging directory, and rejects missing, mismatched, or symlink-backed
+  payloads during consumer verification.
+- optionally retains an app-authored `scene_package.json` entrypoint inside
+  the same atomic transaction, binds its digest and byte count into the export
+  receipt and bundle identity, and verifies it before consumer acceptance.
 - emits deterministic normalized runtime lanes:
   - `objects`, `hierarchy`, `materials`, `lights`, `cameras`,
   - stable ordering by ID (and parent/child pair for hierarchy).
@@ -58,6 +71,39 @@ Compile `scene_authoring_v1` JSON into deterministic `scene_runtime_v1` JSON tha
 - binary/pack output generation,
 - app-specific override merge policy,
 - retained runtime-scene ownership, renderer behavior, or editor UX.
+
+## 2026-08-22 Update (v0.5.0)
+- made compiled runtime bytes deterministic for identical authoring and
+  dependency inputs by moving publication time out of runtime metadata.
+- added authoring, runtime, dependency-set, and bundle SHA-256 provenance.
+- added durable staging-file writes followed by one create-only directory
+  rename, so consumers never observe a partially published bundle.
+- added the `scene_export_receipt_v1` publication receipt; see
+  `shared/docs/SCENE_EXPORT_RECEIPT_V1.md`.
+
+## 2026-08-22 Update (v0.6.0)
+- added canonical `scene_dependency_manifest_v1` construction and inspection;
+  entries sort by dependency kind and stable identity before digesting.
+- publication now derives dependency provenance from the manifest and includes
+  `scene_dependencies.json` in the atomic directory transaction.
+- added strict bundle verification for required artifacts, receipt fields,
+  byte counts, dependency counts, artifact digests, runtime provenance,
+  compiler compatibility, bundle identity, and an optional externally expected
+  bundle digest.
+
+## 2026-08-22 Update (v0.7.0)
+- advanced the canonical dependency document to
+  `scene_dependency_manifest_v2`, with a deterministic bundle-relative payload
+  path on every entry.
+- added fail-closed content-addressed payload publication inside the existing
+  create-only atomic directory transaction.
+- added payload byte-count, digest, missing-file, tamper, and no-follow path
+  verification before a bundle can be accepted.
+
+## 2026-08-23 Update (v0.8.0)
+- added the optional, backward-compatible package-manifest publication field.
+- package manifests are staged atomically with the canonical scene artifacts
+  and are receipt- and bundle-digest-bound when present.
 
 ## 2026-05-25 Update (v0.4.0)
 - extended the shared scene compiler to recognize `mesh_asset_instance` and shared `geometry_ref.kind` vocabulary.

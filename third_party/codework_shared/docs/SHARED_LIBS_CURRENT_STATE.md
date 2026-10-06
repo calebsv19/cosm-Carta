@@ -13,7 +13,7 @@ Scope: active build wiring and integration across `ball_bounce_sim`, `behavior_s
 - `core_action`: `0.1.1`
 - `core_headless_job`: `0.2.0`
 - `core_scene`: `1.2.0`
-- `core_scene_compile`: `0.4.0`
+- `core_scene_compile`: `0.8.0`
 - `core_scene_view`: `0.2.0`
 - `core_mesh_asset`: `0.6.0`
 - `core_mesh_compile`: `0.7.0`
@@ -22,7 +22,7 @@ Scope: active build wiring and integration across `ball_bounce_sim`, `behavior_s
 - `core_viewport2d`: `0.2.2`
 - `core_viewport3d`: `0.1.0`
 - `core_screen_pick`: `0.1.0`
-- `kit_ui`: `0.11.2`
+- `kit_ui`: `0.11.3`
 - `core_units`: `0.2.0`
 - `core_object`: `0.1.1`
 - `core_authored_texture`: `0.2.0`
@@ -45,14 +45,14 @@ Scope: active build wiring and integration across `ball_bounce_sim`, `behavior_s
 - `core_workers`: `1.0.1`
 - `core_wake`: `1.0.2`
 - `core_kernel`: `1.0.1`
-- `core_memdb`: `0.28.2`
+- `core_memdb`: `0.31.1`
 
 ## Kit Library Versions (viewport lane)
 - `kit_viewport3d`: `0.1.0`
 
 ## Non-Core GPU Runtime Versions
 - `vk_runtime`: `0.6.0` (committed shared source)
-- `vk_renderer`: `1.3.2` (committed shared source)
+- `vk_renderer`: `1.4.0` (committed shared source)
 
 ## New Bootstrap Modules
 - `vk_runtime`: shared SDL-independent Vulkan runtime foundation (`v0.6.0`) for
@@ -185,12 +185,12 @@ Scope: active build wiring and integration across `ball_bounce_sim`, `behavior_s
 - `core_mesh_compile`: shared mesh compile-boundary scaffold (`v0.7.0`) for staged `mesh_asset_instance` references and bounded ASCII/binary STL compile with file-backed runtime output. In addition to the indexed weld path, degenerate filtering, and `3000000`-triangle ceiling, it can now emit angle-weighted smooth vertex normals or split edge-connected smoothing islands at authored crease and surface-group boundaries. Topology adjacency is derived from indexed mesh connectivity rather than BVH proximity. Mesh repair, retopo, LOD/streaming policy, renderer acceleration, and solver derivation remain outside shared compile core.
 - `core_mesh_preview`: shared runtime mesh-preview contract scaffold (`v0.5.0`) for bounded viewport-safe preview sidecars and coherent indexed LOD meshes derived from `mesh_asset_runtime_v1` documents. The current contract owns `core_mesh_preview_runtime_v1`, feature-edge, sampled-triangle, point-cloud, and bounds-only preview modes, precise source versus preview counters, source feature-edge counts, budget/coverage metadata, derived local bounds center/extent/max-span/bounding-sphere metadata, source/provenance hint fields, preview mode/sample-strategy metadata, deterministic mode-specific builders, file-backed preview save/load helpers, runtime-file build/save helpers, metadata-only sidecar loading, preview-file probing, and additive `core_mesh_preview_build_lod_mesh(...)` construction with host-selected triangle budgets. LineDrawing is the first coherent-LOD proving host for Wire, Solid, and Material viewport modes. RayTracing now also prepares coherent LODs in a separate editor-only store and owns its Bounds/Wire/Solid/Material vocabulary plus stable geometry-quality invalidation policy; renderer routing and picking remain the next adoption boundary. Final-render triangle expansion, native GPU/depth rendering, normals, materials, light sampling, camera, overlays, BVHs, renderer caches, interaction-quality policy, PhysicsSim solver proxies, collision meshes, SDFs, retopo, and mesh repair remain host-owned.
 - `core_scene`: shared scene contract module is at `1.2.0` with typed scene-root/object helpers layered above the existing bundle/source resolver path, including additive mesh-asset instance contracts alongside existing primitive and root semantics. LineDrawing, CoreSceneCompile, PhysicsSim, and RayTracing remain the main source-level adopters while authoring-to-runtime compilation, full JSON parsing policy, retained scene storage, editor/renderer behavior, asset loading, overlay merge, and solver semantics remain outside CoreScene.
-- `core_scene_compile`: shared scene compile module is at `0.4.0` with its boundary truth-locked around authoring-to-runtime normalization, including additive mesh-asset scene-reference preservation alongside the existing parser, semantic-diff, overlay-merge, and primitive validation surfaces. PhysicsSim/RayTracing remain bridge consumers, LineDrawing remains the current file-to-file export producer, and retained runtime-scene storage, renderer/editor/solver behavior, asset loading/import UX, and app-specific override policy remain host-owned.
+- `core_scene_compile`: shared scene compile module is at `0.8.0` with its boundary truth-locked around deterministic authoring-to-runtime normalization, canonical sorted `scene_dependency_manifest_v2`, SHA-256 authoring/runtime/dependency provenance, optional app-owned package-entrypoint staging and receipt binding, derived `dependencies/<kind>/<sha256>` paths, content-addressed payload staging inside the atomic publication transaction, strict no-follow package/payload/receipt verification, and create-only directory publication with `scene_export_receipt_v1`. Publication time lives only in the receipt and is excluded from deterministic runtime and bundle identity. Sculpt is the first producer adopter and owns package schema, dependency discovery, and retained source-byte lifetime while shared code owns canonicalization, packaging, and verification. PhysicsSim/RayTracing remain bridge consumers. Retained runtime-scene storage, dependency interpretation, renderer/editor/solver behavior, asset import UX, simulation/render promotion, and app-specific override policy remain host-owned.
 - `kit_pane`: shared pane-shell presentation kit is now at `v0.3.1` with baseline chrome/splitter visuals plus reusable splitter hover/drag interaction state layered above `core_pane`, including cached-hit hover/begin-drag entry points for IDE-style divider registries; borrowed title lifetime, generated id-label storage, draw/state semantics, and stale drag-hit rejection are now truth-locked, while proving-host adoption remains live in `line_drawing`, `drawing_program`, `physics_sim`, `behavior_sim`, and `gravity_orbit_sim` and broader authoring topology work remains with `workspace_sandbox`.
 - `kit_workspace_authoring`: shared host-agnostic authoring interaction scaffold is now at `v0.5.1` with truth-locked shared-vs-host ownership for preview mutation, accepted-only persistence, shell parity, and custom-theme stubs; current non-entry modifier policy (`Shift`/`Alt` suppressed, `Ctrl`/`GUI` passed through), inclusive hit-boundary semantics, borrowed overlay-label lifetime, clamped negative root bounds, and tighter overlay/splitter seam validation are now covered by focused contract tests. `workspace_sandbox`, `datalab`, `drawing_program`, `behavior_sim`, `line_drawing`, `physics_sim`, `ray_tracing`, `map_forge`, `daw`, `gravity_orbit_sim`, `mem_console`, and `ide` are now cut over to that shared font/theme surface through thin host bridges. `ide` has completed `IDEWA1-S0/S1/S2/S3/S4/S5` with shared `Alt+C` then `Alt+V` entry/toggle semantics, active-only pane overlay geometry/hit testing, shared full-screen Font/Theme layout/action semantics, live IDE theme/font/text-size preview mutation, accepted-only preference persistence, and closeout after user visual acceptance. `dungeon` is the recommended next host.
 - `kit_runtime_diag`: shared runtime diagnostics scaffold (`v0.1.1`) for app-neutral stage-timing derivation and input totals accumulation helpers, with first adoption in `map_forge` runtime perf logging. The contract is now truth-locked around raw monotonic delta math, zero-on-invalid timing outputs, saturating cumulative counters, gated ignored-count accumulation, and frame-local invalidation-reason bits while host logging, thresholds, routing, trace naming, and render semantics remain app-local.
 - `kit_viz`: shared visualization helper kit is now at `v1.0.1` for field stats, heatmap RGBA generation, vector/polyline segment derivation, and waveform envelope resampling over borrowed flat arrays. The contract is now truth-locked around flat-array input ownership, caller-owned output buffers, supported colormap vocabulary, finite-input rejection, zero-point polyline behavior, out-of-range waveform zero fill, and saturating dimension/byte-count guards. DataLab remains the main field/flow adopter and PhysicsSim remains a broader smoke host, while renderer submission, dataset/schema ownership, axis/legend/hover semantics, camera transforms, texture upload, and app-specific chart meaning remain host-owned.
-- `core_memdb`: shared SQLite-backed memory DB foundation (`v0.28.2`) remains stable with additive event-lane ops (schema v6 with scope fields, `mem_audit`, `mem_event`, link-graph constraints), built-in `v1 -> v2 -> v3 -> v4 -> v5 -> v6` migration on open, scoped `mem_cli add/query`, session-budget controls on writes, `batch-add` with retry/failure controls, bounded `neighbors` retrieval, `health`, `audit-list`, `event-list`, full-field replay drift verification via `event-replay-check`, deterministic rebuild parity via `event-replay-apply`, event-first writes across `add`/`pin`/`canonical`/`rollup`/`link-*`, and legacy parity seeding/upgrade via `event-backfill`. The shared boundary is now truth-locked more explicitly around the narrow SQLite C API (`open`/`close`, statements, bind/column helpers, transactions, migrations) versus the higher-layer CLI/wrapper/tooling lanes shipped in the same subtree. The follow-on CLI policy pass now hides archived rows from `show` unless `--include-archived` is passed and applies shared session-budget enforcement across the existing mutation lanes that already accept `--session-id`.
+- `core_memdb`: shared SQLite-backed memory DB foundation (`v0.31.1`) remains stable with additive event-lane ops (schema v6 with scope fields, `mem_audit`, `mem_event`, link-graph constraints), built-in `v1 -> v2 -> v3 -> v4 -> v5 -> v6` migration on open, scoped `mem_cli add/query`, stable-id-only maintained projection upsert, strict chronological `query --order recent`, session-budget controls on writes, `batch-add` with retry/failure controls, bounded `neighbors` retrieval, `health`, `audit-list`, `event-list`, full-field replay drift verification via `event-replay-check`, deterministic rebuild parity via `event-replay-apply`, event-first writes across mutation lanes, and legacy parity seeding/upgrade via `event-backfill`. Transactional `lane-head-upsert` now validates scope, edge conflicts, and exclusive anchor/latest-pair ownership before mutation, applies the canonical item and managed links atomically as one logical session write, and returns write-free `unchanged` convergence for exact repeats. Budget-rejected link add/update/remove attempts preserve readable source-item audit metadata while emitting no mutation event and changing no projection. The `write-lane-head` wrapper restricts V1 to `workspace=codework`, enforces concise ordered handoffs, and leaves ordinary history and unrelated links intact. The shared boundary remains truth-locked between the narrow SQLite C API and higher-layer CLI/wrapper/tooling lanes shipped in the same subtree. Default query ranking remains backward-compatible; only explicit `--order recent` bypasses canonical/pinned boosts.
 - `vk_runtime`: SDL-independent Vulkan lifecycle/compute foundation is at
   `0.6.0`, with retained RTX 3060 S1-S4 capability, parity, residency, timing,
   repeat, and validation evidence plus staged presentation lifecycle ownership
@@ -353,7 +353,7 @@ Legend:
 - `kit_ui` is now at `0.11.2` with additive richer button semantics on top of the existing immediate-mode boundary: shared `kit_ui_button_*` helpers now cover selected/pressed/focused/disabled/variant-aware button state, app-reusable button layout and text-origin helpers, preset-driven shared button theme resolution, spec-driven button drawing, rounded/compact appearance-aware button drawing for HUD-style controls, alpha-aware floating HUD style defaults, HUD button-row/readout layout, nested corner/inset helpers for matching inner control radius to outer panel radius/padding, and optional SDL rounded panel/button/readout/scrollbar adapters without introducing retained focus, keyboard navigation, app-owned preference policy, or mandatory SDL linkage in the default library. Version `0.11.2` adds the direct-SDL scrollbar geometry/draw bridge, keeping the command-frame 6px track, 8px inset, and 10% minimum-thumb contract common for DataLab’s picker. Version `0.11.1` hardens the HUD row by deriving inner radius from `outer_radius - inset` and clamping to responsive control dimensions; DataLab proves the full SDL bridge across playback, session HUDs, and the picker. Version `0.11.0` keeps the adapter optional so plain shared `kit_ui` builds do not gain a mandatory SDL dependency. Version `0.10.0` kept existing button-spec callers on their current command path while adding editable appearance presets for radius, border thickness, and padding. Version `0.9.1` hardened shared 1px button borders against corner overrun artifacts on snapped pixel grids by emitting edge rects instead of endpoint-sensitive line segments. The immediate-mode boundary remains truth-locked around borrowed render-context and label/text lifetimes, caller-owned frame command storage, bounded clip-stack depth, and fallback text-fit behavior, with shared tests now covering the HUD row layout/alpha/corner lane, button spec/style lane, rounded appearance command path, and hardened outline command path alongside prior layout/clip/text-fit hardening.
 - `kit_graph_timeseries` is now at `0.2.2`, with the split math/draw implementation as the only built source shape after removing the unused combined file. The first hardening pass truth-locks borrowed series/legend-label ownership, helper-owned hover-overlay label storage, default-padding hover semantics, and non-finite rejection, while adding command-buffer failure propagation tests. DataLab now completes the bounded trace graph adoption: trace view computation, zoom, nearest-point hover inspection, plot draw commands, and hover overlay commands route through the shared kit while trace samples, lane/session semantics, cursor policy, and SDL replay remain app-owned.
 - `kit_graph_struct` is now at `0.8.1` with boundary truth-locking for borrowed label lifetime, unique-id and edge-array input requirements, inclusive hit-boundary semantics, finite viewport/style validation, and added contract tests for ambiguous/non-finite input rejection.
-- `core_memdb` is now at `0.28.1` with additive event-dual-write, full-field replay-check, deterministic projection rebuild/apply, and event-first projection apply in-transaction across all mutation lanes (`add`, `pin`, `canonical`, `rollup`, `link-add`, `link-update`, `link-remove`): schema target v6, built-in v1->v2->v3->v4->v5->v6 migration on open, append-only `mem_event` table + indexes (`event_id`, `ts_ns`, `event_type`, `session_id`), `mem_cli event-list` for bounded event inspection, `mem_cli event-replay-check` for full-field parity checks between replayed event projection and live rows, `mem_cli event-replay-apply` for source->target projection rebuild + parity verification, snapshot-backed payload emission on key write commands, and `mem_cli event-backfill` for upgrading legacy minimal events into replay-complete history while preserving existing scoped retrieval, `mem_audit` coverage, session budgets, bounded neighbors, link constraints, dedupe-aware add behavior, and transactional rollup. The first hardening pass now truth-locks the narrow shared C API versus CLI/tooling/host policy, and the base tests now pin deterministic closed-handle and unsupported-future-migration behavior before any schema-policy growth.
+- `core_memdb` is now at `0.31.1` with additive event-dual-write, full-field replay-check, deterministic projection rebuild/apply, strict recent retrieval, stable-id-only maintained projection upsert, and transactional Lane Head V1 reconciliation. `mem_cli lane-head-upsert` performs one preflighted `BEGIN IMMEDIATE` item/canonical/managed-link operation, emits event-first projection changes only when state differs, preserves unrelated links and receipt history, and charges one successful audit mutation; fingerprint collisions, wrong-scope identities, unrelated desired-edge collisions, competing lane keys for one anchor/latest pair, and exhausted budgets stop without partial projection effects. Exact repeats return `unchanged` with zero event/audit growth. Budget-rejected link add/update/remove attempts retain readable source-item metadata in their failed audit rows without mutation events or projection changes. Schema target remains v6 with the existing migration, replay, backfill, audit, bounded-neighbor, link-constraint, and rollup contracts.
 - `mem_console` (top-level program host) includes an optional (`--kernel-bridge`) evaluation scaffold over `core_sched` + `core_jobs` + `core_wake` + `core_kernel`; this is additive host validation and is not yet a production-app matrix requirement.
 - `mem_console` (top-level program host) serializes theme/font UI prefs through `core_pack` (`<db_path>.ui.pack`) as app-local persistence.
 - `mem_console` (top-level program host) now evaluates shared `core_pane` (`0.1.0`) for split-pane solve + draggable splitter interaction in the 15C lane, with pane-ratio persistence wired through app-local prefs packs.
@@ -417,6 +417,14 @@ Legend:
   occlusion policy, selection mutation, and SDL input/render routing local.
 - `behavior_sim` now adopts shared `core_base`, `core_theme`, `core_font`, `kit_render`, `kit_ui`, `core_pane`, `kit_pane`, `core_sim`, `core_sim_trace`, and `kit_workspace_authoring`: UI/shared presentation modules and `core_sim` flow through its vendored shared subtree host for persistent `CoreSimLoopState` ownership and ordered pass execution. The window is SDL-resizable, shell pane widths stay metric-driven until user drag customizes a split, live splitter hover/drag routes through `KitPaneSplitterInteraction`, shell buttons use shared `kit_ui` spec/state/style semantics while drawing and palette tuning stay app-local, ordered stub-pass execution now routes through the persistent 30ms `core_sim` shell with frame diagnostics surfaced in headless output, and the same headless path now emits shared `core_sim_trace` sample/marker counts beside app-owned behavior metrics. `BWA1-S1/S2/S3/S4/S5` use `kit_workspace_authoring >= 0.5.0` for the invisible `Alt+C`/`Alt+V` entry chord, active reserved-trigger handling, shared overlay button layout/hit testing for active-only pane mode, the shared font/theme layout/hit/action surface for text-size preview, accepted-only persistence routing through BehaviorSim's existing session state, and closeout as the fourth proving host; active SDL draw ownership plus editor/debug/domain meaning remain app-local. `line_drawing` and `physics_sim` have now completed the follow-on host attach path, and `ray_tracing` is the next recommended graphics/editor host.
 - `ball_bounce_sim` now directly adopts `core_theme >= 2.0.1` and `core_font >= 1.0.2` through the app-local persistent-menu style adapter: shared core supplies semantic palette tokens plus font roles/tiers, the macOS package carries the resolved Lato assets, and Ball Bounce retains SDL drawing, high-DPI scaling, compact 2D/3D navigation, grouped-list/search/scroll policy, preset purpose, and future scene-library UX. The Clang simulation picker plus the complete seeded-compound-room, seeded-compound-pair, imported-compound, imported-compound-pair, collision-scenario, generated-scene-playback, and generic rigid-3D host families actively use exact-source `vk_runtime 0.6.0` / `vk_renderer 1.3.2` through one reusable app-local high-DPI SDL compatibility-canvas lifecycle. Validation-clean picker proof covers shared handles, logical input, native `1520x1000`/`2000x1300` captures, resize/recreation, crisp 2x Retina text, and SDL fallback. All 49 compatible 3D profiles preserve drawable-coordinate CPU rendering and prove shared handles, zero validation warnings/errors, native initial/readback capture, resize/recreation, 2x scale, and SDL fallback; seeded-pair receipts bind free-flight versus room identity, imported-pair proof preserves six physics-selected milestone frames through native Vulkan readback and the SDL software-surface oracle, and the final 32-profile matrix covers 10 collision scenarios, 3 generated playback profiles, and 19 generic rigid-3D profiles including convex CCD. The separate 2D random-scene/contact-world host and the fisiCs renderer remain direct SDL. It also retains the narrow direct `core_sim` adoption in its interactive SDL shell: `src/app/app_shell.c` routes frame accumulation and pass dispatch through `CoreSimLoopState`, one `world_run_fixed_tick` pass, and `core_sim_loop_advance`, while scenarios, physics formulas, headless summaries/artifacts, worker-job parsing, worker-exchange packaging, SDL drawing, and `fisiCs` units-overlay proof behavior remain app-local. The build links the live shared root through `SHARED_ROOT ?= ../shared` for `core_base`, `core_theme`, `core_font`, `core_sim`, `core_collision2d`, and `core_rigid2d` source/header paths; `make -C ball_bounce_sim shared-source-adoption-contract` is the proof gate for this direct research-lane policy. Ball Bounce also has `core_collision2d >= 0.2.0` adapter proof through `src/physics/collision2d/collision_core_adapter_2d.*` and `make core-collision2d-adapter-parity-contract`, now tightened for the hardened box/box and polygon/polygon fixture tables plus compound descriptor conversion and mass-property parity; `make core-collision2d-compound-usage-contract` compiles the curated compound contract with `BALL_COLLISION2D_USE_CORE_COMPOUND_DESCRIPTOR_OPT_IN`, and S5 default-adopts that shared-backed compound AABB/mass route for clang/package builds with `core-collision2d-default-cutover-contract` diffing curated compound summaries against the fisiCs/local oracle. Default clang/package circle-vs-circle, box/box, and polygon/polygon contact adoption now routes through `BALL_COLLISION2D_USE_CORE_CIRCLE_DEFAULT`, `BALL_COLLISION2D_USE_CORE_BOX_DEFAULT`, and `BALL_COLLISION2D_USE_CORE_POLYGON_DEFAULT`; the default-cutover contract includes the rigid hex polygon summary diff. For `core_rigid2d >= 0.1.1`, Ball Bounce has both `make core-rigid2d-adapter-parity-contract` and a default clang/package rigid body/solver cutover through shared-backed alternate files; local collision/rigid files remain the fisiCs oracle, and world/scene/artifact/worker behavior remain app-local or deferred. Managed subtree sync and release packaging remain deferred until Ball Bounce enters a release-grade standalone distribution lane.
+GrowthSim Main Edit MCP closure (2026-10-04): installed headless and explicit
+desktop control directly use vendored `core_jobs 1.0.1` for cooperative owner-queue
+execution, `core_time 1.0.1` for monotonic deadlines and `core_headless_job 0.2.0`
+envelope/report validation. Both-toolchain native/wire, packaged/installed desktop
+and actual Codex four-mode/timeout acceptance pass. GrowthSim owns domain policy,
+quotas, provenance and terminal artifacts. Canonical adoption remains separate;
+no shared API/version change or distributed worker claim follows.
+
 - `growth_sim` now adopts shared `core_sim_trace` over `core_trace` for deterministic control-plane trace diagnostics, `core_data` for copied typed Mold and Fire field snapshots, `core_pack` for producer-side Mold and Fire field-frame export/validation, and shared `kit_ui >= 0.9.1` as the proving host for a richer button semantic layer over its existing pane/editor shell. Its committed default Clang/package presentation path additionally uses `vk_runtime 0.6.0` beneath `vk_renderer 1.3.1` through app-local compatibility wrappers; source, package, and installed-Desktop evidence covers validation-clean lifecycle, readback, real resize/recovery, capture, 2x Retina, restart, shared-font text, and changing Mold frames. SDL keeps window/events and the fisiCs lane keeps the direct-SDL oracle. `core_sim` owns Mold/Fire pass execution cadence and frame outcomes; shared trace owns standard `core_sim.*` frame lanes and reason markers; `core_data` owns copied `FIELD2D_F32` carrier objects for Mold/Fire scalar fields; shared `core_pack` owns the durable container; shared `kit_ui` owns the reusable selected/pressed/focused button contract while Change keeps palette, ruleset, schema, export-root, capture-request, pane/viewport, and solver meaning app-local. Runtime compute, residency, and timing workload APIs remain unused, and `core_io` remains an indirect support dependency through shared trace/pack lanes rather than a first-class Growth-owned file API.
 - `kit_pane` is now at `0.3.0` with baseline pane chrome/splitter rendering helpers, reusable `KitPaneSplitterInteraction` hover/drag state, cached-hit hover/begin-drag entry points, and null-backend interaction coverage; `drawing_program` is the first production proving host on the cached-hit path, while `line_drawing`, `physics_sim`, `behavior_sim`, and `gravity_orbit_sim` remain on the direct tree-hit path and broader authoring overlays still remain with `workspace_sandbox`.
 - `line_drawing` now uses shared `core_pane` + `kit_pane` for its first live pane-resize slice: pane ratios are solved through the shared graph, splitter hover/drag state is centralized through `KitPaneSplitterInteraction`, window resize no longer resets user-adjusted pane targets, and pane purpose plus render routing remain app-local.
@@ -496,3 +504,309 @@ Legend:
 - `workspace_sandbox` corner/seam lane C3 has started with first rewrite slice: `Alt` orthogonal-drag threshold (`24px`) arms `promote_center_cross`, with hard-cancel and console reason on invalid rewrites.
 - future-work note: `shared/docs/memory_db_autonomous_maintenance/` (Plan 01-03) is planning-only and not yet counted as implemented runtime/adoption state in this snapshot.
 - detailed per-program connective-tissue snapshot now lives in `shared/docs/ecosystem_north_star_docs/44_program_library_connective_tissue_state.md`.
+
+## 2026-10-04 Rounded UI Rendering — Main Edit First Hosts
+
+Committed shared source `e588734` provides `vk_renderer 1.4.0`,
+`kit_render 0.14.5`, and `kit_ui 0.11.3`; `vk_runtime` stays at `0.6.0`.
+Positive rectangle radii now reach solid rounded Vulkan geometry with
+scale-aware edge coverage. Replaced frame vertex allocations remain alive
+through the owning frame fence. The real-image gate checks 1x/2x geometry,
+clipping, alpha, nested borders, shared button appearance, forced growth,
+and fence reuse; renderer lifecycle/resize checks also pass.
+
+WorkspaceSandbox Main Edit `d9b5982` imports shared `51b331a` and adopts shared
+compact rounded Font/Theme, floating Workspace HUD and top-level authoring
+buttons. `kit_workspace_authoring 0.5.2` delegates HUD drawing to the existing
+`kit_ui` appearance/state resolver. The widget kit remains UI-only. MemConsole Main Edit `7120201`
+uses the same appearance/state resolver in its common button helper, with
+measured horizontal caption centering. Managed
+subtree imports are separate dependency commits. Both app unit/headless,
+Vulkan, and isolated Main Edit package checks pass. Canonical app checkouts
+remain on their previous snapshots, so earlier program matrix entries describe
+those canonical states. No app VERSION bump or publication occurred.
+
+See [the shared rounded-rendering contract](UI_ROUNDED_RENDERING.md).
+
+## 2026-10-04 DataLab Main Edit Shared Button Adoption
+
+Shared `5b017d4` adds `kit_ui 0.12.0`'s optional direct-SDL appearance adapter.
+The generic kit archive remains independent of SDL. The new path reuses the
+existing spec/theme state resolver, compact rounded appearance, nested
+outline/fill geometry, and synchronous measured caption placement.
+
+DataLab Main Edit `d640b7d` imports that committed snapshot and routes playback,
+top-level authoring, Font/Theme/custom-theme, and Recent Directories controls
+through one small presentation adapter. The directory control composes its
+caption above a separate path readout. This lane imports `kit_render 0.14.5`,
+`kit_workspace_authoring 0.5.2`, `vk_renderer 1.4.0`, and `vk_runtime 0.6.0`.
+Its clean build, targeted contracts, full stable/headless smoke, native Vulkan
+resize/restart and real-host captures, and isolated Main Edit packages pass.
+
+The separate Desktop Main Edit package is installed with `com.cosm.scope.main-edit`
+and `DataLab-Main-Edit` runtime/log roots. Canonical DataLab stays at accepted
+`4bf29e6`, VERSION 0.4.0; its installed stable Desktop bundle remains 0.3.6 and
+byte-for-byte unchanged. The UI is still SDL-rasterized and Vulkan-presented;
+native image rendering retains its own path. Input/action/persistence semantics
+remain app-owned. Source adoption, program release, and Linux qualification are
+separate. Other apps retain their previously imported module snapshots.
+
+
+## Render Command Fidelity Trio (2026-10-04)
+
+Shared source `f80f91d` supplies `kit_render 0.14.6` and `vk_renderer 1.5.0`.
+Translation and signed independent scale now apply to rect/rounded, stroke,
+text and texture geometry; textured quads consume float bounds, UV crop/flip
+and RGBA tint. CPU command validation runs before append and whole-frame
+submission; rejected streams can be repaired and resubmitted without partial
+native drawing. Clip coordinates and host input remain in frame space.
+
+Managed Main Edit imports and integration checkpoints are orChestra `4b0f57d`,
+eCho `4a6e093`, and DataLab/sCope `a291e7d`. All three pass the shared native
+1x/2x image oracle, their product/headless/native lifecycle gates, and isolated
+package identity/signature checks. Their installed Main Edit bundles match the
+verified packages; stable Desktop bundles and canonical program source/VERSION
+are unchanged. DataLab still composes UI through `kit_ui 0.12.0` SDL drawing;
+its native renderer objects are proven by a separate Vulkan-kit harness.
+
+This supersedes the earlier bounded transform/UV/tint gap; it does not prove
+all-program migration, native Linux, performance improvement, retained focus,
+keyboard navigation or generalized pane editing. See
+[Render command fidelity](RENDER_COMMAND_FIDELITY.md).
+
+
+## Button interaction cohort (2026-10-04)
+
+Shared `ad3b83b` supplies `kit_ui 0.13.1` and
+`kit_workspace_authoring 0.6.1`. The optional caller-owned context standardizes
+press-origin capture, visual-order Tab/Shift-Tab focus and Enter/Space activation
+on release. Its generic archive remains independent of SDL; the optional SDL
+event/marker adapter and shared Font/Theme registration stay in the kits.
+Controls have half-open bounds and stable semantic IDs; repeat, cancellation,
+hidden/disabled owners, clipped controls and invalid registration are covered.
+The context retains no widget tree, actions, labels, layout or persistence.
+
+The retained Main Edit cohort uses separate managed imports and host integrations:
+- workspace_sandbox: `d9e07d9` — common Font/Theme authoring controls.
+- mem_console: `99f91dd` — common Font/Theme authoring controls.
+- datalab: `ea732ad` — common Font/Theme authoring controls.
+
+Each host routes normalized events to the kit and dispatches the returned action
+through its existing domain adapter. Apply/Cancel, custom-theme popup/rename,
+picker/text entry, coordinates, lifecycle and persistence stay host-owned.
+DataLab remains the SDL UI appearance reference; native image/Vulkan presentation
+retain their own paths. Normal-runtime HUD/inspector input and pane editing are
+not migrated by this slice. Shared and host replays, product/headless regression,
+native lifecycle and isolated Main Edit package gates pass on the local Mac.
+Native orChestra/eCho captured focus-marker pixels at 1x/2x and the SDL reference
+marker/coordinate checks pass. Human interactive acceptance and native Linux
+qualification remain distinct.
+
+See [the interaction contract](UI_INTERACTION_CONTRACT.md). The next slice should
+extend this contract to ordinary HUD/inspector controls in the same trio, followed
+by bounded text-entry/modal and pane/layout composition. Canonical app source,
+app VERSION, stable Desktop bundles and release state remain outside this
+Development rollout.
+
+
+eCho Font/Theme follow-up `f919d51` separates the text-size chip from the
+increment control identity and clips its shorter readout before Reset. Full
+eCho regression and real panel native focus captures pass again. The shared
+module pin remains `ad3b83b`; this small host cleanup adds no shared API or
+program version change.
+
+
+## Complete trio button surface adoption (2026-10-04)
+
+The retained orChestra, eCho and DataLab Main Edit lanes now adopt `kit_ui 0.14.1`
+optional semantic surface snapshots across their inventoried runtime, authoring,
+modal and auxiliary-picker button surfaces. The shared source pin is `b1c67d7`;
+`kit_workspace_authoring 0.6.1`, `kit_render 0.14.6`, `vk_renderer 1.5.0` and
+`vk_runtime 0.6.0` retain their preceding contracts.
+
+The snapshot bridges normalized input and immediate drawing: 256 visible controls,
+full-width domain/value keys, opaque identity stable across row reordering,
+visible clipping, transactional registration and a bounded 32-activation FIFO.
+Direct hosts collect per event; drawing-time hosts claim one action per frame and
+redraw while pending. Modal scopes remove background targets while swallowing
+old owned releases. Hosts own actions, text/caret/IME, label lifetime, coordinates,
+pane/scrollbar gestures, domain state and persistence. No Core UI dependency or
+mandatory SDL dependency was introduced.
+
+orChestra covers top controls, ingest HUD/root actions/authoring shortcuts,
+Font/Theme and module assignment. eCho covers left browse/project/item controls,
+graph settings/actions, relationships, legend filters, DB modal and authoring.
+DataLab covers playback, Recent roots, common/custom authoring and picker roots/
+artifacts. eCho copies transient captions into a UI-frame arena; DataLab remains
+the SDL UI reference while native image rendering/Vulkan presentation stay distinct.
+
+Generic/SDL state tests, production-linked host replays, exact accepted-source
+and tamper checks, ordinary orChestra/eCho native focus output at 1x/2x with zero
+validation messages, and DataLab SDL pixel/output mapping are proved. Product,
+lifecycle and package/installed identity gates remain separately reported by each
+host. Human workflow review, text-edit/IME and modal-focus composition, pane
+composition, native Linux and wider/canonical release rollout are next boundaries.
+See [the interaction contract](UI_INTERACTION_CONTRACT.md) and each host's
+`docs/ui_interaction.md`; this Development checkpoint changes no app VERSION.
+
+Accepted-source verification compares vendored module bytes with immutable Git
+snapshot bytes. `--require-current-canonical` additionally checks mutable upstream
+state for a deliberate adoption audit. Concurrent upstream renderer work is neither
+reset nor silently imported into these accepted programs.
+
+
+## 2026-10-05 bounded text editing and modal focus
+
+`kit_ui 0.15.1` at accepted shared `0cc23aa` provides optional caller-owned bounded UTF-8 editing, Shift selection, clipboard/preedit normalization and one-modal semantic button focus restoration. Orchestra Main Edit adopts ingest input root; Echo Main Edit adopts search/title/body/DB path/edge limit/relationship target; DataLab Main Edit adopts picker root/filter and viewer modal focus. Minimum for these APIs is 0.15.1; no portfolio-wide minimum or renderer change is implied. `kit_workspace_authoring 0.6.1`, `kit_render 0.14.6`, `vk_renderer 1.5.0`, `vk_runtime 0.6.0` remain unchanged. Stable canonical app versions remain outside this Development adoption. Text presentation/native IME, panes and other programs remain incremental follow-ons. See `UI_TEXT_FOCUS_CONTRACT.md` in shared docs.
+
+
+## 2026-10-05 shared text presentation
+
+`kit_ui 0.16.0` at accepted shared `e469445` supplies optional caller-owned measured text presentation: scalar-safe rows/hit, caret, selection, transient replacement preedit/underline, horizontal caret-follow and multiline hard wrapping. Queued and optional SDL adapters preserve clipping/storage conventions. Orchestra ingest root, Echo six fields and DataLab picker root/filter adopt it in Main Edit. The API minimum is 0.16.0; no portfolio-wide minimum is implied. Companion/render module versions remain unchanged. Core remains domain-owned and hosts retain eligibility, font/viewport, save/cancel/session/persistence policy. Next mixed traversal/native IME acceptance, then panes/wider rollout. See `UI_TEXT_PRESENTATION_CONTRACT.md`.
+
+## 2026-10-05 pane composition foundation
+
+Accepted shared source `86037d7` supplies `kit_pane 0.4.0` and `kit_ui 0.17.0`.
+The trio Main Edit adopts stable pane identities, viewport/content clipping and
+small host adapters. Orchestra uses shared geometry for leaf chrome/content and
+authoring hover; Echo uses navigation/detail/graph clips and pane pointer capture;
+DataLab uses picker pane scopes and shared list paint/hit clipping. Core pane,
+module, layout transaction and snapshot responsibilities remain unchanged.
+Mixed field/button focus order is available as a tested optional primitive;
+product mixed-order wiring remains a follow-on. Native SDL caret anchoring is
+adopted in the existing trio editable fields. Real macOS SDL window/session tests
+qualify the adapter; human IME candidate/commit/cancel and native Linux/Windows
+acceptance remain separate. Existing backend versions remain kit_render 0.14.6,
+vk_renderer 1.5.0 and vk_runtime 0.6.0; no mutable renderer work was imported.
+See [pane composition contract](UI_PANE_COMPOSITION_CONTRACT.md).
+Next priority is a reusable pane-host composition/dispatch lifecycle with explicit
+splitter transactions and focus takeover, followed by per-program adoption.
+Canonical source, app VERSION, stable Desktop bundles and releases are unchanged.
+
+## 2026-10-05 pane host behavior adoption
+
+Accepted shared source `ddc9fee6e17482dcd64cf777d7a105b7ed9b157d` adds `kit_pane 0.5.0`, with
+`core_layout 0.2.1` supplying revisions and existing authoring transactions.
+The generic pane host adds stable mount/unmount/resize dispatch, pointer ownership,
+pane focus invalidation, and takeover cancellation. Drag-sized edits nest inside
+an existing authoring draft; hosts restore their own topology/ratios on cancel,
+retain domain actions/history, and persist only accepted changes. Shared bounded
+header slots reserve title space and register only visible actions through the
+existing kit_ui surface. Header labels use the existing centered button painter.
+No rendering backend is replaced: kit_render 0.14.6, vk_renderer 1.5.0,
+vk_runtime 0.6.0 and kit_ui 0.17.0 remain at their accepted versions.
+
+Orchestra wraps its existing snap/rewrite splitter controller and adds a MODULE
+header slot opening the existing picker. Echo isolates nested metadata,
+relationships and body input/paint clips, fixes parent-span ratio clamping,
+commits preferences on accepted release, restores all four ratios on Escape,
+focus loss or takeover, and adds a GRAPH-header REFRESH action. DataLab keeps its
+actual viewer canvas with source-control/header overlays, gives those regions
+stable ownership and SDL clipping, uses a RECENT DIRECTORIES header slot, and
+wraps its existing authoring projection drag in a nested layout transaction.
+DataLab's fixed authoring projection remains a projection; this does not turn
+all profile viewers into a generic movable pane tree.
+
+The proving scope remains the three retained Main Edit lanes. Canonical program
+source and VERSION, production bundles, release/Registry and remote hosts are
+unchanged. Fullscreen lifecycle qualification is next; docking, generalized
+pane provider insertion/persistence, product-wide mixed field/button traversal,
+human OS IME candidate/commit/cancel acceptance, native Linux/Windows and other
+programs remain separate. See the pane host contract and migration guide.
+
+## 2026-10-05 fullscreen/window lifecycle candidate
+
+The proving-trio slice uses committed `kit_ui 0.18.0` optional SDL window observation/mapping and `vk_renderer 1.6.0` fence/acquire/recovery corrections. Hosts retain event loops, window lifetimes, domain cancellation and persistence; `vk_runtime 0.6.0`, `kit_render 0.14.6` and `kit_pane 0.5.0` retain their responsibilities. The shared unit and macOS native standalone lifecycle/retained-texture gates pass; per-program adoption requires its own actual-loop/native proof. See `docs/UI_WINDOW_LIFECYCLE_CONTRACT.md`. The accepted branch is `codex/ui-window-lifecycle-20261005`, isolated from unrelated uncommitted shared renderer/mesh work; version equality alone is insufficient, so exact source pins remain required.
+
+## Fullscreen/window lifecycle acceptance — 2026-10-05
+
+Accepted shared source `854b51ff57c756b4565021fe759c27a459efbfd3` supplies `kit_ui 0.18.0` optional SDL window
+observation, coordinate mapping, F11 desktop-fullscreen and bounded native proof;
+`vk_renderer 1.6.0` resets fences only before submission, consumes suboptimal
+acquired images and performs bounded out-of-date recovery. Hosts own their loops,
+window/resource lifetimes, layouts, domain state, edit restoration and persistence.
+Logical size, actual drawable size and an explicitly bounded render extent are
+separate. Resize/move/display/maximize/restore/hide/minimize/focus loss cancel stale
+pane/control ownership before consumers. Non-presentable windows defer submissions.
+
+Orchestra and Echo use logical command UI coordinates. DataLab retains SDL drawing
+and Vulkan canvas presentation, including a bounded 4096x4096 canvas; large
+presentation extents scale that canvas with matched paint/input geometry. Both
+DataLab viewer and startup picker adopt the lifecycle; the plain SDL viewer path
+also passes. Native macOS actual loops pass all eight stages (initial, resize,
+fullscreen, windowed, hidden, shown, minimized, restored), six captures each and
+continued rendering, with zero Vulkan validation warnings/errors. DataLab also
+passes a 5000x1440 drawable. Unit fault injection proves acquire-out-of-date and
+suboptimal fence behavior; production-linked pane tests prove canceled payload
+and revision restoration for all ten invalidating event kinds.
+
+Scope is the proving trio retained Main Edit lanes. Canonical/stable programs and
+app VERSION remain unchanged. macOS proof does not qualify Linux/Windows,
+exclusive fullscreen, external-monitor migration, device-loss recovery, human IME
+workflow or every program. The native proof drives SDL desktop fullscreen; it does
+not automate clicking macOS's green window control. Next: apply the established
+migration recipe to one selected program, then qualify its actual UI/native paths.
+Mixed field/button traversal and OS IME sessions remain bounded follow-on work;
+generalized docking/provider insertion/persistence needs its own contract.
+
+
+## 2026-10-05 — sketCh Main Edit UI pilot
+
+Drawing Program's retained Main Edit imports reviewed shared 7b37ad8 with kit_ui
+0.18.0, kit_pane 0.5.0, kit_render 0.14.6, kit_workspace_authoring 0.6.1,
+core_layout 0.2.1, vk_renderer 1.6.0 and vk_runtime 0.6.0. Existing APIs cover
+rounded/measured button presentation, semantic release/focus/modal ownership,
+window lifecycle, pane composition/nested clips and splitter revision mechanics.
+The actual macOS loop qualifies standard/indexed controls and Vulkan/SDL/large
+Retina lifecycle. Drawing/history/export/persistence regressions remain app-owned.
+The indexed Layer tab is correctly disabled; inline text editing is N/A. Imported
+core_memdb/core_scene_compile modules are not linked or newly adopted. Canonical
+sketCh remains at 211e636 / 0.3.0. This is Main Edit proof, not a production release.
+See [migration pilot feedback](UI_MIGRATION_GUIDE.md#first-pilot-feedback-sketch).
+
+
+## 2026-10-05 — sketCh pane header/content follow-on
+
+Retained Main Edit reuses kit_pane 0.5.0 composition and bounded header slots;
+there is no new shared API, module VERSION or subtree import. The app owns fixed
+module header policy and direct FIT/LAYOUT actions; kit_pane owns the header/
+content partition and slot allocation, kit_ui owns release/focus semantics.
+Content paint, hit testing and projection share content bounds. Production
+header tests and actual macOS standard/indexed loops qualify clipping, omission,
+release rejection and modal restoration. Provider remount/docking/persistence,
+content command extraction, human comparison and other platforms remain later
+boundaries. Canonical/stable source is unchanged. See
+[migration feedback](UI_MIGRATION_GUIDE.md#sketch-pane-header-follow-on-feedback).
+
+## sketCh fixed-pane Main Edit lifecycle — 2026-10-06
+
+Existing shared pane/core contracts now support explicit app controllers, binding
+remount/cancellation, accepted resize/layout persistence and staged snapshot loads.
+Renderer resources stay host-owned; successful document replacement drops pending
+borrowed-source work before release. No dependency minimum or shared code/API/VERSION
+change. Native standard/indexed Vulkan and SDL plus production regression pass;
+Main Edit delivery remains distinct from canonical adoption. See
+[rollout feedback](UI_MIGRATION_GUIDE.md#fixed-module-lifecycle-and-accepted-persistence--sketch-2026-10-06).
+
+## sketCh direct-command pilot feedback — 2026-10-06
+
+The retained Main Edit follow-on reuses the existing kit_ui semantic key and
+kit_pane composition contracts; shared code/API/module versions do not change.
+Registered content/header/authoring activations carry operation plus domain
+identity directly to app commands. Do not resolve an accepted command to a button
+center, manufacture a pointer event or hit-test another row to recover meaning.
+Keep app action bodies authoritative and shared by typed semantic and applicable
+spatial entry points. Claim activations once; invalidate pending meaning on scope
+or geometry changes. Reject modal/hidden/disabled/stale targets without fallback.
+
+Bind object-inspector edits to object IDs; resolve dynamic lists by current domain
+identity. An operation explicitly named for the active target may retain that
+product policy, with current eligibility rechecked. Preserve real coordinates for
+color/picker/opacity/drawing/scrolling controls. Test semantic dispatch with a hit
+hook that fails on spatial fallback, plus positive domain effects, stale/reordered
+targets, keyboard/pointer parity and native modal transition checks. UI rendering
+and GPU composition remain separate qualification boundaries.
+
+## 2026-10-06 — Committed texture-corner renderer checkpoint
+
+`vk_renderer 1.7.0` adds `vk_renderer_draw_texture_corners`, ordered screen-corner quads with bounded normalized UVs. This checkpoints the prior working addition separately from the accepted 1.6.0 baseline. Carta retains its 1.3.2-based backport pending managed subtree adoption; no app minimum or adoption claim changes here.

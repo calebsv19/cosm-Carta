@@ -189,7 +189,8 @@ CoreResult fetch_session_mutation_write_count(CoreMemDb *db,
                                 "FROM mem_audit "
                                 "WHERE session_id = ?1 AND status = 'ok' AND action IN ("
                                 "'add', 'pin', 'canonical', 'item-retag', 'item-archive', "
-                                "'rollup', 'link-add', 'link-update', 'link-remove', 'event-backfill'"
+                                "'rollup', 'link-add', 'link-update', 'link-remove', 'event-backfill', "
+                                "'lane-head-upsert'"
                                 ");",
                                 &stmt);
     if (result.code != CORE_OK) {
@@ -941,6 +942,18 @@ int open_db_or_fail(const char *db_path, CoreMemDb *db) {
     CoreResult result;
 
     result = core_memdb_open(db_path, db);
+    if (result.code != CORE_OK) {
+        print_core_error("open", result);
+        return 0;
+    }
+
+    return 1;
+}
+
+int open_db_readonly_or_fail(const char *db_path, CoreMemDb *db) {
+    CoreResult result;
+
+    result = core_memdb_open_readonly(db_path, db);
     if (result.code != CORE_OK) {
         print_core_error("open", result);
         return 0;

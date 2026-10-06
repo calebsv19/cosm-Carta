@@ -26,6 +26,8 @@ typedef struct VkRendererContext {
     VkRendererDevice owned_device;
     VkBool32 owns_device;
 
+    /* Borrowed; host must keep the SDL window alive through renderer shutdown. */
+    SDL_Window *window;
     VkSurfaceKHR surface;
     VkRendererSwapchain swapchain;
 } VkRendererContext;

@@ -1,6 +1,7 @@
 #include "mem_cli_cmd_read.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "core_memdb.h"
 #include "mem_cli_args.h"
@@ -55,7 +56,7 @@ int cmd_health(int argc, char **argv) {
         fprintf(stderr, "health: --format must be text or json\n");
         return 1;
     }
-    if (!open_db_or_fail(db_path, &db)) {
+    if (!open_db_readonly_or_fail(db_path, &db)) {
         return 1;
     }
 
@@ -145,21 +146,6 @@ int cmd_health(int argc, char **argv) {
         printf("\n");
     }
 
-    result = append_audit_entry(&db,
-                                0,
-                                "health",
-                                overall_ok ? "ok" : "fail",
-                                0,
-                                0,
-                                0,
-                                0,
-                                0,
-                                "health check executed");
-    if (result.code != CORE_OK) {
-        print_core_error("health", result);
-        goto cleanup;
-    }
-
     if (!overall_ok) {
         goto cleanup;
     }
@@ -177,6 +163,8 @@ int cmd_audit_list(int argc, char **argv) {
     const char *db_path = find_flag_value(argc, argv, "--db");
     const char *session_id = find_flag_value(argc, argv, "--session-id");
     const char *limit_text = find_flag_value(argc, argv, "--limit");
+    const char *order_text = find_flag_value(argc, argv, "--order");
+    const char *query_sql;
     int64_t limit_value = 64;
     int has_row = 0;
     int row_count = 0;
@@ -199,26 +187,47 @@ int cmd_audit_list(int argc, char **argv) {
             return 1;
         }
     }
+    if (order_text && strcmp(order_text, "oldest") != 0 && strcmp(order_text, "recent") != 0) {
+        fprintf(stderr, "audit-list: --order must be oldest or recent\n");
+        return 1;
+    }
     if (!open_db_or_fail(db_path, &db)) {
         return 1;
     }
 
+    query_sql = order_text && strcmp(order_text, "recent") == 0
+        ? "SELECT id, "
+          "ts_ns, "
+          "COALESCE(session_id, ''), "
+          "action, "
+          "status, "
+          "CASE WHEN item_id IS NULL THEN '' ELSE CAST(item_id AS TEXT) END, "
+          "COALESCE(stable_id, ''), "
+          "workspace_key, "
+          "project_key, "
+          "kind, "
+          "detail "
+          "FROM mem_audit "
+          "WHERE (?1 IS NULL OR session_id = ?1) "
+          "ORDER BY id DESC "
+          "LIMIT ?2;"
+        : "SELECT id, "
+          "ts_ns, "
+          "COALESCE(session_id, ''), "
+          "action, "
+          "status, "
+          "CASE WHEN item_id IS NULL THEN '' ELSE CAST(item_id AS TEXT) END, "
+          "COALESCE(stable_id, ''), "
+          "workspace_key, "
+          "project_key, "
+          "kind, "
+          "detail "
+          "FROM mem_audit "
+          "WHERE (?1 IS NULL OR session_id = ?1) "
+          "ORDER BY id ASC "
+          "LIMIT ?2;";
     result = core_memdb_prepare(&db,
-                                "SELECT id, "
-                                "ts_ns, "
-                                "COALESCE(session_id, ''), "
-                                "action, "
-                                "status, "
-                                "CASE WHEN item_id IS NULL THEN '' ELSE CAST(item_id AS TEXT) END, "
-                                "COALESCE(stable_id, ''), "
-                                "workspace_key, "
-                                "project_key, "
-                                "kind, "
-                                "detail "
-                                "FROM mem_audit "
-                                "WHERE (?1 IS NULL OR session_id = ?1) "
-                                "ORDER BY id ASC "
-                                "LIMIT ?2;",
+                                query_sql,
                                 &stmt);
     if (result.code != CORE_OK) {
         print_core_error("audit-list", result);
@@ -408,6 +417,8 @@ int cmd_event_list(int argc, char **argv) {
     const char *session_id = find_flag_value(argc, argv, "--session-id");
     const char *event_type_filter = find_flag_value(argc, argv, "--event-type");
     const char *limit_text = find_flag_value(argc, argv, "--limit");
+    const char *order_text = find_flag_value(argc, argv, "--order");
+    const char *query_sql;
     int64_t limit_value = 64;
     int has_row = 0;
     int row_count = 0;
@@ -430,30 +441,29 @@ int cmd_event_list(int argc, char **argv) {
             return 1;
         }
     }
+    if (order_text && strcmp(order_text, "oldest") != 0 && strcmp(order_text, "recent") != 0) {
+        fprintf(stderr, "event-list: --order must be oldest or recent\n");
+        return 1;
+    }
     if (!open_db_or_fail(db_path, &db)) {
         return 1;
     }
 
+    query_sql = order_text && strcmp(order_text, "recent") == 0
+        ? "SELECT id, ts_ns, COALESCE(session_id, ''), event_id, event_type, actor_type, actor_id, "
+          "CASE WHEN item_id IS NULL THEN '' ELSE CAST(item_id AS TEXT) END, "
+          "CASE WHEN link_id IS NULL THEN '' ELSE CAST(link_id AS TEXT) END, "
+          "COALESCE(stable_id, ''), workspace_key, project_key, kind, payload_json "
+          "FROM mem_event WHERE (?1 IS NULL OR session_id = ?1) "
+          "AND (?2 IS NULL OR event_type = ?2) ORDER BY id DESC LIMIT ?3;"
+        : "SELECT id, ts_ns, COALESCE(session_id, ''), event_id, event_type, actor_type, actor_id, "
+          "CASE WHEN item_id IS NULL THEN '' ELSE CAST(item_id AS TEXT) END, "
+          "CASE WHEN link_id IS NULL THEN '' ELSE CAST(link_id AS TEXT) END, "
+          "COALESCE(stable_id, ''), workspace_key, project_key, kind, payload_json "
+          "FROM mem_event WHERE (?1 IS NULL OR session_id = ?1) "
+          "AND (?2 IS NULL OR event_type = ?2) ORDER BY id ASC LIMIT ?3;";
     result = core_memdb_prepare(&db,
-                                "SELECT id, "
-                                "ts_ns, "
-                                "COALESCE(session_id, ''), "
-                                "event_id, "
-                                "event_type, "
-                                "actor_type, "
-                                "actor_id, "
-                                "CASE WHEN item_id IS NULL THEN '' ELSE CAST(item_id AS TEXT) END, "
-                                "CASE WHEN link_id IS NULL THEN '' ELSE CAST(link_id AS TEXT) END, "
-                                "COALESCE(stable_id, ''), "
-                                "workspace_key, "
-                                "project_key, "
-                                "kind, "
-                                "payload_json "
-                                "FROM mem_event "
-                                "WHERE (?1 IS NULL OR session_id = ?1) "
-                                "AND (?2 IS NULL OR event_type = ?2) "
-                                "ORDER BY id ASC "
-                                "LIMIT ?3;",
+                                query_sql,
                                 &stmt);
     if (result.code != CORE_OK) {
         print_core_error("event-list", result);
@@ -895,6 +905,7 @@ int cmd_query(int argc, char **argv) {
     const char *workspace_filter = find_flag_value(argc, argv, "--workspace");
     const char *project_filter = find_flag_value(argc, argv, "--project");
     const char *kind_filter = find_flag_value(argc, argv, "--kind");
+    const char *order = find_flag_value(argc, argv, "--order");
     int pinned_only = has_flag(argc, argv, "--pinned-only");
     int canonical_only = has_flag(argc, argv, "--canonical-only");
     int include_archived = has_flag(argc, argv, "--include-archived");
@@ -916,6 +927,10 @@ int cmd_query(int argc, char **argv) {
         return 1;
     }
     if (!parse_output_format(argc, argv, &format)) {
+        return 1;
+    }
+    if (order && strcmp(order, "default") != 0 && strcmp(order, "recent") != 0) {
+        fprintf(stderr, "query: --order must be default or recent\n");
         return 1;
     }
 
@@ -1007,7 +1022,9 @@ int cmd_query(int argc, char **argv) {
     if (!append_sql_fragment(
             sql,
             sizeof(sql),
-            " ORDER BY mem_item.canonical DESC, mem_item.pinned DESC, mem_item.updated_ns DESC, mem_item.id ASC")) {
+            order && strcmp(order, "recent") == 0
+                ? " ORDER BY mem_item.updated_ns DESC, mem_item.id DESC"
+                : " ORDER BY mem_item.canonical DESC, mem_item.pinned DESC, mem_item.updated_ns DESC, mem_item.id ASC")) {
         fprintf(stderr, "query: sql buffer overflow\n");
         goto cleanup;
     }

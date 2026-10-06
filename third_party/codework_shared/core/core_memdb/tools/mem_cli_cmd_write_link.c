@@ -285,10 +285,10 @@ int cmd_link_add(int argc, char **argv) {
     int enforce_session_budget = 0;
     int64_t session_max_writes = 0;
     int64_t session_write_count = 0;
-    char stable_id[128];
-    char workspace_key[128];
-    char project_key[128];
-    char item_kind[128];
+    char stable_id[128] = {0};
+    char workspace_key[128] = {0};
+    char project_key[128] = {0};
+    char item_kind[128] = {0};
     char detail[192];
     char *event_payload = 0;
     CoreMemDb db = {0};
@@ -332,6 +332,33 @@ int cmd_link_add(int argc, char **argv) {
         print_core_error("link-add", result);
         goto cleanup;
     }
+    if (!from_exists) {
+        fprintf(stderr, "link-add: from item %lld not found\n", (long long)from_item_id);
+        goto cleanup;
+    }
+    result = item_exists_active(&db, to_item_id, &to_exists);
+    if (result.code != CORE_OK) {
+        print_core_error("link-add", result);
+        goto cleanup;
+    }
+    if (!to_exists) {
+        fprintf(stderr, "link-add: to item %lld not found\n", (long long)to_item_id);
+        goto cleanup;
+    }
+    result = fetch_item_audit_metadata(&db,
+                                       from_item_id,
+                                       stable_id,
+                                       sizeof(stable_id),
+                                       workspace_key,
+                                       sizeof(workspace_key),
+                                       project_key,
+                                       sizeof(project_key),
+                                       item_kind,
+                                       sizeof(item_kind));
+    if (result.code != CORE_OK) {
+        print_core_error("link-add", result);
+        goto cleanup;
+    }
     if (enforce_session_budget) {
         result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
         if (result.code != CORE_OK) {
@@ -359,35 +386,6 @@ int cmd_link_add(int argc, char **argv) {
         goto cleanup;
     }
     tx_started = 1;
-    if (!from_exists) {
-        fprintf(stderr, "link-add: from item %lld not found\n", (long long)from_item_id);
-        goto cleanup;
-    }
-
-    result = item_exists_active(&db, to_item_id, &to_exists);
-    if (result.code != CORE_OK) {
-        print_core_error("link-add", result);
-        goto cleanup;
-    }
-    if (!to_exists) {
-        fprintf(stderr, "link-add: to item %lld not found\n", (long long)to_item_id);
-        goto cleanup;
-    }
-
-    result = fetch_item_audit_metadata(&db,
-                                       from_item_id,
-                                       stable_id,
-                                       sizeof(stable_id),
-                                       workspace_key,
-                                       sizeof(workspace_key),
-                                       project_key,
-                                       sizeof(project_key),
-                                       item_kind,
-                                       sizeof(item_kind));
-    if (result.code != CORE_OK) {
-        print_core_error("link-add", result);
-        goto cleanup;
-    }
 
     result = fetch_next_link_id(&db, &link_id);
     if (result.code != CORE_OK) {
@@ -638,10 +636,10 @@ int cmd_link_update(int argc, char **argv) {
     int enforce_session_budget = 0;
     int64_t session_max_writes = 0;
     int64_t session_write_count = 0;
-    char stable_id[128];
-    char workspace_key[128];
-    char project_key[128];
-    char item_kind[128];
+    char stable_id[128] = {0};
+    char workspace_key[128] = {0};
+    char project_key[128] = {0};
+    char item_kind[128] = {0};
     char detail[192];
     char *event_payload = 0;
     CoreMemDb db = {0};
@@ -679,6 +677,20 @@ int cmd_link_update(int argc, char **argv) {
         print_core_error("link-update", result);
         goto cleanup;
     }
+    result = fetch_item_audit_metadata(&db,
+                                       from_item_id,
+                                       stable_id,
+                                       sizeof(stable_id),
+                                       workspace_key,
+                                       sizeof(workspace_key),
+                                       project_key,
+                                       sizeof(project_key),
+                                       item_kind,
+                                       sizeof(item_kind));
+    if (result.code != CORE_OK) {
+        print_core_error("link-update", result);
+        goto cleanup;
+    }
     if (enforce_session_budget) {
         result = fetch_session_mutation_write_count(&db, session_id, &session_write_count);
         if (result.code != CORE_OK) {
@@ -706,20 +718,6 @@ int cmd_link_update(int argc, char **argv) {
         goto cleanup;
     }
     tx_started = 1;
-    result = fetch_item_audit_metadata(&db,
-                                       from_item_id,
-                                       stable_id,
-                                       sizeof(stable_id),
-                                       workspace_key,
-                                       sizeof(workspace_key),
-                                       project_key,
-                                       sizeof(project_key),
-                                       item_kind,
-                                       sizeof(item_kind));
-    if (result.code != CORE_OK) {
-        print_core_error("link-update", result);
-        goto cleanup;
-    }
     result = build_link_update_event_payload_alloc(&db,
                                                    link_id,
                                                    kind,
@@ -837,10 +835,10 @@ int cmd_link_remove(int argc, char **argv) {
     int enforce_session_budget = 0;
     int64_t session_max_writes = 0;
     int64_t session_write_count = 0;
-    char stable_id[128];
-    char workspace_key[128];
-    char project_key[128];
-    char item_kind[128];
+    char stable_id[128] = {0};
+    char workspace_key[128] = {0};
+    char project_key[128] = {0};
+    char item_kind[128] = {0};
     char detail[192];
     char *event_payload = 0;
     CoreMemDb db = {0};
@@ -863,6 +861,20 @@ int cmd_link_remove(int argc, char **argv) {
     }
 
     result = fetch_link_endpoints(&db, link_id, &from_item_id, &to_item_id);
+    if (result.code != CORE_OK) {
+        print_core_error("link-remove", result);
+        goto cleanup;
+    }
+    result = fetch_item_audit_metadata(&db,
+                                       from_item_id,
+                                       stable_id,
+                                       sizeof(stable_id),
+                                       workspace_key,
+                                       sizeof(workspace_key),
+                                       project_key,
+                                       sizeof(project_key),
+                                       item_kind,
+                                       sizeof(item_kind));
     if (result.code != CORE_OK) {
         print_core_error("link-remove", result);
         goto cleanup;
@@ -894,20 +906,6 @@ int cmd_link_remove(int argc, char **argv) {
         goto cleanup;
     }
     tx_started = 1;
-    result = fetch_item_audit_metadata(&db,
-                                       from_item_id,
-                                       stable_id,
-                                       sizeof(stable_id),
-                                       workspace_key,
-                                       sizeof(workspace_key),
-                                       project_key,
-                                       sizeof(project_key),
-                                       item_kind,
-                                       sizeof(item_kind));
-    if (result.code != CORE_OK) {
-        print_core_error("link-remove", result);
-        goto cleanup;
-    }
 
     result = fetch_link_snapshot_json_alloc(&db, link_id, &event_payload);
     if (result.code != CORE_OK) {

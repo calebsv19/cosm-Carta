@@ -1,5 +1,14 @@
 # kit_ui
 
+Version 0.14.0 adds the optional `kit_ui_surface.h` snapshot bridge. Hosts collect
+visible, clipped controls with semantic `(domain, uint64 value)` keys; opaque IDs
+remain stable across row reorder. A bounded FIFO delivers at most one activation
+per host frame. Modal scope changes cancel old owners while swallowing their
+outstanding release. The 256-control limit is explicit and invalid collections
+leave the published snapshot intact. Drawing, labels, application actions, text
+entry, gestures and lifecycle policy remain host-owned. See
+[the interaction contract](../../docs/UI_INTERACTION_CONTRACT.md).
+
 `kit_ui` is the shared immediate-mode widget and layout helper kit built on top of `kit_render`.
 
 It provides pane-hostable UI primitives that render through shared draw commands instead of owning any pane or runtime lifecycle.
@@ -49,7 +58,7 @@ The implementation is still intentionally immediate-mode. The goal is reusable, 
 - pane lifecycle
 - event loop ownership
 - retained widget trees
-- keyboard focus or text input ownership
+- application-wide focus, text entry, clipboard or IME ownership
 - layout document loading
 - settings or action persistence
 - application-specific behavior
@@ -60,7 +69,7 @@ The implementation is still intentionally immediate-mode. The goal is reusable, 
 
 - `KitUiContext.render_ctx` is borrowed and must outlive the UI context.
 - All draw helpers are immediate-mode frame helpers. Borrowed label/text pointers only need to remain valid through the current render frame command consumption.
-- `kit_ui` writes commands into the caller-owned `KitRenderCommandBuffer` attached to the active `KitRenderFrame`; it does not retain widget state across frames.
+- `kit_ui` writes commands into the caller-owned `KitRenderCommandBuffer` attached to the active `KitRenderFrame`; drawing does not retain widget state across frames. The separate optional interaction context retains only focus/capture IDs and press state.
 - Clip-stack depth is bounded by `KIT_UI_CLIP_STACK_MAX`.
 - `kit_ui_fit_text_to_rect(...)` chooses the largest full-fit tier first, then falls back to the smallest height-fitting tier with ellipsis truncation.
 - The Vulkan validation harness is a host-side debug harness, not part of the shared widget contract itself.
@@ -96,7 +105,7 @@ Implemented now:
 
 ## Planned Growth
 
-1. add focus and keyboard-navigation helpers
+1. extend adoption of the optional focus and keyboard-navigation helpers
 2. add binding adapters for settings/action/telemetry keys
 3. add simple row/list helpers for inspectors
 4. remain the common control surface for settings, graph inspectors, and debug panes
@@ -224,3 +233,96 @@ Expected behavior:
 6. dragging the slider changes the visualization intensity and the status percentage text
 
 Press `Esc` or close the window to exit.
+
+## Rounded Vulkan Image Gate (0.11.3)
+
+```sh
+make -C shared/kit/kit_ui KIT_RENDER_ENABLE_VK=1 test-rounded-vk
+```
+
+This bounded host-side test renders actual Vulkan images and compares pixels
+against an independent rounded-shape oracle at 1x and 2x. It covers square and
+rounded bounds, radius clamping/pills, clipping, alpha, nested borders, the
+existing compact shared button appearance, forced vertex-buffer growth, frame
+fence reuse, and resize recovery. Captures are written under `build/`. A Vulkan
+surface and the Khronos validation layer must be available; this gate is
+separate from the display-free `make test` contract tests.
+
+The 0.11.3 harness build also includes and links sibling `vk_runtime`. The shared
+button API and default appearance remain unchanged. The rounded Vulkan path
+requires `kit_render` 0.14.5 and `vk_renderer` 1.4.0; the SDL adapter is unchanged.
+
+## Direct SDL Appearance Adapter (0.12.0)
+
+`kit_ui_sdl_draw_button_spec_appearance` expresses the existing
+`KitUiButtonSpec`, `KitUiButtonTheme`, and `KitUiButtonAppearance` contract in
+plain SDL hosts. It reuses the shared state resolver for idle, hover, selected,
+pressed, focused, and disabled colors, draws nested rounded outline/fill geometry,
+and centers measured captions through the host's synchronous `KitUiSdlTextApi`.
+Scale radius and border once into drawable pixels; text callbacks use top-left
+origins. Labels need to remain valid only through the draw call. The older HUD
+SDL helper remains available with its existing fill-only behavior. Neither the
+generic kit archive nor its default tests acquire an SDL dependency.
+
+Run `make test-sdl-appearance` for 1x/2x software-surface pixel, state, caption,
+clipping, narrow-control, and invalid-input checks. This optional adapter preserves
+SDL rasterization; a Vulkan compatibility canvas that uploads those pixels is
+still CPU-composed UI. Input routing, focus ownership, action policy, persistence,
+and renderer lifetime stay with the host.
+
+## Focus and pointer capture (0.13.0)
+
+The optional `kit_ui_interaction.h` context owns focus and press-origin capture
+for registered buttons, with normalized events, ordered Tab traversal and
+release activation. Hosts own coordinates, scope changes, text entry and actions.
+The generic archive has no SDL dependency; `kit_ui_interaction_sdl.h` is an
+optional adapter. See [the interaction contract](../../docs/UI_INTERACTION_CONTRACT.md).
+
+Patch 0.13.1: Clamp the focus marker inside positive-size controls, including tiny control bounds; optional SDL declarations preserve C linkage in C++ hosts.
+
+The 0.14.1 surface patch supports C++ linkage and optional returned control storage; callers may register geometry without retaining the returned opaque handle.
+
+
+## Bounded text editing and modal focus (0.15.0)
+
+Optional `kit_ui_text_edit.h` borrows caller-owned UTF-8 storage and owns byte
+positions at Unicode scalar boundaries, selection and bounded preedit composition.
+Insertion and capacity/format failure are transactional. Selection replacement,
+Home/End, Shift movement, Backspace/Delete and select-all are shared mechanics.
+`kit_ui_text_edit_sdl.h` is an optional SDL normalization/clipboard adapter; it
+returns Enter/Escape intents and stages composition without changing committed
+text. Hosts own field eligibility, commit/cancel, SDL text-input sessions,
+wrapping/hit geometry, filtering and persistence. UTF-8 scalars are not grapheme
+clusters; complex shaping and native candidate-window acceptance remain later proof.
+
+`kit_ui_focus_scope.h` supports one explicit modal over one host scope, preserves
+semantic button focus on entry and restores it only if its enabled target is
+still published on return. Nested modal changes fail explicitly. Scope changes
+retain outstanding button release ownership. Text takeover clears button focus
+and armed-key owner. Lifecycle cancellation clears restoration intent.
+
+Run `make test test-text-edit-sdl`. The generic archive has no SDL dependency.
+
+### 0.15.1 bounded editor correction
+
+Selection extraction rejects output in the borrowed editing buffer; preedit ranges must fit its Unicode scalar count. Deterministic SDL clipboard fixtures verify failed cut and invalid/oversized paste preserve text without writing the system clipboard.
+
+### 0.16.0 shared text presentation
+
+Optional `kit_ui_text_presentation.h` measures scalar-safe text rows, hard wraps and explicit newlines, caret/selection/preedit geometry, caret-follow scrolling and shared hit mapping. The caller owns bounded presentation storage (8192 display bytes / 256 rows) through submission. Failed layout preserves the previous view; queued adapter failures restore command count and nested clip depth. `kit_ui_text_presentation_sdl.h` is optional and preserves SDL clip/color/blend state. Hosts supply actual font measurement and theme colors. No Core, domain commit, persistence, OS input-session or shaping policy is moved. See `docs/UI_TEXT_PRESENTATION_CONTRACT.md` and `make test-text-presentation`.
+
+## Focus order and native caret anchoring (`v0.17.0`)
+
+Optional `kit_ui_focus_order.h` supplies semantic mixed field/button traversal
+for caller-defined visible order and scope. Hosts still bind text and dispatch
+actions; existing button-only surfaces remain compatible. The optional
+`kit_ui_native_text_sdl.h` adapter anchors native candidate UI to measured caret
+geometry in SDL window coordinates while the host retains Start/Stop and focus
+policy. `make test-focus-order` and `make test-native-text-sdl` qualify mechanics;
+the native test uses a real window but does not certify human IME acceptance.
+
+## 2026-10-05 window lifecycle
+
+0.18.0 adds optional SDL window observation, explicit logical/render coordinate mapping, F11 desktop-fullscreen handling and an opt-in native lifecycle qualification driver. Lifecycle transitions cancel stale button ownership through the existing SDL interaction adapter; the host keeps the window, event loop and domain state.
+
+See [shared window contract](../../docs/UI_WINDOW_LIFECYCLE_CONTRACT.md).

@@ -1,5 +1,23 @@
 # core_authored_texture
 
+## 0.4.0 additive axial coordinate contract
+
+Adds v2 axial height mapping with stored seam/reference radius, integer repeat
+count and effective width, explicit smooth fade to base near the axis, and a
+pure point-to-coordinate evaluator. The v1 planar contract remains supported.
+Hosts still own geometry conversion, source addressing, filtering and UI.
+
+
+## 0.3.0 additive surface mapping contract
+
+`core_authored_surface_mapping.h` adds JSON-free planar mapping vocabulary and
+validation: object-rest/world space, orthonormal axes, meter tile/offset/pivot,
+radian rotation, explicit uint32 seed, and validity-tagged coordinate results.
+Coordinates remain unwrapped. Hosts own point conversion, projection, sampling,
+material response, persistence and caches. Existing manifest APIs are unchanged.
+The optiC M1 consumer is bounded to plane/prism geometry and explicit new source
+semantics; this does not add UV meshes, axial mapping or a generic shader API.
+
 Shared authored-texture manifest contract semantics for cross-app texture export/runtime handoff.
 
 ## Scope
@@ -19,7 +37,7 @@ Shared authored-texture manifest contract semantics for cross-app texture export
 - No scene writeback helpers or runtime material sampling behavior
 
 ## Status
-- Current additive contract (`v0.2.0`) with the existing semantic manifest/net APIs plus generic exact-index palette and atlas-cell validation.
+- Current module (`v0.4.0`) with the existing semantic manifest/net APIs plus generic exact-index palette, atlas-cell validation and the planar/axial surface mapping contracts.
 - Bridge-first adoption is now live in:
   - `drawing_program` authored-texture export
   - `ray_tracing` authored-texture loader validation
@@ -33,7 +51,7 @@ Shared authored-texture manifest contract semantics for cross-app texture export
   - JSON-free manifest-contract validation
 - JSON parsing/writing, image IO, and app UX remain local to the host apps until a later lane proves a wider shared adapter is worth the rollout cost.
 
-## Current Contract (v0.2.0)
+## Manifest Contract (introduced through v0.2.0)
 - Supported schema versions are exactly `V1`, `V2`, and `V5`.
 - Parse helpers are exact-token and case-sensitive today.
 - Supported primitive kinds are exactly:

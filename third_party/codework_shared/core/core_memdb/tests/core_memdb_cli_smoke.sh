@@ -58,6 +58,49 @@ case "$UPDATE_OUTPUT" in
     ;;
 esac
 
+LANE_HEAD_DB_PATH="${DB_PATH}.lane_head"
+rm -f "$LANE_HEAD_DB_PATH"
+LANE_HEAD_ADD_OUTPUT="$("$CLI_BIN" add --db "$LANE_HEAD_DB_PATH" --title "Compiler Lane Head" --body "Outcome: initial. Evidence: fixture. Remaining boundary: update. Next: refresh." --stable-id lane-head-shared-compiler --upsert-stable-id --workspace shared --project mem_console --kind summary)"
+case "$LANE_HEAD_ADD_OUTPUT" in
+  *"added id=1 stable_id=lane-head-shared-compiler"*) ;;
+  *)
+    echo "unexpected lane-head add output: $LANE_HEAD_ADD_OUTPUT" >&2
+    exit 1
+    ;;
+esac
+
+LANE_HEAD_UPDATE_OUTPUT="$("$CLI_BIN" add --db "$LANE_HEAD_DB_PATH" --title "Compiler Lane Head" --body "Outcome: refreshed. Evidence: second fixture. Remaining boundary: none. Next: monitor." --stable-id lane-head-shared-compiler --upsert-stable-id --workspace shared --project mem_console --kind summary)"
+case "$LANE_HEAD_UPDATE_OUTPUT" in
+  *"updated id=1"*) ;;
+  *)
+    echo "unexpected lane-head stable upsert output: $LANE_HEAD_UPDATE_OUTPUT" >&2
+    exit 1
+    ;;
+esac
+
+LANE_HEAD_SHOW_OUTPUT="$("$CLI_BIN" show --db "$LANE_HEAD_DB_PATH" --id 1 --format json)"
+case "$LANE_HEAD_SHOW_OUTPUT" in
+  *'"stable_id":"lane-head-shared-compiler"'*'"body":"Outcome: refreshed.'*) ;;
+  *)
+    echo "lane-head stable upsert did not preserve identity and replace body: $LANE_HEAD_SHOW_OUTPUT" >&2
+    exit 1
+    ;;
+esac
+
+if "$CLI_BIN" add --db "$LANE_HEAD_DB_PATH" --title "Invalid Lane Head" --body "missing stable id" --upsert-stable-id >"${DB_PATH}.stable_upsert.out" 2>&1; then
+  echo "stable upsert unexpectedly succeeded without --stable-id" >&2
+  exit 1
+fi
+case "$(cat "${DB_PATH}.stable_upsert.out")" in
+  *"--upsert-stable-id requires --stable-id"*) ;;
+  *)
+    echo "stable upsert missing required-flag diagnostic: $(cat "${DB_PATH}.stable_upsert.out")" >&2
+    exit 1
+    ;;
+esac
+rm -f "${DB_PATH}.stable_upsert.out"
+rm -f "$LANE_HEAD_DB_PATH"
+
 PIN_OUTPUT="$("$CLI_BIN" pin --db "$DB_PATH" --id 1 --on)"
 case "$PIN_OUTPUT" in
   *"pin id=1 on"*) ;;
@@ -367,6 +410,28 @@ case "$QUERY_CANONICAL_OUTPUT" in
     ;;
 esac
 
+QUERY_RECENT_OUTPUT="$("$CLI_BIN" query --db "$DB_PATH" --order recent --limit 1)"
+case "$QUERY_RECENT_OUTPUT" in
+  *"Third Note"* ) ;;
+  *)
+    echo "query recent output did not bypass canonical/pinned ranking: $QUERY_RECENT_OUTPUT" >&2
+    exit 1
+    ;;
+esac
+
+if "$CLI_BIN" query --db "$DB_PATH" --order unsupported --limit 1 >"${DB_PATH}.query_order.out" 2>&1; then
+  echo "query unexpectedly accepted unsupported order" >&2
+  exit 1
+fi
+case "$(cat "${DB_PATH}.query_order.out")" in
+  *"--order must be default or recent"* ) ;;
+  *)
+    echo "query invalid-order output missing expected marker: $(cat "${DB_PATH}.query_order.out")" >&2
+    exit 1
+    ;;
+esac
+rm -f "${DB_PATH}.query_order.out"
+
 QUERY_JSON_OUTPUT="$("$CLI_BIN" query --db "$DB_PATH" --query memory --limit 2 --format json)"
 case "$QUERY_JSON_OUTPUT" in
   \[*\] ) ;;
@@ -553,7 +618,10 @@ if "$CLI_BIN" show --db "$DB_PATH" --id 999 >/dev/null 2>&1; then
   exit 1
 fi
 
+AUDIT_BEFORE_HEALTH="$("$CLI_BIN" audit-list --db "$DB_PATH" --limit 256 --format json)"
+chmod 444 "$DB_PATH"
 HEALTH_JSON_OUTPUT="$("$CLI_BIN" health --db "$DB_PATH" --format json)"
+chmod 644 "$DB_PATH"
 case "$HEALTH_JSON_OUTPUT" in
   *"\"ok\":1"* ) ;;
   *)
@@ -561,6 +629,11 @@ case "$HEALTH_JSON_OUTPUT" in
     exit 1
     ;;
 esac
+AUDIT_AFTER_HEALTH="$("$CLI_BIN" audit-list --db "$DB_PATH" --limit 256 --format json)"
+if [ "$AUDIT_BEFORE_HEALTH" != "$AUDIT_AFTER_HEALTH" ]; then
+  echo "health changed audit history" >&2
+  exit 1
+fi
 
 AUDIT_LIST_OUTPUT="$("$CLI_BIN" audit-list --db "$DB_PATH" --limit 256)"
 case "$AUDIT_LIST_OUTPUT" in
@@ -571,11 +644,11 @@ case "$AUDIT_LIST_OUTPUT" in
     ;;
 esac
 case "$AUDIT_LIST_OUTPUT" in
-  *"action=health"* ) ;;
-  *)
-    echo "audit-list missing health entry: $AUDIT_LIST_OUTPUT" >&2
+  *"action=health"* )
+    echo "health unexpectedly wrote an audit entry: $AUDIT_LIST_OUTPUT" >&2
     exit 1
     ;;
+  *) ;;
 esac
 case "$AUDIT_LIST_OUTPUT" in
   *"action=pin"* ) ;;
@@ -628,6 +701,29 @@ case "$EVENT_LIST_OUTPUT" in
     exit 1
     ;;
 esac
+
+AUDIT_OLDEST_ID="$("$CLI_BIN" audit-list --db "$DB_PATH" --limit 1 --order oldest --format json | sed -n 's/^\[{"id":\([0-9][0-9]*\).*/\1/p')"
+AUDIT_RECENT_ID="$("$CLI_BIN" audit-list --db "$DB_PATH" --limit 1 --order recent --format json | sed -n 's/^\[{"id":\([0-9][0-9]*\).*/\1/p')"
+if [ -z "$AUDIT_OLDEST_ID" ] || [ -z "$AUDIT_RECENT_ID" ] || [ "$AUDIT_OLDEST_ID" -ge "$AUDIT_RECENT_ID" ]; then
+  echo "audit-list order selection failed: oldest=$AUDIT_OLDEST_ID recent=$AUDIT_RECENT_ID" >&2
+  exit 1
+fi
+
+EVENT_OLDEST_ID="$("$CLI_BIN" event-list --db "$DB_PATH" --limit 1 --order oldest --format json | sed -n 's/^\[{"id":\([0-9][0-9]*\).*/\1/p')"
+EVENT_RECENT_ID="$("$CLI_BIN" event-list --db "$DB_PATH" --limit 1 --order recent --format json | sed -n 's/^\[{"id":\([0-9][0-9]*\).*/\1/p')"
+if [ -z "$EVENT_OLDEST_ID" ] || [ -z "$EVENT_RECENT_ID" ] || [ "$EVENT_OLDEST_ID" -ge "$EVENT_RECENT_ID" ]; then
+  echo "event-list order selection failed: oldest=$EVENT_OLDEST_ID recent=$EVENT_RECENT_ID" >&2
+  exit 1
+fi
+
+if "$CLI_BIN" audit-list --db "$DB_PATH" --order sideways >/dev/null 2>&1; then
+  echo "audit-list unexpectedly accepted an invalid order" >&2
+  exit 1
+fi
+if "$CLI_BIN" event-list --db "$DB_PATH" --order sideways >/dev/null 2>&1; then
+  echo "event-list unexpectedly accepted an invalid order" >&2
+  exit 1
+fi
 case "$EVENT_LIST_OUTPUT" in
   *"type=NodePinnedSet"* ) ;;
   *)
@@ -838,6 +934,17 @@ if [ -z "$LINK_BUDGET_ID" ]; then
   echo "failed to parse link id from budgeted link-add output: $LINK_BUDGET_ADD_OUTPUT" >&2
   exit 1
 fi
+if "$CLI_BIN" link-update --db "$DB_PATH" --id "$LINK_BUDGET_ID" --kind references --session-id link-budget-session --session-max-writes 1 >"${DB_PATH}.link_budget_update.out" 2>&1; then
+  echo "link-update unexpectedly succeeded despite exhausted link-budget-session budget" >&2
+  exit 1
+fi
+case "$(cat "${DB_PATH}.link_budget_update.out")" in
+  *"budget exceeded"* ) ;;
+  *)
+    echo "link-update budget failure output missing expected marker: $(cat "${DB_PATH}.link_budget_update.out")" >&2
+    exit 1
+    ;;
+esac
 if "$CLI_BIN" link-remove --db "$DB_PATH" --id "$LINK_BUDGET_ID" --session-id link-budget-session --session-max-writes 1 >"${DB_PATH}.link_budget.out" 2>&1; then
   echo "link-remove unexpectedly succeeded despite exhausted link-budget-session budget" >&2
   exit 1
@@ -849,7 +956,50 @@ case "$(cat "${DB_PATH}.link_budget.out")" in
     exit 1
     ;;
 esac
-rm -f "${DB_PATH}.link_budget.out"
+if "$CLI_BIN" link-add --db "$DB_PATH" --from 2 --to 1 --kind related --session-id link-budget-session --session-max-writes 1 >"${DB_PATH}.link_budget_add.out" 2>&1; then
+  echo "second link-add unexpectedly succeeded despite exhausted link-budget-session budget" >&2
+  exit 1
+fi
+case "$(cat "${DB_PATH}.link_budget_add.out")" in
+  *"budget exceeded"* ) ;;
+  *)
+    echo "second link-add budget failure output missing expected marker: $(cat "${DB_PATH}.link_budget_add.out")" >&2
+    exit 1
+    ;;
+esac
+
+LINK_BUDGET_AUDIT="$($CLI_BIN audit-list --db "$DB_PATH" --session-id link-budget-session --limit 8 --format json)"
+for expected_count_and_field in '3|"stable_id":"first-note"' '1|"stable_id":"second-note"' '4|"workspace":"shared"' '4|"project":"mem_console"' '3|"kind":"summary"' '1|"kind":"issue"'; do
+  expected_count="${expected_count_and_field%%|*}"
+  expected_field="${expected_count_and_field#*|}"
+  field_count="$(printf '%s\n' "$LINK_BUDGET_AUDIT" | awk -v marker="$expected_field" 'BEGIN { count=0 } { while (index($0, marker)) { count++; $0=substr($0, index($0, marker)+length(marker)) } } END { print count }')"
+  if [ "$field_count" -ne "$expected_count" ]; then
+    echo "budget audit metadata count mismatch for $expected_field (expected $expected_count, got $field_count): $LINK_BUDGET_AUDIT" >&2
+    exit 1
+  fi
+done
+
+LINK_BUDGET_STATE="$($CLI_BIN link-list --db "$DB_PATH" --item-id 1 --format json)"
+case "$LINK_BUDGET_STATE" in
+  *"$LINK_BUDGET_ID | 1 -> 2 | kind=supports"* ) ;;
+  *)
+    echo "budget-rejected link mutations changed the existing link: $LINK_BUDGET_STATE" >&2
+    exit 1
+    ;;
+esac
+LINK_BUDGET_EVENTS="$($CLI_BIN event-list --db "$DB_PATH" --session-id link-budget-session --limit 8 --format json)"
+case "$LINK_BUDGET_EVENTS" in
+  *'"event_type":"EdgeAdded"'*'"event_type":"EdgeUpdated"'*|*'"event_type":"EdgeRemoved"'*)
+    echo "budget-rejected link mutations emitted mutation events: $LINK_BUDGET_EVENTS" >&2
+    exit 1
+    ;;
+  *'"event_type":"EdgeAdded"'*) ;;
+  *)
+    echo "budget session lost its one accepted link event: $LINK_BUDGET_EVENTS" >&2
+    exit 1
+    ;;
+esac
+rm -f "${DB_PATH}.link_budget.out" "${DB_PATH}.link_budget_update.out" "${DB_PATH}.link_budget_add.out"
 
 BATCH_INPUT_PATH="${DB_PATH}.batch.tsv"
 cat >"$BATCH_INPUT_PATH" <<'EOF'

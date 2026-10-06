@@ -20,15 +20,16 @@ static const char *k_allowed_link_kinds[] = {
 void print_usage(const char *argv0) {
     fprintf(stderr, "usage: %s <command> [args]\n", argv0);
     fprintf(stderr, "commands:\n");
-    fprintf(stderr, "  add  --db <path> --title <text> --body <text> [--stable-id <id>] [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>]\n");
+    fprintf(stderr, "  add  --db <path> --title <text> --body <text> [--stable-id <id>] [--upsert-stable-id] [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>]\n");
     fprintf(stderr, "  batch-add --db <path> --input <tsv_path> [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>] [--continue-on-error] [--max-errors <n>] [--retry-attempts <n>] [--retry-delay-ms <ms>]\n");
+    fprintf(stderr, "  lane-head-upsert --db <path> --workspace codework --project <key> --lane <key> --stable-id <id> --title <text> --body <text> --anchor-id <id> --latest-id <id> [--session-id <id>] [--session-max-writes <n>]\n");
     fprintf(stderr, "  list --db <path> [--format text|tsv|json]\n");
     fprintf(stderr, "  find --db <path> --query <text> [--format text|tsv|json]\n");
-    fprintf(stderr, "  query --db <path> [--query <text>] [--limit <n>] [--offset <n>] [--pinned-only] [--canonical-only] [--include-archived] [--workspace <key>] [--project <key>] [--kind <value>] [--format text|tsv|json]\n");
+    fprintf(stderr, "  query --db <path> [--query <text>] [--limit <n>] [--offset <n>] [--order default|recent] [--pinned-only] [--canonical-only] [--include-archived] [--workspace <key>] [--project <key>] [--kind <value>] [--format text|tsv|json]\n");
     fprintf(stderr, "  show --db <path> --id <rowid> [--include-archived] [--format text|tsv|json]\n");
     fprintf(stderr, "  health --db <path> [--format text|json]\n");
-    fprintf(stderr, "  audit-list --db <path> [--session-id <id>] [--limit <n>] [--format text|tsv|json]\n");
-    fprintf(stderr, "  event-list --db <path> [--session-id <id>] [--event-type <type>] [--limit <n>] [--format text|tsv|json]\n");
+    fprintf(stderr, "  audit-list --db <path> [--session-id <id>] [--limit <n>] [--order oldest|recent] [--format text|tsv|json]\n");
+    fprintf(stderr, "  event-list --db <path> [--session-id <id>] [--event-type <type>] [--limit <n>] [--order oldest|recent] [--format text|tsv|json]\n");
     fprintf(stderr, "  event-replay-check --db <path> [--limit-events <n>] [--format text|json]\n");
     fprintf(stderr, "  event-replay-apply --db <source_path> --out-db <target_path> [--limit-events <n>] [--format text|json]\n");
     fprintf(stderr, "  event-backfill --db <path> [--session-id <id>] [--session-max-writes <n>] [--dry-run] [--format text|json]\n");

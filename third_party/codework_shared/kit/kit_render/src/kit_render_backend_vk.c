@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include "kit_render_external_text.h"
+#include "kit_render_backend_vk_commands.h"
 #include "vk_renderer.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -148,23 +149,6 @@ static CoreResult vk_backend_begin_frame(KitRenderContext *ctx, KitRenderFrame *
 }
 
 #if KIT_RENDER_ENABLE_VK_BACKEND
-static void vk_backend_apply_color(VkRenderer *renderer, KitRenderColor color) {
-    vk_renderer_set_draw_color(renderer,
-                               (float)color.r / 255.0f,
-                               (float)color.g / 255.0f,
-                               (float)color.b / 255.0f,
-                               (float)color.a / 255.0f);
-}
-
-static SDL_Rect vk_backend_rect_to_sdl(KitRenderRect rect) {
-    SDL_Rect out;
-    out.x = (int)rect.x;
-    out.y = (int)rect.y;
-    out.w = (int)rect.width;
-    out.h = (int)rect.height;
-    return out;
-}
-
 static void vk_backend_glyph_rows(unsigned char c, uint8_t rows[7]) {
     size_t i;
 
@@ -790,70 +774,15 @@ static CoreResult vk_backend_submit_enabled(KitRenderContext *ctx, KitRenderFram
 
     for (i = 0; i < frame->command_buffer->count; ++i) {
         const KitRenderCommand *cmd = &frame->command_buffer->commands[i];
-
-        switch (cmd->kind) {
-            case KIT_RENDER_CMD_CLEAR: {
-                SDL_Rect full = { 0, 0, (int)frame->width_px, (int)frame->height_px };
-                vk_backend_apply_color(renderer, cmd->data.clear.color);
-                vk_renderer_fill_rect(renderer, &full);
-                break;
-            }
-            case KIT_RENDER_CMD_SET_CLIP: {
-                SDL_Rect clip = vk_backend_rect_to_sdl(cmd->data.clip.rect);
-                vk_renderer_set_clip_rect(renderer, &clip);
-                break;
-            }
-            case KIT_RENDER_CMD_CLEAR_CLIP:
-                vk_renderer_set_clip_rect(renderer, 0);
-                break;
-            case KIT_RENDER_CMD_RECT: {
-                SDL_Rect rect = vk_backend_rect_to_sdl(cmd->data.rect.rect);
-                vk_backend_apply_color(renderer, cmd->data.rect.color);
-                /* Rounded rects currently fall back to filled rects in the bridge. */
-                vk_renderer_fill_rect(renderer, &rect);
-                break;
-            }
-            case KIT_RENDER_CMD_LINE:
-                vk_backend_apply_color(renderer, cmd->data.line.color);
-                vk_renderer_draw_line_thick(renderer,
-                                            cmd->data.line.p0.x,
-                                            cmd->data.line.p0.y,
-                                            cmd->data.line.p1.x,
-                                            cmd->data.line.p1.y,
-                                            cmd->data.line.thickness);
-                break;
-            case KIT_RENDER_CMD_POLYLINE:
-                vk_backend_apply_color(renderer, cmd->data.polyline.color);
-                for (uint32_t point_index = 1u;
-                     point_index < cmd->data.polyline.point_count;
-                     ++point_index) {
-                    const KitRenderVec2 *points = cmd->data.polyline.points;
-                    vk_renderer_draw_line_thick(renderer,
-                                                points[point_index - 1u].x,
-                                                points[point_index - 1u].y,
-                                                points[point_index].x,
-                                                points[point_index].y,
-                                                cmd->data.polyline.thickness);
-                }
-                break;
-            case KIT_RENDER_CMD_TEXTURED_QUAD: {
-                SDL_Rect dst = vk_backend_rect_to_sdl(cmd->data.textured_quad.rect);
-                const VkRendererTexture *texture =
-                    (const VkRendererTexture *)(uintptr_t)cmd->data.textured_quad.texture_id;
-                vk_renderer_draw_texture(renderer, texture, 0, &dst);
-                break;
-            }
-            case KIT_RENDER_CMD_TEXT:
-                {
-                    CoreResult text_result = vk_backend_draw_text(ctx, state, renderer, &cmd->data.text);
-                    if (text_result.code != CORE_OK) {
-                        return text_result;
-                    }
-                    break;
-                }
-            default:
-                return vk_backend_invalid("unknown render command");
+        CoreResult result = kit_render_vk_prepare_command(renderer, cmd);
+        if (result.code == CORE_OK) {
+            result = cmd->kind == KIT_RENDER_CMD_TEXT
+                ? vk_backend_draw_text(ctx, state, renderer, &cmd->data.text)
+                : kit_render_vk_draw_command(renderer, frame, cmd);
         }
+        /* Transform state must never leak into later commands or direct host draws. */
+        vk_renderer_reset_draw_transform(renderer);
+        if (result.code != CORE_OK) return result;
     }
 
     return core_result_ok();

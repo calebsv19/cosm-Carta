@@ -20,6 +20,8 @@ typedef CoreResult (*CoreMemDbMigrationFn)(CoreMemDb *db,
                                            void *user_ctx);
 
 CoreResult core_memdb_open(const char *path, CoreMemDb *out_db);
+/* Opens an existing database without creating, migrating, or mutating it. */
+CoreResult core_memdb_open_readonly(const char *path, CoreMemDb *out_db);
 CoreResult core_memdb_close(CoreMemDb *db);
 
 CoreResult core_memdb_exec(CoreMemDb *db, const char *sql);

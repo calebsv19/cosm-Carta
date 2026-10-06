@@ -20,6 +20,7 @@ int parse_session_budget_arg(const char *command_name,
 
 CoreResult query_single_i64(CoreMemDb *db, const char *sql, int64_t *out_value);
 int open_db_or_fail(const char *db_path, CoreMemDb *db);
+int open_db_readonly_or_fail(const char *db_path, CoreMemDb *db);
 CoreResult fetch_changes(CoreMemDb *db, int64_t *out_changes);
 CoreResult item_exists_active(CoreMemDb *db, int64_t item_id, int *out_exists);
 CoreResult fetch_session_add_write_count(CoreMemDb *db,

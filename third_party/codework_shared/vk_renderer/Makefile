@@ -1,4 +1,4 @@
-# ===== Makefile: macOS + Vulkan (MoltenVK) + SDL2 =====
+# ===== Makefile: Vulkan + SDL2 (MoltenVK on macOS) =====
 
 # Tools
 CC         ?= cc
@@ -31,20 +31,23 @@ ifeq ($(strip $(SDL_CFLAGS)$(SDL_LIBS)),)
 endif
 
 # macOS frameworks (Metal for MoltenVK, Cocoa boilerplate for SDL)
-APPLE_FW := -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo
 UNAME_S := $(shell uname -s)
+APPLE_FW :=
+PLATFORM_CFLAGS :=
 VALIDATION_LAYER_DIR ?= $(patsubst %/,%,$(dir $(firstword \
 	$(wildcard /opt/homebrew/lib/libVkLayer_khronos_validation.dylib) \
 	$(wildcard /usr/local/lib/libVkLayer_khronos_validation.dylib))))
 ifeq ($(UNAME_S),Darwin)
+  APPLE_FW := -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo
+  PLATFORM_CFLAGS := -DVK_USE_PLATFORM_METAL_EXT
   VALIDATION_ENV := $(if $(VALIDATION_LAYER_DIR),DYLD_LIBRARY_PATH=$(VALIDATION_LAYER_DIR),)
 else
   VALIDATION_ENV :=
 endif
 
 # Common compile/link flags
-CFLAGS  := $(COPT) $(CSTD) $(CWARN) $(INC) $(VULKAN_CFLAGS) $(SDL_CFLAGS) -D_THREAD_SAFE -DVK_USE_PLATFORM_METAL_EXT -DVK_RENDERER_SHADER_ROOT=\"$(CURDIR)\"
-LDFLAGS := -L$(VK_RUNTIME_ROOT)/build/lib -lvkruntime $(VULKAN_LIBS) $(SDL_LIBS) $(APPLE_FW)
+CFLAGS  := $(COPT) $(CSTD) $(CWARN) $(INC) $(VULKAN_CFLAGS) $(SDL_CFLAGS) -D_THREAD_SAFE $(PLATFORM_CFLAGS) -DVK_RENDERER_SHADER_ROOT=\"$(CURDIR)\"
+LDFLAGS := -L$(VK_RUNTIME_ROOT)/build/lib -lvkruntime $(VULKAN_LIBS) $(SDL_LIBS) $(APPLE_FW) -lm
 
 # Sources / objects
 SRC := $(wildcard src/*.c)
@@ -72,7 +75,9 @@ $(LIB): $(OBJ)
 # Compile .c -> .o
 build/obj/%.o: src/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+-include $(OBJ:.o=.d)
 
 # Example (optional)
 .PHONY: example
@@ -103,3 +108,21 @@ print-flags:
 .PHONY: clean
 clean:
 	rm -rf build
+
+.PHONY: test-texture-corners
+test-texture-corners:
+	@mkdir -p $(TESTDIR)
+	$(CC) $(CFLAGS) tests/test_texture_corners.c src/vk_renderer_texture_corners.c -o $(TESTDIR)/test_texture_corners $(SDL_LIBS) -lm
+	./$(TESTDIR)/test_texture_corners
+
+.PHONY: test-frame-submission
+test-frame-submission:
+	@mkdir -p $(TESTDIR)
+	$(CC) $(CFLAGS) tests/test_frame_submission.c src/vk_renderer_frame_submission.c -o $(TESTDIR)/test_frame_submission
+	./$(TESTDIR)/test_frame_submission
+
+.PHONY: test-window-live
+test-window-live: runtime $(LIB)
+	@mkdir -p $(TESTDIR)
+	$(CC) $(CFLAGS) -I../kit/kit_ui/include -I../core/core_base/include tests/test_window_lifecycle.c ../kit/kit_ui/src/kit_ui_window_sdl.c ../kit/kit_ui/src/kit_ui_window_probe_sdl.c -L$(LIBDIR) -lvkrenderer $(LDFLAGS) -o $(TESTDIR)/test_window_lifecycle
+	$(VALIDATION_ENV) ./$(TESTDIR)/test_window_lifecycle

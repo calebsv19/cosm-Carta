@@ -685,6 +685,32 @@ CoreResult core_memdb_open(const char *path, CoreMemDb *out_db) {
     return core_result_ok();
 }
 
+CoreResult core_memdb_open_readonly(const char *path, CoreMemDb *out_db) {
+    sqlite3 *handle = 0;
+    int sqlite_result;
+    CoreResult result;
+
+    if (out_db) {
+        core_memdb_clear_db(out_db);
+    }
+    if (!path || !out_db) {
+        return core_memdb_result(CORE_ERR_INVALID_ARG, "invalid argument");
+    }
+
+    sqlite_result = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY, 0);
+    if (sqlite_result != SQLITE_OK) {
+        result = core_memdb_sqlite_db_error(handle, sqlite_result, "failed to open database read-only");
+        if (handle) {
+            sqlite3_close(handle);
+        }
+        return result;
+    }
+
+    sqlite3_extended_result_codes(handle, 1);
+    out_db->native_db = handle;
+    return core_result_ok();
+}
+
 CoreResult core_memdb_close(CoreMemDb *db) {
     sqlite3 *handle = 0;
     int sqlite_result;

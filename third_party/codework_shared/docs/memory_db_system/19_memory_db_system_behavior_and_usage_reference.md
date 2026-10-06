@@ -121,6 +121,7 @@ Operational semantics:
 - `add`:
   - computes fingerprint from title+body
   - dedupe path is update-over-insert when active duplicate fingerprint exists
+  - optional `--upsert-stable-id` resolves only an active row by exact stable id and updates it in place, or creates that stable identity when absent; it never falls back to fingerprint dedupe, and without the flag existing fingerprint behavior is unchanged
   - event-first write path: appends `NodeCreated`/`NodeBodyUpdated` first, then applies projection to `mem_item` and syncs FTS
   - optional scoped metadata: `--workspace`, `--project`, `--kind`
   - optional session budget guardrails: `--session-id`, `--session-max-writes`
@@ -142,6 +143,7 @@ Operational semantics:
   - supports `--format text|tsv|json`
 - `query` (bounded retrieval surface):
   - supports `--limit` and `--offset`
+  - supports `--order default|recent`; `recent` uses strict `updated_ns DESC, id DESC` chronology without canonical/pinned ranking boosts
   - optional lane filters: `--pinned-only`, `--canonical-only`
   - optional FTS `--query`
   - optional scoped filters: `--workspace`, `--project`, `--kind`
@@ -153,12 +155,15 @@ Operational semantics:
   - hides archived rows by default; direct archived inspection requires `--include-archived`
   - supports `--format text|tsv|json`
 - `health`:
+  - opens the existing database through the non-migrating read-only C API and does not append audit or event rows
   - checks schema version, required tables/indexes, FTS availability, and SQLite integrity
   - supports `--format text|json`
 - `audit-list`:
+  - preserves oldest-first output by default; `--order recent` returns the newest bounded tail
   - reads append-only `mem_audit` rows
   - supports `--session-id`, `--limit`, and `--format text|tsv|json`
 - `event-list`:
+  - preserves oldest-first output by default; `--order recent` returns the newest bounded tail
   - reads append-only `mem_event` rows
   - supports bounded filtering via `--session-id`, `--event-type`, `--limit`
 - `event-replay-check`:
@@ -222,10 +227,19 @@ Mappings:
 - `retrieve` -> `mem_cli query` (default `--limit 24` if not set)
 - `retrieve-canonical` -> `mem_cli query --canonical-only` (default `--limit 8`)
 - `retrieve-pinned` -> `mem_cli query --pinned-only` (default `--limit 8`)
-- `retrieve-recent` -> `mem_cli query` (default `--limit 24`)
+- `retrieve-recent` -> `mem_cli query --order recent` (default `--limit 24`; strict chronology)
 - `retrieve-search` -> `mem_cli query` with required `--query` (default `--limit 24`)
 - `write` -> `mem_cli add`
 - `write-linked` -> `mem_cli add` then one-or-more `mem_cli link-add` calls using the row id parsed from the add output; no guessed ids are allowed
+- `write-lane-head` -> explicit stable-id upsert, canonical-on, and managed link reconciliation:
+  - stable id `lane-head-<project>-<lane>` in `workspace=codework`
+  - ordered, non-empty four-field History Entry Baseline body capped at 900 bytes
+  - one noted `references` anchor and one replaceable noted `summarizes` latest receipt
+  - one `BEGIN IMMEDIATE` transaction for identity/scope validation, item/canonical projection, event-first managed-link replacement, and one logical audit entry
+  - exact item/link convergence returns `unchanged` without new events or audits
+  - stable-scope, unrelated desired-edge, and competing lane-key ownership collisions fail before mutation
+  - one project cannot maintain two canonical lane heads over the same managed anchor/latest pair; the conflict reports the established row and stable id
+  - ordinary receipt history and unrelated links remain unchanged
 
 Validation helper policy:
 - `skills/memory-db-ops/scripts/validate_memory_db_ops.sh` must default to the demo DB (`mem_console/demo/demo_mem_console.sqlite`) unless an explicit DB path or `CODEWORK_MEMDB_PATH` override is provided
@@ -391,6 +405,7 @@ Hierarchy-first active-link policy (Phase 1 contract direction):
 - use lateral links only when semantically justified (not by fixed quota)
 - wrapper support:
   - `write-hier-linked` encodes this policy as a bounded default path for active memory writes
+  - `write-lane-head` maintains a concise stable canonical entrance for a high-volume active lane after a phase boundary or material accepted-state transition; cite the receipt plus `1-3` decisive checks instead of reproducing its evidence ledger
 - allow cross-project links only for explicit shared implementation/dependency bridges
 - for first recategorization passes, prefer additive pillar linking before removing historical links
 - host/site/project routing guidance:

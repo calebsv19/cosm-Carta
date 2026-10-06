@@ -22,7 +22,7 @@ lifecycle management.
 ## Versioning
 
 - Module version source of truth: `shared/vk_renderer/VERSION`
-- Current version: `1.3.1`
+- Current version: `1.5.0`
 - `1.0.0` behavior note: debug capture is opt-in only and runs only when `vk_renderer_request_capture(...)` is called.
 - `1.1.0` behavior note: long-lived textures can now be updated in place through `vk_renderer_texture_update_rgba_subrect(...)` for bounded dirty-rect preview workflows without recreating whole textures every frame.
 - `1.1.1` behavior note: debug frame capture now normalizes SDL surface creation and channel ordering for both RGBA and BGRA source paths so saved captures are consistent across swapchain formats.
@@ -40,6 +40,47 @@ lifecycle management.
 - `1.3.1` compatibility note: restores the public
   `vk_renderer_draw_line_mesh_affine_tinted(...)` wrapper lost during the
   lifecycle rebase while preserving the untinted affine entry point.
+- `1.3.2` shader-discovery note: the renderer checks the runtime environment
+  root before its build-time source root when resolving packaged shaders.
+- `1.3.3` presentation-lifetime note: render-finished semaphores are owned per
+  swapchain image and recreated with the swapchain. Reacquiring that image is
+  now the proof that presentation has finished consuming its semaphore, so
+  multi-frame rendering no longer re-signals a semaphore still held by the
+  presentation engine.
+
+## Command Fidelity (1.5.0)
+
+Adds `vk_renderer_set_draw_transform`/`vk_renderer_reset_draw_transform` for
+immediate translation/signed scale and a float-bounds, UV/tint textured-quad
+entry point with explicit `VkResult` errors. Legacy integer texture draws use
+the same emission path with a white tint. Rounded edge coverage accounts for
+the command scale; immediate transform state resets on frame begin. Explicit
+mesh-affine APIs retain their own transform. Texture preparation is separated
+from frame-buffer/pipeline emission in a sibling source file. All consumers
+must rebuild against the changed public draw-state layout. See
+[the render command contract](../docs/RENDER_COMMAND_FIDELITY.md) for exact
+coordinates, borrowed GPU resources and 1x/2x capture verification.
+
+## Rounded Geometry (1.4.0)
+
+`vk_renderer_fill_rounded_rect(renderer, &rect, radius)` accepts floating-point
+SDL bounds, clamps the radius to half the smaller extent, and emits solid
+triangle geometry with a one-drawable-pixel coverage fringe. It uses the existing
+solid pipeline and preserves the current color/alpha and scissor state. No
+per-shape texture upload is required. Nonpositive radius produces a square;
+nonfinite inputs and empty extents are ignored.
+
+Frame vertex-buffer growth retains allocations referenced by recorded draws
+until the owning frame fence has completed. This fixes invalid command buffers
+when a larger UI frame grows beyond its initial allocation. Generated header
+dependencies also make renderer header changes rebuild the affected objects.
+Rebuild static-library consumers after upgrading the renderer.
+
+The real-image gate lives above the backend:
+`make -C kit/kit_ui KIT_RENDER_ENABLE_VK=1 test-rounded-vk`. It captures and checks
+square, rounded, clamped/pill, clipped, translucent, nested-border, and shared
+button cases at 1x and 2x; forces vertex-buffer growth and fence reuse; and checks
+Vulkan validation. `make test-live` retains the renderer lifecycle/resize gate.
 
 ## Layout
 
@@ -234,3 +275,13 @@ preserving development builds that do not set a runtime root.
 
 Feel free to extend the layer with your own draw helpers (`vk_renderer_draw_circle`,
 `vk_renderer_fill_polygon`, etc.) using the provided vertex batching approach.
+
+### 1.7.0 — 2026-10-06 committed texture-corner checkpoint
+
+Additive `vk_renderer_draw_texture_corners` accepts four ordered TL/TR/BR/BL screen corners and bounded UVs. This supports rotated raster presentation without map semantics. Invalid/nonfinite geometry or missing texture handles returns initialization failure. The October 4 working addition is checkpointed as 1.7.0 because the accepted 1.6.0 commit did not contain this API. MapForge S8 consumes the identical corner source as a bounded feature backport over its 1.3.2 vendor base; this is not wholesale renderer adoption. `make test-texture-corners` checks vertex order, crop UVs and rejection before emission.
+
+## 2026-10-05 window lifecycle
+
+1.6.0 separates frame submission from command-pool allocation, resets fences only before submission, consumes suboptimal acquired images, and recovers high-level begin/end from out-of-date presentation. The context now borrows its SDL window for bounded recovery; downstream C struct consumers require a clean rebuild. Tests cover skipped acquisition, recording failure, retained textures and real macOS fullscreen/resize/hide/minimize/restore.
+
+See [shared window contract](../docs/UI_WINDOW_LIFECYCLE_CONTRACT.md).

@@ -4,7 +4,7 @@
 
 Contract layers:
 - shared C API:
-  - SQLite-backed DB lifecycle, statement helpers, transactions, and schema migration/bootstrap
+  - SQLite-backed DB lifecycle, explicit non-migrating read-only open, statement helpers, transactions, and schema migration/bootstrap
   - current schema target `v6`, with built-in upgrades from `v1` through `v5`
   - borrowed text-column views remain valid only until the next step/reset/finalize on the same statement
   - `core_memdb_open()` auto-runs built-in migrations to the module target version
@@ -42,6 +42,7 @@ Higher-layer status in this subtree:
 - `mem_cli query` now supports scoped filters (`--workspace`, `--project`, `--kind`)
 - `mem_cli add` now supports session write-budget flags (`--session-id`, `--session-max-writes`)
 - mutation commands that already accept `--session-id` now also support `--session-max-writes` against one shared successful-mutation budget per session
+- rejected budget attempts on `link-add`, `link-update`, and `link-remove` resolve the source item before auditing, so failure rows retain readable stable id, workspace, project, and kind metadata while emitting no mutation event or projection change
 - `mem_cli` now includes `batch-add`, `health`, `audit-list`, and `event-list`
 - `mem_cli` now includes `event-replay-check` for bounded replay/projection drift verification against event history
 - `event-replay-check` now validates full row parity (`mem_item` fields + `mem_link` fields), not only structural IDs/flags
@@ -53,7 +54,7 @@ Higher-layer status in this subtree:
 - `mem_cli` now includes `event-backfill` to seed missing baseline events for pre-`v6` rows/links and restore replay parity
 - `mem_cli` command lanes are now split into focused modules (`mem_cli_cmd_read`, `mem_cli_cmd_write_item`, `mem_cli_cmd_write_link`, `mem_cli_cmd_event`) with a thin top-level router for lower agent context overhead
 - node/link event payloads now use replay-complete JSON payloads for projection fidelity (`add`, `rollup`, `link-add`, `link-update`, backfill)
-- append-only audit rows now cover all write commands (`add`, `pin`, `canonical`, `rollup`, `link-add`, `link-update`, `link-remove`) plus `health`
+- append-only audit rows cover mutation commands; `health` uses the explicit read-only open and never adds audit/event history
 - write commands now dual-write event records into `mem_event` (`Node*` and `Edge*` event classes)
 - `batch-add` now supports stricter failure/retry policy flags (`--max-errors`, `--retry-attempts`, `--retry-delay-ms`)
 - retrieval/read commands now support `--format text|tsv|json` for machine-readable agent parsing
@@ -134,7 +135,7 @@ Agent helper wrapper:
 - `retrieve` maps to bounded `query` (default `--limit 24`)
 - `retrieve-canonical` maps to canonical lane (`--canonical-only`, default `--limit 8`)
 - `retrieve-pinned` maps to pinned lane (`--pinned-only`, default `--limit 8`)
-- `retrieve-recent` maps to recent lane (default `--limit 24`)
+- `retrieve-recent` maps to strict update chronology through `query --order recent` (default `--limit 24`)
 - `retrieve-search` enforces `--query` and defaults to `--limit 24`
 - `write` maps to `add`
 - `write-linked` maps to `add` + `link-add` (uses created id for immediate graph connectivity)
@@ -143,6 +144,14 @@ Agent helper wrapper:
 - `write-hier-linked` maps to `add` + hierarchy-first bounded `link-add` selection:
   - resolves project pillar anchors (`scope/plans/decisions/issues/misc`) by stable id
   - defaults to front-loaded link counts (1 typical, 2 occasional, 3+ rare/high-importance)
+- `write-lane-head` creates or refreshes one stable canonical current-state projection for a high-volume active lane:
+  - routes through transactional `mem_cli lane-head-upsert` with `lane-head-<project>-<lane>` identity
+  - is intentionally limited to `workspace=codework`; an existing identity in another scope fails closed
+  - requires ordered, non-empty Outcome, Evidence, Remaining boundary, and Next fields in at most 900 bytes
+  - applies body/canonical/link changes atomically and owns one `references` anchor plus one replaceable `summarizes` latest-receipt link without deleting ordinary history
+  - rejects a different canonical lane key that attempts to claim the same managed anchor/latest pair in one project, directing the caller to the established lane identity instead of creating an overlapping head
+  - returns `unchanged` without adding events or audits when the complete projection already matches
+  - changed upserts count against the same successful-mutation session budget as ordinary item/link writes
 - scoped flags pass through on both retrieval and write:
   - retrieval filters: `--workspace`, `--project`, `--kind`
   - write metadata: `--workspace`, `--project`, `--kind`
@@ -151,6 +160,7 @@ Agent helper wrapper:
   - `batch-write` forwards to `batch-add`
   - `health` forwards to `health`
   - passthrough now includes `event-list`, `event-replay-check`, `event-replay-apply`, and `event-backfill`
+  - `audit-list` and `event-list` preserve oldest-first output by default and accept `--order recent` for bounded operational tails
   - `neighbors` passthrough available for bounded graph retrieval
 
 Planned outputs:
@@ -169,16 +179,20 @@ Current gaps / next focus:
 - add CLI-level replay/apply fixtures for long-lived multi-session datasets
 
 Recent update notes:
+- `0.31.1`: preserved readable source-item metadata on budget-rejected link add/update/remove attempts, with regression coverage proving the rejected commands emit no mutation events and leave the link projection unchanged.
+- `0.31.0`: hardened Lane Head V1 with stable-id-only upsert creation, a single transactional `lane-head-upsert` command, scope/edge and anchor/latest ownership conflict preflight, write-free exact repeats, one logical session-budget charge, concise ordered body enforcement, and permanent adversarial regression coverage.
+- `0.30.0`: added opt-in stable-id upsert plus the validated `write-lane-head` workflow for canonical, identity-preserving high-volume lane handoffs with managed anchor/latest links.
+- `0.29.0`: added backward-compatible `query --order recent` strict chronology, routed `retrieve-recent` through it, and added CLI smoke coverage that proves canonical/pinned ranking cannot displace a newer row.
 - `0.28.2`: expanded CLI session-budget enforcement across the existing mutation lanes that already use `--session-id`, made `show` hide archived rows unless `--include-archived` is passed, and added smoke coverage for archived visibility plus cross-command budget exhaustion.
 - `0.28.1`: truth-locked the shared C API versus CLI/tooling layers, documented idempotent close/finalize and auto-migration behavior, and expanded C-level edge coverage for closed/finalized handles and unsupported future migration targets.
 - `0.28.0`: additive `item-archive` CLI lane, manual rollup flow wrapper, stricter nightly/codex rollup script validation, and canonical `mem_console` naming across maintenance helpers.
 
 Current CLI surface:
-- `mem_cli add --db <path> --title <text> --body <text> [--stable-id <id>] [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>]`
+- `mem_cli add --db <path> --title <text> --body <text> [--stable-id <id>] [--upsert-stable-id] [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>]`
 - `mem_cli batch-add --db <path> --input <tsv_path> [--workspace <key>] [--project <key>] [--kind <value>] [--session-id <id>] [--session-max-writes <n>] [--continue-on-error] [--max-errors <n>] [--retry-attempts <n>] [--retry-delay-ms <ms>]`
 - `mem_cli list --db <path> [--format text|tsv|json]`
 - `mem_cli find --db <path> --query <text> [--format text|tsv|json]`
-- `mem_cli query --db <path> [--query <text>] [--limit <n>] [--offset <n>] [--pinned-only] [--canonical-only] [--include-archived] [--workspace <key>] [--project <key>] [--kind <value>] [--format text|tsv|json]`
+- `mem_cli query --db <path> [--query <text>] [--limit <n>] [--offset <n>] [--order default|recent] [--pinned-only] [--canonical-only] [--include-archived] [--workspace <key>] [--project <key>] [--kind <value>] [--format text|tsv|json]`
 - `mem_cli show --db <path> --id <rowid> [--include-archived] [--format text|tsv|json]`
 - `mem_cli health --db <path> [--format text|json]`
 - `mem_cli audit-list --db <path> [--session-id <id>] [--limit <n>] [--format text|tsv|json]`

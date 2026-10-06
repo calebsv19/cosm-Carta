@@ -20,7 +20,8 @@ commands:
     - forwards to: mem_cli query --pinned-only
     - default limit: 8 (if --limit is not provided)
   retrieve-recent <mem_cli query args>
-    - forwards to: mem_cli query
+    - forwards to: mem_cli query --order recent
+    - strict update chronology; canonical/pinned rows receive no ranking boost
     - default limit: 24 (if --limit is not provided)
   retrieve-search --query <fts> <mem_cli query args>
     - forwards to: mem_cli query
@@ -39,6 +40,13 @@ commands:
     - hierarchy-first linked write with bounded candidate selection
     - discovers project pillar anchors by stable id (scope/plans/decisions/issues/misc)
     - default behavior is front-loaded: 1 link typical, 2 occasional, 3+ only for high-importance bridge nodes
+  write-lane-head --db <path> --workspace <key> --project <key> --lane <key>
+                  --title <text> --body <history-baseline text>
+                  --anchor-id <id> --latest-id <id>
+                  [--session-id <id>] [--session-max-writes <n>]
+    - atomically creates/updates stable id lane-head-<project>-<lane> in workspace=codework
+    - keeps the head canonical and owns one references anchor plus one summarizes latest-receipt link
+    - unchanged calls are write-free; body fields must be ordered, non-empty, and at most 900 bytes
   batch-write <mem_cli batch-add args>
     - forwards to: mem_cli batch-add
   health <mem_cli health args>
@@ -119,10 +127,14 @@ case "${command}" in
         exec "${MEM_CLI}" query "$@" --pinned-only --limit 8
         ;;
     retrieve-recent)
-        if has_flag_arg "--limit" "$@"; then
-            exec "${MEM_CLI}" query "$@"
+        if has_flag_arg "--order" "$@"; then
+            echo "retrieve-recent owns --order recent; do not pass --order" >&2
+            exit 1
         fi
-        exec "${MEM_CLI}" query "$@" --limit 24
+        if has_flag_arg "--limit" "$@"; then
+            exec "${MEM_CLI}" query "$@" --order recent
+        fi
+        exec "${MEM_CLI}" query "$@" --order recent --limit 24
         ;;
     retrieve-search)
         if ! has_flag_arg "--query" "$@"; then
@@ -259,6 +271,95 @@ case "${command}" in
         for link_to in "${link_to_ids[@]}"; do
             run_link_add "${new_id}" "${link_to}"
         done
+        ;;
+    write-lane-head)
+        db_path=""
+        workspace_key=""
+        project_key=""
+        lane_key=""
+        title=""
+        body=""
+        anchor_id=""
+        latest_id=""
+        session_id=""
+        session_max_writes=""
+
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --db|--workspace|--project|--lane|--title|--body|--anchor-id|--latest-id|--session-id|--session-max-writes)
+                    if [[ $# -lt 2 ]]; then
+                        echo "write-lane-head requires value for $1" >&2
+                        exit 1
+                    fi
+                    case "$1" in
+                        --db) db_path="$2" ;;
+                        --workspace) workspace_key="$2" ;;
+                        --project) project_key="$2" ;;
+                        --lane) lane_key="$2" ;;
+                        --title) title="$2" ;;
+                        --body) body="$2" ;;
+                        --anchor-id) anchor_id="$2" ;;
+                        --latest-id) latest_id="$2" ;;
+                        --session-id) session_id="$2" ;;
+                        --session-max-writes) session_max_writes="$2" ;;
+                    esac
+                    shift 2
+                    ;;
+                *)
+                    echo "write-lane-head unknown argument: $1" >&2
+                    exit 1
+                    ;;
+            esac
+        done
+
+        if [[ -z "${db_path}" || -z "${workspace_key}" || -z "${project_key}" || -z "${lane_key}" || -z "${title}" || -z "${body}" || -z "${anchor_id}" || -z "${latest_id}" ]]; then
+            echo "write-lane-head requires --db, --workspace, --project, --lane, --title, --body, --anchor-id, and --latest-id" >&2
+            exit 1
+        fi
+        if [[ "${workspace_key}" != "codework" ]]; then
+            echo "write-lane-head Lane Head V1 supports only --workspace codework" >&2
+            exit 1
+        fi
+        if [[ ! "${project_key}" =~ ^[A-Za-z0-9._-]+$ || ! "${lane_key}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "write-lane-head project and lane keys may contain only letters, digits, dot, underscore, and hyphen" >&2
+            exit 1
+        fi
+        if [[ ! "${anchor_id}" =~ ^[1-9][0-9]*$ || ! "${latest_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "write-lane-head --anchor-id and --latest-id must be positive integers" >&2
+            exit 1
+        fi
+        if [[ "${anchor_id}" == "${latest_id}" ]]; then
+            echo "write-lane-head anchor and latest receipt must be different items" >&2
+            exit 1
+        fi
+        if (( ${#body} > 900 )); then
+            echo "write-lane-head body must be at most 900 bytes" >&2
+            exit 1
+        fi
+        if [[ -n "${session_max_writes}" ]]; then
+            if [[ ! "${session_max_writes}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "write-lane-head --session-max-writes must be a positive integer" >&2
+                exit 1
+            fi
+            if [[ -z "${session_id}" ]]; then
+                echo "write-lane-head --session-max-writes requires --session-id" >&2
+                exit 1
+            fi
+        fi
+
+        lane_stable_id="lane-head-${project_key}-${lane_key}"
+        mutation_session_args=()
+        if [[ -n "${session_id}" ]]; then
+            mutation_session_args+=(--session-id "${session_id}")
+        fi
+        if [[ -n "${session_max_writes}" ]]; then
+            mutation_session_args+=(--session-max-writes "${session_max_writes}")
+        fi
+
+        exec "${MEM_CLI}" lane-head-upsert --db "${db_path}" --workspace "${workspace_key}" \
+            --project "${project_key}" --lane "${lane_key}" --stable-id "${lane_stable_id}" \
+            --title "${title}" --body "${body}" --anchor-id "${anchor_id}" --latest-id "${latest_id}" \
+            "${mutation_session_args[@]}"
         ;;
     write-hier-linked)
         if ! command -v jq >/dev/null 2>&1; then

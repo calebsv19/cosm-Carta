@@ -17,9 +17,11 @@
 - nested rounded-corner inset helpers for matching inner control radius to
   outer panel radius and padding
 
+- optional normalized button focus, keyboard navigation and press-origin capture
+
 ## Deferred
 
-1. keyboard focus and navigation helpers
+1. wider adoption of the optional focus/capture helpers
 2. retained row/list helpers for higher-level inspectors
 3. settings/action binding adapters
 4. richer text input or editor controls

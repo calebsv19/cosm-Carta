@@ -1,6 +1,72 @@
 #include "core_authored_texture.h"
+#include "core_authored_surface_mapping.h"
+#include <math.h>
 
 #include <string.h>
+
+bool core_authored_surface_mapping_validate(const CoreAuthoredSurfaceMapping* m) {
+    double uu=0.0, vv=0.0, uv=0.0;
+    if (!m || (m->version != 1 && m->version != 2) ||
+        (m->space != CORE_AUTHORED_SURFACE_OBJECT_REST &&
+         m->space != CORE_AUTHORED_SURFACE_WORLD) || !isfinite(m->rotation_rad)) return false;
+    for (int i=0;i<3;++i) {
+        if (!isfinite(m->origin_m[i]) || !isfinite(m->axis_u[i]) || !isfinite(m->axis_v[i])) return false;
+        uu+=m->axis_u[i]*m->axis_u[i]; vv+=m->axis_v[i]*m->axis_v[i];
+        uv+=m->axis_u[i]*m->axis_v[i];
+    }
+    if (fabs(uu-1.0)>1e-9 || fabs(vv-1.0)>1e-9 || fabs(uv)>1e-9) return false;
+    for (int i=0;i<2;++i)
+        if (!isfinite(m->tile_m[i]) || m->tile_m[i]<=1e-9 ||
+            !isfinite(m->offset_m[i]) || !isfinite(m->pivot_m[i])) return false;
+    if (m->version==2) {
+        double repeats=round(6.2831853071795864769*m->reference_radius_m/m->tile_m[0]);
+        if (!isfinite(m->reference_radius_m) || m->reference_radius_m<=1e-9 ||
+            !isfinite(m->seam_rad) || !isfinite(m->pole_radius_m) ||
+            m->pole_radius_m<=1e-9 || m->pole_radius_m>=m->reference_radius_m ||
+            m->rotation_rad!=0 || m->pivot_m[0]!=0 || m->pivot_m[1]!=0 || !isfinite(repeats) || repeats<1 || repeats>64 ||
+            !isfinite(m->height_range_m[0]) || !isfinite(m->height_range_m[1]) ||
+            m->height_range_m[1]<=m->height_range_m[0] ||
+            (m->height_range_m[1]-m->height_range_m[0])/m->tile_m[1]>64) return false;
+    }
+    return true;
+}
+
+bool core_authored_surface_coordinates(const CoreAuthoredSurfaceMapping* m,
+                                      const double point[3],CoreAuthoredSurfaceCoordinates* out) {
+    if (!out) return false;
+    memset(out,0,sizeof(*out));
+    if (!point || !core_authored_surface_mapping_validate(m)) return false;
+    double u=0,v=0,d[3];
+    for(int i=0;i<3;++i) {
+        if(!isfinite(point[i])) return false;
+        d[i]=point[i]-m->origin_m[i];u+=d[i]*m->axis_u[i];v+=d[i]*m->axis_v[i];
+    }
+    out->source_weight=1;
+    if(m->version==2) {
+        const double tau=6.2831853071795864769;
+        double tangent[3]={m->axis_v[1]*m->axis_u[2]-m->axis_v[2]*m->axis_u[1],
+            m->axis_v[2]*m->axis_u[0]-m->axis_v[0]*m->axis_u[2],
+            m->axis_v[0]*m->axis_u[1]-m->axis_v[1]*m->axis_u[0]};
+        double w=d[0]*tangent[0]+d[1]*tangent[1]+d[2]*tangent[2];
+        double radius=hypot(u,w),t=fmin(1.0,radius/m->pole_radius_m);
+        out->singular=radius<=1e-12;
+        out->source_weight=t*t*(3-2*t);
+        out->repeats_u=(uint32_t)round(tau*m->reference_radius_m/m->tile_m[0]);
+        out->effective_tile_width_m=tau*m->reference_radius_m/out->repeats_u;
+        double angle=out->singular ? 0 : atan2(w,u)-m->seam_rad;
+        double turns=angle/tau+m->offset_m[0]/(tau*m->reference_radius_m);
+        out->uv_tiles[0]=(turns-floor(turns))*out->repeats_u;
+        out->uv_tiles[1]=(v+m->offset_m[1])/m->tile_m[1];
+    } else {
+        u-=m->pivot_m[0];v-=m->pivot_m[1];
+        double c=cos(m->rotation_rad),s=sin(m->rotation_rad);
+        out->uv_tiles[0]=(c*u-s*v+m->pivot_m[0]+m->offset_m[0])/m->tile_m[0];
+        out->uv_tiles[1]=(s*u+c*v+m->pivot_m[1]+m->offset_m[1])/m->tile_m[1];
+    }
+    out->valid=isfinite(out->uv_tiles[0]) && isfinite(out->uv_tiles[1]) &&
+        fabs(out->uv_tiles[0])<1e6 && fabs(out->uv_tiles[1])<1e6;
+    return out->valid;
+}
 
 static bool core_authored_texture_text_equals(const char* a, const char* b) {
     return a && b && strcmp(a, b) == 0;
