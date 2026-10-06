@@ -34,4 +34,3 @@ bool app_utility_workspace_handle_event(AppState *app, const SDL_Event *event) {
     }
     return false;
 }
-

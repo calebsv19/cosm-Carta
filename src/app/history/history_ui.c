@@ -638,7 +638,7 @@ bool history_ui_event(AppState *app, const SDL_Event *e) {
                 case 22:set_progress(app,"partial",false);break;
                 case 23:set_progress(app,"not_done",false);break;
                 case 24:set_progress(app,ui.undo_progress,true);break;
-                
+
                 case 26:app->ui_state_bridge.history_hide_geographic_labels=!app->ui_state_bridge.history_hide_geographic_labels;app_save_persisted_view_state(app);break;
                 case 27:ui.peak_picker=true;ui.peak_offset=0;ui.fields[0][0]=0;SDL_StartTextInput();break;
                 case 15: ui.archived = !ui.archived; ui.scroll = 0; break;
