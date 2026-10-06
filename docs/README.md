@@ -159,3 +159,6 @@ If you are new to the runtime code, read in this order:
 Private plans, execution checklists, and internal runbooks were moved out of this repo lane. They live in the CodeWork workspace at:
 
 - `../../docs/private_program_docs/map_forge/`
+
+- [Shared control adoption](shared_control_adoption.md): workspace tabs and normal
+  Hiking & History actions; shared appearance/semantic activation, host limits.

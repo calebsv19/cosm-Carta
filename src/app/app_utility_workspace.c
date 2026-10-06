@@ -1,6 +1,7 @@
 #include "app/app_utility_workspace.h"
 #include "app/app_ui_internal.h"
 #include "ui/font.h"
+#include "ui/control_surface.h"
 #include <stdio.h>
 
 // Lays out equal navigation cells that also fit narrow windows.
@@ -24,13 +25,5 @@ void app_utility_workspace_select(AppState *app, uint32_t workspace) {
 }
 
 bool app_utility_workspace_handle_event(AppState *app, const SDL_Event *event) {
-    if (!app || !event || event->type != SDL_MOUSEBUTTONDOWN || event->button.button != SDL_BUTTON_LEFT) return false;
-    for (uint32_t i = 0u; i < 4u; ++i) {
-        SDL_FRect rect = app_utility_workspace_rect(app, i);
-        if (event->button.x >= rect.x && event->button.x < rect.x + rect.w && event->button.y >= rect.y && event->button.y < rect.y + rect.h) {
-            app_utility_workspace_select(app, i);
-            return true;
-        }
-    }
-    return false;
+    return carta_ui_controls_event(app,event);
 }

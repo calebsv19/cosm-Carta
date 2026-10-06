@@ -52,11 +52,12 @@ clean-source package results, exact receipts and preservation checks.
 
 ## Next boundary
 
-Migrate Carta toolbar and Hiking & History controls through small shared
-presentation/semantic-activation adapters, preserving product action bodies,
-layout and persistence. Availability of newer kit modules is not complete
-adoption of text, modal focus, pane composition or window contracts. Requalify
-map/terrain rendering after each integration slice.
+The four workspace tabs and normal Hiking & History controls adopt shared
+presentation/semantic activation through the host described in
+`docs/shared_control_adoption.md`. Product actions, layout and persistence remain
+local. Next migrate bounded text/modal focus, then pane/window hosts; other
+Map/places HUD controls remain explicit follow-ups. Availability of newer kit
+modules is not complete adoption. Requalify map/terrain after each integration.
 
 Application VERSION remains 0.3.0. Canonical source, installed Desktop apps,
 personal data and published region packs remain separate from these local

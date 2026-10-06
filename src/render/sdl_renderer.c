@@ -1,5 +1,6 @@
 #include "render/renderer.h"
 #include "ui/font.h"
+#include "kit_ui_sdl.h"
 #include "core_io.h"
 
 #include <math.h>
@@ -621,6 +622,22 @@ void renderer_fill_rect(Renderer *renderer, const SDL_FRect *rect) {
         return;
     }
     SDL_RenderFillRectF(renderer->sdl, &translated);
+}
+
+void renderer_fill_rounded_rect(Renderer *renderer, const SDL_FRect *rect, float radius) {
+    if (!renderer || !rect || rect->w<=0 || rect->h<=0) return;
+    SDL_FRect translated=renderer_offset_rectf(renderer,rect);
+#if defined(MAPFORGE_HAVE_VK)
+    if (renderer->backend==RENDERER_BACKEND_VULKAN && renderer->vk && renderer->vk_cmd) {
+        vk_renderer_fill_rounded_rect((VkRenderer *)renderer->vk,&translated,radius);
+        renderer->vk_rects_filled++;
+        return;
+    }
+#endif
+    if (!renderer->sdl) return;
+    Uint8 r,g,b,a;SDL_GetRenderDrawColor(renderer->sdl,&r,&g,&b,&a);
+    SDL_Rect bounds=kit_ui_sdl_rect_from_render((KitRenderRect){translated.x,translated.y,translated.w,translated.h});
+    kit_ui_sdl_fill_rounded_rect(renderer->sdl,&bounds,(int)lroundf(radius),(KitRenderColor){r,g,b,a});
 }
 
 void renderer_draw_geometry(Renderer *renderer,

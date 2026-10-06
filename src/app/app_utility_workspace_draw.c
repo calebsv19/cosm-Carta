@@ -1,6 +1,7 @@
 #include "app/app_ui_internal.h"
 #include "app/app_utility_workspace.h"
 #include "ui/font.h"
+#include "ui/control_surface.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -11,17 +12,12 @@ void app_utility_workspace_draw(AppState *app) {
     if (!app)
         return;
     MapForgeThemePalette palette = app_ui_theme_palette();
+    carta_ui_controls_sync(app);
     for (uint32_t i = 0u; i < 4u; ++i) {
         SDL_FRect rect = app_utility_workspace_rect(app, i);
-        SDL_Color fill =
-            app->ui_state_bridge.utility_workspace == i ? palette.button_active_primary : palette.button_fill;
-        renderer_set_draw_color(&app->renderer, fill.r, fill.g, fill.b, fill.a);
-        renderer_fill_rect(&app->renderer, &rect);
-        SDL_Color text = (299u * fill.r + 587u * fill.g + 114u * fill.b) / 1000u > 160u
-                             ? (SDL_Color){20, 28, 38, 255}
-                             : (SDL_Color){235, 240, 248, 255};
-        ui_draw_text_clipped(&app->renderer, (int)rect.x + 8, (int)rect.y + 5, workspace_labels[i], text,
-                             0.85f, (int)rect.w - 12);
+        carta_ui_control_draw(app,rect,workspace_labels[i],
+            app->ui_state_bridge.utility_workspace==i,
+            (KitUiSurfaceKey){CARTA_CONTROL_WORKSPACE,i},.85f);
     }
     if (app->width > 800) {
         char label[192];

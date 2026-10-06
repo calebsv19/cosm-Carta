@@ -4,6 +4,7 @@
 #include "camera/camera.h"
 #include "app/app_pins.h"
 #include "app/history_views.h"
+#include "kit_ui_surface.h"
 #include "core/input.h"
 #include "ui/debug_overlay.h"
 #include "app/region.h"
@@ -615,6 +616,11 @@ typedef struct AppWorkerState {
 /* Phase 2 bridge: target ownership bucket for HUD/header layout/cache state. */
 typedef struct AppUiState {
     InputState input;
+    /* Caller-owned semantic surface; never persisted with product state. */
+    KitUiSurface controls;
+    uint32_t controls_workspace;
+    int controls_width, controls_height;
+    char controls_selection[64];
     DebugOverlay overlay;
     MapForgeWorkspaceAuthoringHostState workspace_authoring;
     bool hud_layer_debug_collapsed;

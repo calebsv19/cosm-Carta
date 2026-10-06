@@ -5,6 +5,7 @@
 #include "app/history_status.h"
 #include "app/history_ui.h"
 #include "app/history_layout.h"
+#include "app/app_utility_workspace.h"
 #include "app/history_browser.h"
 // Opaque shared draw backend remains unused by the pure scroll evaluator.
 typedef struct KitRenderBackendOps KitRenderBackendOps;
@@ -12,6 +13,7 @@ typedef struct KitRenderBackendOps KitRenderBackendOps;
 #include "app/terrain_ui.h"
 #include "map/mercator.h"
 #include "ui/font.h"
+#include "ui/control_surface.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -22,6 +24,13 @@ static unsigned lines, persisted, labels, terrain_removals;
 static int first_row_y;
 static bool capture_rows;
 static SDL_Color draw_color,last_line_color;
+// Supplies deterministic font metrics and records native rounded presentation.
+static unsigned rounded_controls;
+void renderer_fill_rounded_rect(Renderer *r,const SDL_FRect *p,float radius) {
+    (void)r;assert(p->w>0 && p->h>0 && radius>0);rounded_controls++;
+}
+int ui_font_line_height(float scale) { return (int)(20*scale); }
+bool app_place_tools_active(void) { return false; }
 // Captures the production history geometry and refuses any synthetic gap connector.
 void renderer_draw_line(Renderer *r, float x0, float y0, float x1, float y1) {
     (void)r;
@@ -77,6 +86,7 @@ static void click(AppState *a, int x, int y) {
     e.button.x = x;
     e.button.y = y;
     assert(history_ui_event(a, &e));
+    e.type=SDL_MOUSEBUTTONUP; (void)history_ui_event(a,&e);
 }
 // Activates the production layout contract without copying its geometry.
 static void action(AppState *a, int n) {
@@ -132,8 +142,20 @@ int main(void) {
           "lon=\"1.001\"/></trkseg></trk></gpx>",
           f);
     fclose(f);
+    assert(history_ui_control_rect(a,13).w==0 && history_ui_control_rect(a,20).w==0);
+    SDL_FRect import=history_ui_action_rect(a,0);SDL_Event press={0};
+    press.type=SDL_MOUSEBUTTONDOWN;press.button.button=SDL_BUTTON_LEFT;
+    press.button.x=import.x+4;press.button.y=import.y+4;
+    assert(history_ui_event(a,&press));assert(!history_ui_modal());
+    press.type=SDL_MOUSEBUTTONUP;press.button.x=999;
+    assert(history_ui_event(a,&press));assert(!history_ui_modal());
     action(a, 0);
     assert(history_ui_modal());
+    // A visible toolbar tab cannot take over an existing import modal.
+    SDL_FRect tab=app_utility_workspace_rect(a,0);press.type=SDL_MOUSEBUTTONDOWN;
+    press.button.x=tab.x+4;press.button.y=tab.y+4;
+    assert(!carta_ui_controls_event(a,&press));assert(a->ui_state_bridge.utility_workspace==2);
+
     type(a, path);
     click(a, 200, 435);
     assert(history_ui_modal());
@@ -159,6 +181,19 @@ int main(void) {
     assert(end.x*ppm<=view.w-79 && end.y*ppm<=view.h-99);
     assert(a->view_state_bridge.camera.x>0 && a->view_state_bridge.camera.y>0);
     for(int i=0;i<17;i++) {SDL_FRect b=layout.actions[i];if(b.w>0)assert(b.x>=0&&b.x+b.w<=360&&b.y+b.h<=700);}
+
+    // Selection changes invalidate a press rather than acting on a replacement record.
+    char old_id[64];snprintf(old_id,sizeof(old_id),"%s",a->ui_state_bridge.history_selected_id);
+    SDL_FRect details=history_ui_control_rect(a,13);assert(details.w>0);
+    SDL_Event pending={0};pending.type=SDL_MOUSEBUTTONDOWN;pending.button.button=SDL_BUTTON_LEFT;
+    pending.button.x=details.x+4;pending.button.y=details.y+4;
+    assert(history_ui_event(a,&pending));assert(a->ui_state_bridge.controls.interaction.captured_id);
+    a->ui_state_bridge.history_selected_id[0]=0;
+    pending.type=SDL_MOUSEBUTTONUP;assert(history_ui_event(a,&pending));
+    assert(!a->ui_state_bridge.controls.interaction.captured_id);
+    snprintf(a->ui_state_bridge.history_selected_id,64,"%s",old_id);
+    assert(history_ui_control_rect(a,7).w==0); // Details was not toggled by that release.
+    assert(rounded_controls>0);
 
     // Escape cancels an edited form without changing the persisted catalog.
     action(a, 12); action(a, 4);

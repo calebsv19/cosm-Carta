@@ -85,6 +85,9 @@ void renderer_draw_rect(Renderer *renderer, const SDL_FRect *rect);
 // Draws a filled rectangle in screen space.
 void renderer_fill_rect(Renderer *renderer, const SDL_FRect *rect);
 
+// Fills rounded UI geometry through the shared Vulkan/SDL expression.
+void renderer_fill_rounded_rect(Renderer *renderer, const SDL_FRect *rect, float radius);
+
 // Draws indexed/non-indexed triangle geometry.
 void renderer_draw_geometry(Renderer *renderer,
                             const SDL_Vertex *vertices,

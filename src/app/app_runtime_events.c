@@ -9,6 +9,7 @@
 #include "app/app_runtime_loop.h"
 #include "app/app_runtime_input_policy.h"
 #include "ui/shared_theme_font_adapter.h"
+#include "ui/control_surface.h"
 
 #include "core/time.h"
 
@@ -54,11 +55,11 @@ static void app_runtime_input_record_event(AppState *app,
             out_raw->other_event_count += 1u;
             break;
     }
+    if (carta_ui_controls_event(app,event)) return;
     if (app_region_transition_handle_event(app, event)) return;
     if (app_place_tools_handle_event(app,event)) return;
     if (history_ui_modal() && history_ui_event(app,event)) return;
     if (app_utility_workspace_handle_event(app, event)) {
-        if (app->lifetime.persisted_state_ready) app_save_persisted_view_state(app);
         return;
     }
     if (history_ui_event(app,event)) return;

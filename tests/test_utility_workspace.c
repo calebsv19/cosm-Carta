@@ -1,13 +1,70 @@
 #include "app/app_utility_workspace.h"
 #include "app/place_runtime.h"
+#include "app/app_ui_internal.h"
+#include "ui/control_surface.h"
+#include "ui/font.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
+static bool modal;
+static unsigned persisted,rounded;
+static int caption_x,caption_y,caption_clip;
+// Isolates product dialogs/history while routing real toolbar/control contracts.
+bool app_place_tools_active(void) { return modal; }
+bool history_ui_modal(void) { return false; }
+SDL_FRect history_ui_control_rect(AppState *a,unsigned n) { (void)a;(void)n;return (SDL_FRect){0}; }
+void history_ui_activate(AppState *a,unsigned n) { (void)a;(void)n;assert(0); }
+void app_save_persisted_view_state(const AppState *a) { (void)a;persisted++; }
+MapForgeThemePalette app_ui_theme_palette(void) {
+    MapForgeThemePalette p={0};p.button_fill=(SDL_Color){210,215,220,255};
+    p.button_active_primary=(SDL_Color){30,90,180,255};return p;
+}
+void renderer_set_draw_color(Renderer *r,uint8_t a,uint8_t b,uint8_t c,uint8_t d) { (void)r;(void)a;(void)b;(void)c;(void)d; }
+void renderer_fill_rounded_rect(Renderer *r,const SDL_FRect *p,float radius) { (void)r;assert(p->w>0&&p->h>0&&radius>0);rounded++; }
+void renderer_fill_rect(Renderer *r,const SDL_FRect *p) { (void)r;(void)p; }
+int ui_measure_text_width(const char *s,float scale) { return (int)(strlen(s)*10*scale); }
+int ui_font_line_height(float scale) { return (int)(20*scale); }
+void ui_draw_text_clipped(Renderer *r,int x,int y,const char *s,SDL_Color c,float scale,int width) {
+    (void)r;(void)s;(void)c;(void)scale;caption_x=x;caption_y=y;caption_clip=width;
+}
+// Exercises release ownership, geometry/modal cancellation and keyboard semantics.
+static void controls_contract(AppState *a) {
+    SDL_FRect r=app_utility_workspace_rect(a,1);
+    SDL_Event e={0};e.type=SDL_MOUSEBUTTONDOWN;e.button.button=SDL_BUTTON_LEFT;
+    e.button.x=r.x+5;e.button.y=r.y+5;
+    app_utility_workspace_select(a,0);a->lifetime.persisted_state_ready=true;
+    unsigned before=persisted;
+    assert(carta_ui_controls_event(a,&e));assert(a->ui_state_bridge.utility_workspace==0);
+    e.type=SDL_MOUSEBUTTONUP;e.button.x=r.x+r.w+5;
+    assert(carta_ui_controls_event(a,&e));assert(a->ui_state_bridge.utility_workspace==0 && persisted==before);
+    e.type=SDL_MOUSEBUTTONDOWN;e.button.x=r.x+5;assert(carta_ui_controls_event(a,&e));
+    a->width+=50;e.type=SDL_MOUSEBUTTONUP;assert(carta_ui_controls_event(a,&e));
+    assert(a->ui_state_bridge.utility_workspace==0);a->width-=50;
+    e.type=SDL_MOUSEBUTTONDOWN;assert(carta_ui_controls_event(a,&e));modal=true;
+    carta_ui_controls_sync(a);modal=false;e.type=SDL_MOUSEBUTTONUP;assert(carta_ui_controls_event(a,&e));
+    assert(a->ui_state_bridge.utility_workspace==0);
+    e.type=SDL_MOUSEBUTTONDOWN;assert(carta_ui_controls_event(a,&e));
+    SDL_Event loss={0};loss.type=SDL_WINDOWEVENT;loss.window.event=SDL_WINDOWEVENT_FOCUS_LOST;
+    (void)carta_ui_controls_event(a,&loss);e.type=SDL_MOUSEBUTTONUP;assert(carta_ui_controls_event(a,&e));
+    assert(a->ui_state_bridge.utility_workspace==0);
+    e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_TAB;e.key.keysym.mod=0;
+    assert(carta_ui_controls_event(a,&e));assert(carta_ui_controls_event(a,&e));
+    e.key.keysym.sym=SDLK_RETURN;assert(carta_ui_controls_event(a,&e));
+    assert(a->ui_state_bridge.utility_workspace==0);e.key.repeat=1;assert(carta_ui_controls_event(a,&e));
+    e.type=SDL_KEYUP;e.key.repeat=0;assert(carta_ui_controls_event(a,&e));
+    assert(a->ui_state_bridge.utility_workspace==1 && persisted==before+1);
+    assert(!carta_ui_controls_event(a,&e));assert(persisted==before+1);
+    a->ui_state_bridge.place_search_active=true;e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_TAB;
+    assert(!carta_ui_controls_event(a,&e));a->ui_state_bridge.place_search_active=false;
+    carta_ui_control_draw(a,(SDL_FRect){10,10,100,26},"Map",false,(KitUiSurfaceKey){0},.8f);
+    assert(rounded==2 && caption_x==48 && caption_y==15 && caption_clip==80);
+}
 // Verifies navigation consumption, collection indexing, responsive hit areas and draft preservation.
 int main(void) {
     AppState app = {0};
     app.width = 1000;
+    app.height = 720;
     MapForgePin places[3] = {{0}};
     places[0].collection_mask = 1;
     places[1].collection_mask = 2;
@@ -24,6 +81,9 @@ int main(void) {
     event.button.x = (int)rect.x + 5;
     event.button.y = (int)rect.y + 5;
     assert(app_utility_workspace_handle_event(&app, &event));
+    assert(app.ui_state_bridge.utility_workspace == 0);
+    event.type=SDL_MOUSEBUTTONUP;assert(app_utility_workspace_handle_event(&app,&event));
+    event.type=SDL_MOUSEBUTTONDOWN;
     assert(app.ui_state_bridge.utility_workspace == 1);
     assert(app.ui_state_bridge.left_pane_open);
     assert(app_utility_pin_count(&app) == 1);
@@ -73,6 +133,7 @@ int main(void) {
     app.width = 500;
     rect = app_utility_workspace_rect(&app, 3);
     assert(rect.x + rect.w <= 500);
+    app.width=1000; controls_contract(&app);
     puts("utility workspace: navigation, filters, draft preservation and input consumption passed");
     return 0;
 }

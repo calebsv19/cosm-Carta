@@ -11,6 +11,10 @@ void history_ui_panel_draw(AppState *app);
 void history_ui_restore_view(AppState *app);
 // Releases process-owned history display assets during app shutdown.
 void history_ui_shutdown(void);
+// Returns only currently drawable semantic action geometry.
+SDL_FRect history_ui_control_rect(AppState *app, unsigned action);
+// Preserves app action bodies behind shared activation.
+void history_ui_activate(AppState *app, unsigned action);
 // Reports whether text/modal input must suppress map motion.
 bool history_ui_modal(void);
 // Returns a visible history control rectangle for diagnostics and pointer tests.

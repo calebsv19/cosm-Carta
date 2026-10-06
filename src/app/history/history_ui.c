@@ -12,6 +12,7 @@
 #include "app/terrain_vectors.h"
 #include "map/mercator.h"
 #include "ui/font.h"
+#include "ui/control_surface.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -155,6 +156,18 @@ static SDL_FRect pane(AppState *app) {
 SDL_FRect history_ui_action_rect(AppState *app, int n) {
     HistoryLayout l = history_layout(pane(app), ui.tools, ui.inspect);
     return n >= 0 && n < 29 ? l.actions[n] : (SDL_FRect){0};
+}
+static HistoryTrack *track(AppState *app, struct json_object *v, bool load);
+// Omits hidden detail/point controls and keeps guarded Undo visible after filtering.
+SDL_FRect history_ui_control_rect(AppState *app, unsigned action) {
+    if (!app || action>=29 || app->ui_state_bridge.utility_workspace!=APP_UTILITY_HIKING_HISTORY)
+        return (SDL_FRect){0};
+    struct json_object *v=selected(app);
+    if (action==24 && !v && !*ui.undo_id) return (SDL_FRect){0};
+    if ((action==13 || (action>=20 && action<=23) || action==7 || action==8) && !v)
+        return (SDL_FRect){0};
+    if ((action==7 || action==8) && !track(app,v,false)) return (SDL_FRect){0};
+    return history_ui_action_rect(app,(int)action);
 }
 // Tests a pointer in a current draw rectangle.
 static bool hit(SDL_FRect r, int x, int y) {
@@ -512,6 +525,7 @@ static SDL_FRect legend_chip(HistoryLayout layout, int n);
 bool history_ui_event(AppState *app, const SDL_Event *e) {
     if (app->ui_state_bridge.utility_workspace != APP_UTILITY_HIKING_HISTORY)
         return false;
+    if(carta_ui_controls_event(app,e))return true;
     if(terrain_ui_event(app,e))return true;
     if (ui.browser.open) {
         if (history_browser_event(&ui.browser,app,e)) {
@@ -626,78 +640,6 @@ bool history_ui_event(AppState *app, const SDL_Event *e) {
     }
     if (e->type == SDL_MOUSEBUTTONDOWN && hit(p, e->button.x, e->button.y)) {
         if (e->button.button != SDL_BUTTON_LEFT) return true;
-        for (int i = 0; i < 29; i++)
-            if (hit(history_ui_action_rect(app, i), e->button.x, e->button.y)) {
-                switch (i) {
-                case 12: ui.tools = !ui.tools; break;
-                case 28: terrain_ui_open(); break;
-                case 13: ui.inspect = !ui.inspect; break;
-                case 14: history_browser_open(&ui.browser,app);break;
-                case 20:set_progress(app,"planned",false);break;
-                case 21:set_progress(app,"completed",false);break;
-                case 22:set_progress(app,"partial",false);break;
-                case 23:set_progress(app,"not_done",false);break;
-                case 24:set_progress(app,ui.undo_progress,true);break;
-
-                case 26:app->ui_state_bridge.history_hide_geographic_labels=!app->ui_state_bridge.history_hide_geographic_labels;app_save_persisted_view_state(app);break;
-                case 27:ui.peak_picker=true;ui.peak_offset=0;ui.fields[0][0]=0;SDL_StartTextInput();break;
-                case 15: ui.archived = !ui.archived; ui.scroll = 0; break;
-                case 16: app->ui_state_bridge.place_search_active = true; SDL_StartTextInput(); break;
-                case 0:
-                    open_form(app, false, false);
-                    break;
-                case 1:
-                    fit(app, false);
-                    break;
-                case 2:
-                    app->ui_state_bridge.history_selected_only=false;
-                    fit(app, true);
-                    break;
-                case 3:
-                    app->ui_state_bridge.history_selected_only = !app->ui_state_bridge.history_selected_only;
-                    app_save_persisted_view_state(app);
-                    break;
-                case 4:
-                    open_form(app, true, false);
-                    break;
-                case 5:
-                    archive(app);
-                    break;
-                case 6:
-                    open_form(app, false, true);
-                    break;
-                case 7:
-                    ui.point = fmax(0, ui.point - 1);
-                    break;
-                case 8:
-                    ui.point++;
-                    break;
-                case 10: terrain_cycle(); app_save_persisted_view_state(app); break;
-                case 11: clear_cache();terrain_reload(app); break;
-                case 9: {
-                    struct json_object *v = selected(app), *q = json_object_new_object();
-                    json_object_object_add(q, "operation", json_object_new_string("history.nearby"));
-                    json_object_object_add(q, "record_id", json_object_new_string(str(v, "id")));
-                    struct json_object *r = history_command(app->pins_path, &app->pins_file, q),
-                                       *candidates = NULL;
-                    json_object_object_get_ex(r, "candidates", &candidates);
-                    if (candidates && json_object_array_length(candidates)) {
-                        struct json_object *first = json_object_array_get_idx(candidates, 0), *d = NULL;
-                        json_object_object_get_ex(first, "distance_m", &d);
-                        snprintf(ui.status, sizeof(ui.status), "Review only: %s, %.0f m; %zu candidates",
-                                 str(first, "name"), json_object_get_double(d),
-                                 json_object_array_length(candidates));
-                    } else
-                        snprintf(ui.status, sizeof(ui.status), "%s",
-                                 *str(r, "error") ? str(r, "error")
-                                                  : "No peak points within 200 m. No visit inferred.");
-                    json_object_put(q);
-                    json_object_put(r);
-                    break;
-                }
-                }
-                return true;
-            }
         SDL_FRect thumb=history_browser_thumb(layout.list,total,HISTORY_ROW_HEIGHT,ui.scroll);
         if(thumb.w && e->button.x>=layout.list.x+layout.list.w-12 && hit(layout.list,e->button.x,e->button.y)) {
             ui.scroll_dragging=true;ui.scroll_grab=hit(thumb,e->button.x,e->button.y)?e->button.y-thumb.y:thumb.h/2;
@@ -721,6 +663,80 @@ bool history_ui_event(AppState *app, const SDL_Event *e) {
     }
     return false;
 }
+// Executes the existing product action only after an eligible shared activation.
+void history_ui_activate(AppState *app, unsigned action) {
+    if (!app || action>=29 || history_ui_modal() ||
+        app->ui_state_bridge.utility_workspace!=APP_UTILITY_HIKING_HISTORY ||
+        history_ui_control_rect(app,action).w<=0) return;
+    switch (action) {
+    case 12: ui.tools = !ui.tools; break;
+    case 28: terrain_ui_open(); break;
+    case 13: ui.inspect = !ui.inspect; break;
+    case 14: history_browser_open(&ui.browser,app);break;
+    case 20:set_progress(app,"planned",false);break;
+    case 21:set_progress(app,"completed",false);break;
+    case 22:set_progress(app,"partial",false);break;
+    case 23:set_progress(app,"not_done",false);break;
+    case 24:set_progress(app,ui.undo_progress,true);break;
+
+    case 26:app->ui_state_bridge.history_hide_geographic_labels=!app->ui_state_bridge.history_hide_geographic_labels;app_save_persisted_view_state(app);break;
+    case 27:ui.peak_picker=true;ui.peak_offset=0;ui.fields[0][0]=0;SDL_StartTextInput();break;
+    case 15: ui.archived = !ui.archived; ui.scroll = 0; break;
+    case 16: app->ui_state_bridge.place_search_active = true; SDL_StartTextInput(); break;
+    case 0:
+        open_form(app, false, false);
+        break;
+    case 1:
+        fit(app, false);
+        break;
+    case 2:
+        app->ui_state_bridge.history_selected_only=false;
+        fit(app, true);
+        break;
+    case 3:
+        app->ui_state_bridge.history_selected_only = !app->ui_state_bridge.history_selected_only;
+        app_save_persisted_view_state(app);
+        break;
+    case 4:
+        open_form(app, true, false);
+        break;
+    case 5:
+        archive(app);
+        break;
+    case 6:
+        open_form(app, false, true);
+        break;
+    case 7:
+        ui.point = fmax(0, ui.point - 1);
+        break;
+    case 8:
+        ui.point++;
+        break;
+    case 10: terrain_cycle(); app_save_persisted_view_state(app); break;
+    case 11: clear_cache();terrain_reload(app); break;
+    case 9: {
+        struct json_object *v = selected(app), *q = json_object_new_object();
+        json_object_object_add(q, "operation", json_object_new_string("history.nearby"));
+        json_object_object_add(q, "record_id", json_object_new_string(str(v, "id")));
+        struct json_object *r = history_command(app->pins_path, &app->pins_file, q),
+                           *candidates = NULL;
+        json_object_object_get_ex(r, "candidates", &candidates);
+        if (candidates && json_object_array_length(candidates)) {
+            struct json_object *first = json_object_array_get_idx(candidates, 0), *d = NULL;
+            json_object_object_get_ex(first, "distance_m", &d);
+            snprintf(ui.status, sizeof(ui.status), "Review only: %s, %.0f m; %zu candidates",
+                     str(first, "name"), json_object_get_double(d),
+                     json_object_array_length(candidates));
+        } else
+            snprintf(ui.status, sizeof(ui.status), "%s",
+                     *str(r, "error") ? str(r, "error")
+                                      : "No peak points within 200 m. No visit inferred.");
+        json_object_put(q);
+        json_object_put(r);
+        break;
+    }
+    }
+}
 // Draws themed text clipped to the history pane or modal.
 static void label(AppState *app, float x, float y, const char *s, SDL_Color c, float width) {
     ui_draw_text_clipped(&app->renderer, (int)x, (int)y, s, c, .8f, (int)fmaxf(1, width));
@@ -739,6 +755,10 @@ static void cell(AppState *app, SDL_FRect r, const char *s, bool active) {
         renderer_set_draw_color(&app->renderer,fg.r,fg.g,fg.b,255);
         for(int i=0;i<3;i++)renderer_fill_rect(&app->renderer,&(SDL_FRect){r.x+r.w-13+i,r.y+r.h/2-1+i,6-2*i,1});
     }
+}
+// Draws normal action chrome from the same semantic snapshot as input.
+static void control_cell(AppState *app, unsigned action, SDL_FRect r, const char *s, bool active) {
+    carta_ui_control_draw(app,r,s,active,(KitUiSurfaceKey){CARTA_CONTROL_HISTORY,action},.8f);
 }
 // Draws bounded display geometry with original segment gaps intact.
 void history_ui_map_draw(AppState *app) {
@@ -915,8 +935,9 @@ void history_ui_panel_draw(AppState *app) {
     char search[192]; snprintf(search,sizeof(search),"%s",app->ui_state_bridge.place_search[0]?
         app->ui_state_bridge.place_search:"Search  Ctrl+F");
     buttons[16]=search;
+    carta_ui_controls_sync(app);
     for(int i=0;i<29;i++) if(layout.actions[i].w>0 && i!=7 && i!=8 && i!=13 && (i<20 || i>24))
-        cell(app,layout.actions[i],buttons[i],(i==12&&ui.tools)||(i==14&&ui.browser.open));
+        control_cell(app,i,layout.actions[i],buttons[i],(i==12&&ui.tools)||(i==14&&ui.browser.open));
     draw_legend(app,layout,colors);
     int total=0; while(row(app,total))total++;
     if(strcmp(ui.scroll_query,app->ui_state_bridge.place_search)) {
@@ -961,8 +982,9 @@ void history_ui_panel_draw(AppState *app) {
         line,colors.text_muted,.60f,layout.list.w);
     SDL_FRect card=layout.detail;fill(app,card,surface(colors.route_panel_fill,true));
     struct json_object *v=selected(app);float x=card.x+10,y=card.y+10;
+    if (!v && *ui.undo_id) control_cell(app,24,layout.actions[24],buttons[24],false);
     if (v) {
-    cell(app,layout.actions[13],ui.inspect?"Less":"Details",ui.inspect);
+    control_cell(app,13,layout.actions[13],ui.inspect?"Less":"Details",ui.inspect);
     char name[256];snprintf(name,sizeof(name),"%s",str(v,"name"));char *suffix=strstr(name," — recorded");if(suffix)*suffix=0;
     label(app,x,y,*name?name:"Select a route",colors.text_primary,card.w-92);y+=25;
     const char *kind=str(v,"kind");snprintf(line,sizeof(line),"%s  ·  %s",!strcmp(kind,"recorded")?"Your recording":
@@ -970,7 +992,8 @@ void history_ui_panel_draw(AppState *app) {
         *str(v,"visited_on")?str(v,"visited_on"):"Date unknown");
     label(app,x,y,line,colors.text_muted,card.w-20);y+=24;
     if(!strcmp(kind,"peak"))buttons[21]="Summited";
-    for(int i=20;i<=24;i++)cell(app,layout.actions[i],buttons[i],(i==20&&!strcmp(history_progress(app->pins_file.source_json,v),"planned")) || (i==21&&!strcmp(history_progress(app->pins_file.source_json,v),"completed")) || (i==22&&!strcmp(history_progress(app->pins_file.source_json,v),"partial")));
+    for(int i=20;i<=23;i++)control_cell(app,i,layout.actions[i],buttons[i],(i==20&&!strcmp(history_progress(app->pins_file.source_json,v),"planned")) || (i==21&&!strcmp(history_progress(app->pins_file.source_json,v),"completed")) || (i==22&&!strcmp(history_progress(app->pins_file.source_json,v),"partial")));
+    if (v || *ui.undo_id) control_cell(app,24,layout.actions[24],buttons[24],false);
     label(app,x,card.y+card.h-27,progress_label(app,v),progress_color(app,v),card.w-80);
     struct json_object *geometry=v;
     if(*str(v,"recording_id")){struct json_object *a=catalog(app);for(size_t i=0;a&&i<json_object_array_length(a);i++){struct json_object *other=json_object_array_get_idx(a,i);if(!strcmp(str(other,"id"),str(v,"recording_id")))geometry=other;}}
@@ -984,7 +1007,7 @@ void history_ui_panel_draw(AppState *app) {
             profile_draw(app,t,(SDL_FRect){x,y,card.w-20,28});
         }
         if(ui.inspect && card.h>230) {
-            for(int i=7;i<=8;i++)cell(app,layout.actions[i],buttons[i],false);
+            for(int i=7;i<=8;i++)control_cell(app,i,layout.actions[i],buttons[i],false);
             HistoryPoint pt=t->points[(size_t)ui.point%t->point_count];
             y=card.y+172;snprintf(line,sizeof(line),"Point %zu / %zu  ·  segment %u",(size_t)ui.point%t->point_count+1,t->point_count,pt.segment+1);
             label(app,x,y,line,colors.text_muted,card.w-20);y+=21;

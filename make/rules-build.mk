@@ -157,3 +157,7 @@ $(KIT_WORKSPACE_AUTHORING_UI_FONT_THEME_OBJ): $(KIT_WORKSPACE_AUTHORING_DIR)/src
 
 clean:
 	rm -rf build
+
+$(HOST_BUILD_ROOT)/kit_ui/%.o: $(KIT_UI_DIR)/src/%.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@

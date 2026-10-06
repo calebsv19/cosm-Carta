@@ -34,3 +34,6 @@ LINK_OBJS += $(VK_RUNTIME_OBJS)
 endif
 LDLIBS += $(VULKAN_LIBS) -framework Metal -framework QuartzCore -framework Cocoa -framework IOKit -framework CoreVideo
 endif
+
+LINK_OBJS += $(KIT_UI_CONTROL_OBJS)
+DEPS += $(KIT_UI_CONTROL_OBJS:.o=.d)

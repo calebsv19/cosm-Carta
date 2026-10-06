@@ -112,7 +112,7 @@ void app_s5_update(struct AppState *app, double now) {
             int button = step == 2 ? 2 : step == 4 ? (getenv("MAPFORGE_S8_TERRAIN")?10:3) : step == 5 ? 8 : step == 6 ? 4 : 1;
             if (button == 4 || button == 8) {
                 SDL_FRect toggle=history_ui_action_rect(app,button==4?12:13);
-                e.button.x=toggle.x+5;e.button.y=toggle.y+5;history_ui_event(app,&e);
+                e.button.x=toggle.x+5;e.button.y=toggle.y+5;history_ui_event(app,&e);e.type=SDL_MOUSEBUTTONUP;history_ui_event(app,&e);e.type=SDL_MOUSEBUTTONDOWN;
             }
             SDL_FRect action=history_ui_action_rect(app,button);
             e.button.x=action.x+5;e.button.y=action.y+5;
@@ -130,9 +130,10 @@ void app_s5_update(struct AppState *app, double now) {
                 e.key.keysym.sym = SDLK_ESCAPE;
                 history_ui_event(app, &e);
                 SDL_SetWindowSize(app->window, 1280, 720);
-            } else
-                history_ui_event(app, &e);
-            if(getenv("MAPFORGE_S8_TERRAIN")&&step==4){SDL_FRect fit=history_ui_action_rect(app,1);e.button.x=fit.x+5;e.button.y=fit.y+5;history_ui_event(app,&e);}
+            } else {
+                history_ui_event(app, &e);e.type=SDL_MOUSEBUTTONUP;history_ui_event(app,&e);e.type=SDL_MOUSEBUTTONDOWN;
+            }
+            if(getenv("MAPFORGE_S8_TERRAIN")&&step==4){SDL_FRect fit=history_ui_action_rect(app,1);e.button.x=fit.x+5;e.button.y=fit.y+5;history_ui_event(app,&e);e.type=SDL_MOUSEBUTTONUP;history_ui_event(app,&e);e.type=SDL_MOUSEBUTTONDOWN;}
         }
         return;
     }

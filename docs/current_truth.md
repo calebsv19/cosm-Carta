@@ -27,7 +27,10 @@ render command-validation module. Fresh build, focused tests, native road and
 rotated terrain replay, SDL fallback and Retina resize/readback qualify the
 renderer adoption. See `docs/shared_dependency_checkpoint.md` for provenance,
 limits and the next boundary. Newer UI/pane/text modules are available, but
-Carta toolbar and Hiking & History control migration has not started.
+The four workspace tabs and normal Hiking & History actions now use shared
+rounded presentation and semantic release/keyboard activation. Existing action
+bodies, geometry, persistence and map/terrain policy remain app-owned.
+See `docs/shared_control_adoption.md` for the adopted scope and remaining hosts.
 Program VERSION remains 0.3.0.
 
 ## Accepted canonical state (2026-08-27 baseline)
