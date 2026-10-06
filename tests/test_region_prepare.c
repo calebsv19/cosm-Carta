@@ -3,6 +3,7 @@
 #include "app/app_region_transition.h"
 #include "app/app_ui_internal.h"
 #include "ui/font.h"
+#include "ui/control_surface.h"
 #include "tile_source_test_fixture.h"
 #include "map/mercator.h"
 #include <assert.h>
@@ -15,6 +16,14 @@
 // Replaces only presentation/active-map seams; CPU validation and staging remain production code.
 static unsigned publications, retired_loaders;
 static bool dialog_active, refuse_upload;
+static unsigned cancel_draws;
+void carta_ui_control_draw(AppState *app, SDL_FRect rect, const char *label,
+                          bool selected, KitUiSurfaceKey key, float scale) {
+    (void)selected; (void)scale;
+    assert(key.domain==CARTA_CONTROL_PREPARE && key.value==0);
+    assert(!strcmp(label,"CANCEL (ESC)") && rect.x+rect.w<=app->width);
+    ++cancel_draws;
+}
 bool app_place_tools_active(void) { return dialog_active; }
 void app_reload_pins_state(AppState *app) { (void)app; publications++; }
 void app_runtime_format_region_package_status(const char *name, const RegionPackageValidationResult *v, char *out, size_t cap) {
@@ -112,11 +121,22 @@ int main(void) {
     assert(app_region_transition_start(app,&info,1));
     assert(app->region_budgets_reserved && app->tile_state_bridge.vk_tile_cache.byte_limit==1);
     assert(!app_region_transition_start(app,&info,2));
-    SDL_Event event={0}; event.type=SDL_KEYDOWN; event.key.keysym.sym=SDLK_ESCAPE;
+    app_region_transition_draw(app); assert(cancel_draws==1);
+    SDL_FRect cancel=app_region_transition_cancel_rect(app);
+    SDL_Event event={0}; event.type=SDL_MOUSEBUTTONDOWN; event.button.button=SDL_BUTTON_LEFT;
+    event.button.x=cancel.x+5; event.button.y=cancel.y+5;
+    assert(!app_region_transition_handle_event(app,&event));
+    assert(!region_prepare_progress(app->region_prepare).canceled);
+    event.type=SDL_KEYDOWN; event.key.keysym.sym=SDLK_ESCAPE;
     assert(app_region_transition_handle_event(app,&event));
     wait_result(app->region_prepare); app_region_transition_tick(app);
     assert(!app->region_prepare && !strcmp(app->region.name,"old-map") && publications==0);
     assert(!app->region_budgets_reserved && app->tile_state_bridge.vk_tile_cache.byte_limit==previous_gpu_limit);
+    assert(app_region_transition_start(app,&info,1));
+    app_region_transition_cancel(app); // Direct semantic intent retains actual worker policy.
+    assert(region_prepare_progress(app->region_prepare).canceled);
+    wait_result(app->region_prepare); app_region_transition_tick(app);
+    assert(!app->region_prepare && !strcmp(app->region.name,"old-map") && publications==0);
     assert(app_region_transition_start(app,&info,1));
     wait_result(app->region_prepare); dialog_active=true;
     for (unsigned i=0;i<5 && app->region_prepare;i++) app_region_transition_tick(app);

@@ -6,6 +6,7 @@
 #include "core/time.h"
 #include "core/log.h"
 #include "ui/font.h"
+#include "ui/control_surface.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -196,20 +197,20 @@ rejected:
 }
 
 // Shares one compact bottom status geometry between draw and Cancel hit testing.
-static SDL_FRect transition_cancel_rect(const AppState *app) {
+SDL_FRect app_region_transition_cancel_rect(const AppState *app) {
     return (SDL_FRect){(float)app->width - 136, (float)app->height - 65, 120, 30};
+}
+
+void app_region_transition_cancel(AppState *app) {
+    if (!app || !app->region_prepare) return;
+    region_prepare_cancel(app->region_prepare);
+    snprintf(app->ingest_status, sizeof(app->ingest_status), "Canceling map preparation; current map retained");
 }
 
 bool app_region_transition_handle_event(AppState *app, const SDL_Event *event) {
     if (!app || !app->region_prepare || !event) return false;
-    SDL_FRect cancel = transition_cancel_rect(app);
-    bool key = event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_ESCAPE;
-    bool click = event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT &&
-        event->button.x >= cancel.x && event->button.x <= cancel.x + cancel.w &&
-        event->button.y >= cancel.y && event->button.y <= cancel.y + cancel.h;
-    if (!key && !click) return false;
-    region_prepare_cancel(app->region_prepare);
-    snprintf(app->ingest_status, sizeof(app->ingest_status), "Canceling map preparation; current map retained");
+    if (event->type != SDL_KEYDOWN || event->key.keysym.sym != SDLK_ESCAPE) return false;
+    if (!event->key.repeat) app_region_transition_cancel(app);
     return true;
 }
 
@@ -217,14 +218,14 @@ void app_region_transition_draw(AppState *app) {
     if (!app || !app->region_prepare) return;
     MapForgeThemePalette palette = app_ui_theme_palette();
     SDL_FRect box = {12, (float)app->height - 78, (float)app->width - 24, 64};
-    SDL_FRect cancel = transition_cancel_rect(app);
+    SDL_FRect cancel = app_region_transition_cancel_rect(app);
     renderer_set_draw_color(&app->renderer, palette.button_fill.r, palette.button_fill.g, palette.button_fill.b, 255);
     renderer_fill_rect(&app->renderer, &box);
     renderer_set_draw_color(&app->renderer, palette.button_outline.r, palette.button_outline.g, palette.button_outline.b, 255);
     renderer_draw_rect(&app->renderer, &box);
-    renderer_draw_rect(&app->renderer, &cancel);
     ui_draw_text_clipped(&app->renderer, 24, (int)box.y + 12, app->ingest_status, palette.text_primary, .9f, app->width - 180);
-    ui_draw_text_clipped(&app->renderer, (int)cancel.x + 9, (int)cancel.y + 7, "CANCEL (ESC)", palette.text_primary, .8f, 108);
+    carta_ui_control_draw(app, cancel, "CANCEL (ESC)", false,
+        (KitUiSurfaceKey){CARTA_CONTROL_PREPARE, 0}, .8f);
 }
 
 void app_region_transition_shutdown(AppState *app) {

@@ -5,7 +5,7 @@
 #include <stdbool.h>
 struct AppState;
 /* Durable command domains; values identify actions independently of layout. */
-enum { CARTA_CONTROL_WORKSPACE = 1u, CARTA_CONTROL_HISTORY = 2u, CARTA_CONTROL_PLACES = 3u, CARTA_CONTROL_ROUTES = 4u, CARTA_CONTROL_HISTORY_FORM = 5u, CARTA_CONTROL_PANEL=6u, CARTA_CONTROL_HEADER=7u, CARTA_CONTROL_ROUTE_PANEL=8u, CARTA_CONTROL_PLACE_FORM=9u };
+enum { CARTA_CONTROL_WORKSPACE = 1u, CARTA_CONTROL_HISTORY = 2u, CARTA_CONTROL_PLACES = 3u, CARTA_CONTROL_ROUTES = 4u, CARTA_CONTROL_HISTORY_FORM = 5u, CARTA_CONTROL_PANEL=6u, CARTA_CONTROL_HEADER=7u, CARTA_CONTROL_ROUTE_PANEL=8u, CARTA_CONTROL_PLACE_FORM=9u, CARTA_CONTROL_PREPARE=10u };
 /* Synchronizes visible geometry and cancels capture when its owner changes. */
 void carta_ui_controls_sync(struct AppState *app);
 /* Routes shared release/keyboard activation to existing product action bodies. */

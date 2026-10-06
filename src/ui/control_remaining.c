@@ -3,9 +3,12 @@
 #include "app/app_utility_workspace.h"
 #include "app/app_pin_panel_internal.h"
 #include "app/app_runtime_ingest_internal.h"
+#include "app/app_region_transition.h"
 // Existing geometry and action bodies stay authoritative for the remaining HUD.
 SDL_FRect carta_remaining_control_rect(AppState *app,uint32_t domain,unsigned action) {
     AppUiState *u=&app->ui_state_bridge;
+    if(domain==CARTA_CONTROL_PREPARE)
+        return app->region_prepare && action==0?app_region_transition_cancel_rect(app):(SDL_FRect){0};
     if(u->utility_workspace==APP_UTILITY_HIKING_HISTORY)return (SDL_FRect){0};
     if(domain==CARTA_CONTROL_PANEL) {
         if(!u->left_pane_open)return action==0?u->pin_pane_closed_rect:(SDL_FRect){0};
@@ -41,7 +44,9 @@ SDL_FRect carta_remaining_control_rect(AppState *app,uint32_t domain,unsigned ac
 }
 void carta_remaining_control_activate(AppState *app,uint32_t domain,unsigned action,uint32_t modifiers) {
     AppUiState *u=&app->ui_state_bridge;
-    if(domain==CARTA_CONTROL_PANEL) {
+    if(domain==CARTA_CONTROL_PREPARE) {
+        if(action==0)app_region_transition_cancel(app);
+    } else if(domain==CARTA_CONTROL_PANEL) {
         if(action<2) {u->left_pane_open=action==0;if(action==1){app_pin_panel_name_edit_deactivate(app);app->ingest_edit_mode=false;carta_text_end(&u->rollout.ingest_root);}app_pin_panel_cancel_list_drag(app);app_pin_panel_layout(app);app_tile_viewport_invalidate(app);}
         else if(action<5) {
             app_pin_panel_cancel_list_drag(app);app_pin_panel_name_edit_deactivate(app);

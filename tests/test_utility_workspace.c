@@ -38,6 +38,27 @@ int ui_font_line_height(float scale) { return (int)(20*scale); }
 void ui_draw_text_clipped(Renderer *r,int x,int y,const char *s,SDL_Color c,float scale,int width) {
     (void)r;(void)s;(void)c;(void)scale;caption_x=x;caption_y=y;caption_clip=width;
 }
+static unsigned prepare_cancels;
+SDL_FRect app_region_transition_cancel_rect(const AppState *a){return (SDL_FRect){a->width-136,a->height-65,120,30};}
+void app_region_transition_cancel(AppState *a){assert(a->region_prepare);prepare_cancels++;}
+static void prepare_contract(AppState *a) {
+    a->region_prepare=(struct RegionPrepare *)a; // Opaque product seam; never dereferenced.
+    a->ingest_edit_mode=true; // Preparation owns keys above the dormant path editor.
+    SDL_FRect r=app_region_transition_cancel_rect(a);SDL_Event e={0};
+    e.type=SDL_MOUSEBUTTONDOWN;e.button.button=SDL_BUTTON_LEFT;e.button.x=r.x+5;e.button.y=r.y+5;
+    assert(carta_ui_controls_event(a,&e));assert(!prepare_cancels);
+    SDL_Event loss={0};loss.type=SDL_WINDOWEVENT;loss.window.event=SDL_WINDOWEVENT_FOCUS_LOST;
+    (void)carta_ui_controls_event(a,&loss);e.type=SDL_MOUSEBUTTONUP;
+    assert(carta_ui_controls_event(a,&e));assert(!prepare_cancels);
+    e.type=SDL_MOUSEBUTTONDOWN;assert(carta_ui_controls_event(a,&e));
+    e.type=SDL_MOUSEBUTTONUP;assert(carta_ui_controls_event(a,&e));assert(prepare_cancels==1);
+    e=(SDL_Event){0};e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_TAB;
+    assert(carta_ui_controls_event(a,&e));e.key.keysym.sym=SDLK_RETURN;
+    assert(carta_ui_controls_event(a,&e));assert(prepare_cancels==1);
+    e.type=SDL_KEYUP;assert(carta_ui_controls_event(a,&e));assert(prepare_cancels==2);
+    e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_ESCAPE;assert(!carta_ui_controls_event(a,&e));
+    a->region_prepare=NULL;a->ingest_edit_mode=false;carta_ui_controls_sync(a);
+}
 static unsigned panel_actions, route_selections, route_visibility, route_recomputes;
 SDL_FRect app_header_button_rect(const AppState *a){(void)a;return (SDL_FRect){600,5,140,30};}
 void app_pin_panel_cancel_list_drag(AppState *a){a->ui_state_bridge.pin_list_drag_active=false;}
@@ -190,7 +211,7 @@ int main(void) {
     app.width = 500;
     rect = app_utility_workspace_rect(&app, 3);
     assert(rect.x + rect.w <= 500);
-    app.width=1000; controls_contract(&app);remaining_contract(&app);
+    app.width=1000; controls_contract(&app);remaining_contract(&app);prepare_contract(&app);
     puts("utility workspace: navigation, filters, draft preservation and input consumption passed");
     return 0;
 }

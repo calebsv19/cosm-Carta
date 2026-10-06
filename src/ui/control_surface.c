@@ -45,6 +45,8 @@ void carta_ui_controls_sync(AppState *app) {
     if(unavailable && app_place_tools_active())
         for(unsigned i=0;i<app_place_tools_control_count();i++)
             add(s,CARTA_CONTROL_PLACE_FORM,app_place_tools_control_key(i),app_place_tools_control_rect(i),clip);
+    if(app->region_prepare)
+        add(s,CARTA_CONTROL_PREPARE,0,carta_remaining_control_rect(app,CARTA_CONTROL_PREPARE,0),clip);
     HistoryViewSelection bindings[3]={{0}};
     if(app->ui_state_bridge.utility_workspace==APP_UTILITY_HIKING_HISTORY)
         for(unsigned i=0;i<3 && i<app->ui_state_bridge.history_views.count;i++) {
@@ -86,6 +88,10 @@ bool carta_ui_controls_event(AppState *app, const SDL_Event *event) {
     if (!app || !event) return false;
     carta_ui_controls_sync(app);
     KitUiSurface *s = &app->ui_state_bridge.controls;
+    if(app->region_prepare && event->type==SDL_KEYDOWN && event->key.keysym.sym==SDLK_ESCAPE) {
+        kit_ui_surface_set_scope(s,0);
+        return false; // The direct product Escape policy cancels the worker.
+    }
     KitUiInteractionEvent input;
     if (!kit_ui_interaction_event_from_sdl(event,&input)) return false;
     if(input.type==KIT_UI_INTERACTION_POINTER_DOWN || input.type==KIT_UI_INTERACTION_POINTER_UP) {
@@ -102,7 +108,7 @@ bool carta_ui_controls_event(AppState *app, const SDL_Event *event) {
         return false; /* Window/quit events still reach host lifecycle handling. */
     }
     // Existing search editing retains its keys; an armed button cannot submit it.
-    if ((app->ui_state_bridge.place_search_active || app->ui_state_bridge.route_plan_name_active || app->ui_state_bridge.pin_name_edit_active || app->ingest_edit_mode || app_place_tools_text_active()) &&
+    if (!app->region_prepare && (app->ui_state_bridge.place_search_active || app->ui_state_bridge.route_plan_name_active || app->ui_state_bridge.pin_name_edit_active || app->ingest_edit_mode || app_place_tools_text_active()) &&
         (input.type==KIT_UI_INTERACTION_KEY_DOWN || input.type==KIT_UI_INTERACTION_KEY_UP)) {
         kit_ui_surface_set_scope(s,0);
         return false;

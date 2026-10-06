@@ -16,6 +16,7 @@ remain separate from the Main Edit comparison app and any future release.
 | Sidebar | Open/close, section tabs, Pins/Ingest action row, pin metadata chips | Draft Save/Cancel/Delete, import/source selection, collections and service editing |
 | Place/profile/pet/route/backup modals | Visible scoped semantic action inventory, direct product dispatch, bounded shared fields | Draft validation, service roles, route management, restore preview and confirmation |
 | History view chooser, legend, peak picker, terrain manager | Shared modal/button surfaces, clipped eligible rows, identity/geometry invalidation, release activation | Group union/visibility/color, peak goal creation, coverage and protected removal |
+| Map preparation status | Scoped Cancel button, shared release/keyboard activation and centered presentation; Escape cancels directly | Existing background staging/cancel/join and current-map retention |
 | Pin name and Ingest path | Shared UTF-8 scalar editing, selection/clipboard/preedit/caret, visible native session | Existing capacities and explicit Save/Apply policies |
 | History/peak/place/search/route fields | The same bounded text and presentation adapters | Existing field order, capacities, preview, validation and transactions |
 
