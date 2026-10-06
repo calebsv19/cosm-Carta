@@ -33,10 +33,15 @@ void app_polygon_present_trace_emit(const AppPolygonPresentTraceDecision *decisi
         return;
     }
 
-    log_info("poly_present layer=%s zoom=%.3f req=%u/%u/%u draw=%u/%u/%u same=%u fallback_depth=%u "
+    const char *stride_text = getenv("MAPFORGE_POLYGON_PRESENT_TRACE_STRIDE");
+    unsigned long stride = stride_text ? strtoul(stride_text, NULL, 10) : 1;
+    if (stride > 1000) stride = 1000;
+    if (stride && decision->frame_id % stride) return;
+    log_info("poly_present frame=%llu layer=%s zoom=%.3f req=%u/%u/%u draw=%u/%u/%u same=%u fallback_depth=%u "
              "target=%s resolved=%s opacity=%.3f fade=%.3f vk=%u assets=%u hold(hit=%u valid=%u) "
              "blend(attempt=%u drawn=%u) asset(present=%u fill_ready=%u fill_drawn=%u fill_skip=%u fill_missing=%u outline=%u) "
              "cpu(allowed=%u drawn=%u) enqueue(attempt=%u budget_block=%u ok=%u) no_draw_after_miss=%u",
+             (unsigned long long)decision->frame_id,
              layer_policy_label(decision->kind),
              decision->zoom,
              decision->requested_coord.z,

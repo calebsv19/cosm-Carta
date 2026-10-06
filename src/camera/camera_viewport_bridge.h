@@ -5,7 +5,7 @@
 #include "core_viewport2d.h"
 
 enum {
-    CAMERA_ZOOM_MIN_LEVEL = 10,
+    CAMERA_ZOOM_MIN_LEVEL = 1,
     CAMERA_ZOOM_MAX_LEVEL = 18
 };
 

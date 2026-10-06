@@ -1,6 +1,6 @@
 # Carta Current Truth
 
-Last updated: 2026-08-27
+Last updated: 2026-10-06 (Main Edit checkpoint; canonical release unchanged)
 
 ## Program Identity
 - Public product name: `Carta`
@@ -9,7 +9,25 @@ Last updated: 2026-08-27
   - `src/main.c` -> `map_forge_app_main()`
   - wrapper still delegates run-loop through legacy runtime path for behavior parity
 
-## Current Shipped State
+## Current Main Edit feature checkpoint
+
+The retained `codex/map-forge-main-edit` lane contains the completed local
+feature work for places and saved routes, corrected ground-distance route costs,
+Hiking & History browsing/status/collections, GPX preview/import/export,
+terrain raster/vector overlays and bounded region preparation, plus idle/runtime
+and package trace-root repairs. Existing personal records, GPX assets and region
+packs remain external mutable/read-only data rather than source payloads.
+Public operating references are indexed in `docs/README.md`; dated internal
+execution checklists are preserved in the workspace private MapForge archive.
+
+The vendor renderer remains its 1.3.2-based compatibility snapshot with documented
+presentation and texture-corner backports. The texture-corner implementation is
+now available at an exact committed upstream `vk_renderer 1.7.0` checkpoint.
+See `docs/shared_dependency_checkpoint.md` for source provenance and the retained
+differences. This checkpoint does not update the shared subtree or adopt the
+new cross-program UI contract. Program VERSION remains 0.3.0.
+
+## Accepted canonical state (2026-08-27 baseline)
 - Managed Vulkan presentation adoption is complete for the current source
   boundary:
   - the default `third_party/codework_shared` snapshot contains

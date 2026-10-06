@@ -63,18 +63,18 @@ static bool app_route_preview_sample_path(const AppState *app,
 
     float t = app_route_preview_clampf(sample_time_s, 0.0f, path->total_time_s);
     if (t <= 0.0f) {
-        uint32_t node = path->nodes[0];
+
         *out_segment_index = 0u;
-        *out_world_x = (float)graph->node_x[node];
-        *out_world_y = (float)graph->node_y[node];
+        *out_world_x = (float)route_path_x(graph,path,0u);
+        *out_world_y = (float)route_path_y(graph,path,0u);
         return true;
     }
     if (t >= path->total_time_s) {
         uint32_t last_segment = path->count - 2u;
-        uint32_t node = path->nodes[path->count - 1u];
+
         *out_segment_index = last_segment;
-        *out_world_x = (float)graph->node_x[node];
-        *out_world_y = (float)graph->node_y[node];
+        *out_world_x = (float)route_path_x(graph,path,path->count-1u);
+        *out_world_y = (float)route_path_y(graph,path,path->count-1u);
         return true;
     }
 
@@ -91,12 +91,11 @@ static bool app_route_preview_sample_path(const AppState *app,
     float denom = t1 - t0;
     float alpha = denom > 0.0001f ? (t - t0) / denom : 0.0f;
 
-    uint32_t from = path->nodes[segment];
-    uint32_t to = path->nodes[segment + 1u];
-    float ax = (float)graph->node_x[from];
-    float ay = (float)graph->node_y[from];
-    float bx = (float)graph->node_x[to];
-    float by = (float)graph->node_y[to];
+
+    float ax = (float)route_path_x(graph,path,segment);
+    float ay = (float)route_path_y(graph,path,segment);
+    float bx = (float)route_path_x(graph,path,segment+1u);
+    float by = (float)route_path_y(graph,path,segment+1u);
 
     *out_segment_index = segment;
     *out_world_x = ax + (bx - ax) * alpha;
@@ -255,12 +254,12 @@ void app_route_preview_update_state(AppState *app) {
 
     if (!preview.has_lookahead) {
         const RouteGraph *graph = &app->route_state_bridge.route.graph;
-        uint32_t from = active_path->nodes[preview.segment_index];
-        uint32_t to = active_path->nodes[preview.segment_index + 1u];
-        float from_x = (float)graph->node_x[from];
-        float from_y = (float)graph->node_y[from];
-        float to_x = (float)graph->node_x[to];
-        float to_y = (float)graph->node_y[to];
+
+
+        float from_x = (float)route_path_x(graph,active_path,preview.segment_index);
+        float from_y = (float)route_path_y(graph,active_path,preview.segment_index);
+        float to_x = (float)route_path_x(graph,active_path,preview.segment_index+1u);
+        float to_y = (float)route_path_y(graph,active_path,preview.segment_index+1u);
         preview.lookahead_world_x = to_x;
         preview.lookahead_world_y = to_y;
         preview.heading_rad = app_route_preview_heading_from_delta(to_x - from_x, to_y - from_y);

@@ -182,6 +182,21 @@ static uint32_t app_layer_cache_target(TileLayerKind kind,
     return target;
 }
 
+// Tests source geometry against current coverage across tile levels, retaining parents at zoom boundaries.
+static bool app_presentation_overlaps_visible(const AppState *app, TileCoord source) {
+    TileCoord first = app->tile_state_bridge.visible_top_left;
+    TileCoord last = app->tile_state_bridge.visible_bottom_right;
+    uint16_t visible_z = app->tile_state_bridge.visible_zoom;
+    if (source.z <= visible_z) {
+        unsigned shift = visible_z - source.z;
+        return source.x >= (first.x >> shift) && source.x <= (last.x >> shift) &&
+               source.y >= (first.y >> shift) && source.y <= (last.y >> shift);
+    }
+    unsigned shift = source.z - visible_z;
+    return (source.x >> shift) >= first.x && (source.x >> shift) <= last.x &&
+           (source.y >> shift) >= first.y && (source.y >> shift) <= last.y;
+}
+
 void app_apply_layer_residency_budgets(AppState *app,
                                               TileCoord queue_top_left,
                                               TileCoord queue_bottom_right) {
@@ -201,6 +216,25 @@ void app_apply_layer_residency_budgets(AppState *app,
     uint32_t queue_tile_count = (queue_bottom_right.x - queue_top_left.x + 1u) *
                                 (queue_bottom_right.y - queue_top_left.y + 1u);
 
+    VkTileCache *gpu = &app->tile_state_bridge.vk_tile_cache;
+    for (uint32_t j = 0; j < gpu->capacity; ++j) gpu->entries[j].presentation_pinned = false;
+    for (unsigned k = 0; k < TILE_LAYER_COUNT; ++k) {
+        TileManager *cpu = &app->tile_state_bridge.tile_managers[k];
+        for (uint32_t j = 0; j < cpu->capacity; ++j) cpu->entries[j].presentation_pinned = false;
+        for (uint32_t h = 0; h < APP_TILE_PRESENT_HOLD_CAPACITY; ++h) {
+            TilePresentHoldEntry *hold = &app->tile_state_bridge.present_hold[k][h];
+            if (!hold->occupied || !app_layer_active_runtime(app, (TileLayerKind)k) ||
+                !app_presentation_overlaps_visible(app, hold->draw_coord)) continue;
+            for (uint32_t j = 0; j < cpu->capacity; ++j) {
+                TileEntry *e = &cpu->entries[j];
+                if (e->occupied && e->band == hold->band && e->coord.z == hold->draw_coord.z && e->coord.x == hold->draw_coord.x && e->coord.y == hold->draw_coord.y) e->presentation_pinned = true;
+            }
+            for (uint32_t j = 0; j < gpu->capacity; ++j) {
+                VkTileCacheEntry *e = &gpu->entries[j];
+                if (e->occupied && e->kind == (TileLayerKind)k && e->band == hold->band && e->coord.z == hold->draw_coord.z && e->coord.x == hold->draw_coord.x && e->coord.y == hold->draw_coord.y) e->presentation_pinned = true;
+            }
+        }
+    }
     for (size_t i = 0; i < layer_policy_count(); ++i) {
         const LayerPolicy *policy = layer_policy_at(i);
         if (!policy) {
@@ -237,6 +271,12 @@ void app_apply_layer_residency_budgets(AppState *app,
         trim_policy.preferred_band = band;
 
         uint32_t evicted = tile_manager_trim_to_count(manager, target, &trim_policy);
+        uint64_t byte_limit = (kind == TILE_LAYER_ROAD_ARTERY || kind == TILE_LAYER_ROAD_LOCAL ? 64ull : 32ull) * 1024 * 1024;
+        while (tile_manager_payload_bytes(manager) > byte_limit && tile_manager_count(manager) > 0u) {
+            uint32_t removed = tile_manager_trim_to_count(manager, tile_manager_count(manager) - 1u, &trim_policy);
+            if (!removed) break; /* Active presentation is retained; admission is handled below. */
+            evicted += removed;
+        }
         app->tile_state_bridge.cache_evicted_frame[kind] = evicted;
         app->tile_state_bridge.cache_evicted_total_by_layer[kind] += (uint64_t)evicted;
         app->tile_state_bridge.cache_evicted_frame_total += evicted;

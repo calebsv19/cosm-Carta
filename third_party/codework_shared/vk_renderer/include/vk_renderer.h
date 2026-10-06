@@ -121,6 +121,11 @@ void vk_renderer_draw_line_thick(VkRenderer* renderer,
 void vk_renderer_draw_line_strip(VkRenderer* renderer, const SDL_FPoint* points, uint32_t count);
 void vk_renderer_draw_rect(VkRenderer* renderer, const SDL_Rect* rect);
 void vk_renderer_fill_rect(VkRenderer* renderer, const SDL_Rect* rect);
+// Draws a filtered texture through TL/TR/BR/BL screen corners, supporting rotation.
+VkResult vk_renderer_draw_texture_corners(VkRenderer *renderer, const VkRendererTexture *texture,
+                                         const SDL_FPoint corners[4], const float uv_min[2],
+                                         const float uv_max[2]);
+
 void vk_renderer_draw_texture(VkRenderer* renderer,
                               const VkRendererTexture* texture,
                               const SDL_Rect* src,

@@ -292,3 +292,19 @@ bool region_tile_coverage_has_zoom(const RegionInfo *info,
     const RegionTileCoverageZoom *entry = &info->tile_coverage[band_index][layer_index][zoom];
     return entry->has_tiles && entry->tile_count > 0u;
 }
+
+// Resolves source availability independently of the display zoom's stylistic band thresholds.
+TileZoomBand region_tile_coverage_resolve_band(const RegionInfo *info, TileLayerKind kind,
+                                               TileZoomBand preferred, uint16_t zoom) {
+    if (!info || !info->has_tile_coverage ||
+        region_tile_coverage_has_zoom(info, kind, preferred, zoom)) {
+        return preferred;
+    }
+    const TileZoomBand candidates[] = {TILE_BAND_FINE, TILE_BAND_MID, TILE_BAND_COARSE, TILE_BAND_DEFAULT};
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        if (region_tile_coverage_has_zoom(info, kind, candidates[i], zoom)) {
+            return candidates[i];
+        }
+    }
+    return preferred;
+}

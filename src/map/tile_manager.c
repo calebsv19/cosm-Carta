@@ -70,6 +70,7 @@ bool tile_manager_init_with_source_for_layer(TileManager *manager,
     manager->capacity = capacity;
     manager->count = 0;
     manager->tick = 1;
+    manager->byte_limit = (kind <= TILE_LAYER_ROAD_LOCAL ? 64ull : 32ull) * 1024 * 1024;
     manager->source = *source;
     manager->layer_kind = kind;
     return true;
@@ -132,6 +133,7 @@ static TileEntry *tile_manager_pick_slot(TileManager *manager) {
             empty = entry;
             break;
         }
+        if (entry->presentation_pinned) continue;
         if (!oldest || entry->last_used < oldest->last_used) {
             oldest = entry;
         }
@@ -177,7 +179,7 @@ static TileEntry *tile_manager_pick_trim_candidate(TileManager *manager,
     uint32_t best_score = 0u;
     for (uint32_t i = 0u; i < manager->capacity; ++i) {
         TileEntry *entry = &manager->entries[i];
-        if (!entry->occupied) {
+        if (!entry->occupied || entry->presentation_pinned) {
             continue;
         }
         uint32_t score = tile_manager_entry_policy_score(entry, policy);
@@ -207,32 +209,17 @@ const MftTile *tile_manager_get_tile(TileManager *manager, TileCoord coord, Tile
         return NULL;
     }
 
-    entry = tile_manager_pick_slot(manager);
-    if (!entry) {
-        return NULL;
-    }
-
-    if (entry->occupied) {
-        tile_entry_reset(entry);
-        if (manager->count > 0) {
-            manager->count -= 1;
-        }
-    }
-
     MftTile tile;
     if (!mft_load_tile(path, &tile)) {
         log_error("Failed to load tile: %s", path);
         return NULL;
     }
-
-    entry->coord = coord;
-    entry->band = band;
-    entry->tile = tile;
-    entry->occupied = true;
-    entry->last_used = manager->tick++;
-    manager->count += 1;
-
-    return &entry->tile;
+    if (!tile_manager_put_tile(manager, coord, band, &tile)) {
+        mft_free_tile(&tile);
+        return NULL;
+    }
+    entry = tile_manager_find(manager, coord, band);
+    return entry ? &entry->tile : NULL;
 }
 
 bool tile_manager_put_tile(TileManager *manager, TileCoord coord, TileZoomBand band, MftTile *tile) {
@@ -245,6 +232,18 @@ bool tile_manager_put_tile(TileManager *manager, TileCoord coord, TileZoomBand b
         return false;
     }
 
+    TileEntry incoming_entry = {0};
+    incoming_entry.occupied = true;
+    incoming_entry.tile = *tile;
+    TileManager incoming = {.entries = &incoming_entry, .capacity = 1u};
+    uint64_t bytes = tile_manager_payload_bytes(&incoming) - sizeof(TileEntry);
+    if (manager->byte_limit && bytes > manager->byte_limit) { manager->budget_refusals++; return false; }
+    while (manager->byte_limit && tile_manager_payload_bytes(manager) > manager->byte_limit - bytes) {
+        TileEntry *victim = tile_manager_pick_trim_candidate(manager, NULL);
+        if (!victim) { manager->budget_refusals++; return false; }
+        tile_entry_reset(victim);
+        manager->count--;
+    }
     entry = tile_manager_pick_slot(manager);
     if (!entry) {
         return false;
@@ -318,4 +317,19 @@ uint32_t tile_manager_trim_to_count(TileManager *manager,
         evicted += 1u;
     }
     return evicted;
+}
+
+// Counts decoded allocations, including triangulation and water display variants.
+uint64_t tile_manager_payload_bytes(const TileManager *manager) {
+    if (!manager) return 0;
+    uint64_t bytes = (uint64_t)manager->capacity * sizeof(TileEntry);
+    for (uint32_t i = 0; i < manager->capacity; ++i) {
+        if (!manager->entries[i].occupied) continue;
+        const MftTile *t = &manager->entries[i].tile;
+        bytes += (uint64_t)t->polyline_count * sizeof(MftPolyline) + (uint64_t)t->point_total * 4;
+        bytes += (uint64_t)t->polygon_count * sizeof(MftPolygon) + (uint64_t)t->polygon_ring_total * 4 + (uint64_t)t->polygon_point_total * 4;
+        if (t->polygon_tri_cached) bytes += (uint64_t)t->polygon_ring_total * 8 + (uint64_t)t->polygon_tri_index_total * 4;
+        for (unsigned lod = 0; lod < 3; ++lod) if (t->water_variant_points[lod]) bytes += (uint64_t)t->water_variant_point_total[lod] * 4 + (uint64_t)t->polygon_ring_total * 4;
+    }
+    return bytes;
 }

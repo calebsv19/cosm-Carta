@@ -1,4 +1,9 @@
 #include "app/app_internal.h"
+#include "app/app_place_tools.h"
+#include "app/history_ui.h"
+#include "app/app_region_transition.h"
+#include "app/place_runtime.h"
+#include "app/app_utility_workspace.h"
 #include "app/app_pin_panel_internal.h"
 #include "app/app_persist_state.h"
 #include "app/app_runtime_loop.h"
@@ -49,6 +54,15 @@ static void app_runtime_input_record_event(AppState *app,
             out_raw->other_event_count += 1u;
             break;
     }
+    if (app_region_transition_handle_event(app, event)) return;
+    if (app_place_tools_handle_event(app,event)) return;
+    if (history_ui_modal() && history_ui_event(app,event)) return;
+    if (app_utility_workspace_handle_event(app, event)) {
+        if (app->lifetime.persisted_state_ready) app_save_persisted_view_state(app);
+        return;
+    }
+    if (history_ui_event(app,event)) return;
+    if (app_places_handle_event(app,event)) return;
     map_forge_workspace_authoring_host_set_viewport(
         &app->ui_state_bridge.workspace_authoring,
         app->width > 0 ? (uint32_t)app->width : 0u,
@@ -289,6 +303,7 @@ void app_runtime_process_input_frame(AppState *app,
     }
 
     double frame_begin = time_now_seconds();
+    app->submission_previous_frame_ms = app->frame_timings.frame_ms;
     memset(&app->frame_timings, 0, sizeof(app->frame_timings));
     int wait_timeout_ms = app_runtime_compute_wait_timeout_ms(app, frame_begin);
     app_runtime_input_intake(app, &out_input->raw, wait_timeout_ms);

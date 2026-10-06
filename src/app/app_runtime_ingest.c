@@ -1,8 +1,10 @@
 #include "app/app_internal.h"
 #include "app/app_runtime_ingest_internal.h"
+#include "app/app_region_transition.h"
 
 #include "app/region_loader.h"
 #include "core/log.h"
+#include "map/mercator.h"
 #include "ui/font.h"
 #include "ui/shared_theme_font_adapter.h"
 
@@ -119,27 +121,6 @@ void app_runtime_format_region_package_status(const char *region_name,
              policy ? policy : "unknown",
              degraded,
              contract);
-}
-
-static void app_runtime_set_region_package_invalid_status(AppState *app,
-                                                          const RegionInfo *info,
-                                                          const RegionPackageValidationResult *validation) {
-    const char *region_name = "unknown";
-    const char *summary = "validation_failed";
-    if (!app) {
-        return;
-    }
-    if (info && info->name && info->name[0] != '\0') {
-        region_name = info->name;
-    }
-    if (validation && validation->summary[0] != '\0') {
-        summary = validation->summary;
-    }
-    snprintf(app->ingest_package_status,
-             sizeof(app->ingest_package_status),
-             "region=%s invalid=%s",
-             region_name,
-             summary);
 }
 
 static void app_runtime_clear_import_process_state(AppState *app) {
@@ -420,83 +401,10 @@ static bool app_runtime_resolve_import_tool(const char *tool_name,
     return false;
 }
 
+// Queues a private background stage; active map identity changes only on successful publication.
 static bool app_runtime_open_region_index(AppState *app, int region_index) {
-    if (!app) {
-        return false;
-    }
     const RegionInfo *info = region_get(region_index);
-    RegionPackageValidationResult validation = {0};
-    if (!info) {
-        return false;
-    }
-    if (!region_validate_package(info, &validation)) {
-        log_error("Region package validation failed for '%s': %s",
-                  info->name ? info->name : "unknown",
-                  validation.summary);
-        app_runtime_set_region_package_invalid_status(app, info, &validation);
-        snprintf(app->ingest_status,
-                 sizeof(app->ingest_status),
-                 "Failed to open region package: %s",
-                 app->ingest_package_status);
-        return false;
-    }
-
-    app->region_index = region_index;
-    app->region = *info;
-    if (!region_load_meta(info, &app->region)) {
-        log_error("Failed to load region metadata for '%s' after validation", info->name ? info->name : "unknown");
-        app_runtime_set_ingest_status(app, "region metadata load failed");
-        return false;
-    }
-    region_log_archive_rollup_summary(&app->region, "switch");
-    if (app->region.tiles_dir[0] == '\0') {
-        log_error("Failed to resolve tiles directory for region: %s", app->region.name);
-        return false;
-    }
-    log_info("Region '%s' runtime source policy=%s storage=%s archive=%s",
-             app->region.name ? app->region.name : "unknown",
-             tile_source_policy_mode_label(app->region.tile_source.policy_mode),
-             tile_storage_kind_label(app->region.tile_source.storage_kind),
-             app->region.has_tile_archive ? "yes" : "no");
-    if (validation.archive_storage && validation.archive_fallback_tree) {
-        log_info("Region '%s' runtime source degraded: tree fallback enabled (policy=%s archive_reader_supported=%s)",
-                 app->region.name ? app->region.name : "unknown",
-                 tile_source_policy_mode_label(app->region.tile_source.policy_mode),
-                 validation.archive_reader_supported ? "yes" : "no");
-    }
-    tile_source_runtime_stats_reset();
-    app_worker_contract_bump_world_generation(app);
-    app_worker_contract_bump_tile_generation(app);
-    app_clear_tile_queue(app);
-    tile_loader_shutdown(&app->tile_state_bridge.tile_loader);
-    vk_tile_cache_clear_with_renderer(&app->tile_state_bridge.vk_tile_cache, app->renderer.vk);
-    for (size_t i = 0; i < TILE_LAYER_COUNT; ++i) {
-        tile_manager_shutdown(&app->tile_state_bridge.tile_managers[i]);
-        tile_manager_init_with_source_for_layer(&app->tile_state_bridge.tile_managers[i],
-                                                256,
-                                                &app->region.tile_source,
-                                                (TileLayerKind)i);
-    }
-    tile_loader_init_with_source(&app->tile_state_bridge.tile_loader, &app->region.tile_source);
-    app_tile_viewport_invalidate(app);
-    app->tile_state_bridge.loading_expected = 0;
-    app->tile_state_bridge.loading_done = 0;
-    app->tile_state_bridge.loading_no_data_time = 0.0f;
-    if (!app_load_route_graph(app)) {
-        log_error("Route graph load kickoff failed for region '%s'; skipping route interactions in this region.", app->region.name);
-    }
-    app_playback_reset(app);
-    memset(&app->route_state_bridge.hover_anchor, 0, sizeof(app->route_state_bridge.hover_anchor));
-    memset(&app->route_state_bridge.start_anchor, 0, sizeof(app->route_state_bridge.start_anchor));
-    memset(&app->route_state_bridge.goal_anchor, 0, sizeof(app->route_state_bridge.goal_anchor));
-    app->view_state_bridge.building_zoom_bias = app_building_zoom_bias_for_region(&app->region);
-    app->view_state_bridge.road_zoom_bias = app_road_zoom_bias_for_region(&app->region);
-    app_center_camera_on_region(&app->view_state_bridge.camera, &app->region, app->width, app->height);
-    app_reload_pins_state(app);
-    app_runtime_format_region_package_status(app->region.name, &validation, app->ingest_package_status, sizeof(app->ingest_package_status));
-    snprintf(app->ingest_status, sizeof(app->ingest_status), "Opened region package: %s", app->ingest_package_status);
-    snprintf(app->latest_imported_region, sizeof(app->latest_imported_region), "%s", app->region.name ? app->region.name : "");
-    return true;
+    return info && app_region_transition_start(app, info, region_index);
 }
 
 static bool app_runtime_open_region_by_name(AppState *app, const char *name) {
@@ -520,7 +428,6 @@ bool app_ingest_open_selected_active_region(AppState *app) {
         return false;
     }
     if (!app_runtime_open_region_by_name(app, region_name)) {
-        app_runtime_set_ingest_status(app, "Failed to open selected region");
         return false;
     }
     snprintf(app->latest_imported_region, sizeof(app->latest_imported_region), "%s", region_name);
@@ -625,6 +532,7 @@ void app_runtime_ingest_shutdown(AppState *app) {
     if (!app) {
         return;
     }
+    app_region_transition_shutdown(app);
     if (!app->ingest_import_running) {
         app_runtime_clear_import_process_state(app);
         return;
@@ -650,6 +558,7 @@ bool app_ingest_import_selected_osm(AppState *app, bool import_all) {
     if (!app || app->input_root[0] == '\0') {
         return false;
     }
+    app_region_transition_tick(app);
     app_runtime_poll_import_process(app);
     if (app->ingest_import_running) {
         app_runtime_set_ingest_status(app, "Import already running");
@@ -736,7 +645,7 @@ bool app_ingest_import_selected_osm(AppState *app, bool import_all) {
         if (!app_runtime_cmd_append(cmd,
                                     sizeof(cmd),
                                     &cmd_offset,
-                                    "%s --replace --region %s --osm %s --out %s --min-z 10 --max-z 18 >/tmp/mapforge_region_import.log 2>&1",
+                                    "%s --region %s --osm %s --out %s --min-z 10 --max-z 15 --archive-only --max-archive-mib 128 >/tmp/mapforge_region_import.log 2>&1",
                                     q_region_tool,
                                     q_region,
                                     q_osm,
@@ -958,6 +867,7 @@ bool app_runtime_ingest_tick(AppState *app) {
     if (!app) {
         return false;
     }
+    app_region_transition_tick(app);
     app_runtime_poll_import_process(app);
     return app_runtime_handle_ingest_controls(app);
 }
@@ -976,6 +886,5 @@ bool app_runtime_cycle_next_region(AppState *app) {
         log_error("No switchable regions found under '%s'", region_data_root());
         return false;
     }
-    (void)app_runtime_open_region_index(app, next_index);
-    return true;
+    return app_runtime_open_region_index(app, next_index);
 }

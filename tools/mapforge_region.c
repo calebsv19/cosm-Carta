@@ -5,6 +5,7 @@ static void build_context_free(BuildContext *ctx) {
         return;
     }
 
+    mapforge_region_archive_abort_direct(ctx);
     for (size_t i = 0; i < ctx->tile_count; ++i) {
         TileOutput *tile = &ctx->tiles[i];
         for (uint32_t p = 0; p < tile->polyline_count; ++p) {
@@ -22,7 +23,7 @@ static void build_context_free(BuildContext *ctx) {
 }
 
 static void usage(void) {
-    printf("mapforge_region --region <name> --osm <file.osm|file.osm.xml|file.osm.pbf|file.pbf> [--dem <file.dem>] --out <dir> [--min-z N] [--max-z N] [--replace] [--keep-old N] [--prune-days N] [--prune-dry-run] [--pad-bounds] [--emit-contour-empty] [--emit-legacy-tiles] [--emit-archive] [--archive-path <relpath>]\n");
+    printf("mapforge_region --region <name> --osm <file.osm|file.osm.xml|file.osm.pbf|file.pbf> [--dem <file.dem>] --out <dir> [--min-z N] [--max-z N] [--replace] [--keep-old N] [--prune-days N] [--prune-dry-run] [--pad-bounds] [--emit-contour-empty] [--emit-legacy-tiles] [--emit-archive] [--archive-only] [--max-archive-mib N] [--archive-path <relpath>]\n");
 }
 
 static bool parse_args(int argc, char **argv, BuildOptions *options) {
@@ -69,6 +70,13 @@ static bool parse_args(int argc, char **argv, BuildOptions *options) {
             options->emit_legacy_tiles = false;
         } else if (strcmp(argv[i], "--emit-archive") == 0) {
             options->emit_archive = true;
+        } else if (strcmp(argv[i], "--archive-only") == 0) {
+            options->archive_only = true;
+            options->emit_archive = true;
+        } else if (strcmp(argv[i], "--max-archive-mib") == 0 && i + 1 < argc) {
+            char *end = NULL; unsigned long long amount = strtoull(argv[++i], &end, 10);
+            if (!end || *end || amount == 0u || amount > 1048576u) return false;
+            options->archive_budget_bytes = amount * 1024u * 1024u;
         } else if (strcmp(argv[i], "--archive-path") == 0 && i + 1 < argc) {
             options->archive_path = argv[++i];
             options->emit_archive = true;
@@ -79,6 +87,14 @@ static bool parse_args(int argc, char **argv, BuildOptions *options) {
 
     if (!options->region || !options->osm_path || !options->out_dir) {
         return false;
+    }
+    if (options->archive_only) options->emit_legacy_tiles = false;
+    if (options->archive_only && options->emit_contour_empty) {
+        log_error("Archive-only packs cannot claim empty contour data; omit --emit-contour-empty.");
+        return false;
+    }
+    if (options->max_z < options->min_z || options->max_z > 18u) {
+        log_error("Select a valid bounded zoom range up to 18."); return false;
     }
     if (options->emit_archive && !mapforge_region_archive_rel_path_valid(options->archive_path)) {
         log_error("--archive-path must be a region-local relative path (no leading '/' and no '..'): %s",
@@ -155,9 +171,17 @@ int main(int argc, char **argv) {
 
     mapforge_region_sort_tiles(&ctx);
 
+    if (options.archive_only && !mapforge_region_archive_begin_direct(&options, &ctx)) {
+        build_context_free(&ctx);
+        mapforge_region_remove_tree(stage_dir);
+        return 1;
+    }
     for (size_t i = 0; i < ctx.tile_count; ++i) {
         if (!mapforge_region_write_tile_file(&options, &ctx, &ctx.tiles[i])) {
-            log_error("Failed to write tile %u/%u/%u", ctx.tiles[i].coord.z, ctx.tiles[i].coord.x, ctx.tiles[i].coord.y);
+            log_error("Failed to write tile %u/%u/%u; active region preserved", ctx.tiles[i].coord.z, ctx.tiles[i].coord.x, ctx.tiles[i].coord.y);
+            build_context_free(&ctx);
+            mapforge_region_remove_tree(stage_dir);
+            return 1;
         }
     }
     if (!mapforge_region_write_tile_archive_sqlite(&options, &ctx)) {

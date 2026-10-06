@@ -37,15 +37,18 @@ static void polygon_ring_reverse(uint16_t *points, uint32_t count) {
     }
 }
 
-bool polygon_cache_build_with_stats(MftTile *tile, PolygonCacheBuildStats *out_stats) {
+bool polygon_cache_build_cancelable(MftTile *tile, uint32_t max_points, PolygonCacheBuildStats *out_stats,
+                                    PolygonTriangulationCancelFn canceled, void *context) {
     PolygonCacheBuildStats stats = {0};
+    if (canceled && canceled(context)) return false;
     if (!tile || tile->polygon_ring_total == 0u) {
         if (out_stats) {
             *out_stats = stats;
         }
         return false;
     }
-    if (tile->polygon_tri_cached) {
+    if (max_points > 32768u) max_points = 32768u;
+    if (tile->polygon_tri_cached && tile->polygon_tri_cache_max_points >= max_points) {
         if (out_stats) {
             *out_stats = stats;
         }
@@ -60,6 +63,12 @@ bool polygon_cache_build_with_stats(MftTile *tile, PolygonCacheBuildStats *out_s
         return false;
     }
 
+    free(tile->polygon_tri_ring_offsets);
+    free(tile->polygon_tri_ring_counts);
+    free(tile->polygon_tri_indices);
+    tile->polygon_tri_indices = NULL;
+    tile->polygon_tri_index_total = 0;
+    tile->polygon_tri_cached = false;
     tile->polygon_tri_ring_offsets = (uint32_t *)calloc(tile->polygon_ring_total, sizeof(uint32_t));
     tile->polygon_tri_ring_counts = (uint32_t *)calloc(tile->polygon_ring_total, sizeof(uint32_t));
     if (!tile->polygon_tri_ring_offsets || !tile->polygon_tri_ring_counts) {
@@ -74,6 +83,7 @@ bool polygon_cache_build_with_stats(MftTile *tile, PolygonCacheBuildStats *out_s
     uint32_t *indices = NULL;
 
     for (uint32_t i = 0u; i < tile->polygon_count; ++i) {
+        if (canceled && canceled(context)) { free(indices); return false; }
         const MftPolygon *polygon = &tile->polygons[i];
         uint64_t ring_end = (uint64_t)polygon->ring_offset + (uint64_t)polygon->ring_count;
         if (polygon->ring_offset >= tile->polygon_ring_total ||
@@ -126,13 +136,13 @@ bool polygon_cache_build_with_stats(MftTile *tile, PolygonCacheBuildStats *out_s
                 stats.ring_winding_normalized += 1u;
             }
 
-            if (safe_ring_count <= POLYGON_CACHE_MAX_FILL_POINTS) {
+            if (safe_ring_count <= max_points) {
                 uint32_t max_indices = (safe_ring_count - 2u) * 3u;
                 int *ring_indices = (int *)malloc(sizeof(int) * max_indices);
                 if (ring_indices) {
                     int ring_index_count = 0;
-                    if (polygon_triangulate(ring_points, safe_ring_count, POLYGON_TRIANGULATION_EAR_CLIP,
-                            ring_indices, &ring_index_count, (int)max_indices)) {
+                    if (polygon_triangulate_cancelable(ring_points, safe_ring_count, POLYGON_TRIANGULATION_EAR_CLIP,
+                            ring_indices, &ring_index_count, (int)max_indices, canceled, context)) {
                         uint32_t needed = indices_count + (uint32_t)ring_index_count;
                         if (needed > indices_capacity) {
                             uint32_t next_capacity = indices_capacity == 0u ? needed : indices_capacity;
@@ -154,6 +164,7 @@ bool polygon_cache_build_with_stats(MftTile *tile, PolygonCacheBuildStats *out_s
                         }
                     }
                     free(ring_indices);
+                    if (canceled && canceled(context)) { free(indices); return false; }
                 }
             }
 
@@ -169,10 +180,21 @@ bool polygon_cache_build_with_stats(MftTile *tile, PolygonCacheBuildStats *out_s
     tile->polygon_tri_indices = indices;
     tile->polygon_tri_index_total = indices_count;
     tile->polygon_tri_cached = true;
+    tile->polygon_tri_cache_max_points = max_points;
     if (out_stats) {
         *out_stats = stats;
     }
     return true;
+}
+
+// Uses exact off-thread cache geometry without cancellation when the caller is synchronous.
+bool polygon_cache_build_with_limit(MftTile *tile, uint32_t max_points, PolygonCacheBuildStats *stats) {
+    return polygon_cache_build_cancelable(tile,max_points,stats,NULL,NULL);
+}
+
+// Keeps the original bounded cache contract for ordinary SDL polygon preparation.
+bool polygon_cache_build_with_stats(MftTile *tile, PolygonCacheBuildStats *stats) {
+    return polygon_cache_build_with_limit(tile, POLYGON_CACHE_MAX_FILL_POINTS, stats);
 }
 
 bool polygon_cache_build(MftTile *tile) {

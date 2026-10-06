@@ -1,4 +1,7 @@
 #include "app/app_persist_state.h"
+#include "app/app_utility_workspace.h"
+#include "app/terrain.h"
+#include "core_io.h"
 
 #include "core/log.h"
 #include "ui/shared_theme_font_adapter.h"
@@ -235,6 +238,19 @@ void app_load_persisted_view_state(AppState *app) {
         return;
     }
 
+    int workspace = 0;
+    int overview_style;
+    if (app_json_get_int(root,"terrain_style", &overview_style)) terrain_set_style(overview_style);
+    (void)app_json_get_string(root, "history_selected_id", app->ui_state_bridge.history_selected_id, sizeof(app->ui_state_bridge.history_selected_id));
+    int history_filter=0;
+    if(app_json_get_int(root,"history_filter",&history_filter) && history_filter>=0 && history_filter<7)
+        app->ui_state_bridge.history_filter=history_filter;
+    (void)app_json_get_string(root,"history_collection_id",app->ui_state_bridge.history_collection_id,sizeof(app->ui_state_bridge.history_collection_id));
+    history_views_load(app,root);
+    struct json_object *history_pref=NULL;
+    if(json_object_object_get_ex(root,"history_selected_only",&history_pref))app->ui_state_bridge.history_selected_only=json_object_get_boolean(history_pref);
+    if(json_object_object_get_ex(root,"history_hide_geographic_labels",&history_pref))app->ui_state_bridge.history_hide_geographic_labels=json_object_get_boolean(history_pref);
+    if (app_json_get_int(root, "utility_workspace", &workspace) && workspace >= 0 && workspace <= 3) app_utility_workspace_select(app, (uint32_t)workspace);
     struct json_object *view = NULL;
     if (!json_object_object_get_ex(root, "map_view", &view) ||
         !view || !json_object_is_type(view, json_type_object)) {
@@ -335,6 +351,14 @@ void app_save_persisted_view_state(const AppState *app) {
         return;
     }
 
+    json_object_object_add(root, "terrain_style", json_object_new_int(terrain_style()));
+    json_object_object_add(root, "history_selected_id", json_object_new_string(app->ui_state_bridge.history_selected_id));
+    history_views_save(app,root);
+    json_object_object_add(root,"history_filter",json_object_new_int(app->ui_state_bridge.history_filter));
+    json_object_object_add(root,"history_collection_id",json_object_new_string(app->ui_state_bridge.history_collection_id));
+    json_object_object_add(root,"history_selected_only",json_object_new_boolean(app->ui_state_bridge.history_selected_only));
+    json_object_object_add(root,"history_hide_geographic_labels",json_object_new_boolean(app->ui_state_bridge.history_hide_geographic_labels));
+    json_object_object_add(root, "utility_workspace", json_object_new_int((int)app->ui_state_bridge.utility_workspace));
     struct json_object *view = json_object_new_object();
     if (!view) {
         json_object_put(root);
@@ -383,7 +407,8 @@ void app_save_persisted_view_state(const AppState *app) {
         json_object_put(root);
         return;
     }
-    if (json_object_to_file_ext(runtime_path, root, JSON_C_TO_STRING_PRETTY) != 0) {
+    const char *text = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY);
+    if (core_io_write_all_atomic(runtime_path, text, strlen(text)).code != CORE_OK) {
         log_error("Failed to persist map view state to %s", runtime_path);
     }
     json_object_put(root);

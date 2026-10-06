@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_utility_workspace.h"
 #include "app/app_ui_internal.h"
 
 #include "ui/font.h"
@@ -16,7 +17,7 @@ static SDL_FRect app_header_button_rect(const AppState *app) {
     float width = 140.0f;
     float height = 22.0f;
     float pad = 8.0f;
-    SDL_FRect rect = {pad, (APP_HEADER_HEIGHT - height) * 0.5f, width, height};
+    SDL_FRect rect = {pad, (APP_CONTROL_HEADER_HEIGHT - height) * 0.5f, width, height};
     (void)app;
     return rect;
 }
@@ -55,7 +56,7 @@ MapForgeThemePalette app_ui_theme_palette(void) {
 }
 
 bool app_header_button_hit(const AppState *app, int x, int y) {
-    if (!app) {
+    if (!app || app->ui_state_bridge.utility_workspace==APP_UTILITY_HIKING_HISTORY) {
         return false;
     }
     if (y < 0 || y > (int)APP_HEADER_HEIGHT) {
@@ -393,6 +394,20 @@ void app_draw_header_bar(AppState *app) {
     renderer_set_draw_color(&app->renderer, palette.header_fill.r, palette.header_fill.g, palette.header_fill.b, palette.header_fill.a);
     SDL_FRect bar = {0.0f, 0.0f, (float)app->width, APP_HEADER_HEIGHT};
     renderer_fill_rect(&app->renderer, &bar);
+    app_utility_workspace_draw(app);
+    if (app->ui_state_bridge.utility_workspace == APP_UTILITY_HIKING_HISTORY) {
+        memset(&app->ui_state_bridge.header_layer_strip_rect,0,sizeof(SDL_FRect));
+        memset(app->ui_state_bridge.header_layer_row_rects,0,sizeof(app->ui_state_bridge.header_layer_row_rects));
+        memset(app->ui_state_bridge.header_layer_label_rects,0,sizeof(app->ui_state_bridge.header_layer_label_rects));
+        memset(app->ui_state_bridge.header_layer_toggle_rects,0,sizeof(app->ui_state_bridge.header_layer_toggle_rects));
+        app->ui_state_bridge.header_layer_selected_valid=false;
+        app->ui_state_bridge.header_layer_opacity_dragging=false;
+        app->ui_state_bridge.header_layer_fade_drag_target=0;
+        ui_draw_text_clipped(&app->renderer, 12, 8, "Carta  /  Hiking library", palette.text_primary, .9f, 300);
+        if (app->width > 680) ui_draw_text_clipped(&app->renderer, 335, 10,
+            "Drag to pan   ·   Scroll to zoom   ·   Select a hike to fit", palette.text_muted, .72f, app->width-350);
+        return;
+    }
 
     SDL_FRect button = app_header_button_rect(app);
     renderer_set_draw_color(&app->renderer, palette.button_outline.r, palette.button_outline.g, palette.button_outline.b, palette.button_outline.a);
@@ -480,7 +495,7 @@ void app_draw_header_bar(AppState *app) {
     int zoom_w = ui_measure_text_width(zoom_text, 1.0f);
     int heading_w = ui_measure_text_width(heading_text, 1.0f);
     float box_h = (float)text_h + pad_y * 2.0f;
-    float box_y = (APP_HEADER_HEIGHT - box_h) * 0.5f;
+    float box_y = (APP_CONTROL_HEADER_HEIGHT - box_h) * 0.5f;
     float speed_box_w = (float)speed_w + pad_x * 2.0f;
     SDL_FRect speed_box = {cursor_x, box_y, speed_box_w, box_h};
     renderer_set_draw_color(&app->renderer, badge_fill.r, badge_fill.g, badge_fill.b, badge_fill.a);
@@ -735,6 +750,7 @@ static bool app_point_in_rect(int x, int y, const SDL_FRect *rect) {
 
 
 bool app_header_layer_scroll_update(AppState *app) {
+    if(app && app->ui_state_bridge.utility_workspace==APP_UTILITY_HIKING_HISTORY)return false;
     if (!app || app->ui_state_bridge.input.mouse_wheel_y == 0) {
         return false;
     }
@@ -766,6 +782,7 @@ bool app_header_layer_scroll_update(AppState *app) {
 }
 
 bool app_header_layer_toggle_click(AppState *app, int x, int y) {
+    if(app && app->ui_state_bridge.utility_workspace==APP_UTILITY_HIKING_HISTORY)return false;
     if (!app) {
         return false;
     }
@@ -862,6 +879,7 @@ static void app_header_layer_fade_set_from_mouse(AppState *app, int mouse_x, int
 }
 
 bool app_header_layer_slider_update(AppState *app) {
+    if(app && app->ui_state_bridge.utility_workspace==APP_UTILITY_HIKING_HISTORY)return false;
     if (!app || !app->ui_state_bridge.header_layer_selected_valid) {
         return false;
     }

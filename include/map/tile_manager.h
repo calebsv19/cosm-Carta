@@ -14,6 +14,7 @@ typedef struct TileEntry {
     TileZoomBand band;
     MftTile tile;
     bool occupied;
+    bool presentation_pinned;
     uint64_t last_used;
 } TileEntry;
 
@@ -23,6 +24,8 @@ typedef struct TileManager {
     uint32_t capacity;
     uint32_t count;
     uint64_t tick;
+    uint64_t byte_limit;
+    uint32_t budget_refusals;
     TileSourceConfig source;
     TileLayerKind layer_kind;
 } TileManager;
@@ -62,6 +65,9 @@ const MftTile *tile_manager_peek_tile(const TileManager *manager, TileCoord coor
 
 // Inserts a loaded tile into the cache (takes ownership of *tile).
 bool tile_manager_put_tile(TileManager *manager, TileCoord coord, TileZoomBand band, MftTile *tile);
+
+// Returns decoded array payload bytes for cache accounting.
+uint64_t tile_manager_payload_bytes(const TileManager *manager);
 
 // Returns number of cached tiles.
 uint32_t tile_manager_count(const TileManager *manager);

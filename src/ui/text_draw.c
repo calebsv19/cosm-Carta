@@ -40,106 +40,39 @@ static int map_forge_text_measure_with_ttf(TTF_Font *font,
 }
 
 #if defined(MAPFORGE_HAVE_VK)
-static float map_forge_text_vulkan_raster_scale(Renderer *renderer) {
-    const VkRenderer *vk = NULL;
-    float logical_w = 0.0f;
-    float logical_h = 0.0f;
-    float scale_x = 1.0f;
-    float scale_y = 1.0f;
-    float raster_scale = 1.0f;
-
-    if (!renderer || renderer->backend != RENDERER_BACKEND_VULKAN || !renderer->vk) {
-        return 1.0f;
-    }
-    vk = (const VkRenderer *)renderer->vk;
-    logical_w = vk->draw_state.logical_size[0];
-    logical_h = vk->draw_state.logical_size[1];
-    if (logical_w > 0.0f) {
-        scale_x = (float)vk->context.swapchain.extent.width / logical_w;
-    }
-    if (logical_h > 0.0f) {
-        scale_y = (float)vk->context.swapchain.extent.height / logical_h;
-    }
-    raster_scale = (scale_x > scale_y) ? scale_x : scale_y;
-    if (!isfinite(raster_scale) || raster_scale < 1.0f) {
-        raster_scale = 1.0f;
-    }
-    if (raster_scale > 4.0f) {
-        raster_scale = 4.0f;
-    }
-    return raster_scale;
-}
-
-static VkFilter map_forge_text_upload_filter(float raster_scale) {
-    if (isfinite(raster_scale) && raster_scale > 1.0f) {
-        return VK_FILTER_NEAREST;
-    }
-    return VK_FILTER_LINEAR;
-}
-
+// Reuses the shared bounded text cache while preserving and intersecting the caller's crop.
 static int map_forge_text_draw_utf8_clipped_vulkan(Renderer *renderer,
                                                    TTF_Font *font,
                                                    const char *text,
                                                    SDL_Color color,
                                                    SDL_Rect *io_dst,
                                                    int max_width) {
-    SDL_Surface *surface = NULL;
-    VkRendererTexture texture = {0};
-    SDL_Rect src = {0};
-    SDL_Rect dst = {0};
-    int logical_w = 0;
-    int logical_h = 0;
-    float raster_scale = 1.0f;
-
-    if (!renderer || !renderer->vk || !font || !text || !text[0] || !io_dst || max_width <= 0) {
-        return 0;
-    }
-
-    raster_scale = map_forge_text_vulkan_raster_scale(renderer);
-    surface = TTF_RenderUTF8_Blended(font, text, color);
-    if (!surface) {
-        return 0;
-    }
-
-    if (!map_forge_text_measure_with_ttf(font, text, &logical_w, &logical_h)) {
-        logical_w = surface->w;
-        logical_h = surface->h;
-    }
-    dst = *io_dst;
-    if (dst.w <= 0) {
-        dst.w = logical_w;
-    }
-    if (dst.h <= 0) {
-        dst.h = logical_h;
-    }
-    if (dst.w > max_width) {
-        dst.w = max_width;
-    }
-
-    src.x = 0;
-    src.y = 0;
-    src.w = surface->w;
-    src.h = surface->h;
-    if (logical_w > 0 && dst.w < logical_w) {
-        src.w = (int)lroundf((float)surface->w * ((float)dst.w / (float)logical_w));
-        if (src.w < 1) {
-            src.w = 1;
+    if (!renderer || !renderer->vk || !font || !text || !text[0] || !io_dst || max_width <= 0) return 0;
+    VkRenderer *vk = (VkRenderer *)renderer->vk;
+    SDL_Rect dst = *io_dst, clip, previous = {0};
+    int natural_w = 0, natural_h = 0;
+    if ((dst.w <= 0 || dst.h <= 0) &&
+        !kit_render_external_text_measure_utf8((SDL_Renderer *)vk, font, text, &natural_w, &natural_h)) return 0;
+    if (dst.w <= 0) dst.w = natural_w;
+    if (dst.h <= 0) dst.h = natural_h;
+    clip = dst;
+    if (clip.w > max_width) clip.w = max_width;
+    SDL_Rect visible = clip;
+    SDL_bool clipped = vk_renderer_is_clip_enabled(vk);
+    if (clipped) {
+        vk_renderer_get_clip_rect(vk, &previous);
+        if (!SDL_IntersectRect(&previous, &clip, &clip)) {
+            *io_dst = visible;
+            return 1;
         }
     }
-
-    if (vk_renderer_upload_sdl_surface_with_filter((VkRenderer *)renderer->vk,
-                                                   surface,
-                                                   &texture,
-                                                   map_forge_text_upload_filter(raster_scale)) != VK_SUCCESS) {
-        SDL_FreeSurface(surface);
-        return 0;
-    }
-    vk_renderer_draw_texture((VkRenderer *)renderer->vk, &texture, &src, &dst);
-    vk_renderer_queue_texture_destroy((VkRenderer *)renderer->vk, &texture);
-    SDL_FreeSurface(surface);
-    *io_dst = dst;
-    return 1;
+    vk_renderer_set_clip_rect(vk, &clip);
+    int ok = kit_render_external_text_draw_utf8((SDL_Renderer *)vk, font, text, color, &dst);
+    vk_renderer_set_clip_rect(vk, clipped ? &previous : NULL);
+    if (ok) *io_dst = visible;
+    return ok;
 }
+
 #endif
 
 static int map_forge_text_draw_utf8_sdl(Renderer *renderer,
@@ -216,6 +149,8 @@ void map_forge_text_unregister_font_source(TTF_Font *font) {
 void map_forge_text_reset_renderer(Renderer *renderer) {
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer && renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+        /* Retire cached descriptors only after submitted text draws complete. */
+        vk_renderer_wait_idle((VkRenderer *)renderer->vk);
         kit_render_external_text_reset_renderer((SDL_Renderer *)renderer->vk);
     }
 #else
@@ -265,8 +200,7 @@ int map_forge_text_draw_utf8_clipped(Renderer *renderer,
                                      SDL_Color color,
                                      SDL_Rect *io_dst,
                                      int max_width) {
-    /* Clipped draw stays local for now because the shared external text
-       runtime does not expose host-specific source-rect crop semantics. */
+    /* App-owned crop semantics wrap the existing shared cached text draw. */
     if (max_width <= 0) {
         return 0;
     }

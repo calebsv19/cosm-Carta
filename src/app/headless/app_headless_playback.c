@@ -92,18 +92,18 @@ static bool map_forge_headless_playback_sample_path(const RouteGraph *graph,
 
     route_time_s = map_forge_headless_playback_clampf(route_time_s, 0.0f, path->total_time_s);
     if (route_time_s <= 0.0f) {
-        uint32_t node = path->nodes[0];
+
         *out_segment_index = 0u;
-        *out_world_x = graph->node_x[node];
-        *out_world_y = graph->node_y[node];
+        *out_world_x = route_path_x(graph,path,0u);
+        *out_world_y = route_path_y(graph,path,0u);
         return true;
     }
     if (route_time_s >= path->total_time_s) {
         uint32_t last_segment = path->count - 2u;
-        uint32_t node = path->nodes[path->count - 1u];
+
         *out_segment_index = last_segment;
-        *out_world_x = graph->node_x[node];
-        *out_world_y = graph->node_y[node];
+        *out_world_x = route_path_x(graph,path,path->count-1u);
+        *out_world_y = route_path_y(graph,path,path->count-1u);
         return true;
     }
 
@@ -121,12 +121,11 @@ static bool map_forge_headless_playback_sample_path(const RouteGraph *graph,
         float denom = t1 - t0;
         float alpha = denom > 0.0001f ? (route_time_s - t0) / denom : 0.0f;
 
-        uint32_t from = path->nodes[segment];
-        uint32_t to = path->nodes[segment + 1u];
-        double ax = graph->node_x[from];
-        double ay = graph->node_y[from];
-        double bx = graph->node_x[to];
-        double by = graph->node_y[to];
+
+        double ax = route_path_x(graph,path,segment);
+        double ay = route_path_y(graph,path,segment);
+        double bx = route_path_x(graph,path,segment+1u);
+        double by = route_path_y(graph,path,segment+1u);
 
         *out_segment_index = segment;
         *out_world_x = ax + (bx - ax) * (double)alpha;
@@ -299,12 +298,12 @@ bool map_forge_headless_playback_sample(const RouteGraph *graph,
             double dy = sample.lookahead_world_y - sample.world_y;
             sample.heading_rad = map_forge_headless_playback_heading_from_delta((float)dx, (float)dy);
         } else if (!sample.has_lookahead) {
-            uint32_t from = path->nodes[sample.segment_index];
-            uint32_t to = path->nodes[sample.segment_index + 1u];
-            double from_x = graph->node_x[from];
-            double from_y = graph->node_y[from];
-            double to_x = graph->node_x[to];
-            double to_y = graph->node_y[to];
+
+
+            double from_x = route_path_x(graph,path,sample.segment_index);
+            double from_y = route_path_y(graph,path,sample.segment_index);
+            double to_x = route_path_x(graph,path,sample.segment_index+1u);
+            double to_y = route_path_y(graph,path,sample.segment_index+1u);
             sample.lookahead_world_x = to_x;
             sample.lookahead_world_y = to_y;
             sample.heading_rad =

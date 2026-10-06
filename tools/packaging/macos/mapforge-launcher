@@ -20,6 +20,21 @@ if [ "$PACKAGE_PROFILE" = "main-edit" ]; then
 fi
 APP_SUPPORT_DIR_DEFAULT="${HOME}/Library/Application Support/${RUNTIME_NAMESPACE}"
 APP_SUPPORT_DIR="${MAPFORGE_APP_SUPPORT_DIR:-$APP_SUPPORT_DIR_DEFAULT}"
+# Reads literal development view settings without evaluating shell expressions.
+USER_SETTINGS_FILE="$APP_SUPPORT_DIR/config/user.env"
+if [ "$PACKAGE_PROFILE" = "main-edit" ] && [ -f "$USER_SETTINGS_FILE" ]; then
+    while IFS= read -r setting || [ -n "$setting" ]; do
+        case "$setting" in
+            MAPFORGE_REGIONS_DIR=*|MAPFORGE_START_REGION=*|MAPFORGE_FOCUS_PLACE_ID=*)
+                setting_key=${setting%%=*}
+                if ! printenv "$setting_key" >/dev/null 2>&1; then
+                    export "$setting"
+                fi
+                ;;
+        esac
+    done < "$USER_SETTINGS_FILE"
+fi
+
 APP_SUPPORT_REGIONS_DIR_DEFAULT="$APP_SUPPORT_DIR/regions"
 RUNTIME_DIR_DEFAULT="$APP_SUPPORT_DIR/runtime"
 THEME_PERSIST_PATH_DEFAULT="$APP_SUPPORT_DIR/config/theme_preset.txt"
@@ -40,7 +55,13 @@ has_region_packs() {
     if [ -z "$region_root" ] || [ ! -d "$region_root" ]; then
         return 1
     fi
-    "$FIND_BIN" "$region_root" -mindepth 2 -maxdepth 2 -type d -name tiles 2>/dev/null | "$GREP_BIN" -q .
+    # Check only pack roots; recursive discovery can enumerate huge legacy tile trees.
+    for region_pack in "$region_root"/*; do
+        if [ -d "$region_pack/tiles" ] || [ -f "$region_pack/tiles.mbtiles" ]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 select_regions_dir() {
@@ -49,13 +70,12 @@ select_regions_dir() {
     fallback_from_user_name=""
     explicit_regions="${MAPFORGE_REGIONS_DIR:-}"
 
-    if [ -n "$explicit_regions" ]; then
-        if has_region_packs "$explicit_regions"; then
-            selected_regions_reason="explicit-env-with-packs"
-            printf '%s|%s\n' "$explicit_regions" "$selected_regions_reason"
-            return 0
-        fi
-        selected_regions_reason="explicit-env-missing-packs"
+    # Explicit operator roots are validated by the native catalog after window creation.
+    # Avoid directory enumeration in the shell before the app can service OS access prompts.
+    if [ -n "$explicit_regions" ] && [ -d "$explicit_regions" ]; then
+        selected_regions_reason="explicit-env-directory"
+        printf '%s|%s\n' "$explicit_regions" "$selected_regions_reason"
+        return 0
     fi
 
     if has_region_packs "$APP_BUNDLE_REGIONS_DIR"; then

@@ -20,7 +20,7 @@ cp "$REPO_DIR/data/pins/examples/demo.seattle.pins.json" "$RUNTIME_DIR/pins/seat
 
 MAPFORGE_BINARY="$BINARY" \
 MAPFORGE_RUNTIME_DIR="$RUNTIME_DIR" \
-MAPFORGE_REGIONS_DIR="$REPO_DIR/data/regions" \
+MAPFORGE_REGIONS_DIR="${MAPFORGE_REGIONS_DIR:-$REPO_DIR/data/regions}" \
 /bin/sh "$HELPER" \
     --region seattle \
     --from-pin demo_start \
@@ -61,7 +61,7 @@ FAIL_STDOUT="$TMP_DIR/fail_stdout.txt"
 FAIL_STDERR="$TMP_DIR/fail_stderr.txt"
 if MAPFORGE_BINARY="$BINARY" \
     MAPFORGE_RUNTIME_DIR="$RUNTIME_DIR" \
-    MAPFORGE_REGIONS_DIR="$REPO_DIR/data/regions" \
+    MAPFORGE_REGIONS_DIR="${MAPFORGE_REGIONS_DIR:-$REPO_DIR/data/regions}" \
     /bin/sh "$HELPER" \
         --region missing_wrapper_region \
         --from-pin demo_start \
@@ -93,7 +93,7 @@ ESCAPE_FROM='bad"pin'
 ESCAPE_TO='goal\pin'
 if MAPFORGE_BINARY="$BINARY" \
     MAPFORGE_RUNTIME_DIR="$RUNTIME_DIR" \
-    MAPFORGE_REGIONS_DIR="$REPO_DIR/data/regions" \
+    MAPFORGE_REGIONS_DIR="${MAPFORGE_REGIONS_DIR:-$REPO_DIR/data/regions}" \
     /bin/sh "$HELPER" \
         --region seattle \
         --from-pin "$ESCAPE_FROM" \
@@ -128,7 +128,7 @@ BAD_PATH_STDOUT="$TMP_DIR/bad_path_stdout.txt"
 BAD_PATH_STDERR="$TMP_DIR/bad_path_stderr.txt"
 if MAPFORGE_BINARY="$BINARY" \
     MAPFORGE_RUNTIME_DIR="$RUNTIME_DIR" \
-    MAPFORGE_REGIONS_DIR="$REPO_DIR/data/regions" \
+    MAPFORGE_REGIONS_DIR="${MAPFORGE_REGIONS_DIR:-$REPO_DIR/data/regions}" \
     /bin/sh "$HELPER" \
         --region seattle \
         --from-pin demo_start \
@@ -148,7 +148,7 @@ BAD_BINARY_STDOUT="$TMP_DIR/bad_binary_stdout.txt"
 BAD_BINARY_STDERR="$TMP_DIR/bad_binary_stderr.txt"
 if MAPFORGE_BINARY="$TMP_DIR/missing_mapforge_binary" \
     MAPFORGE_RUNTIME_DIR="$RUNTIME_DIR" \
-    MAPFORGE_REGIONS_DIR="$REPO_DIR/data/regions" \
+    MAPFORGE_REGIONS_DIR="${MAPFORGE_REGIONS_DIR:-$REPO_DIR/data/regions}" \
     /bin/sh "$HELPER" \
         --region seattle \
         --from-pin demo_start \

@@ -126,6 +126,10 @@ typedef struct BuildContext {
     uint64_t band_coarse_files;
     uint64_t band_mid_files;
     uint64_t band_fine_files;
+    bool archive_only;
+    void *archive_db;
+    void *archive_insert;
+    uint64_t archive_budget_bytes;
     uint64_t archive_tile_rows;
     uint64_t archive_bytes_written;
     uint64_t archive_rollup_rows[METRIC_BAND_COUNT][METRIC_LAYER_COUNT];
@@ -165,6 +169,8 @@ typedef struct BuildOptions {
     bool emit_contour_empty;
     bool emit_legacy_tiles;
     bool emit_archive;
+    bool archive_only;
+    uint64_t archive_budget_bytes;
     const char *archive_path;
 } BuildOptions;
 
@@ -219,3 +225,10 @@ static inline void mapforge_region_log_diagnostic(const char *stage, const char 
 }
 
 #endif
+
+// Opens a direct archive sink before serializing tile payloads.
+bool mapforge_region_archive_begin_direct(const BuildOptions *options, BuildContext *ctx);
+// Inserts one serialized MFT payload while enforcing the storage budget.
+bool mapforge_region_archive_insert_direct(BuildContext *ctx, TileCoord coord, const char *suffix, TileZoomBand band, const void *data, size_t size);
+// Rolls back an unfinished direct archive sink.
+void mapforge_region_archive_abort_direct(BuildContext *ctx);

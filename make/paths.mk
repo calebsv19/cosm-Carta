@@ -57,7 +57,7 @@ MAIN_EDIT_APP_DIR := $(MAIN_EDIT_DIST_DIR)/$(MAIN_EDIT_APP_NAME)
 MAIN_EDIT_DESKTOP_APP_DIR ?= $(HOME)/Desktop/$(MAIN_EDIT_APP_NAME)
 MAIN_EDIT_PROCESS_RECEIPT := $(TARGET_BUILD_ROOT)/receipts/mew1/process-audit.json
 MAIN_EDIT_SELF_TEST_DIR := $(TARGET_BUILD_ROOT)/package-main-edit-self-test
-PACKAGED_HELPER_TOOL_NAMES := mapforge_region mapforge_region_validate mapforge_graph
+PACKAGED_HELPER_TOOL_NAMES := mapforge_region mapforge_region_validate mapforge_graph mapforge_places
 PACKAGED_HELPER_TOOLS := $(foreach tool,$(PACKAGED_HELPER_TOOL_NAMES),$(PACKAGE_TOOLS_DIR)/$(tool))
 
 # RL0 release contract (pilot lock).

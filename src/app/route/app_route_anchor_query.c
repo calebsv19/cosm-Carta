@@ -1,12 +1,12 @@
 #include "app/app_internal.h"
 
 #include "core/time.h"
+#include "map/geodesic.h"
 
 #include <math.h>
 #include <string.h>
 
 static const float kRouteHoverSnapRadiusPx = 16.0f;
-static const float kRoutePlacementSnapRadiusPx = 24.0f;
 
 static uint64_t app_route_anchor_cell_key(int32_t cx, int32_t cy) {
     return ((uint64_t)(uint32_t)cx << 32u) | (uint64_t)(uint32_t)cy;
@@ -179,7 +179,9 @@ static bool app_find_nearest_edge_anchor(AppState *app, float world_x, float wor
                         continue;
                     }
 
-                    float seg_len = sqrtf(vv);
+                    float seg_len = (float)mercator_ground_distance_meters(
+                        (MercatorMeters){graph->node_x[from], graph->node_y[from]},
+                        (MercatorMeters){graph->node_x[to], graph->node_y[to]});
                     float dist_to_from = seg_len * t;
                     float dist_to_to = seg_len * (1.0f - t);
                     uint32_t snap_node = dist_to_from <= dist_to_to ? from : to;
@@ -243,7 +245,9 @@ static bool app_find_nearest_edge_anchor(AppState *app, float world_x, float wor
                     continue;
                 }
 
-                float seg_len = sqrtf(vv);
+                float seg_len = (float)mercator_ground_distance_meters(
+                        (MercatorMeters){graph->node_x[from], graph->node_y[from]},
+                        (MercatorMeters){graph->node_x[to], graph->node_y[to]});
                 float dist_to_from = seg_len * t;
                 float dist_to_to = seg_len * (1.0f - t);
                 uint32_t snap_node = dist_to_from <= dist_to_to ? from : to;
@@ -300,6 +304,13 @@ bool app_is_near_node(const AppState *app, float world_x, float world_y, uint32_
     return app_is_near_node_with_radius(app, world_x, world_y, app_route_snap_radius_m(app), out_node);
 }
 
+// Enforces offline coverage and a bounded physical snap for every placement path.
+static bool app_route_anchor_in_coverage(const AppState *app, float x, float y, const RouteEndpointAnchor *anchor) {
+    LatLon point = mercator_to_latlon((MercatorMeters){x, y});
+    if (app->region.has_bounds && (point.lat < app->region.min_lat || point.lat > app->region.max_lat || point.lon < app->region.min_lon || point.lon > app->region.max_lon)) return false;
+    return mercator_ground_distance_meters((MercatorMeters){x, y}, (MercatorMeters){anchor->world_x, anchor->world_y}) <= 200.0;
+}
+
 bool app_pick_route_anchor(AppState *app, float world_x, float world_y, RouteEndpointAnchor *out_anchor) {
     if (!app || !out_anchor || !app->route_state_bridge.route.loaded) {
         return false;
@@ -307,14 +318,16 @@ bool app_pick_route_anchor(AppState *app, float world_x, float world_y, RouteEnd
 
     float snap_radius_m = app_route_snap_radius_m_for_pixels(app, kRouteHoverSnapRadiusPx);
     if (app_find_nearest_edge_anchor(app, world_x, world_y, snap_radius_m, out_anchor)) {
-        return true;
+        out_anchor->requested_x=world_x; out_anchor->requested_y=world_y;
+        out_anchor->connector_m=mercator_ground_distance_meters((MercatorMeters){world_x,world_y},(MercatorMeters){out_anchor->world_x,out_anchor->world_y});
+        return app_route_anchor_in_coverage(app, world_x, world_y, out_anchor);
     }
 
     uint32_t node = 0;
     if (!app_is_near_node_with_radius(app, world_x, world_y, snap_radius_m, &node)) {
         return false;
     }
-    return app_anchor_from_node(app, node, out_anchor);
+    return app_anchor_from_node(app, node, out_anchor) && app_route_anchor_in_coverage(app, world_x, world_y, out_anchor);
 }
 
 bool app_pick_route_anchor_unbounded(AppState *app, float world_x, float world_y, RouteEndpointAnchor *out_anchor) {
@@ -322,14 +335,6 @@ bool app_pick_route_anchor_unbounded(AppState *app, float world_x, float world_y
         return false;
     }
 
-    float snap_radius_m = app_route_snap_radius_m_for_pixels(app, kRoutePlacementSnapRadiusPx);
-    if (app_find_nearest_edge_anchor(app, world_x, world_y, snap_radius_m, out_anchor)) {
-        return true;
-    }
-
-    uint32_t node = 0;
-    if (!app_is_near_node_with_radius(app, world_x, world_y, snap_radius_m, &node)) {
-        return false;
-    }
-    return app_anchor_from_node(app, node, out_anchor);
+    return route_query_snap(&app->route_state_bridge.route.graph, (MercatorMeters){world_x,world_y}, app->route_state_bridge.route.mode, 200.0, out_anchor)
+        && app_route_anchor_in_coverage(app, world_x, world_y, out_anchor);
 }

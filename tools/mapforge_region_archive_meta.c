@@ -1,4 +1,5 @@
 #include "mapforge_region_internal.h"
+#include <limits.h>
 
 static const char *osm_source_kind_label(OSMSourceKind kind) {
     switch (kind) {
@@ -287,7 +288,79 @@ static bool archive_ingest_tree(sqlite3 *db,
 }
 #endif
 
+// Begins a SQLite transaction that receives MFT bytes without a loose tile tree.
+bool mapforge_region_archive_begin_direct(const BuildOptions *options, BuildContext *ctx) {
+#if defined(MAPFORGE_HAVE_SQLITE)
+    if (!options || !ctx || !options->archive_only) return false;
+    char path[512]; snprintf(path, sizeof(path), "%s/%s", options->out_dir, options->archive_path);
+    if (!ensure_parent_dir_recursive(path)) return false;
+    sqlite3 *db = NULL; sqlite3_stmt *stmt = NULL;
+    if (sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
+        if (db) sqlite3_close(db); return false;
+    }
+    bool ok = archive_exec_sql(db, "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; BEGIN IMMEDIATE;") &&
+        archive_exec_sql(db, "CREATE TABLE mapforge_tiles (z INTEGER NOT NULL,x INTEGER NOT NULL,y INTEGER NOT NULL,layer TEXT NOT NULL,band TEXT NOT NULL,tile_data BLOB NOT NULL,PRIMARY KEY(z,x,y,layer,band));") &&
+        sqlite3_prepare_v2(db, "INSERT INTO mapforge_tiles VALUES (?1,?2,?3,?4,?5,?6);", -1, &stmt, NULL) == SQLITE_OK;
+    if (!ok) { sqlite3_finalize(stmt); archive_exec_sql(db, "ROLLBACK;"); sqlite3_close(db); return false; }
+    ctx->archive_only = true; ctx->archive_db = db; ctx->archive_insert = stmt;
+    ctx->archive_budget_bytes = options->archive_budget_bytes;
+    return true;
+#else
+    (void)options; (void)ctx; return false;
+#endif
+}
+
+bool mapforge_region_archive_insert_direct(BuildContext *ctx, TileCoord coord, const char *suffix,
+                                           TileZoomBand band, const void *data, size_t size) {
+#if defined(MAPFORGE_HAVE_SQLITE)
+    if (!ctx || !ctx->archive_insert || !data || size > INT_MAX) return false;
+    if (ctx->archive_budget_bytes && ctx->archive_bytes_written + size > ctx->archive_budget_bytes) {
+        log_error("Archive payload budget exceeded; active region preserved."); return false;
+    }
+    const char *layer = mapforge_region_archive_layer_from_suffix(suffix);
+    const char *band_name = mapforge_region_metric_band_name((int)band);
+    sqlite3_stmt *stmt = ctx->archive_insert;
+    sqlite3_bind_int(stmt, 1, coord.z); sqlite3_bind_int(stmt, 2, coord.x); sqlite3_bind_int(stmt, 3, coord.y);
+    sqlite3_bind_text(stmt, 4, layer, -1, SQLITE_STATIC); sqlite3_bind_text(stmt, 5, band_name, -1, SQLITE_STATIC);
+    sqlite3_bind_blob(stmt, 6, data, (int)size, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(stmt); sqlite3_reset(stmt); sqlite3_clear_bindings(stmt);
+    if (rc != SQLITE_DONE) return false;
+    int li = mapforge_region_archive_metric_layer_index(layer);
+    ctx->archive_tile_rows++; ctx->archive_bytes_written += size;
+    ctx->archive_rollup_rows[(int)band][li]++; ctx->archive_rollup_bytes[(int)band][li] += size;
+    return true;
+#else
+    (void)ctx; (void)coord; (void)suffix; (void)band; (void)data; (void)size; return false;
+#endif
+}
+
+void mapforge_region_archive_abort_direct(BuildContext *ctx) {
+#if defined(MAPFORGE_HAVE_SQLITE)
+    if (ctx && ctx->archive_db) {
+        sqlite3_finalize(ctx->archive_insert); archive_exec_sql(ctx->archive_db, "ROLLBACK;"); sqlite3_close(ctx->archive_db);
+        ctx->archive_insert = NULL; ctx->archive_db = NULL;
+    }
+#else
+    (void)ctx;
+#endif
+}
+
 bool mapforge_region_write_tile_archive_sqlite(const BuildOptions *options, BuildContext *ctx) {
+    if (options && ctx && options->archive_only) {
+#if defined(MAPFORGE_HAVE_SQLITE)
+        if (!ctx->archive_db || !ctx->archive_tile_rows) return false;
+        sqlite3_finalize(ctx->archive_insert); ctx->archive_insert = NULL;
+        bool ok = archive_exec_sql(ctx->archive_db, "COMMIT;");
+        sqlite3_close(ctx->archive_db); ctx->archive_db = NULL;
+        char path[512]; struct stat st = {0}; snprintf(path, sizeof(path), "%s/%s", options->out_dir, options->archive_path);
+        if (stat(path, &st) != 0 || (options->archive_budget_bytes && (uint64_t)st.st_size > options->archive_budget_bytes)) ok = false;
+        log_info("direct archive: rows=%llu payload_bytes=%llu file_bytes=%llu loose_files=0",
+            (unsigned long long)ctx->archive_tile_rows, (unsigned long long)ctx->archive_bytes_written, (unsigned long long)st.st_size);
+        return ok;
+#else
+        return false;
+#endif
+    }
     if (!options || !ctx) {
         return false;
     }
@@ -575,7 +648,7 @@ bool mapforge_region_write_meta_json(const BuildOptions *options, const BuildCon
         ? options->archive_path
         : "tiles.mbtiles";
     const char *tile_store_kind = options->emit_archive ? "archive_indexed" : "filesystem_tree";
-    const char *runtime_source_policy = options->emit_archive ? "archive_preferred" : "filesystem_only";
+    const char *runtime_source_policy = options->archive_only ? "archive_required" : options->emit_archive ? "archive_preferred" : "filesystem_only";
     const char *source_kind_label = osm_source_kind_label(ctx->source_kind_detected);
     const char *source_ingest_mode = ctx->source_is_canonical_pbf
         ? "canonical_pbf"
@@ -761,7 +834,7 @@ bool mapforge_region_write_meta_json(const BuildOptions *options, const BuildCon
         tile_store_kind,
         runtime_source_policy,
         tile_store_archive_line,
-        (options->dem_path && options->dem_path[0] != '\0') ? "true" : "false",
+        "false" /* A DEM filename does not certify processed contours. */,
         options->pad_bounds ? "true" : "false",
         options->emit_contour_empty ? "true" : "false",
         options->emit_legacy_tiles ? "true" : "false",

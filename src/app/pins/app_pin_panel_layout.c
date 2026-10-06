@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "app/app_utility_workspace.h"
 #include "app/app_pin_panel_internal.h"
 
 #include <string.h>
@@ -30,7 +31,7 @@ static int app_left_pane_list_count(const AppState *app) {
         case APP_LEFT_PANE_SECTION_INGEST:
             return app->ingest_show_active_tab ? app->ingest_active_count : app->ingest_osm_count;
         case APP_LEFT_PANE_SECTION_PINS:
-            return (int)app->pins_file.pin_count;
+            return app_utility_pin_count(app);
         case APP_LEFT_PANE_SECTION_INSPECT:
         default:
             return 0;
@@ -297,11 +298,12 @@ void app_pin_panel_layout(AppState *app) {
             22.0f
         };
 
-        y += app->ui_state_bridge.pin_pane_type_rect.h + 34.0f;
+        y += app->ui_state_bridge.pin_pane_type_rect.h + 98.0f;
         app->ui_state_bridge.pin_pane_hint_rect = (SDL_FRect){body_x, y, body_w, 32.0f};
         y += app->ui_state_bridge.pin_pane_hint_rect.h + 4.0f;
         app->ui_state_bridge.pin_pane_status_rect = (SDL_FRect){body_x, y, body_w, 32.0f};
         y += app->ui_state_bridge.pin_pane_status_rect.h + 8.0f;
+        y += 108.0f; /* Reserve route and location toolbar rows before the place list. */
 
         app->ui_state_bridge.pin_pane_list_rect = (SDL_FRect){
             body_x,

@@ -1,4 +1,7 @@
 #include "app/app_internal.h"
+#include "app/app_place_tools.h"
+#include "app/place_runtime.h"
+#include "app/app_utility_workspace.h"
 #include "app/app_pin_panel_internal.h"
 #include "app/app_runtime_ingest_internal.h"
 #include "app/app_ui_internal.h"
@@ -43,6 +46,8 @@ static void app_draw_left_pane_header(AppState *app,
         const bool active = i == (int)app->ui_state_bridge.left_pane_section;
         SDL_Color fill = active ? palette->button_active_primary : palette->button_fill;
         SDL_Color outline = active ? palette->overlay_accent : palette->button_outline;
+        SDL_Color label = active && (299u * fill.r + 587u * fill.g + 114u * fill.b) / 1000u <= 160u
+            ? (SDL_Color){225, 230, 240, 255} : text;
         renderer_set_draw_color(&app->renderer, fill.r, fill.g, fill.b, fill.a);
         renderer_fill_rect(&app->renderer, &rect);
         renderer_set_draw_color(&app->renderer, outline.r, outline.g, outline.b, outline.a);
@@ -51,7 +56,7 @@ static void app_draw_left_pane_header(AppState *app,
                              (int)(rect.x + 8.0f),
                              (int)(rect.y + 4.0f),
                              app_left_pane_section_label((AppLeftPaneSection)i),
-                             text,
+                             label,
                              0.85f,
                              (int)rect.w - 12);
     }
@@ -77,7 +82,7 @@ static void app_draw_left_pane_pins(AppState *app,
                  line,
                  text,
                  0.95f);
-    snprintf(line, sizeof(line), "%zu pins", app->pins_file.pin_count);
+    snprintf(line, sizeof(line), "%zu pins", (size_t)app_utility_pin_count(app));
     ui_draw_text(&app->renderer,
                  (int)(app->ui_state_bridge.pin_pane_summary_rect.x + 2.0f),
                  (int)(app->ui_state_bridge.pin_pane_summary_rect.y + 20.0f),
@@ -120,7 +125,10 @@ static void app_draw_left_pane_pins(AppState *app,
     app_pin_panel_draw_name_field(app, palette, text, muted);
     app_pin_panel_draw_metadata(app);
 
-    if (app->ui_state_bridge.pin_add_mode_active) {
+    if (app->ui_state_bridge.pin_editor_has_draft && app->ui_state_bridge.pin_editor_draft.address[0]) {
+        snprintf(line,sizeof(line),"%s | %s",app->ui_state_bridge.pin_editor_draft.address,app->ui_state_bridge.pin_editor_draft.location_quality);
+        hint=line;
+    } else if (app->ui_state_bridge.pin_add_mode_active) {
         hint = "Add mode is active. Right-click on the map to place a new pin.";
     } else if (app->ui_state_bridge.pin_editor_has_draft) {
         snprintf(line,
@@ -128,7 +136,7 @@ static void app_draw_left_pane_pins(AppState *app,
                  "Selected pin is ready to edit. Use the title field, metadata chips, Save, or Cancel.");
         hint = line;
     } else {
-        hint = "Select, drag, Shift-click for route start, or right-click for route goal.";
+        hint = "Shift-click start; right-click goal. Ctrl+Shift+S saves route; Ctrl+Shift+O browses routes.";
     }
     ui_draw_text_clipped(&app->renderer,
                          (int)(app->ui_state_bridge.pin_pane_hint_rect.x + 2.0f),
@@ -137,6 +145,12 @@ static void app_draw_left_pane_pins(AppState *app,
                          muted,
                          0.82f,
                          (int)app->ui_state_bridge.pin_pane_hint_rect.w - 8);
+    if (app->ui_state_bridge.pin_editor_has_draft && app->ui_state_bridge.pin_editor_draft.id[0]) {
+        app_places_detail_text(app, app->ui_state_bridge.pin_editor_draft.id, line, sizeof(line));
+        ui_draw_text_clipped(&app->renderer, (int)app->ui_state_bridge.pin_pane_hint_rect.x + 2,
+                             (int)app->ui_state_bridge.pin_pane_hint_rect.y + 18, line, text, 0.78f,
+                             (int)app->ui_state_bridge.pin_pane_hint_rect.w - 8);
+    }
     if (app->ui_state_bridge.pin_editor_status[0] != '\0') {
         ui_draw_text_clipped(&app->renderer,
                              (int)(app->ui_state_bridge.pin_pane_status_rect.x + 2.0f),
@@ -147,6 +161,17 @@ static void app_draw_left_pane_pins(AppState *app,
                              (int)app->ui_state_bridge.pin_pane_status_rect.w - 8);
     }
 
+    for (uint32_t i = 0; i < 2u; ++i) {
+        SDL_FRect rect = app_places_route_button_rect(app, i);
+        renderer_set_draw_color(&app->renderer, palette->button_fill.r, palette->button_fill.g, palette->button_fill.b, 220);
+        renderer_fill_rect(&app->renderer, &rect);
+        renderer_set_draw_color(&app->renderer, palette->button_outline.r, palette->button_outline.g, palette->button_outline.b, 220);
+        renderer_draw_rect(&app->renderer, &rect);
+        const char *label = i == 0 ? "SAVE ROUTE" : "SAVED ROUTES";
+        if (i == 0 && app->ui_state_bridge.route_plan_name_active) label = app->ui_state_bridge.route_plan_name;
+        ui_draw_text_clipped(&app->renderer, (int)rect.x + 6, (int)rect.y + 4, label, text, 0.8f, (int)rect.w - 12);
+    }
+    app_place_tools_draw_toolbar(app);
     renderer_set_draw_color(&app->renderer, palette->route_panel_fill.r, palette->route_panel_fill.g, palette->route_panel_fill.b, 220);
     renderer_fill_rect(&app->renderer, &app->ui_state_bridge.pin_pane_list_rect);
     renderer_set_draw_color(&app->renderer, palette->route_panel_outline.r, palette->route_panel_outline.g, palette->route_panel_outline.b, palette->route_panel_outline.a);
@@ -169,7 +194,7 @@ static void app_draw_left_pane_pins(AppState *app,
     }
 
     for (int i = 0; i < app->ui_state_bridge.pin_pane_row_count; ++i) {
-        int pin_index = app->ui_state_bridge.pin_pane_row_base + i;
+        int pin_index = app_utility_pin_index(app, app->ui_state_bridge.pin_pane_row_base + i);
         const MapForgePin *pin = &app->pins_file.pins[pin_index];
         SDL_FRect row = app->ui_state_bridge.pin_pane_row_rects[i];
         const bool selected = pin_index == app->ui_state_bridge.pin_selected_index;
@@ -340,6 +365,7 @@ static void app_draw_left_pane_ingest(AppState *app,
                              (int)buttons[i].w - 12);
     }
 
+    app_place_tools_draw_toolbar(app);
     renderer_set_draw_color(&app->renderer, palette->route_panel_fill.r, palette->route_panel_fill.g, palette->route_panel_fill.b, 220);
     renderer_fill_rect(&app->renderer, &app->ui_state_bridge.pin_pane_list_rect);
     renderer_set_draw_color(&app->renderer, palette->route_panel_outline.r, palette->route_panel_outline.g, palette->route_panel_outline.b, palette->route_panel_outline.a);
@@ -418,6 +444,12 @@ static void app_draw_left_pane_inspect(AppState *app,
     snprintf(line, sizeof(line), "INSPECT | region %s", app->region.name ? app->region.name : "unknown");
     ui_draw_text(&app->renderer, x, y, line, text, 1.0f);
     y += step;
+    if (app->region.has_bounds) {
+        snprintf(line, sizeof(line), "Offline: %.3f..%.3f N, %.3f..%.3f E", app->region.min_lat, app->region.max_lat, app->region.min_lon, app->region.max_lon);
+        ui_draw_text_clipped(&app->renderer, x, y, line, muted, 0.8f, (int)app->ui_state_bridge.pin_pane_content_rect.w); y += step;
+        snprintf(line, sizeof(line), "Zoom %u..%u | %s", app->region.tile_min_zoom, app->region.tile_max_zoom, app->region.has_tile_archive ? "offline archive" : "loose tiles");
+        ui_draw_text_clipped(&app->renderer, x, y, line, muted, 0.8f, (int)app->ui_state_bridge.pin_pane_content_rect.w); y += step;
+    }
     snprintf(line, sizeof(line), "Viewport: %.0fx%.0f", app->ui_state_bridge.map_viewport_rect.w, app->ui_state_bridge.map_viewport_rect.h);
     ui_draw_text(&app->renderer, x, y, line, muted, 0.9f);
     y += step;
@@ -435,14 +467,16 @@ static void app_draw_left_pane_inspect(AppState *app,
 
 void app_draw_pin_panel(AppState *app) {
     MapForgeThemePalette palette;
-    const SDL_Color text = {225, 230, 240, 255};
-    const SDL_Color muted = {190, 198, 210, 255};
+    SDL_Color text;
+    SDL_Color muted;
     if (!app) {
         return;
     }
 
     app_pin_panel_layout(app);
     palette = app_ui_theme_palette();
+    text = palette.text_primary;
+    muted = palette.text_muted;
     if (!app->ui_state_bridge.left_pane_open) {
         SDL_FRect handle = app->ui_state_bridge.pin_pane_closed_rect;
         if (handle.w <= 1.0f || handle.h <= 1.0f) {

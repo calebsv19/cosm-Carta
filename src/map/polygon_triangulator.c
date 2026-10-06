@@ -50,7 +50,7 @@ static bool ear_clip(const uint16_t *points,
                      uint32_t count,
                      int *out_indices,
                      int *out_index_count,
-                     int max_indices) {
+                     int max_indices, PolygonTriangulationCancelFn canceled, void *context) {
     if (!points || count < 3 || !out_indices || !out_index_count || max_indices < 3) {
         return false;
     }
@@ -77,8 +77,10 @@ static bool ear_clip(const uint16_t *points,
     int guard = 0;
 
     while (remaining > 2 && guard < remaining * remaining) {
+        if (canceled && canceled(context)) { free(verts); return false; }
         bool clipped = false;
         for (int i = 0; i < remaining; ++i) {
+            if ((i % 128) == 0 && canceled && canceled(context)) { free(verts); return false; }
             int i0 = verts[(i + remaining - 1) % remaining];
             int i1 = verts[i];
             int i2 = verts[(i + 1) % remaining];
@@ -97,6 +99,7 @@ static bool ear_clip(const uint16_t *points,
 
             bool contains = false;
             for (int j = 0; j < remaining; ++j) {
+                if ((j % 128) == 0 && canceled && canceled(context)) { free(verts); return false; }
                 int vi = verts[j];
                 if (vi == i0 || vi == i1 || vi == i2) {
                     continue;
@@ -141,12 +144,14 @@ static bool ear_clip(const uint16_t *points,
     return index_count >= 3;
 }
 
-bool polygon_triangulate(const uint16_t *points,
+bool polygon_triangulate_cancelable(const uint16_t *points,
                          uint32_t count,
                          PolygonTriangulationMode mode,
                          int *out_indices,
                          int *out_index_count,
-                         int max_indices) {
+                         int max_indices, PolygonTriangulationCancelFn canceled, void *context) {
+    if (out_index_count) *out_index_count = 0;
+    if (canceled && canceled(context)) return false;
     if (!points || count < 3 || !out_indices || !out_index_count) {
         return false;
     }
@@ -167,5 +172,11 @@ bool polygon_triangulate(const uint16_t *points,
         return idx >= 3;
     }
 
-    return ear_clip(points, count, out_indices, out_index_count, max_indices);
+    return ear_clip(points, count, out_indices, out_index_count, max_indices, canceled, context);
+}
+
+// Retains the original synchronous API for callers without cancellation ownership.
+bool polygon_triangulate(const uint16_t *points, uint32_t count, PolygonTriangulationMode mode,
+                         int *indices, int *index_count, int max_indices) {
+    return polygon_triangulate_cancelable(points,count,mode,indices,index_count,max_indices,NULL,NULL);
 }

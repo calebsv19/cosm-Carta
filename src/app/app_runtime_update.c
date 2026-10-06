@@ -1,4 +1,7 @@
+#include "app/app_s5_diagnostics.h"
 #include "app/app_internal.h"
+#include "app/app_place_tools.h"
+#include "app/history_ui.h"
 #include "app/app_map_viewport_internal.h"
 #include "app/app_pin_panel_internal.h"
 #include "app/app_ui_internal.h"
@@ -223,6 +226,10 @@ void app_runtime_update_frame(AppState *app,
         camera_input.mouse_dy = 0;
         camera_input.mouse_wheel_y = 0;
     }
+    if (app_place_tools_active() || history_ui_modal()) {
+        memset(&camera_input, 0, sizeof(camera_input));
+        allow_mouse_pan = false;
+    }
     if (app_pin_panel_name_edit_active(app)) {
         camera_input.pan_left = false;
         camera_input.pan_right = false;
@@ -254,7 +261,10 @@ void app_runtime_update_frame(AppState *app,
     app_route_preview_update_state(app);
     app_route_preview_apply_follow(app);
     camera_update(&app->view_state_bridge.camera, dt);
-    if (app->viewport_scenario_mode == APP_VIEWPORT_SCENARIO_PHASE_B) {
+    const char *scenario = getenv("MAPFORGE_VIEWPORT_SCENARIO");
+    if (scenario && strcmp(scenario, "s5") == 0) {
+        app_s5_update(app, now);
+    } else if (app->viewport_scenario_mode == APP_VIEWPORT_SCENARIO_PHASE_B) {
         app_run_viewport_scenario_phase_b(app, now);
     } else {
         app_run_viewport_scenario_phase_a(app, now);
@@ -290,6 +300,15 @@ void app_runtime_update_frame(AppState *app,
     uint32_t integrate_requested = app->tile_state_bridge.active_layer_valid
         ? app_tile_integrate_budget(app->tile_state_bridge.active_layer_kind, app->tile_state_bridge.active_layer_expected)
         : integrate_fallback_budget;
+    /* The ready queue mixes layers; a small polygon layer must not throttle
+     * already-decoded road/results from the other active layers. The existing
+     * fallback count, global cap and integration time slice still bound work. */
+    if (integrate_requested < integrate_fallback_budget) integrate_requested = integrate_fallback_budget;
+    for (unsigned k = 0; k < TILE_LAYER_COUNT; ++k) {
+        if (!app_layer_active_runtime(app, (TileLayerKind)k)) continue;
+        uint32_t candidate = app_tile_integrate_budget((TileLayerKind)k, app->tile_state_bridge.layer_expected[k]);
+        if (candidate > integrate_requested) integrate_requested = candidate;
+    }
     uint32_t integrate_budget = integrate_requested;
     app->tile_state_bridge.budget_frame.integrate_budget_requested = integrate_requested;
     if (integrate_budget > integrate_cap) {
@@ -298,11 +317,13 @@ void app_runtime_update_frame(AppState *app,
     }
     app->tile_state_bridge.budget_frame.integrate_budget_applied = integrate_budget;
     app_drain_tile_results(app, integrate_budget);
-    if (integrate_budget > 0u &&
-        app->tile_state_bridge.active_layer_valid &&
-        app->tile_state_bridge.layer_inflight[app->tile_state_bridge.active_layer_kind] > 0u &&
-        app->tile_state_bridge.layer_done[app->tile_state_bridge.active_layer_kind] <
-            app->tile_state_bridge.layer_expected[app->tile_state_bridge.active_layer_kind]) {
+    /* Worker decode still in flight is waiting, not an exhausted integration
+     * budget. Count only a reached count/time cap with ready results remaining. */
+    TileLoaderStats integrate_stats = {0};
+    tile_loader_get_stats(&app->tile_state_bridge.tile_loader, &integrate_stats);
+    if (integrate_budget > 0u && integrate_stats.res_count > 0u &&
+        (app->tile_state_bridge.budget_frame.integrate_results_consumed >= integrate_budget ||
+         app->tile_state_bridge.budget_frame.integrate_slice_hit)) {
         app->tile_state_bridge.budget_frame.integrate_budget_exhausted_count += 1u;
     }
     app_vk_poly_prep_drain(

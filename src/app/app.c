@@ -1,5 +1,8 @@
+#include "app/app_s5_diagnostics.h"
 #include "app/app.h"
 #include "app/app_internal.h"
+#include "app/app_place_tools.h"
+#include "app/place_runtime.h"
 #include "app/app_persist_state.h"
 #include "app/app_trace_runtime.h"
 #include "map_forge/map_forge_app_main.h"
@@ -59,7 +62,8 @@ static bool app_env_flag_enabled(const char *name) {
 int app_run_legacy(void) {
     AppState app = {0};
     if (!app_init(&app)) {
-        app_shutdown(&app);
+        app_place_tools_close();
+    app_shutdown(&app);
         return 1;
     }
 
@@ -72,12 +76,16 @@ int app_run_legacy(void) {
     KitRuntimeDiagInputTotals input_totals = {0};
 
     while (!app.ui_state_bridge.input.quit) {
+        app_places_poll_commands(&app);
         AppRuntimeDispatchFrame frame = {0};
         app_runtime_dispatch_frame(&app, &last_time, &last_backend, &frame);
         if (frame.skipped_for_global_controls) {
             continue;
         }
         app_runtime_loop_diag_tick(&frame);
+        if (frame.skipped_for_idle) {
+            continue;
+        }
 
         RoadRenderStats road_stats = {0};
         road_renderer_stats_get(&road_stats);
@@ -114,6 +122,7 @@ int app_run_legacy(void) {
             app_trace_emit_frame_samples(&app, rel_time_s);
             app_trace_emit_queue_markers(&app, rel_time_s);
         }
+        app_s5_measure(&app);
         double frame_ms = app.frame_timings.frame_ms;
         double events_ms = app.frame_timings.events_ms;
         double render_derive_ms = diag_timings.render_derive_ms;
@@ -493,6 +502,7 @@ int app_run_legacy(void) {
         }
     }
 
+    app_place_tools_close();
     app_shutdown(&app);
     return 0;
 }

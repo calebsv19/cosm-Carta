@@ -10,6 +10,13 @@ typedef enum PolygonTriangulationMode {
     POLYGON_TRIANGULATION_FAN = 1
 } PolygonTriangulationMode;
 
+// Allows a background caller to cancel expensive exact triangulation cooperatively.
+typedef bool (*PolygonTriangulationCancelFn)(void *context);
+// Triangulates with bounded cancellation checks; never returns partial geometry on cancellation.
+bool polygon_triangulate_cancelable(const uint16_t *points, uint32_t count,
+    PolygonTriangulationMode mode, int *out_indices, int *out_index_count, int max_indices,
+    PolygonTriangulationCancelFn canceled, void *context);
+
 // Triangulates a simple polygon ring (no holes). Returns false on failure.
 bool polygon_triangulate(const uint16_t *points,
                          uint32_t count,

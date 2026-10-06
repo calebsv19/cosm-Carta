@@ -335,6 +335,7 @@ static void *app_vk_poly_prep_thread_main(void *userdata) {
             &app->worker_state_bridge.vk_poly_prep_in_queue,
             app->worker_state_bridge.vk_poly_prep_in_jobs,
             &job);
+        app->worker_state_bridge.vk_poly_prep_busy = has_job;
         pthread_mutex_unlock(&app->worker_state_bridge.vk_poly_prep_mutex);
         if (!has_job) {
             continue;
@@ -346,6 +347,7 @@ static void *app_vk_poly_prep_thread_main(void *userdata) {
         }
 
         pthread_mutex_lock(&app->worker_state_bridge.vk_poly_prep_mutex);
+        app->worker_state_bridge.vk_poly_prep_busy = false;
         if (poly_stats.polygon_quarantined > 0u || poly_stats.ring_quarantine_total > 0u) {
             app->worker_state_bridge.vk_poly_prep_quarantine_job_count += 1u;
             if (job.kind >= 0 && job.kind < TILE_LAYER_COUNT) {
@@ -384,6 +386,7 @@ bool app_vk_poly_prep_init(AppState *app) {
     if (!app) {
         return false;
     }
+    app->worker_state_bridge.vk_poly_prep_busy = false;
     app->worker_state_bridge.vk_poly_prep_enabled = false;
     app->worker_state_bridge.vk_poly_prep_running = false;
     app->worker_state_bridge.vk_poly_prep_in_write_seq = 0u;
@@ -557,6 +560,7 @@ void app_vk_poly_prep_get_stats(AppState *app, VkPolyPrepStats *out_stats) {
         return;
     }
     pthread_mutex_lock(&app->worker_state_bridge.vk_poly_prep_mutex);
+    out_stats->busy = app->worker_state_bridge.vk_poly_prep_busy;
     out_stats->in_count = (uint32_t)core_queue_mutex_size(&app->worker_state_bridge.vk_poly_prep_in_queue);
     out_stats->out_count = (uint32_t)core_queue_mutex_size(&app->worker_state_bridge.vk_poly_prep_out_queue);
     out_stats->enqueued_count = app->worker_state_bridge.vk_poly_prep_enqueued_count;
@@ -668,17 +672,6 @@ bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord, Ti
 
     if (!app->worker_state_bridge.vk_asset_worker_enabled) {
         bool accepted_main = app_vk_asset_main_admit_job(app, &in_job);
-        if (accepted_main) {
-            app_tile_lifecycle_transition(app,
-                                          kind,
-                                          coord,
-                                          band,
-                                          APP_TILE_LIFECYCLE_UPLOADED_GPU,
-                                          true,
-                                          false,
-                                          false,
-                                          false);
-        }
         return accepted_main;
     }
 
@@ -726,17 +719,6 @@ bool app_vk_asset_enqueue(AppState *app, TileLayerKind kind, TileCoord coord, Ti
         app->worker_state_bridge.vk_asset_stage_drop_count += 1u;
     }
     pthread_mutex_unlock(&app->worker_state_bridge.vk_asset_worker_mutex);
-    if (accepted) {
-        app_tile_lifecycle_transition(app,
-                                      kind,
-                                      coord,
-                                      band,
-                                      APP_TILE_LIFECYCLE_UPLOADED_GPU,
-                                      true,
-                                      false,
-                                      false,
-                                      false);
-    }
     return accepted;
 }
 
@@ -786,7 +768,9 @@ void app_process_vk_asset_queue(AppState *app, uint32_t max_jobs, double max_tim
             }
 
             const VkTileCacheEntry *resident = vk_tile_cache_peek(&app->tile_state_bridge.vk_tile_cache, job->kind, job->coord, job->band);
-            if (resident && resident->mesh_ready) {
+            if (resident && (resident->mesh_ready || resident->fill_mesh_ready ||
+                             resident->water_lod_mesh_ready[0] || resident->water_lod_mesh_ready[1] || resident->water_lod_mesh_ready[2] ||
+                             (job->kind <= TILE_LAYER_ROAD_LOCAL) || resident->polygon_count == 0u)) {
                 if (!have_stale) {
                     have_stale = true;
                     stale_offset = i;

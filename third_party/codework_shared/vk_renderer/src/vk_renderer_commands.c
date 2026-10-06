@@ -11,6 +11,52 @@ static int s_logged_acquire_failure = 0;
 static int s_logged_submit_failure = 0;
 static int s_logged_present_failure = 0;
 
+VkResult vk_renderer_commands_recreate_present_semaphores(
+    VkRenderer* renderer,
+    VkRendererCommandPool* pool,
+    uint32_t swapchain_image_count) {
+    VkSemaphore* replacement;
+    VkSemaphoreCreateInfo semaphore_info = {
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    };
+    uint32_t i;
+    if (!renderer || !pool || !renderer->context.device || swapchain_image_count == 0u) {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    replacement = (VkSemaphore*)calloc(swapchain_image_count, sizeof(VkSemaphore));
+    if (!replacement) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+    for (i = 0u; i < swapchain_image_count; ++i) {
+        if (vkCreateSemaphore(renderer->context.device->device,
+                              &semaphore_info,
+                              NULL,
+                              &replacement[i]) != VK_SUCCESS) {
+            while (i > 0u) {
+                --i;
+                vkDestroySemaphore(renderer->context.device->device,
+                                   replacement[i],
+                                   NULL);
+            }
+            free(replacement);
+            return VK_ERROR_INITIALIZATION_FAILED;
+        }
+    }
+    if (pool->render_finished) {
+        for (i = 0u; i < pool->render_finished_count; ++i) {
+            if (pool->render_finished[i]) {
+                vkDestroySemaphore(renderer->context.device->device,
+                                   pool->render_finished[i],
+                                   NULL);
+            }
+        }
+        free(pool->render_finished);
+    }
+    pool->render_finished = replacement;
+    pool->render_finished_count = swapchain_image_count;
+    return VK_SUCCESS;
+}
+
 VkResult vk_renderer_commands_init(VkRenderer* renderer,
                                    VkRendererCommandPool* out_pool,
                                    uint32_t frames_in_flight) {
@@ -36,11 +82,9 @@ VkResult vk_renderer_commands_init(VkRenderer* renderer,
     out_pool->fences = (VkFence*)calloc(frames_in_flight, sizeof(VkFence));
     out_pool->image_available =
         (VkSemaphore*)calloc(frames_in_flight, sizeof(VkSemaphore));
-    out_pool->render_finished =
-        (VkSemaphore*)calloc(frames_in_flight, sizeof(VkSemaphore));
 
     if (!out_pool->buffers || !out_pool->fences || !out_pool->image_available ||
-        !out_pool->render_finished) {
+        renderer->context.swapchain.image_count == 0u) {
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
 
@@ -77,16 +121,14 @@ VkResult vk_renderer_commands_init(VkRenderer* renderer,
                               &out_pool->image_available[i]) != VK_SUCCESS) {
             return VK_ERROR_INITIALIZATION_FAILED;
         }
-        if (vkCreateSemaphore(device->device, &semaphore_info, NULL,
-                              &out_pool->render_finished[i]) != VK_SUCCESS) {
-            return VK_ERROR_INITIALIZATION_FAILED;
-        }
-
         renderer->frames[i].command_buffer = out_pool->buffers[i];
         renderer->frames[i].in_flight_fence = out_pool->fences[i];
         renderer->frames[i].image_available = out_pool->image_available[i];
-        renderer->frames[i].render_finished = out_pool->render_finished[i];
     }
+
+    result = vk_renderer_commands_recreate_present_semaphores(
+        renderer, out_pool, renderer->context.swapchain.image_count);
+    if (result != VK_SUCCESS) return result;
 
     renderer->frame_count = frames_in_flight;
     renderer->frame_index = 0;
@@ -110,13 +152,14 @@ void vk_renderer_commands_destroy(VkRenderer* renderer,
     }
 
     if (pool->render_finished) {
-        for (uint32_t i = 0; i < pool->count; ++i) {
+        for (uint32_t i = 0; i < pool->render_finished_count; ++i) {
             if (pool->render_finished[i])
                 vkDestroySemaphore(device, pool->render_finished[i], NULL);
         }
         free(pool->render_finished);
         pool->render_finished = NULL;
     }
+    pool->render_finished_count = 0u;
 
     if (pool->fences) {
         for (uint32_t i = 0; i < pool->count; ++i) {
@@ -192,6 +235,10 @@ VkResult vk_renderer_commands_begin_frame(VkRenderer* renderer,
     s_logged_acquire_failure = 0;
 
     renderer->swapchain_image_index = image_index;
+    if (image_index >= renderer->command_pool.render_finished_count) {
+        return VK_ERROR_OUT_OF_DATE_KHR;
+    }
+    frame->render_finished = renderer->command_pool.render_finished[image_index];
 
     VkResult reset_cmd_result = vkResetCommandBuffer(frame->command_buffer, 0);
     if (reset_cmd_result != VK_SUCCESS) {

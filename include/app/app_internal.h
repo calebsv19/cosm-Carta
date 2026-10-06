@@ -3,6 +3,7 @@
 
 #include "camera/camera.h"
 #include "app/app_pins.h"
+#include "app/history_views.h"
 #include "core/input.h"
 #include "ui/debug_overlay.h"
 #include "app/region.h"
@@ -15,6 +16,7 @@
 #include "render/renderer.h"
 #include "render/vk_tile_cache.h"
 #include "route/route.h"
+#include "route/query.h"
 #include "ui/shared_theme_font_adapter.h"
 #include "core_trace.h"
 #include "core_queue.h"
@@ -26,7 +28,8 @@
 #include <stdint.h>
 
 /* Header bar height in pixels. */
-#define APP_HEADER_HEIGHT 34.0f
+#define APP_HEADER_HEIGHT 68.0f
+#define APP_CONTROL_HEADER_HEIGHT 34.0f
 /* Default fallback tile integration budget per frame. */
 #define APP_TILE_INTEGRATE_BUDGET 8u
 /* Grace period before marking empty layers ready. */
@@ -148,6 +151,7 @@ typedef struct VkPolyAssetBuildBudget {
 
 /* Captures one polygon tile presentation decision for opt-in zoom diagnostics. */
 typedef struct AppPolygonPresentTraceDecision {
+    uint64_t frame_id;
     TileLayerKind kind;
     TileCoord requested_coord;
     TileCoord draw_coord;
@@ -206,6 +210,8 @@ typedef struct AppRuntimeBudgetFrameStats {
     uint32_t load_budget_clamped_count;
     uint32_t load_budget_exhausted_count;
     uint32_t lane_cap_hits[TILE_QUEUE_LANE_COUNT];
+    uint32_t integrate_results_consumed;
+    bool integrate_slice_hit;
     uint32_t integrate_budget_requested;
     uint32_t integrate_budget_applied;
     uint32_t integrate_budget_clamped_count;
@@ -221,6 +227,7 @@ typedef struct AppRuntimeBudgetFrameStats {
 /* Last-known tile presentation band retained briefly for visual continuity. */
 typedef struct TilePresentHoldEntry {
     bool occupied;
+    uint64_t last_draw_frame;
     /* Visible request key; draw_coord may be a retained parent tile. */
     TileCoord coord;
     TileCoord draw_coord;
@@ -258,17 +265,7 @@ typedef struct FramePhaseTimings {
 } FramePhaseTimings;
 
 /* Endpoint anchor used for route placement (node snap or edge projection). */
-typedef struct RouteEndpointAnchor {
-    bool valid;
-    bool on_edge;
-    uint32_t node;
-    uint32_t edge_from;
-    uint32_t edge_to;
-    float world_x;
-    float world_y;
-    float dist_to_from_m;
-    float dist_to_to_m;
-} RouteEndpointAnchor;
+
 
 /* Route segment stored for proximity snapping queries. */
 typedef struct RouteSnapSegment {
@@ -336,6 +333,7 @@ typedef struct RouteComputeResult {
 
 /* Thread-safe snapshot for polygon prep worker diagnostics. */
 typedef struct VkPolyPrepStats {
+    bool busy; /* A popped polygon job remains work until the worker finishes it. */
     uint32_t in_count;
     uint32_t out_count;
     uint64_t enqueued_count;
@@ -543,6 +541,7 @@ typedef struct AppWorkerState {
     uint32_t route_generation;
     bool vk_poly_prep_enabled;
     bool vk_poly_prep_running;
+    bool vk_poly_prep_busy; /* Protected by the polygon preparation mutex. */
     pthread_t vk_poly_prep_thread;
     pthread_mutex_t vk_poly_prep_mutex;
     pthread_cond_t vk_poly_prep_cond;
@@ -675,6 +674,18 @@ typedef struct AppUiState {
     int hud_ingest_row_count;
     bool left_pane_open;
     AppLeftPaneSection left_pane_section;
+    uint32_t utility_workspace;
+    char history_selected_id[64];
+    HistoryViewSet history_views; /* UI-only selected group union, map visibility and tint. */
+    int history_filter;
+    char history_collection_id[129];
+    bool history_selected_only, history_hide_geographic_labels;
+    uint32_t service_filter; /* Optional walking/sitting collection view. */
+    char place_search[128];
+    bool place_search_active;
+    uint32_t saved_route_cursor;
+    char route_plan_name[128];
+    bool route_plan_name_active;
     AppTextEntryFocus text_entry_focus;
     SDL_FRect left_pane_rect;
     SDL_FRect map_viewport_rect;
@@ -757,10 +768,23 @@ typedef struct AppState {
 
     SDL_Window *window;
     Renderer renderer;
+    bool runtime_frame_presented; /* Allows startup draw without treating absent street tiles as work. */
+    bool runtime_redraw_requested; /* Retains explicit invalidation across bounded event waits. */
+    bool history_pending; /* Keeps bounded route preparation awake until results settle. */
+    bool terrain_pending; /* Keeps partial overview preparation awake without changing saved data. */
     bool single_line;
     RegionInfo region;
     int region_index;
+    char active_region_name[128];
+    struct RegionPrepare *region_prepare;
+    int region_pending_index;
+    VkTileCache region_pending_gpu;
+    uint32_t region_upload_cursor, region_uploaded;
+    double region_prepare_started;
+    bool region_gpu_initialized, region_budgets_reserved;
+    uint64_t region_previous_cpu_limits[TILE_LAYER_COUNT], region_previous_gpu_limit;
     FramePhaseTimings frame_timings;
+    float submission_previous_frame_ms;
     bool trace_enabled;
     CoreTraceSession trace_session;
     double trace_start_time;

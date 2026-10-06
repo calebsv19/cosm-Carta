@@ -68,9 +68,10 @@
   - optional explicit override
   - when set, the job loads pins from that exact path after resolving it relative to the job file
 - omitted `pins_file`
-  - headless uses the same region-local/private pin policy as the interactive app
-  - default runtime/private path: `MAPFORGE_RUNTIME_DIR/pins/<region>.pins.local.json`
-  - local/dev fallback path: `data/pins/private/<region>.pins.local.json`
+  - headless prefers the independent personal repository shared with the native app
+  - default runtime path: `MAPFORGE_RUNTIME_DIR/pins/places.sqlite`
+  - local/dev fallback path: `data/pins/private/places.sqlite`
+  - when the SQLite repository is absent, reads `places.local.json`, then the retained region-local/private legacy file; headless reads never migrate or write personal data
   - when `MAPFORGE_RUNTIME_DIR` is active and only the legacy local/dev file exists, headless loads it and reports a warning
 
 Pin endpoint lookup order:

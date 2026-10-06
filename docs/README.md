@@ -1,9 +1,26 @@
 # Carta Docs
 
 Start here for the public, operator-facing documentation that ships with the repository.
-Last audited: 2026-05-04.
+Last audited: 2026-10-06 (Main Edit source checkpoint).
 
 Repository and source-level identifiers still use `map_forge`.
+
+## Main Edit feature references
+
+- [Shared dependency checkpoint](shared_dependency_checkpoint.md): exact committed
+  renderer source and preserved vendor differences before UI migration.
+- [Hiking browser](hiking_browser.md): existing collection/browser controls.
+- [Terrain presentation](terrain_presentation.md): existing raster/vector behavior.
+- [Utility foundation](utility_foundation_operating_notes_2026-10-03.md),
+  [places and routes](s4_operating_notes_2026-10-04.md),
+  [location/track preparation](locations_tracks_operating_notes_2026-10-04.md),
+  [native runtime](s5_operating_notes_2026-10-04.md), and
+  [hiking/vector terrain](s9_hiking_ui_vectors_operating_notes_2026-10-04.md):
+  public references for the retained feature checkpoint.
+
+The historical focus list below describes earlier scaffold work. Current source
+state is in `current_truth.md`; private execution history is in the workspace
+`docs/private_program_docs/map_forge/archive/2026-10-06_pre_ui_feature_checkpoint/`.
 
 ## Current Focus
 

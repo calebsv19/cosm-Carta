@@ -925,6 +925,10 @@ VkResult vk_renderer_recreate_swapchain(VkRenderer* renderer, SDL_Window* window
         vk_renderer_context_recreate_swapchain(&renderer->context, window, &renderer->config);
     if (result != VK_SUCCESS) return result;
 
+    result = vk_renderer_commands_recreate_present_semaphores(
+        renderer, &renderer->command_pool, renderer->context.swapchain.image_count);
+    if (result != VK_SUCCESS) return result;
+
     result = vk_renderer_pipeline_create_all(&renderer->context, renderer->render_pass,
                                              renderer->sampler_set_layout,
                                              renderer->context.device->pipeline_cache,
@@ -1927,3 +1931,36 @@ void vk_renderer_shutdown(VkRenderer* renderer) {
 
     vk_renderer_context_destroy(&renderer->context);
 }
+
+// Backports the canonical textured vertex emitter for the S8 corner API.
+VkResult vk_renderer_emit_textured_vertices(VkRenderer *renderer, const VkRendererTexture *texture,
+                                             const float (*vertices)[8], uint32_t vertex_count) {
+    VkRendererFrameState *frame = active_frame(renderer);
+    if (!frame || !texture || !vertices || !vertex_count ||
+        !renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].pipeline ||
+        !renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].layout)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    VkDeviceSize bytes = (VkDeviceSize)vertex_count * 8 * sizeof(float);
+    VkResult result = ensure_frame_vertex_buffer(renderer, frame, bytes);
+    if (result != VK_SUCCESS) return result;
+    if (!frame->vertex_buffer.mapped) return VK_ERROR_MEMORY_MAP_FAILED;
+    VkDeviceSize offset = frame->vertex_offset;
+    memcpy((uint8_t *)frame->vertex_buffer.mapped + offset, vertices, (size_t)bytes);
+    frame->vertex_offset += bytes;
+    flush_vertex_range(renderer, frame, offset, bytes);
+    VkBuffer buffers[] = {frame->vertex_buffer.buffer};
+    VkDeviceSize offsets[] = {offset};
+    VkCommandBuffer cmd = frame->command_buffer;
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].pipeline);
+    vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
+    push_basic_constants(renderer, cmd, VK_RENDERER_PIPELINE_TEXTURED);
+    apply_active_scissor(renderer, cmd);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            renderer->pipelines[VK_RENDERER_PIPELINE_TEXTURED].layout,
+                            0, 1, &texture->descriptor_set, 0, NULL);
+    vkCmdDraw(cmd, vertex_count, 1, 0, 0);
+    renderer->draw_state.draw_call_count++;
+    return VK_SUCCESS;
+}
+

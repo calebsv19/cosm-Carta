@@ -1,4 +1,7 @@
 #include "app/app_headless.h"
+#include "map/geodesic.h"
+#include "route/cost.h"
+#include "route/query.h"
 #include "app/app_headless_job_bundle.h"
 #include "app_headless_run_internal.h"
 #include "app_headless_util.h"
@@ -166,33 +169,9 @@ static const MapForgePin *map_forge_headless_find_pin(const MapForgePinsFile *pi
     return NULL;
 }
 
-static bool map_forge_headless_find_nearest_node(const RouteGraph *graph,
-                                                 double world_x,
-                                                 double world_y,
-                                                 uint32_t *out_node,
-                                                 double *out_distance_m) {
-    uint32_t best_node = 0u;
-    double best_dist_sq = 0.0;
-    if (!graph || graph->node_count == 0u || !graph->node_x || !graph->node_y || !out_node || !out_distance_m) {
-        return false;
-    }
-    for (uint32_t i = 0; i < graph->node_count; ++i) {
-        double dx = graph->node_x[i] - world_x;
-        double dy = graph->node_y[i] - world_y;
-        double dist_sq = dx * dx + dy * dy;
-        if (i == 0u || dist_sq < best_dist_sq) {
-            best_dist_sq = dist_sq;
-            best_node = i;
-        }
-    }
-    *out_node = best_node;
-    *out_distance_m = sqrt(best_dist_sq);
-    return true;
-}
-
 static bool map_forge_headless_resolve_pin(const RouteGraph *graph,
                                            const MapForgePin *pin,
-                                           MapForgeHeadlessResolvedPin *out_resolved) {
+                                           MapForgeHeadlessResolvedPin *out_resolved, RouteTravelMode mode) {
     MercatorMeters meters;
     if (!graph || !pin || !out_resolved) {
         return false;
@@ -202,13 +181,10 @@ static bool map_forge_headless_resolve_pin(const RouteGraph *graph,
     out_resolved->pin = pin;
     out_resolved->world_x = meters.x;
     out_resolved->world_y = meters.y;
-    if (!map_forge_headless_find_nearest_node(graph,
-                                              meters.x,
-                                              meters.y,
-                                              &out_resolved->nearest_node,
-                                              &out_resolved->node_distance_m)) {
-        return false;
-    }
+    RouteEndpointAnchor anchor;
+    if (!route_query_snap(graph,meters,mode,200.0,&anchor)) return false;
+    out_resolved->nearest_node=anchor.node;
+    out_resolved->node_distance_m=anchor.connector_m;
     return true;
 }
 
@@ -439,15 +415,15 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
             return 1;
         }
         (void)map_forge_headless_warning_add(&result.warnings,
-                                             "job.pins_file was omitted; headless run resolved pins from the region-default local/private pin store.");
+                                             "job.pins_file was omitted; headless resolved the independent workspace repository or retained legacy fallback.");
         if (loaded_legacy_pins) {
             (void)map_forge_headless_warning_add(&result.warnings,
                                                  "loaded pins from the legacy dev-local path because the runtime/default pin store was missing.");
         }
     }
     if (pins_file.map_region[0] != '\0' && strcmp(pins_file.map_region, result.job.map_region) != 0) {
-        (void)map_forge_headless_warning_add(&result.warnings,
-                                             "pins.map_region does not match job.map_region; proceeding with the job region.");
+        map_forge_headless_set_diagnostic_error(&result, "pin_lookup", "pins_region_mismatch", result.job.map_region, "Pin source belongs to a different region; use a workspace file or the matching region.");
+        map_forge_headless_write_outputs(&result); map_forge_pins_file_free(&pins_file); route_state_shutdown(&result.route_state); return 1;
     }
     result.region = *catalog_region;
     if (!region_load_meta(catalog_region, &result.region)) {
@@ -524,8 +500,8 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
         route_state_shutdown(&result.route_state);
         return 1;
     }
-    if (!map_forge_headless_resolve_pin(&result.route_state.graph, from_pin, &result.from_pin) ||
-        !map_forge_headless_resolve_pin(&result.route_state.graph, to_pin, &result.to_pin)) {
+    if (!map_forge_headless_resolve_pin(&result.route_state.graph, from_pin, &result.from_pin, result.job.route_mode) ||
+        !map_forge_headless_resolve_pin(&result.route_state.graph, to_pin, &result.to_pin, result.job.route_mode)) {
         (void)map_forge_headless_set_diagnostic_error(&result,
                                                       "pin_lookup",
                                                       "pin_node_resolve_failed",
@@ -537,7 +513,17 @@ int map_forge_headless_run(const MapForgeHeadlessCliOptions *options,
         return 1;
     }
 
-    if (!route_state_route(&result.route_state, result.from_pin.nearest_node, result.to_pin.nearest_node)) {
+    if (result.from_pin.node_distance_m > 200.0 || result.to_pin.node_distance_m > 200.0 ||
+        (result.region.has_bounds && (from_pin->lat < result.region.min_lat || from_pin->lat > result.region.max_lat || from_pin->lon < result.region.min_lon || from_pin->lon > result.region.max_lon ||
+        to_pin->lat < result.region.min_lat || to_pin->lat > result.region.max_lat || to_pin->lon < result.region.min_lon || to_pin->lon > result.region.max_lon))) {
+        map_forge_headless_set_diagnostic_error(&result, "pin_lookup", "pin_outside_routable_coverage", result.job.map_region, "A pin lies outside the region or more than 200 ground meters from the routable network.");
+        map_forge_headless_write_outputs(&result); map_forge_pins_file_free(&pins_file); route_state_shutdown(&result.route_state); return 1;
+    }
+    RouteEndpointAnchor from_anchor,to_anchor;
+    bool query_ok=route_query_snap(&result.route_state.graph,(MercatorMeters){result.from_pin.world_x,result.from_pin.world_y},result.job.route_mode,200.0,&from_anchor)
+        && route_query_snap(&result.route_state.graph,(MercatorMeters){result.to_pin.world_x,result.to_pin.world_y},result.job.route_mode,200.0,&to_anchor)
+        && route_query_solve(&result.route_state,&from_anchor,&to_anchor);
+    if (!query_ok) {
         (void)map_forge_headless_set_diagnostic_error(&result,
                                                       "route_compute",
                                                       "route_compute_failed",

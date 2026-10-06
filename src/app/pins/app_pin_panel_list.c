@@ -1,4 +1,6 @@
 #include "app/app_internal.h"
+#include "app/place_runtime.h"
+#include "app/app_utility_workspace.h"
 #include "app/app_pin_panel_internal.h"
 
 #include "map/mercator.h"
@@ -22,7 +24,7 @@ static int app_pin_panel_row_at_point(const AppState *app, int x, int y) {
             (float)x <= row->x + row->w &&
             (float)y >= row->y &&
             (float)y <= row->y + row->h) {
-            return app->ui_state_bridge.pin_pane_row_base + i;
+            return app_utility_pin_index(app, app->ui_state_bridge.pin_pane_row_base + i);
         }
     }
     return -1;
@@ -211,6 +213,10 @@ bool app_pin_panel_handle_list_click(AppState *app, int x, int y) {
     if (pin_index < 0) {
         return false;
     }
+    if (app_places_has_unsaved_draft(app)) {
+        app_pin_editor_set_status(app, "Save or Cancel your draft before selecting another home.");
+        return true;
+    }
     if (app->ui_state_bridge.input.right_click_pressed) {
         app_pin_panel_cancel_list_drag(app);
         return app_pin_panel_set_route_endpoint_from_pin(app, pin_index, false);
@@ -224,7 +230,7 @@ bool app_pin_panel_handle_list_click(AppState *app, int x, int y) {
     }
 
     app_pin_editor_select_saved_pin(app, pin_index);
-    app->ui_state_bridge.pin_list_drag_armed = true;
+    app->ui_state_bridge.pin_list_drag_armed = app_utility_collection_filter(app) == 0u && !app->ui_state_bridge.place_search[0];
     app->ui_state_bridge.pin_list_drag_active = false;
     app->ui_state_bridge.pin_drag_source_index = pin_index;
     app->ui_state_bridge.pin_drag_target_index = pin_index;
@@ -252,7 +258,7 @@ bool app_pin_panel_handle_list_runtime_inputs(AppState *app) {
         dy = abs(app->ui_state_bridge.input.mouse_y - app->ui_state_bridge.pin_drag_start_mouse_y);
         app->ui_state_bridge.pin_drag_last_mouse_y = app->ui_state_bridge.input.mouse_y;
         if (!app->ui_state_bridge.pin_list_drag_active && dy >= 4) {
-            app->ui_state_bridge.pin_list_drag_active = true;
+            app->ui_state_bridge.pin_list_drag_active = app_utility_collection_filter(app) == 0u && !app->ui_state_bridge.place_search[0];
         }
         if (app->ui_state_bridge.pin_list_drag_active) {
             app_pin_panel_update_drag_preview(app, app->ui_state_bridge.input.mouse_y);

@@ -131,73 +131,6 @@ static void map_forge_headless_seed_layer_defaults(AppState *app,
     }
 }
 
-static uint32_t map_forge_headless_band_candidates(TileLayerKind kind,
-                                                   TileZoomBand target,
-                                                   TileZoomBand out_bands[4]) {
-    uint32_t count = 0u;
-    if (!out_bands) {
-        return 0u;
-    }
-
-    if (kind == TILE_LAYER_POLY_BUILDING) {
-        if (target == TILE_BAND_FINE || target == TILE_BAND_MID) {
-            out_bands[count++] = TILE_BAND_FINE;
-            out_bands[count++] = TILE_BAND_MID;
-            out_bands[count++] = TILE_BAND_COARSE;
-            out_bands[count++] = TILE_BAND_DEFAULT;
-            return count;
-        }
-        if (target == TILE_BAND_COARSE) {
-            out_bands[count++] = TILE_BAND_MID;
-            out_bands[count++] = TILE_BAND_COARSE;
-            out_bands[count++] = TILE_BAND_DEFAULT;
-            return count;
-        }
-        out_bands[count++] = TILE_BAND_DEFAULT;
-        return count;
-    }
-
-    if (target == TILE_BAND_FINE) {
-        out_bands[count++] = TILE_BAND_FINE;
-        out_bands[count++] = TILE_BAND_MID;
-        out_bands[count++] = TILE_BAND_COARSE;
-        out_bands[count++] = TILE_BAND_DEFAULT;
-        return count;
-    }
-    if (target == TILE_BAND_MID) {
-        out_bands[count++] = TILE_BAND_MID;
-        out_bands[count++] = TILE_BAND_COARSE;
-        out_bands[count++] = TILE_BAND_DEFAULT;
-        return count;
-    }
-    if (target == TILE_BAND_COARSE) {
-        out_bands[count++] = TILE_BAND_COARSE;
-        out_bands[count++] = TILE_BAND_DEFAULT;
-        return count;
-    }
-
-    out_bands[count++] = TILE_BAND_DEFAULT;
-    return count;
-}
-
-static TileZoomBand map_forge_headless_effective_band_for_visible_zoom(const AppState *app,
-                                                                       TileLayerKind kind,
-                                                                       TileZoomBand target_band,
-                                                                       uint16_t visible_zoom) {
-    TileZoomBand candidates[4] = {TILE_BAND_DEFAULT, TILE_BAND_DEFAULT, TILE_BAND_DEFAULT, TILE_BAND_DEFAULT};
-    uint32_t count = map_forge_headless_band_candidates(kind, target_band, candidates);
-    if (!app) {
-        return target_band;
-    }
-    for (uint32_t i = 0u; i < count; ++i) {
-        TileZoomBand candidate = candidates[i];
-        if (region_tile_coverage_has_zoom(&app->region, kind, candidate, visible_zoom)) {
-            return candidate;
-        }
-    }
-    return target_band;
-}
-
 bool map_forge_headless_map_layers_init(AppState *app,
                                         const Renderer *renderer,
                                         const RegionInfo *region,
@@ -282,10 +215,8 @@ bool map_forge_headless_map_layers_prepare_frame(AppState *app,
             TileZoomBand effective_band = app->tile_state_bridge.headless_locked_bands_valid &&
                                           app->tile_state_bridge.headless_stabilize_tile_bands
                 ? app->tile_state_bridge.stable_target_band[i]
-                : map_forge_headless_effective_band_for_visible_zoom(app,
-                                                                     kind,
-                                                                     policy_band,
-                                                                     app->tile_state_bridge.visible_zoom);
+                : region_tile_coverage_resolve_band(&app->region, kind, policy_band,
+                                                    app->tile_state_bridge.visible_zoom);
             app->tile_state_bridge.previous_target_band[i] = policy_band;
             app->tile_state_bridge.stable_target_band[i] = effective_band;
             app->tile_state_bridge.layer_target_band[i] = effective_band;

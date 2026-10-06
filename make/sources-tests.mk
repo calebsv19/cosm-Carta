@@ -43,4 +43,26 @@ APP_PIN_PANEL_RENAME_TEST_SRCS := tests/app_pin_panel_rename_test.c src/app/pins
 TILE_MANAGER_RESIDENCY_TEST_TARGET := $(TEST_BIN_DIR)/tile_manager_residency_test
 TILE_MANAGER_RESIDENCY_TEST_SRCS := tests/tile_manager_residency_test.c src/map/tile_manager.c src/map/tile_source.c src/map/mft_loader.c src/core/log.c
 APP_PINS_TEST_TARGET := $(TEST_BIN_DIR)/app_pins_test
-APP_PINS_TEST_SRCS := tests/app_pins_test.c src/app/pins/app_pins.c
+APP_PINS_TEST_SRCS := src/app/history/history_gpx.c src/app/history/history_store.c src/app/history/history_commands.c src/app/history/history_status.c tests/app_pins_test.c src/app/pins/app_pins.c src/app/pins/app_pins_workspace.c src/app/pins/place_repository.c src/app/pins/place_commands.c src/app/pins/place_routes.c src/app/pins/place_maintenance.c src/app/pins/place_profile.c src/route/query.c src/route/route.c src/route/astar.c src/route/cost.c src/route/graph.c src/map/mercator.c src/map/geodesic.c src/core/log.c
+
+ROUTE_COST_TEST_TARGET := $(TEST_BIN_DIR)/test_route_cost
+ROUTE_COST_TEST_SRCS := tests/test_route_cost.c src/route/cost.c src/route/astar.c src/route/route.c src/route/graph.c src/map/geodesic.c src/map/mercator.c src/core/log.c
+
+UTILITY_WORKSPACE_TEST_TARGET := $(TEST_BIN_DIR)/test_utility_workspace
+UTILITY_WORKSPACE_TEST_SRCS := tests/test_utility_workspace.c src/app/app_utility_workspace.c
+ROUTE_QUERY_TEST_TARGET := $(TEST_BIN_DIR)/test_route_query
+ROUTE_QUERY_TEST_SRCS := tests/test_route_query.c src/route/query.c src/route/route.c src/route/astar.c src/route/cost.c src/route/graph.c src/map/mercator.c src/map/geodesic.c src/core/log.c
+
+PLACE_TOOLS_TEST_TARGET := $(TEST_BIN_DIR)/test_place_tools
+PLACE_TOOLS_TEST_SRCS := src/app/history/history_gpx.c src/app/history/history_store.c src/app/history/history_commands.c src/app/history/history_status.c tests/test_place_tools.c src/app/pins/app_place_tools.c src/app/pins/app_place_tools_draw.c src/app/pins/app_pins.c src/app/pins/app_pins_workspace.c src/app/pins/place_repository.c src/app/pins/place_commands.c src/app/pins/place_routes.c src/app/pins/place_maintenance.c src/app/pins/place_profile.c src/route/query.c src/route/route.c src/route/astar.c src/route/cost.c src/route/graph.c src/map/mercator.c src/map/geodesic.c src/core/log.c
+
+REGION_BAND_SELECTION_TEST_TARGET := $(TEST_BIN_DIR)/test_region_band_selection
+REGION_BAND_SELECTION_TEST_SRCS := tests/test_region_band_selection.c src/app/region.c src/map/tile_source.c
+
+TILE_SUBMISSION_BUDGET_TEST_TARGET := $(TEST_BIN_DIR)/test_tile_submission_budget
+TILE_SUBMISSION_BUDGET_TEST_SRCS := tests/test_tile_submission_budget.c src/app/app_tile_submission_budget.c
+REGION_PREPARE_TEST_TARGET := $(TEST_BIN_DIR)/test_region_prepare
+REGION_PREPARE_TEST_SRCS := src/app/app_region_transition.c src/core/time.c src/map/polygon_cache.c src/map/polygon_triangulator.c tests/test_region_prepare.c tests/tile_source_test_fixture.c src/app/region_prepare.c src/app/region.c src/app/region_loader.c src/app/app_view.c src/map/tile_manager.c src/map/tile_source.c src/map/mft_loader.c src/map/mercator.c src/map/tile_math.c src/camera/camera.c src/camera/camera_viewport_bridge.c src/core/log.c
+
+HISTORY_UI_TEST_TARGET := $(TEST_BIN_DIR)/test_history_ui
+HISTORY_UI_TEST_SRCS := src/app/history/history_views.c src/app/history/history_browser.c $(KIT_UI_DIR)/src/kit_ui.c $(KIT_RENDER_DIR)/src/kit_render.c tests/test_history_ui.c src/app/terrain_ui.c src/app/history/history_ui.c src/app/history_layout.c src/app/history/history_gpx.c src/app/history/history_commands.c src/app/history/history_status.c src/app/history/history_store.c $(filter-out tools/mapforge_places.c src/app/history/history_gpx.c src/app/history/history_commands.c src/app/history/history_status.c src/app/history/history_store.c,$(PLACES_SRCS))

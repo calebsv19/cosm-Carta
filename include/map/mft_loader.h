@@ -56,6 +56,7 @@ typedef struct MftTile {
     uint32_t polygon_point_total;
     uint16_t *polygon_points;
     bool polygon_tri_cached;
+    uint32_t polygon_tri_cache_max_points;
     uint32_t polygon_tri_index_total;
     uint32_t *polygon_tri_ring_offsets;
     uint32_t *polygon_tri_ring_counts;

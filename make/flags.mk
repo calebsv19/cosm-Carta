@@ -168,6 +168,7 @@ APP_CFLAGS += -I$(CORE_FONT_DIR)/include
 APP_CFLAGS += -I$(CORE_PANE_DIR)/include
 APP_CFLAGS += -I$(CORE_VIEWPORT2D_DIR)/include
 APP_CFLAGS += -I$(KIT_RUNTIME_DIAG_DIR)/include
+APP_CFLAGS += -I$(KIT_UI_DIR)/include
 APP_CFLAGS += -I$(KIT_RENDER_DIR)/include
 APP_CFLAGS += -I$(KIT_WORKSPACE_AUTHORING_DIR)/include
 HOST_CFLAGS += -I$(CORE_SPACE_DIR)/include
@@ -189,5 +190,19 @@ HOST_CFLAGS += -I$(CORE_FONT_DIR)/include
 HOST_CFLAGS += -I$(CORE_PANE_DIR)/include
 HOST_CFLAGS += -I$(CORE_VIEWPORT2D_DIR)/include
 HOST_CFLAGS += -I$(KIT_RUNTIME_DIAG_DIR)/include
+HOST_CFLAGS += -I$(KIT_UI_DIR)/include
 HOST_CFLAGS += -I$(KIT_RENDER_DIR)/include
 HOST_CFLAGS += -I$(KIT_WORKSPACE_AUTHORING_DIR)/include
+
+# GPX uses the maintained system XML reader; originals use host cryptographic hashing.
+ifeq ($(TARGET_OS),macOS)
+GPX_CFLAGS := -I$(shell xcrun --show-sdk-path)/usr/include/libxml2
+GPX_LIBS := -lxml2
+else
+GPX_CFLAGS := $(shell $(PKG_CONFIG) --cflags libxml-2.0 openssl)
+GPX_LIBS := $(shell $(PKG_CONFIG) --libs libxml-2.0 openssl)
+endif
+APP_CFLAGS += $(GPX_CFLAGS)
+HOST_CFLAGS += $(GPX_CFLAGS)
+LDLIBS += $(GPX_LIBS) -lz
+TOOL_LDLIBS += $(GPX_LIBS)

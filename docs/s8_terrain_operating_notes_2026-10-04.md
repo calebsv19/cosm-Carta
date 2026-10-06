@@ -1,0 +1,45 @@
+# S8 offline terrain overview — 2026-10-04
+
+S8 adds a georeferenced overview beneath Hiking & History, reusing the populated S7 library without changing history/client records. Select Hiking & History, Fit selected or Fit collection, then use Terrain: Topo / Relief / Off. Reload terrain accepts a valid replacement pack; failed opening leaves the prior reader usable. Topo is the initial default; the preference is persisted separately from places/history. Peak names are bounded labels; colors still represent explicit visit states. Detailed city tiles and region rectangles do not interrupt the continuous hiking overview. The existing Map and Dog Walking workspaces keep their street rendering.
+
+## Coverage and source
+
+The rounded source area is longitude -122.48 to -121.38, latitude 47.35 to 48.03. This includes all current 6 recorded activities, 26 completed references and 7 GNIS points, spanning Seattle, Issaquah, the Snoqualmie foothills and Greider Lake. The overlay is separate from routable street region packs and adds no hiking routing graph.
+
+[USGS 3DEP Elevation ImageServer](https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer) supplies a float32 bare-earth DEM with real GeoTIFF scale/tie/EPSG:3857 keys. The 2722 x 2500 crop is about 45 projected meters per cell, roughly 30 ground meters at this latitude. Relief derives physical slopes corrected for Mercator scale, three lighting azimuths at 45-degree altitude, hypsometric colors and raster contour pixels every 100 m with 500 m emphasis; there is no vertical exaggeration. Sparse TIFF directory offsets are explicitly masked (65,536 no-data cells) rather than interpreted as false heights. Valid source heights span -0.558 to 2053.799 m. Unknown/no-data remains transparent, with a one-cell neighbor guard for gradients/contours. The service combines source products, so every cell's vertical datum is not independently certified.
+
+[USGS Topo MapServer](https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer) supplies a separate 4096 x 3762 context crop with roads, water, names, hillshade and contours. Each style preserves its own returned extent: the Topo service adjusts its Y extent by about 5.2 m at each edge. Labels are raster labels and become soft when zoomed beyond the selected raster resolution. The imported GPX keeps full point fidelity independent of basemap resolution.
+
+## Offline pack and limits
+
+The canonical installed pack is `data/regions/hiking_terrain_overview/terrain.sqlite` with a `terrain.json` source/hash/attribution receipt. It contains 2,943 CRC-checked tiles across ten geographic rasters (five areas, each with Topo and Relief) and five levels, with one neighboring texel of gutter on each edge. It is not a `meta.json` routable region. App admission requires the MF terrain application ID, schema 1, EPSG:3857, finite bounded extents, bounded integer dimensions, consistent pyramid/grids and expected tile count. Runtime is read-only, SQLite mmap is disabled, query cache is limited to 2 MiB, and each indexed blob expands to exactly 258 x 258 indices, then to RGBA through its validated 256-color palette; CRC validates decoded RGBA. Legacy zlib RGBA packs remain supported. Palette quantization reduces color precision, not geographic sample spacing. Individual damaged tiles stay failed until reload; they cannot expand arbitrarily.
+
+Installed SQLite is 92,426,240 bytes (88.14 MiB); SHA256 55999ada971668f79028add63eaf788e0d1cd5211f76fe01b6aa802a1a32a028, plus its small receipt. Maximum pack admission is 256 MiB; the preparation default is 128 MiB. Runtime holds at most 48 cache entries, at most 32 desired visible keys by coarsening wide/rotated views, 12.19 MiB of decoded RGBA, and at most 32 MiB of device-reported terrain image allocation. At most two decode/upload operations are admitted per frame with a 3 ms soft gate checked between operations. A single driver upload can exceed that soft gate. Pending preparation keeps the loop awake; cached alternate levels remain under incoming levels through zoom. Texture retirement completes prior GPU work before destruction; context identity prevents reuse of stale handles. Raster corners share the history camera and viewport transformation, including rotation and resize.
+
+Overview plus four detail source crops total 379,499,709 bytes (about 362 MiB). Replaceable raw crops are pruned after final proof; exact source queries, hashes and export metadata remain in the installed receipt. Preparation temporarily uses both crops, derived working arrays and an output database; source/cache bytes are reported separately from installed runtime data. A dated rebuild cache may be removed independently from the read-only runtime pack. There is no runtime network or Python requirement. The optional offline builder needs Pillow and NumPy:
+
+```
+python3 tools/prepare_terrain_overview.py --work /absolute/source/cache --out /absolute/terrain.sqlite --fetch
+```
+
+Use an environment with Pillow/NumPy installed, or the desktop's bundled dependency Python. Replacing an existing destination requires `--replace`; the old pack survives preparation/size/integrity failure. Source service URLs, exact crop query URLs, actual extents, hashes, retrieved file timestamps and attribution are retained. `MAPFORGE_TERRAIN_PATH` allows isolated diagnostics. A `--dem` filename in the old vector region builder now remains disabled scaffold metadata rather than claiming that empty contour tiles contain processed elevation.
+
+## Reuse and proof boundaries
+
+Generic rotated raster corners belong to canonical shared `vk_renderer 1.6.0`. Main Edit consumes only that additive API and the existing texture vertex emitter over its vendored 1.3.2 plus S7 semaphore fix, documented in MAPFORGE_VENDOR_PATCHES.md. This is not full 1.6 adoption. Shared vertex-contract and live readback/resize tests pass. SQLite, json-c, Mercator/core_viewport2d and existing upload/font/theme/runtime paths are reused; geographic source/LOD/coverage policy remains app-local. No new shared semantic module or personal save schema is introduced.
+
+After the detail refinement, all affected history, history UI, terrain reader/draw/preparation, viewport, pins, place tools and utility workspace checks pass. Required make passes. The production draw regression asserts that detail texels use the selected detail raster and matching footprint; the corrected native replay independently checks appearance and alignment. The initial S8 full `make test` run passes, including D3 with Seattle fallback peaks 26/26 and zero delta. The earlier S7 timing-sensitive 6/26 failure remains historical evidence; a green run does not prove that variability was eliminated. Native captures exercise real Kaleetan/McClellan, a collection, rotation, zoom, resize, style buttons and point inspection on a disposable database copy. The first capture run missed validation because SIP stripped loader variables at Python startup; its logs are retained, then the harness assigned the existing validation library path inside the child environment. Corrected validation-enabled proof is authoritative. Final package verification and receipts are under ignored build/s8-proof; human appearance/placement acceptance is still pending.
+
+The local development package keeps program VERSION 0.3.0 and does not promote a public release. Normal same-app macOS access prompts remain a user action; do not alter permissions manually or change app identity to bypass them.
+
+## Sharper local detail (2026-10-04)
+
+At hike zoom, the reader selects the finest area that fully contains the visible geographic bounds; panning beyond a detail patch returns to the continuous overview. Relief sample spacing is approximately 3.7 ground meters in Issaquah, 7.4 m in Snoqualmie, 2.0 m at Greider Lake and 1.0 m at Golden Gardens. Exact returned extents and dimensions for both products are retained per raster. Those patches cover the currently imported hikes; a broad view still uses the overview. Off, Relief and Topo are public modes independent of the chosen geographic raster. Cached coarser rasters of the same mode remain underneath arriving detail during zoom.
+
+The offline builder accepts already fetched detail cache folders with repeated --detail arguments, e.g.:
+
+```
+python3 tools/prepare_terrain_overview.py --work /overview/cache --detail /issaquah/cache --detail /snoqualmie/cache --detail /greider/cache --detail /golden-gardens/cache --out /absolute/terrain.sqlite --replace
+```
+
+The --fetch option fetches the overview only; detail source export queries are recorded in terrain.json. Native runtime needs neither Python nor network. Deep zoom eventually exceeds the finite source raster resolution; vector contours and labels are a future refinement rather than a reason to download a statewide map. Corrected native Kaleetan cache telemetry reached 36 resident entries, 9,585,216 decoded bytes and 15,040,512 device-reported image allocation bytes, within the specified caps. These are terrain cache measurements, not whole-process RSS.

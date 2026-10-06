@@ -156,6 +156,8 @@ static void destroy_entry_meshes(VkTileCache *cache, void *vk_renderer, VkTileCa
     if (!cache || !entry) {
         return;
     }
+    /* Retained meshes can still be referenced by an earlier submission. */
+    if (vk_renderer) vk_renderer_device_wait_idle(((VkRenderer *)vk_renderer)->context.device);
     for (uint32_t i = 0u; i < 3u; ++i) {
         if (!entry->water_lod_mesh_ready[i]) {
             continue;
@@ -728,6 +730,7 @@ bool vk_tile_cache_init(VkTileCache *cache, uint32_t capacity) {
 
     cache->capacity = capacity;
     cache->tick = 1u;
+    cache->byte_limit = 512ull * 1024 * 1024;
     cache->min_resident_by_kind[TILE_LAYER_ROAD_ARTERY] = 96u;
     cache->min_resident_by_kind[TILE_LAYER_ROAD_LOCAL] = 64u;
     return true;
@@ -794,6 +797,28 @@ bool vk_tile_cache_on_tile_loaded(VkTileCache *cache,
                                   const MftTile *tile) {
     if (!cache || !cache->entries || !tile) {
         return false;
+    }
+
+    /* Reserve a conservative upper bound before any upload. Refuse rather than
+     * evict the last presentation under memory pressure. Allocation overhead is
+     * tracked separately by process RSS; this cap covers retained buffer bytes. */
+    uint64_t reserve = (uint64_t)tile->point_total * 48u + (uint64_t)tile->polygon_point_total * 80u;
+    for (unsigned lod = 0; lod < 3; ++lod) reserve += (uint64_t)tile->water_variant_point_total[lod] * 48u;
+    if (cache->byte_limit && reserve > cache->byte_limit) { cache->budget_refusals++; return false; }
+    while (cache->byte_limit && cache->mesh_bytes > cache->byte_limit - reserve) {
+        VkTileCacheEntry *victim = NULL;
+        for (uint32_t i = 0; i < cache->capacity; ++i) {
+            VkTileCacheEntry *e = &cache->entries[i];
+            if (e->occupied && !e->presentation_pinned && (!victim || e->last_used < victim->last_used)) victim = e;
+        }
+        if (!victim) { cache->budget_refusals++; return false; }
+#if defined(MAPFORGE_HAVE_VK)
+        destroy_entry_meshes(cache, vk_renderer, victim);
+#endif
+        if (cache->resident_by_kind[victim->kind]) cache->resident_by_kind[victim->kind]--;
+        memset(victim, 0, sizeof(*victim));
+        cache->count--;
+        cache->evictions++;
     }
 
     VkTileCacheEntry *entry = vk_tile_cache_find_entry(cache, kind, coord, band);

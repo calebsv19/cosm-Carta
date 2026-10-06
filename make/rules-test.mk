@@ -387,7 +387,7 @@ $(APP_MAP_VIEWPORT_TEST_TARGET): $(APP_MAP_VIEWPORT_TEST_SRCS)
 
 $(APP_PIN_PANEL_LAYOUT_TEST_TARGET): $(APP_PIN_PANEL_LAYOUT_TEST_SRCS) $(CORE_PANE_LIB)
 	@mkdir -p $(dir $@)
-	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_PIN_PANEL_LAYOUT_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_SHARED_LIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_PIN_PANEL_LAYOUT_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS) $(CORE_SHARED_LIBS)
 
 $(APP_PIN_PANEL_RENAME_TEST_TARGET): $(APP_PIN_PANEL_RENAME_TEST_SRCS)
 	@mkdir -p $(dir $@)
@@ -400,3 +400,156 @@ $(TILE_MANAGER_RESIDENCY_TEST_TARGET): $(TILE_MANAGER_RESIDENCY_TEST_SRCS)
 $(APP_PINS_TEST_TARGET): $(APP_PINS_TEST_SRCS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(APP_PINS_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS)
+
+test: test-route-cost
+
+test-route-cost: $(ROUTE_COST_TEST_TARGET)
+	./$(ROUTE_COST_TEST_TARGET)
+
+$(ROUTE_COST_TEST_TARGET): $(ROUTE_COST_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(ROUTE_COST_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(CORE_IO_LIB) $(CORE_BASE_LIB)
+
+test: test-utility-workspace
+
+test-utility-workspace: $(UTILITY_WORKSPACE_TEST_TARGET)
+	./$(UTILITY_WORKSPACE_TEST_TARGET)
+
+$(UTILITY_WORKSPACE_TEST_TARGET): $(UTILITY_WORKSPACE_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(UTILITY_WORKSPACE_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS)
+
+test: test-utility-pack
+
+test-utility-pack: tools-build graph-build
+	python3 tests/test_utility_pack.py --tools-dir "$(TOOL_BIN_DIR)"
+
+test-place-intake: $(PLACES_TARGET)
+	python3 tests/test_place_intake.py $(PLACES_TARGET)
+test: test-place-intake
+test-route-query: $(ROUTE_QUERY_TEST_TARGET)
+	./$(ROUTE_QUERY_TEST_TARGET)
+$(ROUTE_QUERY_TEST_TARGET): $(ROUTE_QUERY_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(ROUTE_QUERY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+test: test-route-query
+
+test-gpx-preview:
+	python3 tests/test_gpx_preview.py
+test: test-gpx-preview
+
+test-place-tools: $(PLACE_TOOLS_TEST_TARGET)
+	./$(PLACE_TOOLS_TEST_TARGET)
+$(PLACE_TOOLS_TEST_TARGET): $(PLACE_TOOLS_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(PLACE_TOOLS_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS) $(SDL_LIBS)
+test: test-place-tools
+
+test: test-region-band-selection
+.PHONY: test-region-band-selection
+test-region-band-selection: $(REGION_BAND_SELECTION_TEST_TARGET)
+	./$(REGION_BAND_SELECTION_TEST_TARGET)
+
+$(REGION_BAND_SELECTION_TEST_TARGET): $(REGION_BAND_SELECTION_TEST_SRCS) include/app/region.h
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(REGION_BAND_SELECTION_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+
+.PHONY: test-tile-submission-budget test-region-prepare
+test: test-tile-submission-budget test-region-prepare
+test-tile-submission-budget: $(TILE_SUBMISSION_BUDGET_TEST_TARGET)
+	./$(TILE_SUBMISSION_BUDGET_TEST_TARGET)
+$(TILE_SUBMISSION_BUDGET_TEST_TARGET): $(TILE_SUBMISSION_BUDGET_TEST_SRCS) include/app/app_tile_pipeline_helpers.h
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(TILE_SUBMISSION_BUDGET_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
+test-region-prepare: $(REGION_PREPARE_TEST_TARGET)
+	./$(REGION_PREPARE_TEST_TARGET)
+$(REGION_PREPARE_TEST_TARGET): $(REGION_PREPARE_TEST_SRCS) include/app/region_prepare.h include/app/app_internal.h include/app/app_region_transition.h include/map/polygon_cache.h include/map/polygon_triangulator.h $(CORE_SHARED_LIBS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(REGION_PREPARE_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS) $(CORE_SHARED_LIBS)
+
+# Exercise the durable hiking command boundary using disposable repositories.
+test-history: $(PLACES_TARGET)
+	python3 tests/test_history.py $(PLACES_TARGET)
+test: test-history
+
+# Check native history events and command emission without a personal workspace.
+test-history-ui: $(HISTORY_UI_TEST_TARGET)
+	./$(HISTORY_UI_TEST_TARGET)
+$(HISTORY_UI_TEST_TARGET): $(HISTORY_UI_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(HISTORY_UI_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS) $(SDL_LIBS) $(CORE_THEME_LIB) $(CORE_FONT_LIB)
+test: test-history-ui
+
+.PHONY: test-terrain test-terrain-prepare
+test-terrain: $(TEST_BIN_DIR)/test_terrain_pack
+	python3 tests/test_terrain_pack.py $(TEST_BIN_DIR)/test_terrain_pack
+$(TEST_BIN_DIR)/test_terrain_pack: tests/test_terrain_pack.c src/map/terrain_pack.c include/map/terrain_pack.h
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_pack.c src/map/terrain_pack.c -o $@ $(SQLITE_LIBS) $(JSON_LIBS) -lz -lm
+TERRAIN_PREPARE_PYTHON ?= python3
+test-terrain-prepare:
+	$(TERRAIN_PREPARE_PYTHON) tests/test_terrain_prepare.py $(TERRAIN_SOURCE_DIR)
+test: test-terrain
+
+.PHONY: test-terrain-draw
+test-terrain-draw: $(TEST_BIN_DIR)/test_terrain_draw
+	./$(TEST_BIN_DIR)/test_terrain_draw
+$(TEST_BIN_DIR)/test_terrain_draw: tests/test_terrain_draw.c src/app/terrain.c src/app/terrain_decode.c src/map/terrain_catalog.c include/map/terrain_pack.h $(CORE_IO_LIB) $(CORE_BASE_LIB) $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_draw.c src/app/terrain.c src/app/terrain_decode.c src/map/terrain_catalog.c -o $@ $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB) $(SDL_LIBS) $(JSON_LIBS) -lm
+test: test-terrain-draw
+
+.PHONY: test-terrain-vectors
+test-terrain-vectors: $(TEST_BIN_DIR)/test_terrain_vectors
+	$(TERRAIN_PREPARE_PYTHON) tests/test_terrain_vectors.py $(TEST_BIN_DIR)/test_terrain_vectors
+$(TEST_BIN_DIR)/test_terrain_vectors: tests/test_terrain_vectors.c src/map/terrain_vectors.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $^ -o $@ $(JSON_LIBS) -lsqlite3 -lz -lm
+test: test-terrain-vectors
+
+# Verify independent hiking progress and named list reconciliation with disposable stores.
+test-history-status: $(PLACES_TARGET)
+	python3 tests/test_history_status.py $(PLACES_TARGET)
+test: test-history-status
+
+# Verify idle dispatch and asynchronous wake policy without presenting a native frame.
+test-idle-runtime: $(TEST_BIN_DIR)/app_runtime_idle_test
+	./$(TEST_BIN_DIR)/app_runtime_idle_test
+
+test: test-idle-runtime
+
+$(TEST_BIN_DIR)/app_runtime_idle_test: tests/app_runtime_idle_test.c src/app/app_runtime_wait_policy.c src/app/app_runtime_dispatch.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $^ third_party/codework_shared/core/core_queue/src/core_queue.c -o $@ $(TOOL_LDLIBS)
+
+.PHONY: test-terrain-catalog
+test-terrain-catalog: $(TEST_BIN_DIR)/test_terrain_catalog
+	python3 tests/test_terrain_catalog.py $(TEST_BIN_DIR)/test_terrain_catalog
+$(TEST_BIN_DIR)/test_terrain_catalog: tests/test_terrain_catalog.c src/map/terrain_catalog.c src/map/terrain_pack.c src/map/terrain_vectors.c $(CORE_IO_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_catalog.c src/map/terrain_catalog.c src/map/terrain_pack.c src/map/terrain_vectors.c -o $@ $(CORE_IO_LIB) $(CORE_BASE_LIB) $(SQLITE_LIBS) $(JSON_LIBS) -lz -lm
+test: test-terrain-catalog
+
+.PHONY: test-terrain-decode
+test-terrain-decode: $(TEST_BIN_DIR)/test_terrain_decode
+	./$(TEST_BIN_DIR)/test_terrain_decode
+$(TEST_BIN_DIR)/test_terrain_decode: tests/test_terrain_decode.c src/app/terrain_decode.c include/app/terrain_decode.h $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(TEST_BIN_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_decode.c src/app/terrain_decode.c -o $@ $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_BASE_LIB) $(SDL_LIBS)
+test: test-terrain-decode
+
+.PHONY: test-terrain-presentation
+test-terrain-presentation: $(TEST_BIN_DIR)/test_terrain_presentation
+	./$(TEST_BIN_DIR)/test_terrain_presentation
+$(TEST_BIN_DIR)/test_terrain_presentation: tests/test_terrain_presentation.c src/app/terrain.c src/app/terrain_decode.c include/app/terrain.h $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_BASE_LIB)
+	@mkdir -p $(TEST_BIN_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_presentation.c src/app/terrain.c src/app/terrain_decode.c -o $@ $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_BASE_LIB) $(SDL_LIBS) -lm
+test: test-terrain-presentation
+
+.PHONY: test-terrain-vector-presentation
+test-terrain-vector-presentation: $(TEST_BIN_DIR)/test_terrain_vector_presentation
+	./$(TEST_BIN_DIR)/test_terrain_vector_presentation
+$(TEST_BIN_DIR)/test_terrain_vector_presentation: tests/test_terrain_vector_presentation.c src/app/terrain_vectors.c include/app/terrain_vectors.h
+	@mkdir -p $(TEST_BIN_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_vector_presentation.c src/app/terrain_vectors.c -o $@ $(SDL_LIBS) $(JSON_LIBS) -lm
+test: test-terrain-vector-presentation

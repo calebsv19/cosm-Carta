@@ -1,3 +1,4 @@
+#include "route/graph.h"
 #include "mapforge_graph_output.h"
 
 #include "core/log.h"
@@ -56,27 +57,13 @@ bool build_publish_paths(const char *active_root,
                                         staging_root_size);
 }
 
+// Uses the runtime graph contract before publishing any generated graph.
 bool validate_staged_graph(const char *stage_root) {
-    char path[512];
-    CoreBuffer buffer = {0};
-    char magic[4] = {0};
-    uint32_t version = 0u;
-    snprintf(path, sizeof(path), "%s/graph/graph.bin", stage_root);
-    CoreResult r = core_io_read_all(path, &buffer);
-    if (r.code != CORE_OK || !buffer.data || buffer.size < 8u) {
-        core_io_buffer_free(&buffer);
-        log_error("missing staged graph file: %s", path);
-        return false;
-    }
-    memcpy(magic, buffer.data, 4u);
-    memcpy(&version, buffer.data + 4u, sizeof(uint32_t));
-    core_io_buffer_free(&buffer);
-    if (memcmp(magic, GRAPH_MAGIC, 4) != 0 ||
-        (version != GRAPH_VERSION_V1 && version != GRAPH_VERSION_V2)) {
-        log_error("unexpected staged graph magic/version: %s", path);
-        return false;
-    }
-    return true;
+    char path[512]; snprintf(path, sizeof(path), "%s/graph/graph.bin", stage_root);
+    RouteGraph graph = {0};
+    bool valid = route_graph_load(path, &graph);
+    route_graph_free(&graph);
+    return valid;
 }
 
 bool publish_staged_graph(const GraphOptions *options,
@@ -157,6 +144,7 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
     float *edge_speed_limit = NULL;
     float *edge_grade = NULL;
     float *edge_penalty = NULL;
+    uint8_t *edge_access = NULL;
     uint8_t *edge_class = NULL;
 
     if (!node_x || !node_y || !edge_start) {
@@ -205,6 +193,7 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
         edges[edge_count].grade = edge.grade;
         edges[edge_count].objective_penalty = edge.objective_penalty;
         edges[edge_count].road_class = edge.road_class;
+        edges[edge_count].access_modes = edge.access_modes;
         edge_start[from_index + 1] += 1;
         edge_count += 1;
     }
@@ -219,8 +208,9 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
     edge_speed_limit = (float *)malloc(sizeof(float) * edge_count);
     edge_grade = (float *)malloc(sizeof(float) * edge_count);
     edge_penalty = (float *)malloc(sizeof(float) * edge_count);
+    edge_access = calloc(edge_count, sizeof(uint8_t));
     edge_class = (uint8_t *)malloc(sizeof(uint8_t) * edge_count);
-    if (!edge_to || !edge_length || !edge_speed || !edge_speed_limit || !edge_grade || !edge_penalty || !edge_class) {
+    if (!edge_to || !edge_length || !edge_speed || !edge_speed_limit || !edge_grade || !edge_penalty || !edge_class || !edge_access) {
         free(node_x);
         free(node_y);
         free(edge_start);
@@ -231,6 +221,7 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
         free(edge_grade);
         free(edge_penalty);
         free(edge_class);
+        free(edge_access);
         free(edges);
         return false;
     }
@@ -247,6 +238,7 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
         free(edge_grade);
         free(edge_penalty);
         free(edge_class);
+        free(edge_access);
         free(edges);
         return false;
     }
@@ -262,6 +254,7 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
         edge_grade[slot] = edges[i].grade;
         edge_penalty[slot] = edges[i].objective_penalty;
         edge_class[slot] = edges[i].road_class;
+        edge_access[slot] = edges[i].access_modes;
     }
 
     free(cursor);
@@ -281,7 +274,7 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
     const size_t edge_penalty_bytes = (size_t)out_edge_count * sizeof(float);
     const size_t total_bytes = header_bytes + node_bytes + edge_start_bytes + edge_to_bytes +
                                edge_length_bytes + edge_speed_bytes + edge_class_bytes +
-                               edge_speed_limit_bytes + edge_grade_bytes + edge_penalty_bytes;
+                               edge_speed_limit_bytes + edge_grade_bytes + edge_penalty_bytes + edge_class_bytes;
 
     uint8_t *blob = (uint8_t *)malloc(total_bytes);
     if (!blob) {
@@ -295,10 +288,11 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
         free(edge_grade);
         free(edge_penalty);
         free(edge_class);
+        free(edge_access);
         return false;
     }
     uint8_t *out_ptr = blob;
-    uint32_t version = GRAPH_VERSION_V2;
+    uint32_t version = GRAPH_VERSION_V4;
     memcpy(out_ptr, GRAPH_MAGIC, 4u);
     out_ptr += 4u;
     memcpy(out_ptr, &version, sizeof(uint32_t));
@@ -326,6 +320,8 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
     memcpy(out_ptr, edge_grade, (size_t)out_edge_count * sizeof(float));
     out_ptr += (size_t)out_edge_count * sizeof(float);
     memcpy(out_ptr, edge_penalty, (size_t)out_edge_count * sizeof(float));
+    out_ptr += (size_t)out_edge_count * sizeof(float);
+    memcpy(out_ptr, edge_access, (size_t)out_edge_count);
 
     CoreResult write_r = core_io_write_all(path, blob, total_bytes);
     free(blob);
@@ -340,6 +336,7 @@ bool write_graph(const GraphBuild *build, const char *out_dir) {
     free(edge_grade);
     free(edge_penalty);
     free(edge_class);
+        free(edge_access);
 
     return write_r.code == CORE_OK;
 }

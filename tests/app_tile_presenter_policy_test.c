@@ -7,6 +7,8 @@
 
 static uint32_t g_vk_enqueue_calls = 0u;
 static uint32_t g_polygon_draw_calls = 0u;
+static float g_last_road_opacity;
+static float g_last_polygon_opacity;
 static uint32_t g_road_draw_calls = 0u;
 static bool g_vk_cached_polygon_draw_result = false;
 static bool g_vk_cached_road_draw_result = false;
@@ -17,6 +19,13 @@ static TileCoord g_tile_lookup_coord = {0};
 static bool g_tile_lookup_coord_enabled = false;
 static const MftTile *g_tile_lookup_band_tiles[TILE_LAYER_COUNT][TILE_BAND_COUNT];
 static uint64_t g_fake_ticks = 1000u;
+
+static VkTileCacheEntry g_asset_by_band[TILE_BAND_COUNT];
+// Simulates independent CPU decode and retained GPU readiness for promotion tests.
+const VkTileCacheEntry *vk_tile_cache_peek(VkTileCache *cache, TileLayerKind kind, TileCoord coord, TileZoomBand band) {
+    (void)cache; (void)kind; (void)coord;
+    return band < TILE_BAND_COUNT ? &g_asset_by_band[band] : NULL;
+}
 
 // Link stubs for presenter dependencies not exercised by this policy test.
 const MftTile *tile_manager_peek_tile(const TileManager *manager, TileCoord coord, TileZoomBand band) {
@@ -49,7 +58,7 @@ void polygon_renderer_draw_tile(Renderer *renderer,
     (void)show_landuse;
     (void)building_zoom_bias;
     (void)building_fill_enabled;
-    (void)opacity_scale;
+    g_last_polygon_opacity = opacity_scale;
     g_last_polygon_outline_only = polygon_outline_only;
     g_polygon_draw_calls += 1u;
 }
@@ -65,7 +74,7 @@ void road_renderer_draw_tile(Renderer *renderer,
     (void)tile;
     (void)single_line;
     (void)zoom_bias;
-    (void)opacity_scale;
+    g_last_road_opacity = opacity_scale;
     g_road_draw_calls += 1u;
 }
 
@@ -271,7 +280,7 @@ int main(void) {
     assert(drew);
     assert(g_last_allow_retained_fill);
 
-    // Closed screen-level fill gate should force CPU fallback to outline-only and skip band-blend.
+    // A warming neighbor cannot extinguish the ready current tile fill; Vulkan still avoids CPU band blends.
     memset(&app, 0, sizeof(app));
     app.renderer.backend = RENDERER_BACKEND_VULKAN;
     app.tile_state_bridge.vk_assets_enabled = true;
@@ -314,7 +323,7 @@ int main(void) {
     assert(drew);
     assert(app.tile_state_bridge.transition_blend_draw_count == 0u);
     assert(g_polygon_draw_calls == 1u);
-    assert(g_last_polygon_outline_only);
+    assert(!g_last_polygon_outline_only);
     g_tile_lookup_coord_enabled = false;
 
     // Road path fallback: no cached mesh still enqueues and draws fallback line tile.
@@ -543,6 +552,89 @@ int main(void) {
     assert(resolved_band == TILE_BAND_MID);
     g_tile_lookup_app = NULL;
     g_tile_lookup_coord_enabled = false;
+
+    // Missing replacement cannot dim the only visible band as a timer advances.
+    memset(&app, 0, sizeof(app));
+    app.renderer.backend = RENDERER_BACKEND_SDL;
+    app.tile_state_bridge.previous_target_band[TILE_LAYER_ROAD_LOCAL] = TILE_BAND_MID;
+    app.tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL] = TILE_BAND_FINE;
+    app.tile_state_bridge.layer_band_last_change_time[TILE_LAYER_ROAD_LOCAL] = 100;
+    g_tile_lookup_app = &app;
+    g_tile_lookup_coord_enabled = true;
+    g_tile_lookup_coord = coord;
+    memset(g_tile_lookup_band_tiles, 0, sizeof(g_tile_lookup_band_tiles));
+    g_tile_lookup_band_tiles[TILE_LAYER_ROAD_LOCAL][TILE_BAND_MID] = &mid_tile;
+    assert(app_tile_presenter_draw_road_band_blend(&app, TILE_LAYER_ROAD_LOCAL, coord, true, 0, 0.8f, 100.15));
+    assert(g_last_road_opacity == 0.8f);
+    app.tile_state_bridge.previous_target_band[TILE_LAYER_POLY_PARK] = TILE_BAND_MID;
+    app.tile_state_bridge.layer_target_band[TILE_LAYER_POLY_PARK] = TILE_BAND_FINE;
+    app.tile_state_bridge.layer_band_last_change_time[TILE_LAYER_POLY_PARK] = 100;
+    g_tile_lookup_band_tiles[TILE_LAYER_POLY_PARK][TILE_BAND_MID] = &mid_tile;
+    assert(app_tile_presenter_draw_polygon_band_blend(&app, TILE_LAYER_POLY_PARK, coord, coord, 0, 0.7f, true, 100.15));
+    assert(g_last_polygon_opacity == 0.7f);
+    // A completed replacement must supersede the remembered old band immediately.
+    g_tile_lookup_band_tiles[TILE_LAYER_ROAD_LOCAL][TILE_BAND_FINE] = &fine_tile;
+    app_tile_presenter_present_hold_remember(&app, TILE_LAYER_ROAD_LOCAL, coord, TILE_BAND_MID, 101);
+    assert(app_tile_presenter_resolve_tile_for_present(&app, TILE_LAYER_ROAD_LOCAL, coord, 101.01, &resolved_tile, &resolved_band));
+    assert(resolved_tile == &fine_tile && resolved_band == TILE_BAND_FINE);
+    g_tile_lookup_app = NULL;
+    g_tile_lookup_coord_enabled = false;
+
+    // Slow GPU replacement retains the already drawn band beyond the old TTL.
+    memset(&app, 0, sizeof(app));
+    app.renderer.backend = RENDERER_BACKEND_VULKAN;
+    app.renderer.vk = (void *)1;
+    app.tile_state_bridge.vk_assets_enabled = true;
+    app.tile_state_bridge.layer_target_band[TILE_LAYER_ROAD_LOCAL] = TILE_BAND_FINE;
+    g_tile_lookup_app = &app;
+    g_tile_lookup_coord_enabled = true;
+    g_tile_lookup_coord = coord;
+    memset(g_tile_lookup_band_tiles, 0, sizeof(g_tile_lookup_band_tiles));
+    g_tile_lookup_band_tiles[TILE_LAYER_ROAD_LOCAL][TILE_BAND_MID] = &mid_tile;
+    g_tile_lookup_band_tiles[TILE_LAYER_ROAD_LOCAL][TILE_BAND_FINE] = &fine_tile;
+    memset(g_asset_by_band, 0, sizeof(g_asset_by_band));
+    g_asset_by_band[TILE_BAND_MID].polyline_count = 1;
+    g_asset_by_band[TILE_BAND_MID].road_mesh_ready[0] = true;
+    g_asset_by_band[TILE_BAND_FINE].polyline_count = 1;
+    // An unuploaded preferred tile cannot shadow an independently ready alternative.
+    assert(app_tile_presenter_resolve_tile_for_present(&app, TILE_LAYER_ROAD_LOCAL, coord, 199, &resolved_tile, &resolved_band));
+    assert(resolved_tile == &mid_tile && resolved_band == TILE_BAND_MID);
+    app_tile_presenter_present_hold_remember(&app, TILE_LAYER_ROAD_LOCAL, coord, TILE_BAND_MID, 200);
+    assert(app_tile_presenter_resolve_tile_for_present(&app, TILE_LAYER_ROAD_LOCAL, coord, 205, &resolved_tile, &resolved_band));
+    assert(resolved_tile == &mid_tile && resolved_band == TILE_BAND_MID);
+    g_asset_by_band[TILE_BAND_FINE].road_mesh_ready[0] = true;
+    assert(app_tile_presenter_resolve_tile_for_present(&app, TILE_LAYER_ROAD_LOCAL, coord, 205.01, &resolved_tile, &resolved_band));
+    assert(resolved_tile == &fine_tile && resolved_band == TILE_BAND_FINE);
+    g_tile_lookup_app = NULL;
+    g_tile_lookup_coord_enabled = false;
+
+    // One parent covers several child requests exactly once in a native frame.
+    memset(&app, 0, sizeof(app));
+    app.tile_state_bridge.lifecycle_frame_index = 1;
+    app.tile_state_bridge.layer_target_band[TILE_LAYER_POLY_PARK] = TILE_BAND_MID;
+    g_polygon_draw_calls = 0;
+    g_vk_cached_polygon_draw_result = false;
+    assert(app_tile_presenter_draw_polygon_layer(&app, TILE_LAYER_POLY_PARK, child_coord, parent_coord, &mid_tile, TILE_BAND_MID, 0, 1, true, false, NULL, NULL, 300, NULL));
+    TileCoord neighboring_child = child_coord;
+    neighboring_child.x++;
+    assert(app_tile_presenter_draw_polygon_layer(&app, TILE_LAYER_POLY_PARK, neighboring_child, parent_coord, &mid_tile, TILE_BAND_MID, 0, 1, true, false, NULL, NULL, 300, NULL));
+    assert(g_polygon_draw_calls == 1);
+
+    // Nonresident preparation is invalidated before a new generation requests it.
+    memset(&app, 0, sizeof(app));
+    app_tile_lifecycle_transition(&app, TILE_LAYER_POLY_PARK, parent_coord, TILE_BAND_MID, APP_TILE_LIFECYCLE_REQUESTED, false, false, false, false);
+    app_tile_lifecycle_transition(&app, TILE_LAYER_POLY_PARK, parent_coord, TILE_BAND_MID, APP_TILE_LIFECYCLE_DECODED_CPU, true, false, false, false);
+    app_tile_lifecycle_transition(&app, TILE_LAYER_POLY_PARK, parent_coord, TILE_BAND_MID, APP_TILE_LIFECYCLE_REQUESTED, false, false, false, false);
+    assert(app.tile_state_bridge.lifecycle_invalid_transition_total == 0);
+    assert(app.tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_STALE] == 1);
+
+    // Hash collisions keep existing lifecycle entries when free slots remain.
+    memset(&app, 0, sizeof(app));
+    for (uint32_t x = 0; x < 2048; ++x)
+        app_tile_lifecycle_transition(&app, TILE_LAYER_POLY_PARK, (TileCoord){15,x,11435}, TILE_BAND_FINE, APP_TILE_LIFECYCLE_REQUESTED, false, false, false, false);
+    for (uint32_t x = 0; x < 2048; ++x)
+        app_tile_lifecycle_transition(&app, TILE_LAYER_POLY_PARK, (TileCoord){15,x,11435}, TILE_BAND_FINE, APP_TILE_LIFECYCLE_DECODED_CPU, true, false, false, false);
+    assert(app.tile_state_bridge.lifecycle_invalid_transition_total == 0);
 
     // Frame invariant checks.
     memset(&app, 0, sizeof(app));

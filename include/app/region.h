@@ -104,4 +104,8 @@ bool region_tile_coverage_has_zoom(const RegionInfo *info,
                                    TileZoomBand band,
                                    uint16_t zoom);
 
+// Keeps the preferred band when covered, otherwise selects an available band at the source zoom.
+TileZoomBand region_tile_coverage_resolve_band(const RegionInfo *info, TileLayerKind kind,
+                                               TileZoomBand preferred, uint16_t zoom);
+
 #endif

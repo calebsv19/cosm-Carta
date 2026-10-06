@@ -1,4 +1,6 @@
 #include "app/app_internal.h"
+#include "app/app_place_tools.h"
+#include <json-c/json.h>
 #include "app/app_pin_panel_internal.h"
 #include "app/app_ui_internal.h"
 
@@ -57,6 +59,7 @@ static void app_pin_metadata_draw_button(AppState *app,
     MapForgeThemePalette palette = app_ui_theme_palette();
     SDL_Color text = {225, 230, 240, 255};
     SDL_Color fill = active ? palette.button_active_primary : palette.button_fill;
+    if ((299u * fill.r + 587u * fill.g + 114u * fill.b) / 1000u > 160u) text = (SDL_Color){20, 28, 38, 255};
     if (!app || !rect || rect->w <= 0.0f || rect->h <= 0.0f || !label) {
         return;
     }
@@ -109,16 +112,30 @@ static void app_pin_metadata_draw_fact(AppState *app,
                          max_value_w);
 }
 
+// Positions collection toggles below the existing pin facts.
+static SDL_FRect app_pin_collection_rect(const AppState *app, uint32_t index) {
+    float width = app->ui_state_bridge.pin_pane_content_rect.w / 3.0f;
+    return (SDL_FRect){app->ui_state_bridge.pin_pane_content_rect.x + (index % 3u) * width,
+        app->ui_state_bridge.pin_pane_type_rect.y + app->ui_state_bridge.pin_pane_type_rect.h + 48.0f + (index / 3u) * 25.0f,
+        width - 4.0f, 22.0f};
+}
+
 void app_pin_panel_draw_metadata(AppState *app) {
     char coords[128];
     char updated[96];
     const int fact_y = (int)(app->ui_state_bridge.pin_pane_type_rect.y + app->ui_state_bridge.pin_pane_type_rect.h + 8.0f);
-    SDL_Color muted = {190, 198, 210, 255};
-    SDL_Color text = {225, 230, 240, 255};
+    MapForgeThemePalette palette = app_ui_theme_palette();
+    SDL_Color muted = palette.text_muted;
+    SDL_Color text = palette.text_primary;
     if (!app || !app->ui_state_bridge.pin_editor_has_draft) {
         return;
     }
 
+    const char *labels[] = {"General", "Dog Walk", "Pet Sit", "Hiking", "Visited"};
+    for (uint32_t i = 0u; i < 5u; ++i) {
+        SDL_FRect rect = app_pin_collection_rect(app, i);
+        app_pin_metadata_draw_button(app, &rect, labels[i], map_forge_pin_in_collection(&app->ui_state_bridge.pin_editor_draft, 1u << i));
+    }
     snprintf(coords,
              sizeof(coords),
              "TYPE: %s",
@@ -165,6 +182,26 @@ void app_pin_panel_draw_metadata(AppState *app) {
 bool app_pin_panel_handle_metadata_click(AppState *app, int x, int y) {
     if (!app || !app->ui_state_bridge.pin_editor_has_draft) {
         return false;
+    }
+    for (uint32_t i = 0u; i < 5u; ++i) {
+        SDL_FRect rect = app_pin_collection_rect(app, i);
+        if (x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h) {
+            if ((i == 1u || i == 2u) && !app->ui_state_bridge.pin_editor_is_new) {
+                struct json_object *services = NULL;
+                json_object_object_get_ex(app->pins_file.source_json, "services", &services);
+                for (size_t j = 0; services && j < json_object_array_length(services); ++j) {
+                    struct json_object *item = json_object_array_get_idx(services, j), *id = NULL;
+                    if (json_object_object_get_ex(item, "place_id", &id) &&
+                        !strcmp(json_object_get_string(id), app->ui_state_bridge.pin_editor_draft.id)) {
+                        app_place_tools_open(app, 1);
+                        return true;
+                    }
+                }
+            }
+            app->ui_state_bridge.pin_editor_draft.collection_mask ^= 1u << i;
+            app_pin_editor_set_status(app, "Collection membership changed. Save to retain it.");
+            return true;
+        }
     }
     if ((float)x >= app->ui_state_bridge.pin_pane_type_rect.x &&
         (float)x <= app->ui_state_bridge.pin_pane_type_rect.x + app->ui_state_bridge.pin_pane_type_rect.w &&

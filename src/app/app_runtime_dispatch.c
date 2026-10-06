@@ -20,11 +20,27 @@ void app_runtime_dispatch_frame(AppState *app,
                                     &out_frame->input,
                                     &out_frame->frame_begin,
                                     &out_frame->after_events);
+    bool frame_needed = app_runtime_frame_needed(app, &out_frame->input, out_frame->after_events);
     if (app_runtime_handle_global_controls(app)) {
         out_frame->skipped_for_global_controls = true;
         return;
     }
 
+    if (!frame_needed && !app->runtime_redraw_requested) {
+        /* Reset the animation clock during sleep, so the next input cannot jump. */
+        *io_last_time = out_frame->after_events;
+        out_frame->after_render = out_frame->after_events;
+        out_frame->skipped_for_idle = true;
+        return;
+    }
+
+    /* A dormant native wait is not elapsed camera or playback animation time. */
+    if (out_frame->input.raw.wait_call_count > 0u) {
+        *io_last_time += out_frame->input.raw.wait_blocked_ms / 1000.0;
+        if (*io_last_time > out_frame->after_events) {
+            *io_last_time = out_frame->after_events;
+        }
+    }
     app_runtime_update_frame(app,
                              io_last_time,
                              &out_frame->dt,
@@ -43,6 +59,8 @@ void app_runtime_dispatch_frame(AppState *app,
                              &out_frame->render_invalidation_reason_bits,
                              &out_frame->before_present,
                              &out_frame->after_render);
+    app->runtime_frame_presented = true;
+    app->runtime_redraw_requested = false;
     out_frame->visible_tiles = tile_stats.visible_tiles;
     out_frame->loading_expected = tile_stats.loading_expected;
     out_frame->loading_done = tile_stats.loading_done;

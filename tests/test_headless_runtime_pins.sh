@@ -42,7 +42,7 @@ cat > "$JOB" <<'EOF'
 EOF
 
 MAPFORGE_RUNTIME_DIR="$RUNTIME_DIR" \
-MAPFORGE_REGIONS_DIR="$REPO_DIR/data/regions" \
+MAPFORGE_REGIONS_DIR="${MAPFORGE_REGIONS_DIR:-$REPO_DIR/data/regions}" \
 "$BINARY" --headless --job "$JOB" --out "$OUT_DIR"
 
 test -f "$OUT_DIR/manifest.json"
@@ -55,4 +55,12 @@ grep -q '"pins_file":"' "$OUT_DIR/job.resolved.json"
 grep -q 'seattle.pins.local.json' "$OUT_DIR/job.resolved.json"
 grep -q 'job.pins_file was omitted' "$OUT_DIR/summary.md"
 
-echo "headless runtime pins smoke passed"
+# The independent store takes precedence over an obsolete regional file.
+cp "$REPO_DIR/data/pins/examples/demo.seattle.pins.json" "$RUNTIME_DIR/pins/places.local.json"
+printf '%s\n' '{invalid' > "$RUNTIME_DIR/pins/seattle.pins.local.json"
+MAPFORGE_RUNTIME_DIR="$RUNTIME_DIR" \
+MAPFORGE_REGIONS_DIR="${MAPFORGE_REGIONS_DIR:-$REPO_DIR/data/regions}" \
+"$BINARY" --headless --job "$JOB" --out "$TMP_DIR/workspace_run"
+test -f "$TMP_DIR/workspace_run/preview.bmp"
+grep -q 'places.local.json' "$TMP_DIR/workspace_run/job.resolved.json"
+echo "headless runtime and independent workspace pins smoke passed"

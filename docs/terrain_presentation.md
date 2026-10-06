@@ -1,0 +1,15 @@
+# Terrain presentation in Carta Main Edit
+
+Hiking terrain is an optional background. Saved route geometry, recordings and completion evidence remain independent of its coverage or cache.
+
+When a new terrain area is selected, the renderer admits its verified read-only metadata, then requests the complete lowest raster level before admitting detail uploads. That foundation is at most four tiles. A single existing `core_workers` worker reads and CRC-checks raster tiles on a private SQLite connection; renderer texture creation and disposal stay on the render owner. Eight request/result slots bound decoder memory. Results from an earlier source generation are discarded, including in-flight reads after rapid selection changes.
+
+The existing 48-entry raster cache now uses area, style, level and tile coordinates plus each tile's original geographic footprint. Area changes preserve useful cached textures; current and previous coarse foundations are protected while older detail is retired. GPU residency remains below the existing 32 MiB limit. There are at most two texture uploads per frame. Coarse imagery remains available under incoming detail, but completed detail renders without redundant fallback layers. A first cold selection still needs source admission and a few presentation frames; warm revisits can draw immediately from the cache.
+
+Contours keep a coherent coarse level while visible detail is incomplete or exceeds the line budget. Coarse and fine windows fit the existing 24-entry contour cache, and at most two contour tiles are read per frame. Official names remain independent native text. Vector metadata/contour preparation is still a bounded render-thread path; the new raster worker does not imply all map IO is asynchronous.
+
+Loading failures become an explicit damaged/unavailable state rather than keeping the app awake indefinitely. Explicit Reload retries and clears the old cache after catalog admission. Reload, area removal and shutdown cancel queued raster requests, join the in-flight reader and close its file handles. Background removal never deletes personal data.
+
+The shared worker sleeps when its queue is empty. The existing `terrain_pending` runtime gate keeps only active preparation awake; settled redraws reuse retained tiles and perform no raster decoding. `MAPFORGE_VIEWPORT_SCENARIO=s5` diagnostics now include raster coarse/detail readiness, residency, worker occupancy and contour line counts. These are diagnostics, not a frame-rate guarantee.
+
+Verification targets: `make`, `make test-terrain-decode test-terrain-presentation test-terrain-vector-presentation test-terrain-draw test-terrain test-terrain-vectors test-terrain-catalog test-history-ui test-idle-runtime`, existing headless smoke and Main Edit package checks. Production-linked fixtures prove geographic matching, coarse-before-detail, warm area return, source-generation cancellation, finite failure handling, contour fallback and clean resource shutdown. Native replay and installed GUI review qualify actual renderer behavior separately.

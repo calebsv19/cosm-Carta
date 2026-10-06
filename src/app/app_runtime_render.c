@@ -1,4 +1,10 @@
+#include "app/app_s5_diagnostics.h"
 #include "app/app_internal.h"
+#include "app/app_place_tools.h"
+#include "app/history_ui.h"
+#include "app/terrain_vectors.h"
+#include "app/terrain.h"
+#include "app/app_region_transition.h"
 #include "app/app_map_viewport_internal.h"
 #include "app/app_pin_panel_internal.h"
 #include "app/app_runtime_ingest_internal.h"
@@ -159,10 +165,11 @@ void app_runtime_render_submit_frame(AppState *app,
 
     road_renderer_stats_reset();
     (void)app_map_viewport_activate(app);
-    app_draw_visible_tiles(app, &out_submit->tile_stats);
+    terrain_draw(app);
+    if(!terrain_active(app)) app_draw_visible_tiles(app, &out_submit->tile_stats);
     out_submit->draw_pass_count += 1u;
 
-    app_draw_region_bounds(app);
+    if(!terrain_active(app)) app_draw_region_bounds(app);
     RouteRenderOptions route_options = {
         .screen_scale = 1.0f,
         .simplify_screen_space = true
@@ -174,9 +181,15 @@ void app_runtime_render_submit_frame(AppState *app,
         app->route_state_bridge.route.has_transfer, app->route_state_bridge.route.transfer_node,
         &route_options);
     app_draw_pins_overlay(app);
+    terrain_vectors_draw(app);
+    history_ui_map_draw(app);
     app_draw_hover_marker(app);
     app_draw_playback_marker(app);
     app_map_viewport_deactivate(app);
+    terrain_vectors_labels_draw(app);
+    history_ui_peak_labels_draw(app);
+    terrain_credit_draw(app);
+    app_draw_pin_labels(app);
     app_draw_pin_panel(app);
     app_draw_route_panel(app);
     app_draw_header_bar(app);
@@ -184,8 +197,12 @@ void app_runtime_render_submit_frame(AppState *app,
     app_draw_ingest_panel(app);
     app_draw_workspace_authoring_overlay(app);
     debug_overlay_render(&app->ui_state_bridge.overlay, &app->renderer);
+    app_place_tools_draw(app);
+    history_ui_panel_draw(app);
+    app_region_transition_draw(app);
     out_submit->draw_pass_count += 1u;
 
+    app_s5_capture(app);
     out_submit->before_present = time_now_seconds();
     renderer_end_frame(&app->renderer);
     out_submit->after_render = time_now_seconds();

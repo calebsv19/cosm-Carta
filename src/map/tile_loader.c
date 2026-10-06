@@ -118,6 +118,10 @@ static void tile_loader_process_request(TileLoaderTaskCtx *ctx) {
     TileLoader *loader = ctx->loader;
     TileRequest request = ctx->request;
     tile_loader_free_request(ctx);
+    pthread_mutex_lock(&loader->mutex);
+    bool current = loader->running && request.request_id == loader->latest_request_id;
+    pthread_mutex_unlock(&loader->mutex);
+    if (!current) return;
 
     TileResult result;
     memset(&result, 0, sizeof(result));
@@ -139,7 +143,8 @@ static void tile_loader_process_request(TileLoaderTaskCtx *ctx) {
         existed = true;
     }
 
-    if (result.ok && request.kind == TILE_LAYER_POLY_BUILDING) {
+    // SDL fallback also reuses bounded worker-prepared fills for all polygon layers.
+    if (result.ok && request.kind >= TILE_LAYER_POLY_WATER) {
         polygon_cache_build(&result.tile);
     }
 

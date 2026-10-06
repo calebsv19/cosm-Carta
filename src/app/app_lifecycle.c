@@ -1,4 +1,7 @@
 #include "app/app_internal.h"
+#include "app/place_runtime.h"
+#include "app/history_ui.h"
+#include "app/terrain.h"
 #include "app/app_runtime_ingest_internal.h"
 #include "app/app_persist_state.h"
 #include "app/app_trace_runtime.h"
@@ -130,8 +133,6 @@ void app_reload_pins_state(AppState *app) {
     char error[256];
     char default_path[MAPFORGE_REGION_PATH_CAPACITY];
     bool loaded = false;
-    bool loaded_from_legacy = false;
-    bool loaded_from_file = false;
     if (!app) {
         return;
     }
@@ -140,14 +141,8 @@ void app_reload_pins_state(AppState *app) {
     if (!map_forge_pins_default_private_path(&app->region, default_path, sizeof(default_path))) {
         return;
     }
-    loaded = map_forge_pins_load_preferred_region_file(&app->region,
-                                                       &app->pins_file,
-                                                       app->pins_path,
-                                                       sizeof(app->pins_path),
-                                                       &loaded_from_file,
-                                                       &loaded_from_legacy,
-                                                       error,
-                                                       sizeof(error));
+    if (!app_places_owner_acquire()) { snprintf(app->ingest_status, sizeof(app->ingest_status), "Personal repository owned by another process."); app->pins_file.write_blocked = true; return; }
+    loaded = map_forge_pins_load_workspace(&app->pins_file, app->pins_path, sizeof(app->pins_path), error, sizeof(error));
     if (app->pins_path[0] == '\0') {
         snprintf(app->pins_path, sizeof(app->pins_path), "%s", default_path);
     }
@@ -159,19 +154,10 @@ void app_reload_pins_state(AppState *app) {
                  error);
         map_forge_pins_file_free(&app->pins_file);
         map_forge_pins_file_init(&app->pins_file);
+        app->pins_file.write_blocked = true;
         snprintf(app->pins_file.map_region, sizeof(app->pins_file.map_region), "%s", app->region.name ? app->region.name : "");
     }
-    if (loaded_from_legacy && loaded_from_file) {
-        snprintf(app->pins_path, sizeof(app->pins_path), "%s", default_path);
-        snprintf(app->pins_file.map_region, sizeof(app->pins_file.map_region), "%s", app->region.name ? app->region.name : "");
-        if (!map_forge_pins_save(app->pins_path, &app->pins_file, error, sizeof(error))) {
-            snprintf(app->ingest_status,
-                     sizeof(app->ingest_status),
-                     "Pins migrate failed: %s",
-                     error);
-        }
-    }
-
+    if (app->pins_file.recovered_from_backup) snprintf(app->ingest_status, sizeof(app->ingest_status), "Pins recovered from backup; explicit Save repairs primary.");
     app->ui_state_bridge.pin_selected_index = -1;
     app->ui_state_bridge.pin_editor_has_draft = false;
     app->ui_state_bridge.pin_editor_is_new = false;
@@ -372,7 +358,7 @@ bool app_init(AppState *app) {
     if (viewport_scenario && strcmp(viewport_scenario, "phase_a") == 0) {
         app->viewport_scenario_mode = APP_VIEWPORT_SCENARIO_PHASE_A;
         viewport_scenario_label = "phase_a";
-    } else if (viewport_scenario && strcmp(viewport_scenario, "phase_b") == 0) {
+    } else if (viewport_scenario && (strcmp(viewport_scenario, "phase_b") == 0 || strcmp(viewport_scenario, "s5") == 0)) {
         app->viewport_scenario_mode = APP_VIEWPORT_SCENARIO_PHASE_B;
         viewport_scenario_label = "phase_b";
     }
@@ -696,9 +682,20 @@ bool app_init(AppState *app) {
     app->tile_state_bridge.present_hold_updates = 0u;
     app->tile_state_bridge.present_hold_tick = 1u;
     app->tile_state_bridge.last_queue_rebuild_time = 0.0;
-    app_ingest_rescan_sources(app);
+    // Keep saved-map startup independent of Desktop source discovery; opening Import performs its scan.
+    snprintf(app->ingest_status, sizeof(app->ingest_status), "Open Regions / Import to scan source files.");
     app_ingest_rescan_active_regions(app);
     app_init_pins_state(app);
+    // Centers an explicitly configured development place for the initial home acceptance view.
+    const char *focus_id = getenv("MAPFORGE_FOCUS_PLACE_ID");
+    const MapForgePin *focus = focus_id ? map_forge_pins_find_by_id_const(&app->pins_file, focus_id) : NULL;
+    if (focus && (!app->region.has_bounds || (focus->lat >= app->region.min_lat && focus->lat <= app->region.max_lat && focus->lon >= app->region.min_lon && focus->lon <= app->region.max_lon))) {
+        MercatorMeters point = mercator_from_latlon((LatLon){focus->lat, focus->lon});
+        app->view_state_bridge.camera.x = app->view_state_bridge.camera.x_target = (float)point.x;
+        app->view_state_bridge.camera.y = app->view_state_bridge.camera.y_target = (float)point.y;
+        app->view_state_bridge.camera.zoom = app->view_state_bridge.camera.zoom_target = 17.0f;
+    }
+    history_ui_restore_view(app);
     app_refresh_layer_states(app);
     app_bridge_sync_from_legacy(app);
     app->lifetime.persisted_state_ready = true;
@@ -736,6 +733,7 @@ void app_shutdown(AppState *app) {
     if (app->lifetime.ttf_initialized) {
         SDL_StopTextInput();
         if (app->lifetime.renderer_initialized) {
+            terrain_shutdown(app);
             ui_font_shutdown(&app->renderer);
         }
         if (TTF_WasInit()) {
@@ -784,6 +782,8 @@ void app_shutdown(AppState *app) {
         app->lifetime.route_state_initialized = false;
     }
     map_forge_pins_file_free(&app->pins_file);
+    history_ui_shutdown();
+    app_places_owner_release();
     if (app->lifetime.trace_session_initialized) {
         app_trace_shutdown(app);
         app->lifetime.trace_session_initialized = false;

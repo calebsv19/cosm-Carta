@@ -127,7 +127,7 @@ static void app_update_vk_poly_fill_visibility_gate_for_layer(AppState *app,
             expected += 1u;
 #if defined(MAPFORGE_HAVE_VK)
             const VkTileCacheEntry *asset = vk_tile_cache_peek(&app->tile_state_bridge.vk_tile_cache, kind, tile->coord, band);
-            if (asset && asset->fill_mesh_ready) {
+            if (asset && (asset->fill_mesh_ready || asset->polygon_count == 0u)) {
                 ready += 1u;
             }
 #endif
@@ -554,7 +554,7 @@ bool app_try_draw_vk_cached_tile(AppState *app, TileLayerKind kind, TileCoord co
                                               luma_scale, luma_scale, luma_scale, tint_alpha);
             drew_any = true;
         }
-        return drew_any;
+        return drew_any || asset->polyline_count == 0u;
     }
     if (!asset->mesh_ready) {
         return false;
@@ -592,15 +592,10 @@ bool app_try_draw_vk_cached_polygon_tile(AppState *app,
         trace->asset_present = true;
     }
 
+    if (asset->polygon_count == 0u) return true;
     bool drew_any = false;
     bool allow_fill = allow_retained_fill && !app->view_state_bridge.polygon_outline_only;
     if (kind == TILE_LAYER_POLY_BUILDING && !app->view_state_bridge.building_fill_enabled) {
-        allow_fill = false;
-    }
-    if (budget && budget->enabled && kind >= 0 && kind < TILE_LAYER_COUNT && !budget->layer_fill_allowed[kind]) {
-        allow_fill = false;
-    }
-    if (budget && budget->enabled && budget->screen_fill_expected > 0u && !budget->screen_fill_allowed) {
         allow_fill = false;
     }
     if (allow_fill) {

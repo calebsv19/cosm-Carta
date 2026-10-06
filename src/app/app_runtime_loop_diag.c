@@ -11,6 +11,7 @@ typedef struct AppLoopDiagState {
     bool json_output;
     uint64_t period_start_ms;
     uint64_t frames;
+    uint64_t idle_skips;
     uint64_t wait_calls;
     uint64_t blocked_ms;
     uint64_t active_ms;
@@ -55,7 +56,7 @@ static void app_loop_diag_emit(uint64_t period_ms) {
 
     if (s_loop_diag.json_output) {
         printf("{\"tag\":\"LoopDiag\",\"schema\":1,\"period_ms\":%llu,\"frames\":%llu,"
-               "\"wait_calls\":%llu,\"blocked_ms\":%llu,\"blocked_pct\":%.1f,"
+               "\"idle_skips\":%llu,\"wait_calls\":%llu,\"blocked_ms\":%llu,\"blocked_pct\":%.1f,"
                "\"active_ms\":%llu,\"active_pct\":%.1f,\"wakes\":0,\"timers\":0,"
                "\"results_queue\":{\"last\":0,\"peak\":0},"
                "\"jobs\":{\"scheduled\":0,\"coalesced\":0},"
@@ -67,15 +68,17 @@ static void app_loop_diag_emit(uint64_t period_ms) {
                "\"stale_by_kind\":{\"symbols\":0,\"diagnostics\":0,\"analysis_progress\":0,\"analysis_status\":0,\"analysis_finished\":0}}\n",
                (unsigned long long)period_ms,
                (unsigned long long)s_loop_diag.frames,
+               (unsigned long long)s_loop_diag.idle_skips,
                (unsigned long long)s_loop_diag.wait_calls,
                (unsigned long long)s_loop_diag.blocked_ms,
                blocked_pct,
                (unsigned long long)s_loop_diag.active_ms,
                active_pct);
     } else {
-        printf("[LoopDiag] period=%llums frames=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%)\n",
+        printf("[LoopDiag] period=%llums frames=%llu idle_skips=%llu waits=%llu blocked=%llums(%.1f%%) active=%llums(%.1f%%)\n",
                (unsigned long long)period_ms,
                (unsigned long long)s_loop_diag.frames,
+               (unsigned long long)s_loop_diag.idle_skips,
                (unsigned long long)s_loop_diag.wait_calls,
                (unsigned long long)s_loop_diag.blocked_ms,
                blocked_pct,
@@ -105,7 +108,8 @@ void app_runtime_loop_diag_tick(const AppRuntimeDispatchFrame *frame) {
     }
     uint64_t active_ms = frame_elapsed_ms - blocked_ms;
 
-    s_loop_diag.frames += 1u;
+    s_loop_diag.frames += frame->skipped_for_idle ? 0u : 1u;
+    s_loop_diag.idle_skips += frame->skipped_for_idle ? 1u : 0u;
     s_loop_diag.wait_calls += (uint64_t)frame->input.raw.wait_call_count;
     s_loop_diag.blocked_ms += blocked_ms;
     s_loop_diag.active_ms += active_ms;
@@ -122,9 +126,11 @@ void app_runtime_loop_diag_tick(const AppRuntimeDispatchFrame *frame) {
 
     uint64_t period_ms = elapsed_ms;
     app_loop_diag_emit(period_ms);
+    fflush(stdout);
 
     s_loop_diag.period_start_ms = period_now_ms;
     s_loop_diag.frames = 0u;
+    s_loop_diag.idle_skips = 0u;
     s_loop_diag.wait_calls = 0u;
     s_loop_diag.blocked_ms = 0u;
     s_loop_diag.active_ms = 0u;

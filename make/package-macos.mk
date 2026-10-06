@@ -38,7 +38,8 @@ package-desktop: tools-build graph-build
 	@cp "$(TOOL_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_region"
 	@cp "$(REGION_VALIDATE_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate"
 	@cp "$(GRAPH_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"
-	@chmod +x "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"
+	@cp "$(PLACES_TARGET)" "$(PACKAGE_TOOLS_DIR)/mapforge_places"
+	@chmod +x "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" "$(PACKAGE_TOOLS_DIR)/mapforge_graph" "$(PACKAGE_TOOLS_DIR)/mapforge_places"
 	@for helper_name in $(PACKAGED_HELPER_TOOL_NAMES); do \
 		helper_tool="$(PACKAGE_TOOLS_DIR)/$$helper_name"; \
 		PACKAGE_DEP_SEARCH_ROOTS="$(TARGET_DEP_SEARCH_ROOTS)" /bin/sh "$(PACKAGE_DYLIB_BUNDLER)" "$$helper_tool" "$(PACKAGE_FRAMEWORKS_DIR)"; \
@@ -86,6 +87,7 @@ package-desktop-smoke: package-desktop
 	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_region" || (echo "Missing bundled mapforge_region tool"; exit 1)
 	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" || (echo "Missing bundled mapforge_region_validate tool"; exit 1)
 	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_graph" || (echo "Missing bundled mapforge_graph tool"; exit 1)
+	@test -x "$(PACKAGE_TOOLS_DIR)/mapforge_places" || (echo "Missing bundled mapforge_places tool"; exit 1)
 	@test ! -d "$(PACKAGE_RESOURCES_DIR)/tools" || (echo "Executable tools must not be packaged under Resources"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/vk_renderer/shaders/textured.vert.spv" || (echo "Missing bundled shader"; exit 1)
 	@test -f "$(PACKAGE_RESOURCES_DIR)/shaders/textured.vert.spv" || (echo "Missing runtime shader"; exit 1)
@@ -94,7 +96,7 @@ package-desktop-smoke: package-desktop
 	@test -f "$(PACKAGE_FRAMEWORKS_DIR)/libSDL2-2.0.0.dylib" || (echo "Missing bundled SDL2 dylib"; exit 1)
 	@test -f "$(PACKAGE_FRAMEWORKS_DIR)/libMoltenVK.dylib" || (echo "Missing bundled MoltenVK dylib"; exit 1)
 	@if [ "$(UNAME_S)" = "Darwin" ]; then \
-		for packaged_bin in "$(PACKAGE_MACOS_DIR)/mapforge-bin" "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" "$(PACKAGE_TOOLS_DIR)/mapforge_graph"; do \
+		for packaged_bin in "$(PACKAGE_MACOS_DIR)/mapforge-bin" "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" "$(PACKAGE_TOOLS_DIR)/mapforge_graph" "$(PACKAGE_TOOLS_DIR)/mapforge_places"; do \
 			actual_archs="$$(/usr/bin/lipo -archs "$$packaged_bin" 2>/dev/null || true)"; \
 			case "$$actual_archs" in \
 				*"$(TARGET_ARCH)"*) ;; \

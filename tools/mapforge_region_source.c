@@ -667,6 +667,8 @@ static bool parse_osm_xml(const BuildOptions *options,
                             double lat = 0.0;
                             double lon = 0.0;
                             if (!node_map_get(&nodes, way_nodes.items[i], &lat, &lon)) {
+                                if (count >= 2u) for (uint16_t z = options->min_z; z <= options->max_z; ++z) mapforge_region_add_way_to_tiles(ctx, points, count, road_class, z);
+                                count = 0u;
                                 continue;
                             }
                             build_context_update_bounds(ctx, lat, lon);

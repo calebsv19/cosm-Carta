@@ -30,9 +30,9 @@ static void map_forge_headless_render_camera_fit(Camera *camera,
     }
 
     for (uint32_t i = 0; i < path->count; ++i) {
-        uint32_t node = path->nodes[i];
-        float x = (float)graph->node_x[node];
-        float y = (float)graph->node_y[node];
+
+        float x = (float)route_path_x(graph,path,i);
+        float y = (float)route_path_y(graph,path,i);
         if (!have_bounds) {
             min_x = max_x = x;
             min_y = max_y = y;

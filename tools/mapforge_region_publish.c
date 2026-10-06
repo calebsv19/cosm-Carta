@@ -142,13 +142,13 @@ bool mapforge_region_validate_staged_region(const BuildOptions *options, const c
                                        "Rebuild the region; staged packages must contain meta.json before publish.");
         return false;
     }
-    if (stat(tiles_path, &st) != 0 || !S_ISDIR(st.st_mode)) {
+    if (!options->archive_only && (stat(tiles_path, &st) != 0 || !S_ISDIR(st.st_mode))) {
         log_error("staged region missing tiles dir: %s", tiles_path);
         mapforge_region_log_diagnostic("validation",
                                        "Rebuild the region; staged packages must contain a tiles directory before publish.");
         return false;
     }
-    if (!tree_has_file_suffix(tiles_path, ".mft")) {
+    if (!options->archive_only && !tree_has_file_suffix(tiles_path, ".mft")) {
         log_error("staged region missing tile payload files: %s", tiles_path);
         mapforge_region_log_diagnostic("validation",
                                        "Verify source coverage and tile generation; staged tiles must include .mft payloads.");

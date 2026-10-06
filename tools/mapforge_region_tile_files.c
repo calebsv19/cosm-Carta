@@ -160,6 +160,7 @@ static void record_file_write(BuildContext *ctx,
         return;
     }
 
+    if (ctx->archive_only) { record_tile_coverage(ctx, suffix, band, coord); return; }
     ctx->files_written_total += 1u;
     if (is_legacy) {
         ctx->files_written_legacy += 1u;
@@ -204,17 +205,30 @@ static void record_file_write(BuildContext *ctx,
     record_tile_coverage(ctx, suffix, is_legacy ? TILE_BAND_DEFAULT : band, coord);
 }
 
-static bool write_tile_file_roads_at_root(const char *root_dir, const TileOutput *tile, const char *suffix, bool want_artery) {
+// Opens either a loose payload file or a temporary in-memory serialization buffer.
+static FILE *open_tile_payload(BuildContext *ctx, const char *root, TileCoord coord,
+                               const char *suffix, char **buffer, size_t *size) {
+    if (ctx->archive_only) return open_memstream(buffer, size);
+    char path[512];
+    return ensure_tile_path_from_root(root, coord, suffix, path, sizeof(path)) ? fopen(path, "wb") : NULL;
+}
+
+// Commits one complete payload to the selected sink and releases its serialization buffer.
+static bool finish_tile_payload(BuildContext *ctx, FILE *file, TileCoord coord, const char *suffix,
+                                 TileZoomBand band, char **buffer, size_t *size) {
+    bool ok = ferror(file) == 0;
+    if (fclose(file) != 0) ok = false;
+    if (ok && ctx->archive_only) ok = mapforge_region_archive_insert_direct(ctx, coord, suffix, band, *buffer, *size);
+    free(*buffer); return ok;
+}
+
+static bool write_tile_file_roads_at_root(const char *root_dir, const TileOutput *tile, const char *suffix, bool want_artery, BuildContext *ctx, TileZoomBand band) {
     if (!root_dir || !tile || !suffix) {
         return false;
     }
 
-    char path[512];
-    if (!ensure_tile_path_from_root(root_dir, tile->coord, suffix, path, sizeof(path))) {
-        return false;
-    }
-
-    FILE *file = fopen(path, "wb");
+    char *buffer = NULL; size_t size = 0u;
+    FILE *file = open_tile_payload(ctx, root_dir, tile->coord, suffix, &buffer, &size);
     if (!file) {
         return false;
     }
@@ -262,8 +276,7 @@ static bool write_tile_file_roads_at_root(const char *root_dir, const TileOutput
     }
 
     fwrite(&polygon_count, sizeof(uint32_t), 1, file);
-    fclose(file);
-    return true;
+    return finish_tile_payload(ctx, file, tile->coord, suffix, band, &buffer, &size);
 }
 
 static bool write_tile_file_roads(const char *base_dir,
@@ -284,18 +297,18 @@ static bool write_tile_file_roads(const char *base_dir,
         if (!ensure_dir(legacy_root)) {
             return false;
         }
-        if (!write_tile_file_roads_at_root(legacy_root, tile, suffix, want_artery)) {
+        if (!write_tile_file_roads_at_root(legacy_root, tile, suffix, want_artery, ctx, TILE_BAND_DEFAULT)) {
             return false;
         }
         record_file_write(ctx, suffix, true, TILE_BAND_DEFAULT, tile->coord);
     }
     TileZoomBand band = road_band_for_tile_z(tile->coord.z, options->min_z, options->max_z);
     const char *band_label = road_band_label(band);
-    char band_root[512];
-    if (!ensure_band_root_dir(base_dir, band_label, band_root, sizeof(band_root))) {
+    char band_root[512] = {0};
+    if (!options->archive_only && !ensure_band_root_dir(base_dir, band_label, band_root, sizeof(band_root))) {
         return false;
     }
-    if (!write_tile_file_roads_at_root(band_root, tile, suffix, want_artery)) {
+    if (!write_tile_file_roads_at_root(band_root, tile, suffix, want_artery, ctx, band)) {
         return false;
     }
     record_file_write(ctx, suffix, false, band, tile->coord);
@@ -368,17 +381,13 @@ static bool write_tile_file_polygons_at_root(const char *root_dir,
                                              const TileOutput *tile,
                                              const char *suffix,
                                              PolygonClass polygon_class,
-                                             TileZoomBand band) {
+                                             TileZoomBand band, BuildContext *ctx) {
     if (!root_dir || !tile || !suffix) {
         return false;
     }
 
-    char path[512];
-    if (!ensure_tile_path_from_root(root_dir, tile->coord, suffix, path, sizeof(path))) {
-        return false;
-    }
-
-    FILE *file = fopen(path, "wb");
+    char *buffer = NULL; size_t size = 0u;
+    FILE *file = open_tile_payload(ctx, root_dir, tile->coord, suffix, &buffer, &size);
     if (!file) {
         return false;
     }
@@ -505,8 +514,7 @@ static bool write_tile_file_polygons_at_root(const char *root_dir,
         }
     }
 
-    fclose(file);
-    return true;
+    return finish_tile_payload(ctx, file, tile->coord, suffix, band, &buffer, &size);
 }
 
 static bool write_tile_file_polygons(const char *base_dir,
@@ -527,7 +535,7 @@ static bool write_tile_file_polygons(const char *base_dir,
         if (!ensure_dir(legacy_root)) {
             return false;
         }
-        if (!write_tile_file_polygons_at_root(legacy_root, tile, suffix, polygon_class, TILE_BAND_DEFAULT)) {
+        if (!write_tile_file_polygons_at_root(legacy_root, tile, suffix, polygon_class, TILE_BAND_DEFAULT, ctx)) {
             return false;
         }
         record_file_write(ctx, suffix, true, TILE_BAND_DEFAULT, tile->coord);
@@ -543,11 +551,11 @@ static bool write_tile_file_polygons(const char *base_dir,
 
     TileZoomBand band = road_band_for_tile_z(tile->coord.z, options->min_z, options->max_z);
     const char *band_label = road_band_label(band);
-    char band_root[512];
-    if (!ensure_band_root_dir(base_dir, band_label, band_root, sizeof(band_root))) {
+    char band_root[512] = {0};
+    if (!options->archive_only && !ensure_band_root_dir(base_dir, band_label, band_root, sizeof(band_root))) {
         return false;
     }
-    if (!write_tile_file_polygons_at_root(band_root, tile, suffix, polygon_class, band)) {
+    if (!write_tile_file_polygons_at_root(band_root, tile, suffix, polygon_class, band, ctx)) {
         return false;
     }
     record_file_write(ctx, suffix, false, band, tile->coord);

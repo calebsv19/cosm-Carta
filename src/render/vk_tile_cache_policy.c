@@ -12,6 +12,7 @@ static bool entry_is_protected(const VkTileCache *cache, TileLayerKind incoming_
     if (!cache || !entry || !entry->occupied) {
         return false;
     }
+    if (entry->presentation_pinned) return true;
     TileLayerKind resident_kind = entry->kind;
     if (!kind_has_floor(resident_kind)) {
         return false;
@@ -58,6 +59,7 @@ VkTileCacheEntry *vk_tile_cache_pick_slot(VkTileCache *cache, TileLayerKind inco
             empty = entry;
             break;
         }
+        if (entry->presentation_pinned) continue;
         if (!fallback_oldest || entry->last_used < fallback_oldest->last_used) {
             fallback_oldest = entry;
         }

@@ -17,6 +17,7 @@ typedef struct VkTileCacheEntry {
     TileCoord coord;
     TileZoomBand band;
     bool occupied;
+    bool presentation_pinned;
     uint64_t last_used;
     uint32_t polyline_count;
     uint32_t segment_count;
@@ -47,6 +48,8 @@ typedef struct VkTileCache {
     uint32_t evictions;
     uint64_t mesh_vertices;
     uint64_t mesh_bytes;
+    uint64_t byte_limit;
+    uint32_t budget_refusals;
     uint32_t mesh_build_failures;
     uint32_t fill_mesh_build_failures;
 } VkTileCache;

@@ -1,5 +1,6 @@
 #include "core/log.h"
 #include "map/mercator.h"
+#include "map/geodesic.h"
 #include "map/mft_loader.h"
 #include "mapforge_graph_internal.h"
 #include "mapforge_graph_output.h"
@@ -516,7 +517,7 @@ static bool graph_add_edge(GraphBuild *build,
                            float speed_limit_mps,
                            float grade,
                            float objective_penalty,
-                           uint8_t road_class) {
+                           uint8_t road_class, uint8_t access_modes) {
     if (!build) {
         return false;
     }
@@ -540,6 +541,7 @@ static bool graph_add_edge(GraphBuild *build,
     edge->grade = grade;
     edge->objective_penalty = objective_penalty;
     edge->road_class = road_class;
+    edge->access_modes = access_modes;
     return true;
 }
 
@@ -588,6 +590,8 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
     char maxspeed_tag[64] = {0};
     char incline_tag[64] = {0};
     char surface_tag[64] = {0};
+    char access_tag[64] = {0}, foot_tag[64] = {0}, vehicle_tag[64] = {0};
+    char motor_vehicle_tag[64] = {0}, motorcar_tag[64] = {0}, foot_oneway_tag[64] = {0}, junction_tag[64] = {0};
 
     char line[8192];
     while (fgets(line, sizeof(line), file)) {
@@ -598,6 +602,7 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
             maxspeed_tag[0] = '\0';
             incline_tag[0] = '\0';
             surface_tag[0] = '\0';
+            access_tag[0] = foot_tag[0] = vehicle_tag[0] = motor_vehicle_tag[0] = motorcar_tag[0] = foot_oneway_tag[0] = junction_tag[0] = '\0';
             way_nodes_clear(&way_nodes);
             continue;
         }
@@ -617,7 +622,14 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
                 char val_buf[64];
                 if (xml_attr(line, "k", key_buf, sizeof(key_buf)) &&
                     xml_attr(line, "v", val_buf, sizeof(val_buf))) {
-                    if (strcmp(key_buf, "highway") == 0) {
+                    if (strcmp(key_buf, "access") == 0) snprintf(access_tag, sizeof(access_tag), "%s", val_buf);
+                    else if (strcmp(key_buf, "foot") == 0) snprintf(foot_tag, sizeof(foot_tag), "%s", val_buf);
+                    else if (strcmp(key_buf, "vehicle") == 0) snprintf(vehicle_tag, sizeof(vehicle_tag), "%s", val_buf);
+                    else if (strcmp(key_buf, "motor_vehicle") == 0) snprintf(motor_vehicle_tag, sizeof(motor_vehicle_tag), "%s", val_buf);
+                    else if (strcmp(key_buf, "motorcar") == 0) snprintf(motorcar_tag, sizeof(motorcar_tag), "%s", val_buf);
+                    else if (strcmp(key_buf, "oneway:foot") == 0) snprintf(foot_oneway_tag, sizeof(foot_oneway_tag), "%s", val_buf);
+                    else if (strcmp(key_buf, "junction") == 0) snprintf(junction_tag, sizeof(junction_tag), "%s", val_buf);
+                    else if (strcmp(key_buf, "highway") == 0) {
                         snprintf(highway_tag, sizeof(highway_tag), "%s", val_buf);
                     } else if (strcmp(key_buf, "oneway") == 0) {
                         snprintf(oneway_tag, sizeof(oneway_tag), "%s", val_buf);
@@ -648,12 +660,24 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
                     float grade = 0.0f;
                     parse_incline_grade(incline_tag, &grade);
                     float objective_penalty = objective_penalty_for_surface(surface_tag);
-                    int oneway = 0;
-                    if (strcmp(oneway_tag, "yes") == 0 || strcmp(oneway_tag, "true") == 0 || strcmp(oneway_tag, "1") == 0) {
-                        oneway = 1;
-                    } else if (strcmp(oneway_tag, "-1") == 0) {
-                        oneway = -1;
-                    }
+                    const char *car_access = motorcar_tag[0] ? motorcar_tag : motor_vehicle_tag[0] ? motor_vehicle_tag : vehicle_tag[0] ? vehicle_tag : access_tag;
+                    const char *walk_access = foot_tag[0] ? foot_tag : access_tag;
+                    bool car = road_class != ROAD_CLASS_FOOTWAY && road_class != ROAD_CLASS_PATH && strcmp(highway_tag, "steps") != 0 && strcmp(highway_tag, "pedestrian") != 0;
+                    bool walk = road_class != ROAD_CLASS_MOTORWAY && road_class != ROAD_CLASS_TRUNK;
+                    if (strcmp(car_access, "no") == 0 || strcmp(car_access, "private") == 0 || strcmp(car_access, "use_sidepath") == 0) car = false;
+                    else if (strcmp(car_access, "yes") == 0 || strcmp(car_access, "permissive") == 0 || strcmp(car_access, "designated") == 0) car = true;
+                    if (strcmp(walk_access, "no") == 0 || strcmp(walk_access, "private") == 0 || strcmp(walk_access, "use_sidepath") == 0) walk = false;
+                    else if (strcmp(walk_access, "yes") == 0 || strcmp(walk_access, "permissive") == 0 || strcmp(walk_access, "designated") == 0) walk = true;
+                    if (strcmp(highway_tag, "construction") == 0 || strcmp(highway_tag, "proposed") == 0) car = walk = false;
+                    int oneway = road_class == ROAD_CLASS_MOTORWAY || strcmp(junction_tag, "roundabout") == 0 ? 1 : 0;
+                    if (strcmp(oneway_tag, "yes") == 0 || strcmp(oneway_tag, "true") == 0 || strcmp(oneway_tag, "1") == 0) oneway = 1;
+                    else if (strcmp(oneway_tag, "-1") == 0) oneway = -1;
+                    else if (strcmp(oneway_tag, "no") == 0 || strcmp(oneway_tag, "0") == 0 || strcmp(oneway_tag, "false") == 0) oneway = 0;
+                    int walk_direction = 0;
+                    if (strcmp(foot_oneway_tag, "yes") == 0 || strcmp(foot_oneway_tag, "1") == 0) walk_direction = 1;
+                    else if (strcmp(foot_oneway_tag, "-1") == 0) walk_direction = -1;
+                    uint8_t forward_modes = (car && oneway >= 0 ? 1u : 0u) | (walk && walk_direction >= 0 ? 2u : 0u);
+                    uint8_t reverse_modes = (car && oneway <= 0 ? 1u : 0u) | (walk && walk_direction <= 0 ? 2u : 0u);
 
                     for (size_t i = 1; i < way_nodes.count; ++i) {
                         int64_t a_id = way_nodes.items[i - 1];
@@ -668,17 +692,14 @@ static bool parse_osm_ways(GraphBuild *build, const char *path) {
                             continue;
                         }
 
-                        MercatorMeters a = mercator_from_latlon((LatLon){lat_a, lon_a});
-                        MercatorMeters b = mercator_from_latlon((LatLon){lat_b, lon_b});
-                        double dx = b.x - a.x;
-                        double dy = b.y - a.y;
-                        float length_m = (float)sqrt(dx * dx + dy * dy);
+                        float length_m = (float)ground_distance_meters((LatLon){lat_a, lon_a},
+                                                                        (LatLon){lat_b, lon_b});
 
-                        if (oneway >= 0) {
-                            graph_add_edge(build, a_id, b_id, length_m, speed, speed_limit_mps, grade, objective_penalty, (uint8_t)road_class);
+                        if (forward_modes) {
+                            graph_add_edge(build, a_id, b_id, length_m, speed, speed_limit_mps, grade, objective_penalty, (uint8_t)road_class, forward_modes);
                         }
-                        if (oneway <= 0) {
-                            graph_add_edge(build, b_id, a_id, length_m, speed, speed_limit_mps, -grade, objective_penalty, (uint8_t)road_class);
+                        if (reverse_modes) {
+                            graph_add_edge(build, b_id, a_id, length_m, speed, speed_limit_mps, -grade, objective_penalty, (uint8_t)road_class, reverse_modes);
                         }
                     }
                 }

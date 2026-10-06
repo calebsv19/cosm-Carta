@@ -172,7 +172,7 @@ bool vk_tile_cache_build_polygon_fill_mesh(VkTileCache *cache,
                 uint32_t *fallback_indices = NULL;
                 uint32_t fallback_count = 0u;
                 bool has_indices = polygon_get_cached_indices(tile, ring_index, &cached_indices, &cached_count);
-                if (!has_indices) {
+                if (!has_indices && !(tile->polygon_tri_cached && ring_count <= tile->polygon_tri_cache_max_points)) {
                     has_indices = polygon_build_fallback_indices(ring_points, ring_count,
                                                                  &fallback_indices, &fallback_count);
                     cached_indices = fallback_indices;
@@ -229,7 +229,7 @@ bool vk_tile_cache_build_polygon_fill_mesh(VkTileCache *cache,
             uint32_t *fallback_indices = NULL;
             uint32_t fallback_count = 0u;
             bool has_indices = polygon_get_cached_indices(tile, ring_index, &ring_indices, &ring_index_count);
-            if (!has_indices) {
+            if (!has_indices && !(tile->polygon_tri_cached && ring_count <= tile->polygon_tri_cache_max_points)) {
                 has_indices = polygon_build_fallback_indices(ring_points, ring_count,
                                                              &fallback_indices, &fallback_count);
                 ring_indices = fallback_indices;

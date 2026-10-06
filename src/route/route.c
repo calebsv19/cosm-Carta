@@ -1,4 +1,5 @@
 #include "route/route.h"
+#include "route/cost.h"
 
 #include "core/log.h"
 #include "map/mft_loader.h"
@@ -101,14 +102,6 @@ static bool heap_pop(MinHeap *heap, uint32_t *out_node, float *out_priority) {
     return true;
 }
 
-static bool edge_allowed_drive(uint8_t road_class) {
-    return road_class != ROAD_CLASS_FOOTWAY && road_class != ROAD_CLASS_PATH;
-}
-
-static bool edge_allowed_walk(uint8_t road_class) {
-    return road_class != ROAD_CLASS_MOTORWAY && road_class != ROAD_CLASS_TRUNK;
-}
-
 static bool node_has_drive_edge(const RouteGraph *graph, uint32_t node) {
     if (!graph || node >= graph->node_count) {
         return false;
@@ -117,9 +110,12 @@ static bool node_has_drive_edge(const RouteGraph *graph, uint32_t node) {
     uint32_t start_edge = graph->edge_start[node];
     uint32_t end_edge = graph->edge_start[node + 1];
     for (uint32_t e = start_edge; e < end_edge; ++e) {
-        if (edge_allowed_drive(graph->edge_class[e])) {
+        if (route_edge_allowed(graph, e, ROUTE_MODE_CAR)) {
             return true;
         }
+    }
+    for (uint32_t e = 0u; e < graph->edge_count; ++e) {
+        if (graph->edge_to[e] == node && route_edge_allowed(graph, e, ROUTE_MODE_CAR)) return true;
     }
     return false;
 }
@@ -143,215 +139,102 @@ static void route_alternatives_clear(RouteAlternativeSet *set) {
     memset(set, 0, sizeof(*set));
 }
 
+// Recomputes totals while preserving modes for combined walking/driving legs.
 static bool route_path_compute_totals(const RouteGraph *graph, RoutePath *path) {
-    if (!graph || !path || path->count < 2) {
-        return false;
-    }
-
-    path->cumulative_length_m = (float *)calloc(path->count, sizeof(float));
-    path->cumulative_time_s = (float *)calloc(path->count, sizeof(float));
-    if (!path->cumulative_length_m || !path->cumulative_time_s) {
-        return false;
-    }
-
-    path->total_length_m = 0.0f;
-    path->total_time_s = 0.0f;
-    for (uint32_t i = 0; i + 1 < path->count; ++i) {
-        uint32_t node = path->nodes[i];
-        uint32_t next = path->nodes[i + 1];
-        uint32_t start_edge = graph->edge_start[node];
-        uint32_t end_edge = graph->edge_start[node + 1];
-        bool found = false;
-        for (uint32_t e = start_edge; e < end_edge; ++e) {
-            if (graph->edge_to[e] == next) {
-                path->total_length_m += graph->edge_length[e];
-                float speed = graph->edge_speed[e];
-                if (speed <= 0.1f) {
-                    speed = 0.1f;
-                }
-                path->total_time_s += graph->edge_length[e] / speed;
-                path->cumulative_length_m[i + 1] = path->total_length_m;
-                path->cumulative_time_s[i + 1] = path->total_time_s;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            free(path->cumulative_length_m);
-            free(path->cumulative_time_s);
-            path->cumulative_length_m = NULL;
-            path->cumulative_time_s = NULL;
-            path->total_length_m = 0.0f;
-            path->total_time_s = 0.0f;
-            return false;
-        }
-    }
-
-    return true;
+    return route_path_compute_metrics(graph, path, ROUTE_MODE_CAR);
 }
 
+// Applies the same walking model used during optimization.
 static bool route_path_apply_walk_speed(const RouteGraph *graph, RoutePath *path, float walk_speed_mps) {
-    if (!graph || !path || path->count < 2 || walk_speed_mps <= 0.01f) {
-        return false;
-    }
-
-    if (!path->cumulative_time_s) {
-        path->cumulative_time_s = (float *)calloc(path->count, sizeof(float));
-        if (!path->cumulative_time_s) {
-            return false;
-        }
-    } else {
-        memset(path->cumulative_time_s, 0, sizeof(float) * path->count);
-    }
-
-    path->total_time_s = 0.0f;
-    for (uint32_t i = 0; i + 1 < path->count; ++i) {
-        uint32_t node = path->nodes[i];
-        uint32_t next = path->nodes[i + 1];
-        uint32_t start_edge = graph->edge_start[node];
-        uint32_t end_edge = graph->edge_start[node + 1];
-        bool found = false;
-        for (uint32_t e = start_edge; e < end_edge; ++e) {
-            if (graph->edge_to[e] == next) {
-                float length = graph->edge_length[e];
-                path->total_time_s += length / walk_speed_mps;
-                path->cumulative_time_s[i + 1] = path->total_time_s;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            return false;
-        }
-    }
-
-    return true;
+    (void)walk_speed_mps;
+    return route_path_compute_metrics(graph, path, ROUTE_MODE_WALK);
 }
 
-static float route_walk_edge_cost(const RouteGraph *graph, uint32_t edge_index, RouteObjective objective) {
-    if (!graph || edge_index >= graph->edge_count) {
-        return FLT_MAX;
-    }
-    float length_m = graph->edge_length[edge_index];
-    if (objective == ROUTE_OBJECTIVE_SHORTEST_DISTANCE) {
-        return length_m;
-    }
-    float speed = graph->edge_speed[edge_index];
-    if (speed <= 0.1f) {
-        speed = 0.1f;
-    }
-    return length_m / speed;
-}
-
-static bool route_find_walk_to_drive(const RouteGraph *graph,
-                                     uint32_t goal,
-                                     RouteObjective objective,
-                                     RoutePath *out_walk_path,
-                                     uint32_t *out_drive_node) {
-    if (!graph || !out_walk_path || goal >= graph->node_count) {
-        return false;
-    }
-
-    float *dist = (float *)malloc(sizeof(float) * graph->node_count);
-    int32_t *came_from = (int32_t *)malloc(sizeof(int32_t) * graph->node_count);
-    bool *visited = (bool *)calloc(graph->node_count, sizeof(bool));
-    if (!dist || !came_from || !visited) {
-        free(dist);
-        free(came_from);
-        free(visited);
-        return false;
-    }
-
-    for (uint32_t i = 0; i < graph->node_count; ++i) {
-        dist[i] = FLT_MAX;
-        came_from[i] = -1;
-    }
-
+// Searches outbound from a start or incoming toward a goal for a legal walking transfer.
+static bool route_find_walk_to_drive(const RouteGraph *graph, uint32_t endpoint,
+                                     RouteObjective objective, bool incoming,
+                                     RoutePath *out_path, uint32_t *out_drive_node) {
+    if (!graph || !out_path || endpoint >= graph->node_count) return false;
+    float *dist = malloc(sizeof(float) * graph->node_count);
+    int32_t *parent = malloc(sizeof(int32_t) * graph->node_count);
+    uint32_t *parent_edge = calloc(graph->node_count, sizeof(uint32_t));
+    bool *visited = calloc(graph->node_count, sizeof(bool));
+    uint32_t *head = incoming ? malloc(sizeof(uint32_t) * graph->node_count) : NULL;
+    uint32_t *next = incoming ? malloc(sizeof(uint32_t) * graph->edge_count) : NULL;
+    uint32_t *source = incoming ? malloc(sizeof(uint32_t) * graph->edge_count) : NULL;
     MinHeap open;
     heap_init(&open);
-    dist[goal] = 0.0f;
-    heap_push(&open, goal, 0.0f);
-
-    bool found = false;
-    uint32_t drive_node = goal;
-    while (open.count > 0) {
-        uint32_t current = 0;
-        float current_priority = 0.0f;
-        heap_pop(&open, &current, &current_priority);
-        if (visited[current]) {
-            continue;
+    bool success = false;
+    if (!dist || !parent || !parent_edge || !visited || (incoming && (!head || !next || !source))) goto done;
+    for (uint32_t n = 0u; n < graph->node_count; ++n) {
+        dist[n] = FLT_MAX;
+        parent[n] = -1;
+        if (incoming) head[n] = UINT32_MAX;
+    }
+    if (incoming) {
+        for (uint32_t n = 0u; n < graph->node_count; ++n) {
+            for (uint32_t e = graph->edge_start[n]; e < graph->edge_start[n + 1u]; ++e) {
+                source[e] = n;
+                next[e] = head[graph->edge_to[e]];
+                head[graph->edge_to[e]] = e;
+            }
         }
+    }
+    dist[endpoint] = 0.0f;
+    if (!heap_push(&open, endpoint, 0.0f)) goto done;
+    uint32_t drive_node = endpoint;
+    bool found = false;
+    while (open.count > 0u) {
+        uint32_t current = 0u;
+        heap_pop(&open, &current, NULL);
+        if (visited[current]) continue;
         visited[current] = true;
-
         if (node_has_drive_edge(graph, current)) {
             drive_node = current;
             found = true;
             break;
         }
-
-        uint32_t start_edge = graph->edge_start[current];
-        uint32_t end_edge = graph->edge_start[current + 1];
-        for (uint32_t e = start_edge; e < end_edge; ++e) {
-            if (!edge_allowed_walk(graph->edge_class[e])) {
-                continue;
+        uint32_t e = incoming ? head[current] : graph->edge_start[current];
+        while (incoming ? e != UINT32_MAX : e < graph->edge_start[current + 1u]) {
+            uint32_t neighbor = incoming ? source[e] : graph->edge_to[e];
+            if (route_edge_allowed(graph, e, ROUTE_MODE_WALK)) {
+                float candidate = dist[current] + route_edge_objective_cost(graph, e, objective, ROUTE_MODE_WALK);
+                if (candidate < dist[neighbor]) {
+                    dist[neighbor] = candidate;
+                    parent[neighbor] = (int32_t)current;
+                    parent_edge[neighbor] = e;
+                    if (!heap_push(&open, neighbor, candidate)) goto done;
+                }
             }
-            uint32_t neighbor = graph->edge_to[e];
-            float edge_cost = route_walk_edge_cost(graph, e, objective);
-            float next = dist[current] + edge_cost;
-            if (next < dist[neighbor]) {
-                dist[neighbor] = next;
-                came_from[neighbor] = (int32_t)current;
-                heap_push(&open, neighbor, next);
-            }
+            e = incoming ? next[e] : e + 1u;
         }
     }
-
-    if (!found) {
-        heap_free(&open);
-        free(dist);
-        free(came_from);
-        free(visited);
-        return false;
+    if (!found) goto done;
+    uint32_t count = 0u;
+    for (int32_t at = (int32_t)drive_node; at != -1; at = parent[at]) ++count;
+    out_path->nodes = malloc(sizeof(uint32_t) * count);
+    out_path->edges = calloc(count, sizeof(uint32_t));
+    out_path->edge_modes = calloc(count, sizeof(uint8_t));
+    if (!out_path->nodes || !out_path->edges || !out_path->edge_modes) goto done;
+    out_path->count = count;
+    uint32_t index = incoming ? 0u : count;
+    for (int32_t at = (int32_t)drive_node; at != -1; at = parent[at]) {
+        uint32_t slot = incoming ? index++ : --index;
+        out_path->nodes[slot] = (uint32_t)at;
+        if (parent[at] != -1) {
+            uint32_t step = incoming ? slot : slot - 1u;
+            out_path->edges[step] = parent_edge[at];
+            out_path->edge_modes[step] = ROUTE_MODE_WALK;
+        }
     }
-
-    uint32_t count = 0;
-    for (int32_t at = (int32_t)drive_node; at != -1; at = came_from[at]) {
-        count += 1;
-    }
-
-    out_walk_path->nodes = (uint32_t *)malloc(sizeof(uint32_t) * count);
-    if (!out_walk_path->nodes) {
-        heap_free(&open);
-        free(dist);
-        free(came_from);
-        free(visited);
-        return false;
-    }
-
-    out_walk_path->count = count;
-    uint32_t idx = count;
-    for (int32_t at = (int32_t)drive_node; at != -1; at = came_from[at]) {
-        out_walk_path->nodes[--idx] = (uint32_t)at;
-    }
-
-    if (!route_path_compute_totals(graph, out_walk_path)) {
-        route_path_free(out_walk_path);
-        heap_free(&open);
-        free(dist);
-        free(came_from);
-        free(visited);
-        return false;
-    }
-
-    if (out_drive_node) {
-        *out_drive_node = drive_node;
-    }
-
+    success = route_path_compute_metrics(graph, out_path, ROUTE_MODE_WALK);
+    if (success && out_drive_node) *out_drive_node = drive_node;
+done:
+    if (!success) route_path_free(out_path);
     heap_free(&open);
-    free(dist);
-    free(came_from);
-    free(visited);
-    return true;
+    free(dist); free(parent); free(parent_edge); free(visited);
+    free(head); free(next); free(source);
+    return success;
 }
 
 static void route_state_build_alternatives(RouteState *state, uint32_t start_node, uint32_t goal_node) {
@@ -387,44 +270,24 @@ static void route_state_build_alternatives(RouteState *state, uint32_t start_nod
     }
 }
 
+// Copies exact selected edges, modes and displayed/cumulative totals.
 static bool route_path_copy(const RouteGraph *graph, const RoutePath *src, RoutePath *dst) {
-    if (!graph || !src || !dst || src->count < 2) {
-        return false;
-    }
-
-    dst->nodes = (uint32_t *)malloc(sizeof(uint32_t) * src->count);
-    if (!dst->nodes) {
-        return false;
-    }
-
+    if (!graph || !src || !dst || src->count == 0u) return false;
+    dst->count = src->count;
+    dst->nodes = malloc(sizeof(uint32_t) * src->count);
+    dst->edges = calloc(src->count, sizeof(uint32_t));
+    dst->edge_modes = calloc(src->count, sizeof(uint8_t));
+    if (!dst->nodes || !dst->edges || !dst->edge_modes) { route_path_free(dst); return false; }
     memcpy(dst->nodes, src->nodes, sizeof(uint32_t) * src->count);
-    dst->count = src->count;
-    if (!route_path_compute_totals(graph, dst)) {
-        route_path_free(dst);
-        return false;
+    for (uint32_t i = 0u; i + 1u < src->count; ++i) {
+        if (!route_path_edge_index(graph, src, i, &dst->edges[i])) { route_path_free(dst); return false; }
+        dst->edge_modes[i] = src->edge_modes ? src->edge_modes[i] : ROUTE_MODE_CAR;
     }
-
-    return true;
-}
-
-static bool route_path_reverse_copy(const RouteGraph *graph, const RoutePath *src, RoutePath *dst) {
-    if (!graph || !src || !dst || src->count < 2) {
-        return false;
-    }
-
-    dst->nodes = (uint32_t *)malloc(sizeof(uint32_t) * src->count);
-    if (!dst->nodes) {
-        return false;
-    }
-
-    dst->count = src->count;
-    for (uint32_t i = 0; i < src->count; ++i) {
-        dst->nodes[i] = src->nodes[src->count - 1u - i];
-    }
-    if (!route_path_compute_totals(graph, dst)) {
-        route_path_free(dst);
-        return false;
-    }
+    if (!route_path_compute_totals(graph, dst)) { route_path_free(dst); return false; }
+    dst->total_length_m = src->total_length_m;
+    dst->total_time_s = src->total_time_s;
+    if (src->cumulative_length_m) memcpy(dst->cumulative_length_m, src->cumulative_length_m, sizeof(float) * src->count);
+    if (src->cumulative_time_s) memcpy(dst->cumulative_time_s, src->cumulative_time_s, sizeof(float) * src->count);
     return true;
 }
 
@@ -448,7 +311,8 @@ static bool route_path_build_combined(const RouteGraph *graph,
             continue;
         }
         uint32_t copy_start = 0;
-        if (have_last && segment->nodes[0] == last_node) {
+        if (have_last) {
+            if (segment->nodes[0] != last_node) return false;
             copy_start = 1;
         }
         if (segment->count <= copy_start) {
@@ -468,6 +332,9 @@ static bool route_path_build_combined(const RouteGraph *graph,
         return false;
     }
     out_path->count = combined_count;
+    out_path->edges = calloc(combined_count, sizeof(uint32_t));
+    out_path->edge_modes = calloc(combined_count, sizeof(uint8_t));
+    if (!out_path->edges || !out_path->edge_modes) { route_path_free(out_path); return false; }
 
     uint32_t dst = 0;
     have_last = false;
@@ -483,6 +350,18 @@ static bool route_path_build_combined(const RouteGraph *graph,
         }
         for (uint32_t i = copy_start; i < segment->count; ++i) {
             out_path->nodes[dst++] = segment->nodes[i];
+            if (i + 1u < segment->count) {
+                if (!route_path_edge_index(graph, segment, i, &out_path->edges[dst - 1u])) {
+                    route_path_free(out_path); return false;
+                }
+                out_path->edge_modes[dst - 1u] = s == 1u ? ROUTE_MODE_CAR : ROUTE_MODE_WALK;
+            }
+            if (copy_start == 1u && i == 1u) {
+                if (!route_path_edge_index(graph, segment, 0u, &out_path->edges[dst - 2u])) {
+                    route_path_free(out_path); return false;
+                }
+                out_path->edge_modes[dst - 2u] = s == 1u ? ROUTE_MODE_CAR : ROUTE_MODE_WALK;
+            }
         }
         last_node = segment->nodes[segment->count - 1u];
         have_last = true;
@@ -554,10 +433,12 @@ bool route_state_route(RouteState *state, uint32_t start_node, uint32_t goal_nod
     state->has_start = true;
     state->has_goal = true;
 
-    const float walk_speed_mps = 1.4f;
+    const float walk_speed_mps = ROUTE_WALK_SPEED_MPS;
+    if (start_node == goal_node) {
+        return route_astar(&state->graph, start_node, goal_node, state->objective, state->mode, &state->path);
+    }
 
     if (state->mode == ROUTE_MODE_CAR) {
-        RoutePath start_walk_rev = {0};
         RoutePath start_walk = {0};
         RoutePath goal_walk = {0};
         RoutePath drive_leg = {0};
@@ -569,22 +450,14 @@ bool route_state_route(RouteState *state, uint32_t start_node, uint32_t goal_nod
         bool has_drive_leg = false;
 
         if (!node_has_drive_edge(&state->graph, start_node)) {
-            if (!route_find_walk_to_drive(&state->graph, start_node, state->objective, &start_walk_rev, &drive_start)) {
+            if (!route_find_walk_to_drive(&state->graph, start_node, state->objective, false, &start_walk, &drive_start)) {
                 return false;
             }
-            if (start_walk_rev.count >= 2) {
-                if (!route_path_reverse_copy(&state->graph, &start_walk_rev, &start_walk)) {
-                    route_path_free(&start_walk_rev);
-                    return false;
-                }
-                route_path_apply_walk_speed(&state->graph, &start_walk, walk_speed_mps);
-                has_start_walk = true;
-            }
-            route_path_free(&start_walk_rev);
+            has_start_walk = start_walk.count >= 2u;
         }
 
         if (!node_has_drive_edge(&state->graph, goal_node)) {
-            if (!route_find_walk_to_drive(&state->graph, goal_node, state->objective, &goal_walk, &drive_goal)) {
+            if (!route_find_walk_to_drive(&state->graph, goal_node, state->objective, true, &goal_walk, &drive_goal)) {
                 route_path_free(&start_walk);
                 return false;
             }
@@ -674,9 +547,9 @@ const char *route_objective_label(RouteObjective objective) {
         case ROUTE_OBJECTIVE_LOWEST_TIME:
             return "lowest_time";
         case ROUTE_OBJECTIVE_LOWEST_ELEVATION_GAIN:
-            return "lowest_elev_gain";
+            return "low_climb_proxy";
         case ROUTE_OBJECTIVE_MOST_TIME_ABOVE_SPEED_THRESHOLD:
-            return "time_above_speed";
+            return "prefer_fast_roads";
         default:
             return "unknown";
     }

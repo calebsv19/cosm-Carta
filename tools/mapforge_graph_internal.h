@@ -7,6 +7,8 @@
 #define GRAPH_MAGIC "MFG1"
 #define GRAPH_VERSION_V1 1u
 #define GRAPH_VERSION_V2 2u
+#define GRAPH_VERSION_V3 3u
+#define GRAPH_VERSION_V4 4u
 #define MAPFORGE_SOURCE_PATH_CAPACITY 1024
 
 typedef struct NodeEntry {
@@ -37,6 +39,7 @@ typedef struct Edge {
     float grade;
     float objective_penalty;
     uint8_t road_class;
+    uint8_t access_modes;
 } Edge;
 
 typedef struct IndexEntry {

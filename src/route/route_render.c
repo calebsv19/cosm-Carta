@@ -267,10 +267,10 @@ static void draw_route_path(Renderer *renderer,
     }
 
     for (uint32_t i = 0; i < path->count; ++i) {
-        uint32_t node = path->nodes[i];
+
         float sx = 0.0f;
         float sy = 0.0f;
-        camera_world_to_screen(camera, (float)graph->node_x[node], (float)graph->node_y[node], renderer->width, renderer->height, &sx, &sy);
+        camera_world_to_screen(camera, (float)route_path_x(graph,path,i), (float)route_path_y(graph,path,i), renderer->width, renderer->height, &sx, &sy);
         points[i].x = sx;
         points[i].y = sy;
     }

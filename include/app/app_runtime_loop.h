@@ -127,6 +127,7 @@ typedef struct AppRuntimeDispatchFrame {
     double before_present;
     double after_render;
     bool skipped_for_global_controls;
+    bool skipped_for_idle; /* Leaves the existing image and cached resources untouched. */
 } AppRuntimeDispatchFrame;
 
 void app_runtime_process_input_frame(struct AppState *app,
@@ -158,6 +159,10 @@ void app_runtime_render_derive_title_frame(const struct AppState *app,
                                            AppRuntimeRenderTitleFrame *out_title);
 void app_runtime_render_apply_title_frame(struct AppState *app,
                                           const AppRuntimeRenderTitleFrame *title);
+// Reports bounded asynchronous maintenance independently of camera/input animation.
+bool app_runtime_has_background_work(const struct AppState *app);
+// Determines whether a new visible frame is needed after the native event wait.
+bool app_runtime_frame_needed(const struct AppState *app, const AppRuntimeInputFrame *input, double now_sec);
 bool app_runtime_has_immediate_work(const struct AppState *app, double now_sec);
 int app_runtime_compute_wait_timeout_ms(const struct AppState *app, double now_sec);
 void app_runtime_loop_diag_tick(const AppRuntimeDispatchFrame *frame);

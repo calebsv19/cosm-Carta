@@ -1,4 +1,7 @@
 #include "app/app_internal.h"
+#include "app/place_repository.h"
+#include "app/place_runtime.h"
+#include "app/app_utility_workspace.h"
 #include "app/app_pin_panel_internal.h"
 
 #include <ctype.h>
@@ -165,6 +168,7 @@ void app_pin_editor_begin_new_pin(AppState *app) {
              sizeof(app->ui_state_bridge.pin_editor_draft.color),
              "blue");
     app->ui_state_bridge.pin_editor_draft.private_flag = true;
+    app->ui_state_bridge.pin_editor_draft.collection_mask = app->ui_state_bridge.utility_workspace == 1u ? MAPFORGE_COLLECTION_DOG_WALKING : app->ui_state_bridge.utility_workspace == 2u ? MAPFORGE_COLLECTION_HIKING : MAPFORGE_COLLECTION_GENERAL;
     snprintf(app->ui_state_bridge.pin_editor_name_edit,
              sizeof(app->ui_state_bridge.pin_editor_name_edit),
              "Untitled %d",
@@ -223,21 +227,13 @@ bool app_pin_editor_save_draft(AppState *app) {
              sizeof(app->ui_state_bridge.pin_editor_draft.updated_at),
              "%s",
              stamp);
-    if (!map_forge_pins_upsert(&app->pins_file,
-                               &app->ui_state_bridge.pin_editor_draft,
-                               error,
-                               sizeof(error))) {
+    const MapForgePin *previous = map_forge_pins_find_by_id_const(&app->pins_file, app->ui_state_bridge.pin_editor_draft.id);
+    bool moved = previous && (previous->lat != app->ui_state_bridge.pin_editor_draft.lat || previous->lon != app->ui_state_bridge.pin_editor_draft.lon);
+    if (!map_forge_places_commit_pin(app->pins_path, &app->pins_file, &app->ui_state_bridge.pin_editor_draft, false, error, sizeof(error))) {
         app_pin_editor_set_status(app, error);
         return false;
     }
-    snprintf(app->pins_file.map_region,
-             sizeof(app->pins_file.map_region),
-             "%s",
-             app->region.name ? app->region.name : "");
-    if (!map_forge_pins_save(app->pins_path, &app->pins_file, error, sizeof(error))) {
-        app_pin_editor_set_status(app, error);
-        return false;
-    }
+    if (moved) app_places_invalidate_route(app);
     app->pins_dirty = false;
     for (size_t i = 0; i < app->pins_file.pin_count; ++i) {
         if (strcmp(app->pins_file.pins[i].id, app->ui_state_bridge.pin_editor_draft.id) == 0) {
@@ -265,20 +261,13 @@ bool app_pin_editor_delete_selected(AppState *app) {
         app_pin_editor_set_status(app, "Select a saved pin to delete.");
         return false;
     }
-    if (!map_forge_pins_remove_by_id(&app->pins_file, app->ui_state_bridge.pin_editor_draft.id)) {
-        app_pin_editor_set_status(app, "Failed to remove pin.");
-        return false;
-    }
-    if (strcmp(app->ui_state_bridge.pin_route_start_id, app->ui_state_bridge.pin_editor_draft.id) == 0) {
-        app_pin_panel_clear_route_start(app);
-    }
-    if (strcmp(app->ui_state_bridge.pin_route_goal_id, app->ui_state_bridge.pin_editor_draft.id) == 0) {
-        app_pin_panel_clear_route_goal(app);
-    }
-    if (!map_forge_pins_save(app->pins_path, &app->pins_file, error, sizeof(error))) {
+    bool referenced = !strcmp(app->ui_state_bridge.pin_route_start_id, app->ui_state_bridge.pin_editor_draft.id) ||
+                      !strcmp(app->ui_state_bridge.pin_route_goal_id, app->ui_state_bridge.pin_editor_draft.id);
+    if (!map_forge_places_commit_pin(app->pins_path, &app->pins_file, &app->ui_state_bridge.pin_editor_draft, true, error, sizeof(error))) {
         app_pin_editor_set_status(app, error);
         return false;
     }
+    if (referenced) app_places_invalidate_route(app);
     app->pins_dirty = false;
     if (app->ui_state_bridge.pin_selected_index >= (int)app->pins_file.pin_count) {
         app->ui_state_bridge.pin_selected_index = (int)app->pins_file.pin_count - 1;

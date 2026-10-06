@@ -301,7 +301,9 @@ static void app_process_tile_queue(AppState *app,
         app->tile_state_bridge.lane_service_count[lane] += 1u;
     }
     if (budget_stats && remaining_budget == 0u && queue->index < queue->count) {
-        budget_stats->load_budget_exhausted_count += 1u;
+        unsigned next_lane = queue->items[queue->index].lane;
+        if (next_lane >= TILE_QUEUE_LANE_COUNT) next_lane = TILE_QUEUE_LANE_L3_FAR_PREFETCH;
+        if (lane_used[next_lane] < lane_caps[next_lane]) budget_stats->load_budget_exhausted_count += 1u;
     }
 }
 
@@ -337,6 +339,7 @@ void app_drain_tile_results(AppState *app, uint32_t budget) {
     double start = time_now_seconds();
     for (uint32_t i = 0; i < budget; ++i) {
         if (i > 0 && (time_now_seconds() - start) >= APP_TILE_INTEGRATE_TIME_SLICE_SEC) {
+            app->tile_state_bridge.budget_frame.integrate_slice_hit = true;
             break;
         }
         TileResult result = {0};
@@ -344,6 +347,7 @@ void app_drain_tile_results(AppState *app, uint32_t budget) {
             break;
         }
 
+        app->tile_state_bridge.budget_frame.integrate_results_consumed++;
         if (!app_worker_contract_tile_request_is_current(app, result.request_id)) {
             if (result.ok) {
                 mft_free_tile(&result.tile);
@@ -539,7 +543,8 @@ void app_update_tile_queue(AppState *app) {
             continue;
         }
         TileLayerKind kind = policy->kind;
-        TileZoomBand proposed = app_layer_target_band(app, kind);
+        TileZoomBand proposed = region_tile_coverage_resolve_band(
+            &app->region, kind, app_layer_target_band(app, kind), z);
         TileZoomBand current = app->tile_state_bridge.stable_target_band[kind];
 
         if (!app->tile_state_bridge.queue_valid) {
@@ -720,16 +725,11 @@ void app_update_tile_queue(AppState *app) {
             continue;
         }
         bool full_ready = layer_policy_requires_full_ready(policy->kind);
-        if (full_ready) {
-            if (app->tile_state_bridge.layer_done[policy->kind] >= app->tile_state_bridge.layer_expected[policy->kind] &&
-                app->tile_state_bridge.layer_inflight[policy->kind] == 0) {
-                continue;
-            }
-        } else {
-            if (app->tile_state_bridge.layer_visible_loaded[policy->kind] >= app->tile_state_bridge.layer_visible_expected[policy->kind]) {
-                continue;
-            }
-        }
+        TileQueue *pending = &app->tile_state_bridge.tile_queues[policy->kind];
+        /* Fallback coverage can make a layer drawable without satisfying its
+         * queued target. Drain refinement work even while old coverage is ready. */
+        /* In-flight decodes do not need another submission budget. */
+        if (pending->index >= pending->count) continue;
         if (!app->tile_state_bridge.active_layer_valid) {
             app->tile_state_bridge.active_layer_valid = true;
             app->tile_state_bridge.active_layer_kind = policy->kind;
@@ -739,13 +739,17 @@ void app_update_tile_queue(AppState *app) {
         }
         TileQueue *queue = &app->tile_state_bridge.tile_queues[policy->kind];
         uint32_t expected = app->tile_state_bridge.layer_expected[policy->kind];
+        uint32_t submit_scale = app_tile_submission_frame_scale(app->submission_previous_frame_ms);
+        uint32_t visible_cap = app->tile_state_bridge.budget_policy.load_road_cap * submit_scale;
         uint32_t budget = app_tile_load_budget(policy->kind, expected);
-        app->tile_state_bridge.budget_frame.load_budget_requested_total += budget;
+        budget = app_tile_visible_missing_budget(queue, budget, visible_cap);
+        uint32_t queued = queue->count - queue->index;
+        if (budget > queued) budget = queued;
+        uint32_t requested_budget = budget;
         if (policy->kind == TILE_LAYER_ROAD_ARTERY || policy->kind == TILE_LAYER_ROAD_LOCAL) {
-            uint32_t road_cap = app->tile_state_bridge.budget_policy.load_road_cap;
+            uint32_t road_cap = visible_cap;
             if (budget > road_cap) {
                 budget = road_cap;
-                app->tile_state_bridge.budget_frame.load_budget_clamped_count += 1u;
             }
         } else if (policy->kind == TILE_LAYER_POLY_WATER ||
                    policy->kind == TILE_LAYER_POLY_PARK ||
@@ -760,12 +764,13 @@ void app_update_tile_queue(AppState *app) {
             if (policy->kind == TILE_LAYER_POLY_BUILDING) {
                 polygon_cap += app->tile_state_bridge.budget_policy.load_polygon_building_bonus;
             }
-            if (budget > polygon_cap) {
-                budget = polygon_cap;
-                app->tile_state_bridge.budget_frame.load_budget_clamped_count += 1u;
-            }
+            /* Missing visible coverage is cheap async submission and has
+             * priority over polygon refinement/prefetch throttling. Decode,
+             * integration and GPU admission keep their independent limits. */
+            polygon_cap *= submit_scale;
+            polygon_cap = app_tile_visible_missing_budget(queue, polygon_cap, visible_cap);
+            if (budget > polygon_cap) budget = polygon_cap;
         }
-        app->tile_state_bridge.budget_frame.load_budget_applied_total += budget;
         uint32_t lane_l2_cap = budget >= 3u
             ? app->tile_state_bridge.budget_policy.lane_l2_cap_high_budget
             : app->tile_state_bridge.budget_policy.lane_l2_cap_low_budget;
@@ -784,6 +789,16 @@ void app_update_tile_queue(AppState *app) {
             lane_l2_cap,
             lane_l3_cap
         };
+        /* Lane throttles can leave only one prefetch request serviceable;
+         * that does not constitute a global load-budget clamp. */
+        uint32_t requested_lane_caps[TILE_QUEUE_LANE_COUNT] = {
+            requested_budget, requested_budget, lane_l2_cap, lane_l3_cap
+        };
+        requested_budget = app_tile_queue_serviceable_count(queue, requested_budget, requested_lane_caps);
+        if (requested_budget < budget) budget = requested_budget;
+        app->tile_state_bridge.budget_frame.load_budget_requested_total += requested_budget;
+        app->tile_state_bridge.budget_frame.load_budget_applied_total += budget;
+        if (budget < requested_budget) app->tile_state_bridge.budget_frame.load_budget_clamped_count++;
         app_process_tile_queue(app,
                                queue,
                                policy->kind,

@@ -8,7 +8,11 @@
 
 // Stores a computed route path.
 typedef struct RoutePath {
+    double *geometry_x;
+    double *geometry_y;
     uint32_t *nodes;
+    uint32_t *edges;
+    uint8_t *edge_modes;
     uint32_t count;
     float total_length_m;
     float total_time_s;
@@ -16,6 +20,13 @@ typedef struct RoutePath {
     float *cumulative_time_s;
 } RoutePath;
 
+// Reads query geometry when present, falling back to graph nodes for legacy paths.
+static inline double route_path_x(const RouteGraph *graph, const RoutePath *path, uint32_t index) {
+    return path->geometry_x ? path->geometry_x[index] : graph->node_x[path->nodes[index]];
+}
+static inline double route_path_y(const RouteGraph *graph, const RoutePath *path, uint32_t index) {
+    return path->geometry_y ? path->geometry_y[index] : graph->node_y[path->nodes[index]];
+}
 // Enumerates access modes for routing.
 typedef enum RouteTravelMode {
     ROUTE_MODE_CAR = 0,

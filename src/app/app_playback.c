@@ -1,4 +1,5 @@
 #include "app/app_internal.h"
+#include "route/cost.h"
 #include "app/app_map_viewport_internal.h"
 
 #include "route/route_render.h"
@@ -34,9 +35,9 @@ static const char *playback_objective_label(RouteObjective objective) {
         case ROUTE_OBJECTIVE_LOWEST_TIME:
             return "Lowest Time";
         case ROUTE_OBJECTIVE_LOWEST_ELEVATION_GAIN:
-            return "Low Elev Gain";
+            return "Low Climb Proxy";
         case ROUTE_OBJECTIVE_MOST_TIME_ABOVE_SPEED_THRESHOLD:
-            return "Time > Speed";
+            return "Prefer Fast Roads";
         default:
             return "Unknown";
     }
@@ -121,21 +122,6 @@ static uint64_t playback_route_panel_layout_hash(const AppState *app) {
     return hash;
 }
 
-static bool playback_find_edge_index(const RouteGraph *graph, uint32_t from, uint32_t to, uint32_t *out_edge) {
-    if (!graph || from >= graph->node_count || !out_edge) {
-        return false;
-    }
-    uint32_t begin = graph->edge_start[from];
-    uint32_t end = graph->edge_start[from + 1];
-    for (uint32_t e = begin; e < end; ++e) {
-        if (graph->edge_to[e] == to) {
-            *out_edge = e;
-            return true;
-        }
-    }
-    return false;
-}
-
 static float playback_path_elevation_gain_m(const RouteGraph *graph, const RoutePath *path, bool *out_available) {
     if (out_available) {
         *out_available = false;
@@ -143,19 +129,21 @@ static float playback_path_elevation_gain_m(const RouteGraph *graph, const Route
     if (!graph || !path || path->count < 2 || !graph->edge_grade || !graph->edge_length) {
         return 0.0f;
     }
+    bool tagged = false;
     float gain = 0.0f;
     for (uint32_t i = 0; i + 1 < path->count; ++i) {
         uint32_t edge = 0;
-        if (!playback_find_edge_index(graph, path->nodes[i], path->nodes[i + 1], &edge)) {
+        if (!route_path_edge_index(graph, path, i, &edge)) {
             continue;
         }
         float grade = graph->edge_grade[edge];
+        if (grade != 0.0f) tagged = true;
         if (grade > 0.0f) {
             gain += grade * graph->edge_length[edge];
         }
     }
     if (out_available) {
-        *out_available = true;
+        *out_available = tagged;
     }
     return gain;
 }

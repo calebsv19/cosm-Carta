@@ -2,12 +2,18 @@
 
 #include "core_io.h"
 #include "core/log.h"
+#include "map/geodesic.h"
+
+#include <math.h>
+#include <limits.h>
 
 #include <stdlib.h>
 #include <string.h>
 
 #define GRAPH_VERSION_V1 1u
 #define GRAPH_VERSION_V2 2u
+#define GRAPH_VERSION_V3 3u
+#define GRAPH_VERSION_V4 4u
 
 typedef struct GraphCursor {
     const uint8_t *data;
@@ -51,7 +57,7 @@ bool route_graph_load(const char *path, RouteGraph *graph) {
     }
 
     if (!graph_read_exact(&cursor, &version, sizeof(version)) ||
-        (version != GRAPH_VERSION_V1 && version != GRAPH_VERSION_V2)) {
+        (version != GRAPH_VERSION_V1 && version != GRAPH_VERSION_V2 && version != GRAPH_VERSION_V3 && version != GRAPH_VERSION_V4)) {
         log_error("Graph unsupported version: %s", path);
         core_io_buffer_free(&file_data);
         return false;
@@ -62,6 +68,16 @@ bool route_graph_load(const char *path, RouteGraph *graph) {
         !graph_read_exact(&cursor, &graph->edge_count, sizeof(uint32_t))) {
         log_error("Graph header truncated: %s", path);
         core_io_buffer_free(&file_data);
+        return false;
+    }
+
+    size_t required_bytes = (size_t)graph->node_count * 20u + 4u +
+        (size_t)graph->edge_count * (version >= GRAPH_VERSION_V4 ? 26u : version >= GRAPH_VERSION_V2 ? 25u : 13u);
+    if (graph->node_count == 0u || graph->node_count > INT32_MAX ||
+        required_bytes != cursor.size - cursor.pos) {
+        log_error("Graph counts/payload invalid: %s", path);
+        core_io_buffer_free(&file_data);
+        memset(graph, 0, sizeof(*graph));
         return false;
     }
 
@@ -97,7 +113,7 @@ bool route_graph_load(const char *path, RouteGraph *graph) {
         return false;
     }
 
-    if (version == GRAPH_VERSION_V2) {
+    if (version >= GRAPH_VERSION_V2) {
         if (!graph_read_exact(&cursor, graph->edge_speed_limit, sizeof(float) * graph->edge_count) ||
             !graph_read_exact(&cursor, graph->edge_grade, sizeof(float) * graph->edge_count) ||
             !graph_read_exact(&cursor, graph->edge_penalty, sizeof(float) * graph->edge_count)) {
@@ -112,7 +128,48 @@ bool route_graph_load(const char *path, RouteGraph *graph) {
         }
     }
 
+    if (version >= GRAPH_VERSION_V4) {
+        graph->edge_access = malloc(graph->edge_count);
+        if (!graph->edge_access || !graph_read_exact(&cursor, graph->edge_access, graph->edge_count)) {
+            route_graph_free(graph); core_io_buffer_free(&file_data); return false;
+        }
+    }
+    bool valid = graph->edge_start[0] == 0u &&
+                 graph->edge_start[graph->node_count] == graph->edge_count;
+    for (uint32_t node = 0u; valid && node < graph->node_count; ++node) {
+        valid = isfinite(graph->node_x[node]) && isfinite(graph->node_y[node]) &&
+                graph->edge_start[node] <= graph->edge_start[node + 1u] &&
+                graph->edge_start[node + 1u] <= graph->edge_count;
+        for (uint32_t edge = graph->edge_start[node]; valid && edge < graph->edge_start[node + 1u]; ++edge) {
+            uint32_t to = graph->edge_to[edge];
+            valid = to < graph->node_count && isfinite(graph->edge_length[edge]) &&
+                    graph->edge_length[edge] >= 0.0f && isfinite(graph->edge_speed[edge]) &&
+                    graph->edge_speed[edge] >= 0.0f && isfinite(graph->edge_grade[edge]) &&
+                    isfinite(graph->edge_penalty[edge]) && graph->edge_penalty[edge] >= 0.0f &&
+                    isfinite(graph->edge_speed_limit[edge]) && graph->edge_speed_limit[edge] >= 0.0f &&
+                    graph->edge_class[edge] <= 8u && (!graph->edge_access || (graph->edge_access[edge] > 0u && graph->edge_access[edge] <= 3u));
+            if (!valid) break;
+            double ground = mercator_ground_distance_meters(
+                (MercatorMeters){graph->node_x[node], graph->node_y[node]},
+                (MercatorMeters){graph->node_x[to], graph->node_y[to]});
+            if (!isfinite(ground)) { valid = false; break; }
+            if (version < GRAPH_VERSION_V3) {
+                graph->edge_length[edge] = (float)ground;
+            } else if (fabs((double)graph->edge_length[edge] - ground) > fmax(0.01, ground * 0.00001)) {
+                valid = false;
+            }
+        }
+    }
     core_io_buffer_free(&file_data);
+    if (!valid) {
+        log_error("Graph adjacency or ground metric invalid: %s", path);
+        route_graph_free(graph);
+        return false;
+    }
+    graph->legacy_lengths_normalized = version < GRAPH_VERSION_V3;
+    if (graph->legacy_lengths_normalized) {
+        log_info("Graph v%u projected lengths normalized to spherical ground meters: %s", version, path);
+    }
     return true;
 }
 
@@ -131,5 +188,6 @@ void route_graph_free(RouteGraph *graph) {
     free(graph->edge_grade);
     free(graph->edge_penalty);
     free(graph->edge_class);
+    free(graph->edge_access);
     memset(graph, 0, sizeof(*graph));
 }

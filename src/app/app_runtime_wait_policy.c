@@ -1,10 +1,11 @@
 #include "app/app_internal.h"
+#include "app/app_utility_workspace.h"
 
 #include <math.h>
 #include <stdlib.h>
 
 enum {
-    APP_RUNTIME_WAIT_IDLE_DEFAULT_MS = 120,
+    APP_RUNTIME_WAIT_IDLE_DEFAULT_MS = 1000,
     APP_RUNTIME_WAIT_BACKGROUND_BUSY_MS = 8,
     APP_RUNTIME_WAIT_IMPORT_POLL_MS = 50,
     APP_RUNTIME_WAIT_MIN_MS = 1,
@@ -68,6 +69,7 @@ static bool app_runtime_route_worker_has_pending(const AppState *app) {
     pthread_mutex_lock((pthread_mutex_t *)&app->worker_state_bridge.route_worker_mutex);
     pending = app->worker_state_bridge.route_worker_busy ||
               app->worker_state_bridge.route_job_pending ||
+              app->worker_state_bridge.route_graph_job_pending ||
               app->worker_state_bridge.route_result_pending ||
               app->worker_state_bridge.route_graph_result_pending;
     pthread_mutex_unlock((pthread_mutex_t *)&app->worker_state_bridge.route_worker_mutex);
@@ -78,6 +80,9 @@ static bool app_runtime_tile_loader_has_pending(const AppState *app) {
     if (!app || !app->lifetime.tile_loader_initialized) {
         return false;
     }
+    for (unsigned k = 0; k < TILE_LAYER_COUNT; ++k) {
+        if (app->tile_state_bridge.layer_inflight[k] > 0) return true;
+    }
     TileLoaderStats stats = {0};
     tile_loader_get_stats((TileLoader *)&app->tile_state_bridge.tile_loader, &stats);
     return stats.req_count > 0u || stats.res_count > 0u;
@@ -87,10 +92,12 @@ bool app_runtime_has_immediate_work(const AppState *app, double now_sec) {
     if (!app) {
         return true;
     }
+    if(app->terrain_pending || (app->history_pending && app->ui_state_bridge.utility_workspace == APP_UTILITY_HIKING_HISTORY)) return true;
     if (app->ui_state_bridge.input.quit) {
         return true;
     }
-    if (!app->tile_state_bridge.queue_valid || !app->tile_state_bridge.visible_valid) {
+    /* An outside-pack view is settled too; validity is not a work queue. */
+    if (!app->runtime_frame_presented || app->runtime_redraw_requested) {
         return true;
     }
     if (app_runtime_input_has_continuous_activity(&app->ui_state_bridge.input)) {
@@ -115,14 +122,46 @@ bool app_runtime_has_immediate_work(const AppState *app, double now_sec) {
     return false;
 }
 
+// Keeps finite asynchronous queues serviceable even when there are no native input events.
+bool app_runtime_has_background_work(const AppState *app) {
+    if (!app) return false;
+    if (app->region_prepare || app_runtime_route_worker_has_pending(app) ||
+        app_runtime_tile_loader_has_pending(app)) return true;
+    for (unsigned k = 0; k < TILE_LAYER_COUNT; ++k) {
+        const TileQueue *queue = &app->tile_state_bridge.tile_queues[k];
+        if (app_layer_active_runtime(app, (TileLayerKind)k) &&
+            (queue->index < queue->count || app->tile_state_bridge.coverage_gate_pending[k])) return true;
+    }
+    if (app->worker_state_bridge.vk_asset_job_count > 0u) return true;
+    if (app->lifetime.vk_asset_worker_initialized) {
+        pthread_mutex_lock((pthread_mutex_t *)&app->worker_state_bridge.vk_asset_worker_mutex);
+        bool pending = app->worker_state_bridge.vk_asset_stage_count > 0u ||
+            core_queue_mutex_size((CoreQueueMutex *)&app->worker_state_bridge.vk_asset_ready_queue) > 0u;
+        pthread_mutex_unlock((pthread_mutex_t *)&app->worker_state_bridge.vk_asset_worker_mutex);
+        if (pending) return true;
+    }
+    if (app->lifetime.vk_poly_prep_initialized) {
+        VkPolyPrepStats stats = {0};
+        app_vk_poly_prep_get_stats((AppState *)app, &stats);
+        if (stats.busy || stats.in_count > 0u || stats.out_count > 0u) return true;
+    }
+    return false;
+}
+
+// Retains the current presentation on maintenance-only idle wakes.
+bool app_runtime_frame_needed(const AppState *app, const AppRuntimeInputFrame *input, double now_sec) {
+    return app_runtime_has_immediate_work(app, now_sec) ||
+        (input && input->raw.sdl_event_count > 0u) ||
+        app_runtime_has_background_work(app) || (app && app->ingest_import_running);
+}
+
 int app_runtime_compute_wait_timeout_ms(const AppState *app, double now_sec) {
     if (app_runtime_has_immediate_work(app, now_sec)) {
         return 0;
     }
 
     int timeout_ms = APP_RUNTIME_WAIT_IDLE_DEFAULT_MS;
-    if (app &&
-        (app_runtime_route_worker_has_pending(app) || app_runtime_tile_loader_has_pending(app))) {
+    if (app_runtime_has_background_work(app)) {
         timeout_ms = APP_RUNTIME_WAIT_BACKGROUND_BUSY_MS;
     }
     if (app && app->ingest_import_running && timeout_ms > APP_RUNTIME_WAIT_IMPORT_POLL_MS) {

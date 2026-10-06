@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -13,11 +14,18 @@
 
 static const char *kTraceLaneLifecycle = "lifecycle";
 
-static bool app_trace_ensure_dirs(void) {
-    if (mkdir("build", 0755) != 0 && errno != EEXIST) {
+// Creates a writable trace folder outside packaged resources, retaining source-run defaults.
+static bool app_trace_ensure_dirs(char *directory, size_t capacity) {
+    const char *runtime_dir = getenv("MAPFORGE_RUNTIME_DIR");
+    const char *parent = runtime_dir && runtime_dir[0] ? runtime_dir : "build";
+    int written = snprintf(directory, capacity, "%s/traces", parent);
+    if (written < 0 || (size_t)written >= capacity) {
         return false;
     }
-    if (mkdir("build/traces", 0755) != 0 && errno != EEXIST) {
+    if (mkdir(parent, 0755) != 0 && errno != EEXIST) {
+        return false;
+    }
+    if (mkdir(directory, 0755) != 0 && errno != EEXIST) {
         return false;
     }
     return true;
@@ -125,17 +133,26 @@ void app_trace_shutdown(struct AppState *app) {
         core_trace_emit_marker(&app->trace_session, kTraceLaneLifecycle, rel_time_s, "trace_end");
     }
 
+    char trace_directory[4096];
     CoreResult final_result = core_trace_finalize(&app->trace_session);
     if (final_result.code != CORE_OK) {
         log_error("core_trace_finalize failed: %s", final_result.message);
-    } else if (!app_trace_ensure_dirs()) {
-        log_error("failed to create build/traces directory");
+    } else if (!app_trace_ensure_dirs(trace_directory, sizeof(trace_directory))) {
+        log_error("failed to create writable trace directory");
     } else {
         time_t now = time(NULL);
         struct tm local_tm = {0};
         localtime_r(&now, &local_tm);
-        char path[256];
-        strftime(path, sizeof(path), "build/traces/mapforge_trace_%Y%m%d_%H%M%S.pack", &local_tm);
+        char filename[96];
+        char path[4096];
+        size_t named = strftime(filename, sizeof(filename), "mapforge_trace_%Y%m%d_%H%M%S.pack", &local_tm);
+        int written = snprintf(path, sizeof(path), "%s/%s", trace_directory, filename);
+        if (named == 0 || written < 0 || (size_t)written >= sizeof(path)) {
+            log_error("trace export path exceeds capacity");
+            core_trace_session_reset(&app->trace_session);
+            app->trace_enabled = false;
+            return;
+        }
         CoreResult export_result = core_trace_export_pack(&app->trace_session, path);
         if (export_result.code != CORE_OK) {
             log_error("core_trace_export_pack failed: %s", export_result.message);

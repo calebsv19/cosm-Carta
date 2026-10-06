@@ -6,6 +6,8 @@
 void app_pin_panel_layout(AppState *app);
 void app_draw_pin_panel(AppState *app);
 void app_draw_pins_overlay(AppState *app);
+// Draws geographic labels after returning to window-space UI rendering.
+void app_draw_pin_labels(AppState *app);
 bool app_select_pin_at_screen_point(AppState *app, int screen_x, int screen_y);
 bool app_pin_name_edit_insert_text(char *buffer, size_t cap, int *cursor, const char *text);
 bool app_pin_name_edit_backspace(char *buffer, int *cursor);

@@ -1,8 +1,10 @@
 #include "app/app_internal.h"
+#include "app/app_utility_workspace.h"
 #include "app/app_map_viewport_internal.h"
 #include "app/app_pin_panel_internal.h"
 
 #include "map/mercator.h"
+#include "ui/font.h"
 
 static bool app_find_pin_at_screen_point(const AppState *app,
                                          int screen_x,
@@ -17,6 +19,7 @@ static bool app_find_pin_at_screen_point(const AppState *app,
 
     for (size_t i = 0; i < app->pins_file.pin_count; ++i) {
         const MapForgePin *pin = &app->pins_file.pins[i];
+        if (!app_utility_pin_visible(app, pin)) continue;
         MercatorMeters meters = mercator_from_latlon((LatLon){pin->lat, pin->lon});
         float sx = 0.0f;
         float sy = 0.0f;
@@ -132,6 +135,7 @@ void app_draw_pins_overlay(AppState *app) {
 
     for (size_t i = 0; i < app->pins_file.pin_count; ++i) {
         const MapForgePin *pin = &app->pins_file.pins[i];
+        if (!app_utility_pin_visible(app, pin)) continue;
         MercatorMeters meters = mercator_from_latlon((LatLon){pin->lat, pin->lon});
         float local_x = 0.0f;
         float local_y = 0.0f;
@@ -144,6 +148,21 @@ void app_draw_pins_overlay(AppState *app) {
                             (int)i == app->ui_state_bridge.pin_selected_index,
                             app_pin_panel_row_has_route_start(app, (int)i),
                             app_pin_panel_row_has_route_goal(app, (int)i));
+
+    }
+}
+
+// Draws readable place labels in the full-window UI pass after the map viewport is released.
+void app_draw_pin_labels(AppState *app) {
+    for (size_t i = 0; i < app->pins_file.pin_count; ++i) {
+        const MapForgePin *pin = &app->pins_file.pins[i];
+        if (!app_utility_pin_visible(app, pin) ||
+            (app->view_state_bridge.camera.zoom < 16.0f && (int)i != app->ui_state_bridge.pin_selected_index)) continue;
+        MercatorMeters point = mercator_from_latlon((LatLon){pin->lat, pin->lon});
+        float x, y;
+        if (!app_map_world_to_screen(app, (float)point.x, (float)point.y, &x, &y)) continue;
+        ui_draw_text_clipped(&app->renderer, (int)x + 9, (int)y - 15, pin->name,
+                             (SDL_Color){235, 240, 245, 255}, 0.8f, 180);
     }
 }
 

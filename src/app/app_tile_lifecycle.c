@@ -2,6 +2,8 @@
 #include "core/time.h"
 
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 static uint32_t app_tile_lifecycle_hash(TileLayerKind kind, TileCoord coord, TileZoomBand band) {
     uint32_t h = 2166136261u;
@@ -45,9 +47,7 @@ static AppTileLifecycleEntry *app_tile_lifecycle_find_slot(AppState *app,
             if (!create) {
                 return NULL;
             }
-            if (!fallback) {
-                fallback = entry;
-            }
+            fallback = entry;
             break;
         }
         if (app_tile_lifecycle_key_equals(entry, kind, coord, band)) {
@@ -88,7 +88,7 @@ static bool app_tile_lifecycle_transition_allowed(AppTileLifecycleState from, Ap
         case APP_TILE_LIFECYCLE_RENDERABLE:
             return to == APP_TILE_LIFECYCLE_STALE || to == APP_TILE_LIFECYCLE_REQUESTED || to == APP_TILE_LIFECYCLE_UPLOADED_GPU;
         case APP_TILE_LIFECYCLE_STALE:
-            return to == APP_TILE_LIFECYCLE_REQUESTED || to == APP_TILE_LIFECYCLE_RENDERABLE;
+            return to == APP_TILE_LIFECYCLE_REQUESTED || to == APP_TILE_LIFECYCLE_RENDERABLE || to == APP_TILE_LIFECYCLE_DECODED_CPU;
         default:
             break;
     }
@@ -126,9 +126,21 @@ void app_tile_lifecycle_transition(AppState *app,
     }
 
     AppTileLifecycleState prev_state = entry->state;
+    /* Decoded preparation from an obsolete generation is not resident data. A
+     * repeated request records that invalidation before starting its new lifetime. */
+    if (next_state == APP_TILE_LIFECYCLE_REQUESTED && !has_cpu &&
+        (prev_state == APP_TILE_LIFECYCLE_DECODED_CPU || prev_state == APP_TILE_LIFECYCLE_UPLOADED_GPU) &&
+        !tile_manager_peek_tile(&app->tile_state_bridge.tile_managers[kind], coord, band)) {
+        entry->state = prev_state = APP_TILE_LIFECYCLE_STALE;
+        app->tile_state_bridge.lifecycle_transition_count++;
+        app->tile_state_bridge.lifecycle_transition_to_state[APP_TILE_LIFECYCLE_STALE]++;
+    }
     if (!app_tile_lifecycle_transition_allowed(prev_state, next_state)) {
         app->tile_state_bridge.lifecycle_invalid_transition_count += 1u;
         app->tile_state_bridge.lifecycle_invalid_transition_total += 1u;
+        if (getenv("MAPFORGE_S5_CSV") && app->tile_state_bridge.lifecycle_invalid_transition_total <= 64u)
+            fprintf(stderr, "[s5] lifecycle_invalid kind=%d tile=%u/%u/%u band=%d from=%d to=%d cpu=%d gpu=%d\n",
+                    kind, coord.z, coord.x, coord.y, band, prev_state, next_state, has_cpu, has_gpu);
         return;
     }
 
