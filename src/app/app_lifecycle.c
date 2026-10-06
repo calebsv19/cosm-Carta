@@ -316,7 +316,7 @@ bool app_init(AppState *app) {
     }
     app->lifetime.ttf_initialized = true;
     app_apply_shared_ui_font(app);
-    SDL_StartTextInput();
+    // Text sessions follow a visible focused field rather than global startup.
     app_default_input_root(app->input_root, sizeof(app->input_root));
     snprintf(app->input_root_edit, sizeof(app->input_root_edit), "%s", app->input_root);
     app->ingest_status[0] = '\0';

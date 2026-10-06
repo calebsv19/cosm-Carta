@@ -26,3 +26,13 @@ This module provides reusable UI helpers for runtime overlays and text rendering
 See `docs/shared_control_adoption.md` for activation/cancellation, scope limits
 and qualification. Layout, product data, map/terrain policy and persistence remain
 with the app. This adapter does not turn legacy forms into shared text editors.
+
+- `text_input.c` / `text_presentation.c`: caller-owned bounded shared editor,
+  measured clipped selection/preedit/caret, visible native-session ownership and
+  window-space caret placement. Product submit/cancel/persistence remains local.
+- `control_places.c`: places/service and saved-route semantic inventory and dispatch;
+  route controls share direct product bodies with keyboard shortcuts.
+- The existing control surface also hosts history modal type/state/preview/save
+  buttons and eligible background focus restoration through shared focus scopes.
+
+See `docs/shared_text_modal_adoption.md` for adopted text owners and remaining hosts.

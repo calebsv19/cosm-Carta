@@ -39,4 +39,6 @@ void app_places_invalidate_route(AppState *app);
 void app_places_detail_text(const AppState *app, const char *place_id, char *text, size_t capacity);
 // Processes bounded local commands on the main thread without overwriting drafts.
 void app_places_poll_commands(AppState *app);
+// Opens route naming or saved routes without manufacturing keyboard input.
+void app_places_begin_route_action(AppState *,bool save);
 #endif

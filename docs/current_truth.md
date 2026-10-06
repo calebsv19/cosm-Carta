@@ -31,6 +31,11 @@ incremental host adoption. The four workspace tabs and normal Hiking & History a
 rounded presentation and semantic release/keyboard activation. Existing action
 bodies, geometry, persistence and map/terrain policy remain app-owned.
 See `docs/shared_control_adoption.md` for the adopted scope and remaining hosts.
+History/place forms, peak search, ordinary search and route naming now use shared
+bounded text editing/presentation and modal button-focus restoration. Places/service,
+saved-route and history form action buttons adopt semantic release activation.
+See `docs/shared_text_modal_adoption.md` for native session/caret behavior and the
+remaining main pin-name/Ingest, Map HUD/list, pane and fullscreen hosts.
 Program VERSION remains 0.3.0.
 
 ## Accepted canonical state (2026-08-27 baseline)

@@ -15,6 +15,7 @@
 #include "map/road_renderer.h"
 #include "route/route_render.h"
 #include "ui/font.h"
+#include "ui/text_input.h"
 #include "ui/shared_theme_font_adapter.h"
 
 #include <stdio.h>
@@ -150,6 +151,7 @@ void app_runtime_render_submit_frame(AppState *app,
         return;
     }
 
+    carta_text_frame_begin(app);
     renderer_begin_frame(&app->renderer);
     if (derive->backend_changed) {
         ui_font_invalidate_cache(&app->renderer);
@@ -200,6 +202,7 @@ void app_runtime_render_submit_frame(AppState *app,
     app_place_tools_draw(app);
     history_ui_panel_draw(app);
     app_region_transition_draw(app);
+    carta_text_frame_end(app);
     out_submit->draw_pass_count += 1u;
 
     app_s5_capture(app);

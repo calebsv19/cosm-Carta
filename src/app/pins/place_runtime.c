@@ -250,91 +250,38 @@ SDL_FRect app_places_route_button_rect(const AppState *app, uint32_t index) {
 // Handles local search, route naming and visible saved-route actions before map input.
 bool app_places_handle_event(AppState *app, const SDL_Event *event) {
     if (app->ui_state_bridge.route_plan_name_active) {
-        char *name = app->ui_state_bridge.route_plan_name;
-        if (event->type == SDL_TEXTINPUT) {
-            size_t n = strlen(name), m = strlen(event->text.text);
-            if (n + m < sizeof(app->ui_state_bridge.route_plan_name))
-                memcpy(name + n, event->text.text, m + 1u);
-            return true;
+        CartaTextInput *text=&app->ui_state_bridge.route_name_text;
+        carta_text_bind(text,app->ui_state_bridge.route_plan_name,sizeof(app->ui_state_bridge.route_plan_name),false);
+        KitUiTextEventResult result=carta_text_event(text,event);
+        if(result.cancel || result.submit) {
+            app->ui_state_bridge.route_plan_name_active=false;carta_text_end(text);SDL_StopTextInput();
+            if(result.submit)return app_places_route_action(app,true);
         }
-        if (event->type == SDL_KEYDOWN) {
-            if ((event->key.keysym.mod & KMOD_CTRL) && event->key.keysym.sym == SDLK_a)
-                name[0] = 0;
-            if (event->key.keysym.sym == SDLK_BACKSPACE) {
-                size_t n = strlen(name);
-                if (n) {
-                    --n;
-                    while (n && ((unsigned char)name[n] & 0xc0) == 0x80)
-                        --n;
-                    name[n] = 0;
-                }
-            }
-            if (event->key.keysym.sym == SDLK_ESCAPE || event->key.keysym.sym == SDLK_RETURN) {
-                app->ui_state_bridge.route_plan_name_active = false;
-                SDL_StopTextInput();
-                if (event->key.keysym.sym == SDLK_RETURN)
-                    return app_places_route_action(app, true);
-            }
-            return true;
-        }
+        if(result.consumed || event->type==SDL_KEYDOWN)return true;
     }
     if (app->ui_state_bridge.route_plan_name_active &&
         (event->type == SDL_MOUSEBUTTONDOWN || event->type == SDL_MOUSEBUTTONUP ||
          event->type == SDL_MOUSEMOTION || event->type == SDL_MOUSEWHEEL || event->type == SDL_KEYUP))
         return true;
-    if (event->type == SDL_MOUSEBUTTONDOWN && event->button.button == SDL_BUTTON_LEFT &&
-        app->ui_state_bridge.left_pane_open &&
-        app->ui_state_bridge.left_pane_section == APP_LEFT_PANE_SECTION_PINS) {
-        for (uint32_t i = 0; i < 2u; ++i) {
-            SDL_FRect rect = app_places_route_button_rect(app, i);
-            if (event->button.x >= rect.x && event->button.x <= rect.x + rect.w &&
-                event->button.y >= rect.y && event->button.y <= rect.y + rect.h) {
-                SDL_Event key = {0};
-                key.type = SDL_KEYDOWN;
-                key.key.keysym.mod = KMOD_CTRL | KMOD_SHIFT;
-                key.key.keysym.sym = i == 0 ? SDLK_s : SDLK_o;
-                return app_places_handle_event(app, &key);
-            }
-        }
-    }
     if (event->type == SDL_KEYDOWN && (event->key.keysym.mod & KMOD_CTRL) &&
         event->key.keysym.sym == SDLK_f) {
         app->ui_state_bridge.place_search_active = true;
         app->ui_state_bridge.left_pane_open = true;
         app->ui_state_bridge.left_pane_section = APP_LEFT_PANE_SECTION_PINS;
+        carta_text_bind(&app->ui_state_bridge.search_text,app->ui_state_bridge.place_search,sizeof(app->ui_state_bridge.place_search),true);
         SDL_StartTextInput();
         return true;
     }
     if (app->ui_state_bridge.place_search_active) {
-        if (event->type == SDL_TEXTINPUT) {
-            size_t n = strlen(app->ui_state_bridge.place_search), m = strlen(event->text.text);
-            if (n + m < sizeof(app->ui_state_bridge.place_search))
-                memcpy(app->ui_state_bridge.place_search + n, event->text.text, m + 1u);
-            app->ui_state_bridge.pin_pane_row_base = 0;
-            return true;
+        CartaTextInput *text=&app->ui_state_bridge.search_text;
+        carta_text_bind(text,app->ui_state_bridge.place_search,sizeof(app->ui_state_bridge.place_search),false);
+        KitUiTextEventResult result=carta_text_event(text,event);
+        if(result.changed)app->ui_state_bridge.pin_pane_row_base=0;
+        if(result.cancel || result.submit) {
+            if(result.cancel)app->ui_state_bridge.place_search[0]=0;
+            app->ui_state_bridge.place_search_active=false;carta_text_end(text);SDL_StopTextInput();
         }
-        if (event->type == SDL_KEYDOWN) {
-            if (event->key.keysym.sym == SDLK_BACKSPACE) {
-                size_t n = strlen(app->ui_state_bridge.place_search);
-                if (n) {
-                    --n;
-                    while (n && ((unsigned char)app->ui_state_bridge.place_search[n] & 0xc0) == 0x80)
-                        --n;
-                    app->ui_state_bridge.place_search[n] = 0;
-                }
-                app->ui_state_bridge.pin_pane_row_base = 0;
-            }
-            if (event->key.keysym.sym == SDLK_ESCAPE) {
-                app->ui_state_bridge.place_search[0] = 0;
-                app->ui_state_bridge.place_search_active = false;
-                SDL_StopTextInput();
-            }
-            if (event->key.keysym.sym == SDLK_RETURN) {
-                app->ui_state_bridge.place_search_active = false;
-                SDL_StopTextInput();
-            }
-            return true;
-        }
+        if(result.consumed || event->type==SDL_KEYDOWN)return true;
     }
     if (event->type != SDL_KEYDOWN || !(event->key.keysym.mod & KMOD_CTRL) ||
         !(event->key.keysym.mod & KMOD_SHIFT))
@@ -342,13 +289,18 @@ bool app_places_handle_event(AppState *app, const SDL_Event *event) {
     bool save = event->key.keysym.sym == SDLK_s, open = event->key.keysym.sym == SDLK_o;
     if (!save && !open)
         return false;
+    app_places_begin_route_action(app,save);return true;
+}
+// Preserves the existing route naming/eligibility policy for keys and semantic buttons.
+void app_places_begin_route_action(AppState *app,bool save) {
+    bool open=!save;
     if (open) {
         app_place_tools_open(app, 2);
-        return true;
+        return;
     }
     if (!app->ui_state_bridge.pin_route_start_id[0] || !app->ui_state_bridge.pin_route_goal_id[0]) {
         app_pin_editor_set_status(app, "Select saved start and goal places before saving a route.");
-        return true;
+        return;
     }
     app->ui_state_bridge.route_plan_name_active = true;
     app->ui_state_bridge.place_search_active = false;
@@ -356,8 +308,9 @@ bool app_places_handle_event(AppState *app, const SDL_Event *event) {
         snprintf(app->ui_state_bridge.route_plan_name, sizeof(app->ui_state_bridge.route_plan_name),
                  "Saved route");
     app_pin_editor_set_status(app, "Enter a route name; Ctrl+A replaces it, Enter saves, Esc cancels.");
+    carta_text_bind(&app->ui_state_bridge.route_name_text,app->ui_state_bridge.route_plan_name,sizeof(app->ui_state_bridge.route_plan_name),true);
     SDL_StartTextInput();
-    return true;
+    return;
 }
 // Saves or reopens place-ID route intent through the same command service.
 static bool app_places_route_action(AppState *app, bool save) {

@@ -5,6 +5,8 @@
 #include "app/app_pins.h"
 #include "app/history_views.h"
 #include "kit_ui_surface.h"
+#include "kit_ui_focus_scope.h"
+#include "ui/text_input.h"
 #include "core/input.h"
 #include "ui/debug_overlay.h"
 #include "app/region.h"
@@ -618,6 +620,10 @@ typedef struct AppUiState {
     InputState input;
     /* Caller-owned semantic surface; never persisted with product state. */
     KitUiSurface controls;
+    KitUiFocusScope controls_focus;
+    CartaTextInput search_text, route_name_text;
+    CartaTextInput *native_text_owner;
+    CartaTextInput *native_text_previous;
     uint32_t controls_workspace;
     int controls_width, controls_height;
     char controls_selection[64];

@@ -1,4 +1,6 @@
 #include "app/app_place_tools_internal.h"
+#include "app/history_ui.h"
+#include "ui/control_surface.h"
 #include "ui/font.h"
 #include <math.h>
 #include <stdio.h>
@@ -52,7 +54,8 @@ static void tools_field_draw(AppState *app, int index, float x, float y, float w
     tools_line(app, x, y, width, label);
     SDL_FRect box = {x, y + 18, width, 24};
     tools.fields[index] = box;
-    tools_box(app, box, tools.field == index ? tools.edit : value, tools.field == index);
+    if(tools.field==index)carta_text_draw(app,&tools.text,box,.78f);
+    else tools_box(app,box,value,false);
 }
 
 // Draws/chips one explicit service selection list.
@@ -76,7 +79,10 @@ void app_place_tools_draw_toolbar(AppState *app) {
     for (unsigned i = 0; i < 9; ++i) {
         bool active = (i == 1 && app->ui_state_bridge.service_filter == 2) ||
                       (i == 2 && app->ui_state_bridge.service_filter == 4);
-        tools_box(app, tools_toolbar(app, i), labels[i], active);
+        if(i==6 && app->ui_state_bridge.place_search_active && !tools.kind && !history_ui_modal()) {
+            carta_text_bind(&app->ui_state_bridge.search_text,app->ui_state_bridge.place_search,sizeof(app->ui_state_bridge.place_search),false);
+            carta_text_draw(app,&app->ui_state_bridge.search_text,tools_toolbar(app,i),.78f);
+        } else carta_ui_control_draw(app,tools_toolbar(app,i),labels[i],active,(KitUiSurfaceKey){CARTA_CONTROL_PLACES,i},.78f);
     }
 }
 

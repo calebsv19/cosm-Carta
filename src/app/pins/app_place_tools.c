@@ -7,6 +7,7 @@
 #include "app/place_runtime.h"
 #include "map/mercator.h"
 #include "ui/font.h"
+#include "ui/control_surface.h"
 #include <dirent.h>
 #include <math.h>
 #include <stdio.h>
@@ -244,11 +245,13 @@ static void tools_field_finish(void) {
 }
 // Starts native text editing on a drawn form field.
 static void tools_field_begin(int field, const char *value) {
+    // Finishing the prior draft may replace the JSON string supplying this field.
+    char snapshot[sizeof(tools.edit)];snprintf(snapshot,sizeof(snapshot),"%s",value);
     tools_field_finish();
     tools.field = field;
-    snprintf(tools.edit, sizeof(tools.edit), "%s", value);
-    tools.cursor = (int)strlen(tools.edit);
-    SDL_StartTextInput();
+    snprintf(tools.edit, sizeof(tools.edit), "%s", snapshot);
+    const char *key=NULL;size_t capacity=0;tools_field_object(field,&key,&capacity);
+    carta_text_bind(&tools.text,tools.edit,capacity<sizeof(tools.edit)?capacity:sizeof(tools.edit),true);
 }
 
 // Toggles one supported role without changing identity or inventing scheduling data.
@@ -475,55 +478,9 @@ static void tools_recovery(AppState *app, unsigned action) {
     json_object_put(q);
 }
 
-// Moves a UTF-8 cursor within the complete field rather than the shorter pin-name capacity.
-static void tools_edit_move(bool right) {
-    size_t length = strlen(tools.edit);
-    int cursor = tools.cursor;
-    if (cursor < 0)
-        cursor = 0;
-    if ((size_t)cursor > length)
-        cursor = (int)length;
-    if (right && (size_t)cursor < length) {
-        ++cursor;
-        while ((size_t)cursor < length && ((unsigned char)tools.edit[cursor] & 0xc0) == 0x80)
-            ++cursor;
-    }
-    if (!right && cursor > 0) {
-        --cursor;
-        while (cursor > 0 && ((unsigned char)tools.edit[cursor] & 0xc0) == 0x80)
-            --cursor;
-    }
-    tools.cursor = cursor;
-}
-// Inserts native SDL UTF-8 text with each field's actual declared capacity.
-static void tools_edit_insert(const char *text, size_t capacity) {
-    size_t length = strlen(tools.edit), add = strlen(text);
-    if (length + add >= capacity || length + add >= sizeof(tools.edit))
-        return;
-    if (tools.cursor < 0)
-        tools.cursor = 0;
-    if ((size_t)tools.cursor > length)
-        tools.cursor = (int)length;
-    memmove(tools.edit + tools.cursor + add, tools.edit + tools.cursor, length - (size_t)tools.cursor + 1);
-    memcpy(tools.edit + tools.cursor, text, add);
-    tools.cursor += (int)add;
-}
-// Removes a whole preceding UTF-8 code point without shortening unrelated field content.
-static void tools_edit_backspace(void) {
-    int end = tools.cursor;
-    tools_edit_move(false);
-    if (end > tools.cursor)
-        memmove(tools.edit + tools.cursor, tools.edit + end, strlen(tools.edit + end) + 1);
-}
-// Consumes modal text editing, bounded scrolling and explicit actions before map input.
-bool app_place_tools_handle_event(AppState *app, const SDL_Event *event) {
-    if (!tools.kind) {
-        if (event->type != SDL_MOUSEBUTTONDOWN || event->button.button != SDL_BUTTON_LEFT ||
-            !app->ui_state_bridge.left_pane_open ||
-            app->ui_state_bridge.left_pane_section != APP_LEFT_PANE_SECTION_PINS)
-            return false;
-        for (unsigned i = 0; i < 9; ++i)
-            if (tools_hit(tools_toolbar(app, i), event->button.x, event->button.y)) {
+// Runs the existing toolbar policy only after semantic eligibility is established.
+void app_place_tools_activate_toolbar(AppState *app,unsigned i) {
+    if(i>=9 || tools.kind)return;
                 if (i < 3) {
                     app->ui_state_bridge.service_filter = i == 1 ? 2 : i == 2 ? 4 : 0;
                     app->ui_state_bridge.place_search[0] = 0;
@@ -550,55 +507,37 @@ bool app_place_tools_handle_event(AppState *app, const SDL_Event *event) {
                     app->ui_state_bridge.pin_pane_row_base = 0;
                     SDL_StopTextInput();
                 }
-                return true;
+    carta_ui_controls_sync(app);
+}
+// Consumes modal text editing, bounded scrolling and explicit actions before map input.
+bool app_place_tools_handle_event(AppState *app, const SDL_Event *event) {
+    if (!tools.kind)return carta_ui_controls_event(app,event);
+    if (tools.field>=0) {
+        KitUiTextEventResult text=carta_text_event(&tools.text,event);
+        if(text.changed && tools.kind==3 && tools.restore) {json_object_put(tools.restore);tools.restore=NULL;}
+        if(text.cancel){app_place_tools_close();return true;}
+        if(event->type==SDL_KEYDOWN && event->key.keysym.sym==SDLK_TAB && !event->key.repeat) {
+            int direction=(event->key.keysym.mod&KMOD_SHIFT)?-1:1;
+            for(unsigned n=1;n<=tools.field_count;n++) {
+                int next=(tools.field+direction*(int)n+(int)tools.field_count*2)%(int)tools.field_count;
+                if(tools.fields[next].w<=0)continue;
+                const char *property=NULL;size_t capacity=0;
+                struct json_object *object=tools_field_object(next,&property,&capacity);
+                if(tools.kind==2) {
+                    struct json_object *row=tools_route_row(tools.selected),*intent=NULL;
+                    json_object_object_get_ex(row,"saved_intent",&intent);
+                    tools_field_begin(next,tools_text(intent,"name"));
+                } else tools_field_begin(next,tools.kind==3?tools.source:tools_text(object,property));
+                break;
             }
-        return false;
-    }
-    if (event->type == SDL_TEXTINPUT && tools.field >= 0) {
-        const char *key = NULL;
-        size_t cap = 0;
-        tools_field_object(tools.field, &key, &cap);
-        tools_edit_insert(event->text.text, cap);
-        if (tools.kind == 3 && tools.restore) {
-            json_object_put(tools.restore);
-            tools.restore = NULL;
-        }
-        return true;
-    }
-    if (event->type == SDL_KEYDOWN) {
-        SDL_Keycode key = event->key.keysym.sym;
-        if (key == SDLK_ESCAPE) {
-            app_place_tools_close();
             return true;
         }
-        if (tools.field >= 0) {
-            if ((event->key.keysym.mod & KMOD_CTRL) && key == SDLK_a) {
-                tools.edit[0] = 0;
-                tools.cursor = 0;
-            }
-            if (tools.kind == 3 && tools.restore &&
-                (key == SDLK_BACKSPACE || ((event->key.keysym.mod & KMOD_CTRL) && key == SDLK_a))) {
-                json_object_put(tools.restore);
-                tools.restore = NULL;
-            }
-            if (key == SDLK_BACKSPACE)
-                tools_edit_backspace();
-            if (key == SDLK_LEFT)
-                tools_edit_move(false);
-            if (key == SDLK_RIGHT)
-                tools_edit_move(true);
-            if (key == SDLK_HOME)
-                tools.cursor = 0;
-            if (key == SDLK_END)
-                tools.cursor = (int)strlen(tools.edit);
-            if (key == SDLK_RETURN || key == SDLK_TAB) {
-                tools_field_finish();
-                tools.field = -1;
-                SDL_StopTextInput();
-            }
+        if(text.submit) {
+            tools_field_finish();tools.field=-1;carta_text_end(&tools.text);SDL_StopTextInput();return true;
         }
-        return true;
+        if(text.consumed)return true;
     }
+    if(event->type==SDL_KEYDOWN){if(event->key.keysym.sym==SDLK_ESCAPE && !event->key.repeat)app_place_tools_close();return true;}
     if (event->type == SDL_MOUSEWHEEL) {
         tools_field_finish();
         tools.field = -1;
@@ -649,6 +588,9 @@ bool app_place_tools_handle_event(AppState *app, const SDL_Event *event) {
                     struct json_object *row = tools_route_row(tools.selected), *intent = NULL;
                     json_object_object_get_ex(row, "saved_intent", &intent);
                     tools_field_begin((int)i, tools_text(intent, "name"));
+                } else if(tools.field==(int)i) {
+                    carta_text_click(&tools.text,mx,my,(SDL_GetModState()&KMOD_SHIFT)!=0);
+                    return true;
                 } else
                     tools_field_begin((int)i, tools.kind == 3 ? tools.source : tools_text(v, key));
                 return true;

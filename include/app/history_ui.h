@@ -15,6 +15,9 @@ void history_ui_shutdown(void);
 SDL_FRect history_ui_control_rect(AppState *app, unsigned action);
 // Preserves app action bodies behind shared activation.
 void history_ui_activate(AppState *app, unsigned action);
+// Exposes current modal action geometry and its existing preview/type/save policy.
+SDL_FRect history_ui_form_control_rect(AppState *,unsigned);
+void history_ui_form_control_activate(AppState *,unsigned);
 // Reports whether text/modal input must suppress map motion.
 bool history_ui_modal(void);
 // Returns a visible history control rectangle for diagnostics and pointer tests.

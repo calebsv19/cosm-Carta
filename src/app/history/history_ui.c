@@ -37,6 +37,7 @@ typedef struct HistoryUI {
     char undo_id[64], undo_progress[24];
     int64_t undo_revision;
     char fields[7][2048], status[256], form_id[64];
+    CartaTextInput text;
     int64_t form_revision;
     struct json_object *request, *preview, *undo_snapshot;
 } HistoryUI;
@@ -342,7 +343,7 @@ static void open_form(AppState *app, bool edit, bool export) {
     snprintf(ui.status, sizeof(ui.status), "%s",
              export ? "Enter a new absolute export filename."
                     : "Enter a source path, or choose Manual / Peak / Visit.");
-    SDL_StartTextInput();
+    (void)carta_text_bind(&ui.text,ui.fields[0],sizeof(ui.fields[0]),true);
 }
 // Executes an explicit preview or its bound commit and updates visible status.
 static void submit(AppState *app) {
@@ -515,6 +516,25 @@ static void choose_peak(AppState *app,int ordinal) {
     }
     ui.peak_picker=false;HistoryViewSelection goal_view=history_views_choice(app,2);if(history_views_find(app,goal_view)<0)history_views_toggle(app,goal_view);fit(app,false);app_save_persisted_view_state(app);
 }
+// Shares modal action geometry with the semantic surface and existing form draw.
+SDL_FRect history_ui_form_control_rect(AppState *app,unsigned action) {
+    if(!ui.form || action>2)return (SDL_FRect){0};
+    SDL_FRect r=field_rect(app,6);r.h=28;
+    if(action==0)return r;
+    r.y+=34;
+    if(action==1) {
+        if(ui.type!=3 && ui.type!=4)return (SDL_FRect){0};
+        r.x+=r.w*.73f;r.w*=.27f;
+    } else if(ui.type==3 || ui.type==4)r.w*=.71f;
+    return r;
+}
+// Keeps preview, product validation and guarded persistence in the existing host.
+void history_ui_form_control_activate(AppState *app,unsigned action) {
+    if(history_ui_form_control_rect(app,action).w<=0)return;
+    if(action==0){clear_preview();ui.type=(ui.type+1)%5;}
+    if(action==1){clear_preview();ui.visit_state=(ui.visit_state+2)%5-1;}
+    if(action==2){submit(app);if(!ui.form)carta_text_end(&ui.text);}
+}
 // Reports whether native history input owns pointer and keyboard events.
 bool history_ui_modal(void) {
     return ui.form || ui.peak_picker || ui.browser.open || terrain_ui_active();
@@ -536,9 +556,11 @@ bool history_ui_event(AppState *app, const SDL_Event *e) {
         return true;
     }
     if(ui.peak_picker) {
-        if(e->type==SDL_KEYDOWN && e->key.keysym.sym==SDLK_ESCAPE){ui.peak_picker=false;return true;}
-        if(e->type==SDL_TEXTINPUT){size_t n=strlen(ui.fields[0]);if(n+strlen(e->text.text)<128)strcat(ui.fields[0],e->text.text);ui.peak_offset=0;return true;}
-        if(e->type==SDL_KEYDOWN && e->key.keysym.sym==SDLK_BACKSPACE){size_t n=strlen(ui.fields[0]);if(n)ui.fields[0][n-1]=0;ui.peak_offset=0;return true;}
+        (void)carta_text_bind(&ui.text,ui.fields[0],128,false);
+        KitUiTextEventResult text=carta_text_event(&ui.text,e);
+        if(text.cancel){ui.peak_picker=false;carta_text_end(&ui.text);return true;}
+        if(text.changed)ui.peak_offset=0;
+        if(text.consumed)return true;
         if(e->type==SDL_MOUSEBUTTONDOWN){SDL_FRect b=field_rect(app,0);for(int i=0;i<6;i++){SDL_FRect row={b.x,b.y+42+i*38,b.w,34};if(hit(row,e->button.x,e->button.y))choose_peak(app,i);}SDL_FRect prev={b.x,b.y+280,b.w*.48f,28},next={b.x+b.w*.52f,b.y+280,b.w*.48f,28};if(hit(prev,e->button.x,e->button.y))ui.peak_offset=fmax(0,ui.peak_offset-6);if(hit(next,e->button.x,e->button.y))ui.peak_offset+=6;return true;}
         return true;
     }
@@ -549,66 +571,30 @@ bool history_ui_event(AppState *app, const SDL_Event *e) {
         return true;
     }
     if (ui.form) {
-        if (e->type == SDL_TEXTINPUT) {
-            clear_preview();
-            size_t n = strlen(ui.fields[ui.field]);
-            if (n + strlen(e->text.text) < 2048)
-                strcat(ui.fields[ui.field], e->text.text);
-            return true;
-        }
-        if (e->type == SDL_KEYDOWN) {
-            SDL_Keycode k = e->key.keysym.sym;
-            if (k == SDLK_ESCAPE) {
-                ui.form = false;
-                clear_preview();
-            } else if (k == SDLK_TAB)
-                ui.field = (ui.field + 1) % 6;
-            else if (k == SDLK_RETURN)
-                submit(app);
-            else if (k == SDLK_BACKSPACE) {
-                clear_preview();
-                size_t n = strlen(ui.fields[ui.field]);
-                if (n) {
-                    do
-                        --n;
-                    while (n && (ui.fields[ui.field][n] & 0xc0) == 0x80);
-                    ui.fields[ui.field][n] = 0;
-                }
-            } else if ((e->key.keysym.mod & KMOD_CTRL) && k == SDLK_a) {
-                clear_preview();
-                ui.fields[ui.field][0] = 0;
-            } else if ((e->key.keysym.mod & KMOD_CTRL) && k == SDLK_v) {
-                clear_preview();
-                char *s = SDL_GetClipboardText();
-                if (s) {
-                    snprintf(ui.fields[ui.field], 2048, "%s", s);
-                    SDL_free(s);
-                }
+        (void)carta_text_bind(&ui.text,ui.fields[ui.field],sizeof(ui.fields[ui.field]),false);
+        KitUiTextEventResult text=carta_text_event(&ui.text,e);
+        if(text.changed)clear_preview();
+        if(text.cancel){ui.form=false;clear_preview();carta_text_end(&ui.text);return true;}
+        if(text.submit){submit(app);if(!ui.form)carta_text_end(&ui.text);return true;}
+        if(e->type==SDL_KEYDOWN && e->key.keysym.sym==SDLK_TAB) {
+            if(!e->key.repeat) {
+                kit_ui_text_cancel_composition(&ui.text.edit);
+                ui.field=(ui.field+((e->key.keysym.mod&KMOD_SHIFT)?5:1))%6;
+                (void)carta_text_bind(&ui.text,ui.fields[ui.field],sizeof(ui.fields[ui.field]),true);
             }
             return true;
         }
+        if(text.consumed || e->type==SDL_KEYDOWN)return true;
         if (e->type == SDL_MOUSEBUTTONDOWN) {
             for (int i = 0; i < 6; i++)
                 if (hit(field_rect(app, i), e->button.x, e->button.y)) {
-                    ui.field = i;
+                    bool same=ui.field==i;ui.field=i;
+                    (void)carta_text_bind(&ui.text,ui.fields[i],sizeof(ui.fields[i]),!same);
+                    if(same)carta_text_click(&ui.text,e->button.x,e->button.y,(SDL_GetModState()&KMOD_SHIFT)!=0);
                     return true;
                 }
-            SDL_FRect base = field_rect(app, 6);
-            base.h = 28;
-            if (hit(base, e->button.x, e->button.y)) {
-                clear_preview();
-                ui.type = (ui.type + 1) % 5;
-                return true;
-            }
-            base.y += 34;
-            if (hit(base, e->button.x, e->button.y)) {
-                if (e->button.x > base.x + base.w * .72f && (ui.type == 3 || ui.type == 4)) {
-                    clear_preview();
-                    ui.visit_state = (ui.visit_state + 2) % 5 - 1;
-                } else
-                    submit(app);
-            }
-            return true;
+            return true; // Modal action buttons are owned by the shared surface.
+
         }
         return e->type == SDL_MOUSEWHEEL || e->type == SDL_MOUSEBUTTONUP || e->type == SDL_MOUSEMOTION ||
                e->type == SDL_KEYUP;
@@ -680,9 +666,9 @@ void history_ui_activate(AppState *app, unsigned action) {
     case 24:set_progress(app,ui.undo_progress,true);break;
 
     case 26:app->ui_state_bridge.history_hide_geographic_labels=!app->ui_state_bridge.history_hide_geographic_labels;app_save_persisted_view_state(app);break;
-    case 27:ui.peak_picker=true;ui.peak_offset=0;ui.fields[0][0]=0;SDL_StartTextInput();break;
+    case 27:ui.peak_picker=true;ui.peak_offset=0;ui.fields[0][0]=0;carta_text_bind(&ui.text,ui.fields[0],128,true);break;
     case 15: ui.archived = !ui.archived; ui.scroll = 0; break;
-    case 16: app->ui_state_bridge.place_search_active = true; SDL_StartTextInput(); break;
+    case 16: app->ui_state_bridge.place_search_active = true; carta_text_bind(&app->ui_state_bridge.search_text,app->ui_state_bridge.place_search,sizeof(app->ui_state_bridge.place_search),true); SDL_StartTextInput(); break;
     case 0:
         open_form(app, false, false);
         break;
@@ -758,7 +744,10 @@ static void cell(AppState *app, SDL_FRect r, const char *s, bool active) {
 }
 // Draws normal action chrome from the same semantic snapshot as input.
 static void control_cell(AppState *app, unsigned action, SDL_FRect r, const char *s, bool active) {
-    carta_ui_control_draw(app,r,s,active,(KitUiSurfaceKey){CARTA_CONTROL_HISTORY,action},.8f);
+    if(action==16 && app->ui_state_bridge.place_search_active && !history_ui_modal()) {
+        carta_text_bind(&app->ui_state_bridge.search_text,app->ui_state_bridge.place_search,sizeof(app->ui_state_bridge.place_search),false);
+        carta_text_draw(app,&app->ui_state_bridge.search_text,r,.8f);
+    } else carta_ui_control_draw(app,r,s,active,(KitUiSurfaceKey){CARTA_CONTROL_HISTORY,action},.8f);
 }
 // Draws bounded display geometry with original segment gaps intact.
 void history_ui_map_draw(AppState *app) {
@@ -1026,7 +1015,8 @@ void history_ui_panel_draw(AppState *app) {
     if(ui.peak_picker) {
         SDL_FRect base=field_rect(app,0);fill(app,(SDL_FRect){base.x-8,76,base.w+16,356},colors.route_panel_fill);
         label(app,base.x,82,"Add a peak goal · choose an official name · Esc cancels",colors.text_primary,base.w);
-        cell(app,base,*ui.fields[0]?ui.fields[0]:"Type a peak name",true);
+        carta_text_bind(&ui.text,ui.fields[0],128,false);
+        carta_text_draw(app,&ui.text,base,.78f);
         for(int i=0;i<6;i++){char name[128];double lat,lon;if(!terrain_vectors_peak_query(ui.fields[0],ui.peak_offset+i,name,sizeof(name),&lat,&lon))break;cell(app,(SDL_FRect){base.x,base.y+42+i*38,base.w,34},name,false);}
         cell(app,(SDL_FRect){base.x,base.y+280,base.w*.48f,28},"Previous",false);cell(app,(SDL_FRect){base.x+base.w*.52f,base.y+280,base.w*.48f,28},"Next",false);
     }
@@ -1047,28 +1037,29 @@ void history_ui_panel_draw(AppState *app) {
         for (int i = 0; i < 6; i++) {
             SDL_FRect f = field_rect(app, i);
             label(app, f.x, f.y - 13, names[i], colors.text_muted, f.w);
-            cell(app, f, *ui.fields[i] ? ui.fields[i] : "", ui.field == i);
+            if(ui.field==i) {carta_text_bind(&ui.text,ui.fields[i],sizeof(ui.fields[i]),false);carta_text_draw(app,&ui.text,f,.78f);}
+            else cell(app,f,ui.fields[i],false);
         }
         const char *types[] = {"Type: Recorded track", "Type: Reference route",
                                "Type: Manual hike", "Type: Peak", "Type: Peak visit"};
         SDL_FRect f = field_rect(app, 6);
         f.h = 28;
-        cell(app, f, types[ui.type], true);
+        carta_ui_control_draw(app,f,types[ui.type],true,(KitUiSurfaceKey){CARTA_CONTROL_HISTORY_FORM,0},.78f);
         f.y += 34;
         if (ui.type == 3 || ui.type == 4) {
             SDL_FRect status = f;
             status.x += f.w * .73f;
             status.w = f.w * .27f;
             f.w *= .71f;
-            cell(app, status,
+            carta_ui_control_draw(app, status,
                  ui.visit_state == 2   ? "Summited"
                  : ui.visit_state == 1 ? "Visited"
                  : ui.visit_state == 3 ? "Unvisited"
                  : ui.visit_state == 0 ? "Wishlist"
                                        : "Unreviewed",
-                 true);
+                 true,(KitUiSurfaceKey){CARTA_CONTROL_HISTORY_FORM,1},.78f);
         }
-        cell(app, f, ui.exporting ? "Export original" : ui.preview ? "Import / Save" : "Preview", true);
+        carta_ui_control_draw(app,f,ui.exporting ? "Export original" : ui.preview ? "Import / Save" : "Preview",true,(KitUiSurfaceKey){CARTA_CONTROL_HISTORY_FORM,2},.78f);
         if (ui.preview) {
             struct json_object *candidate = NULL;
             json_object_object_get_ex(ui.preview, "record", &candidate);

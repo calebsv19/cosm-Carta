@@ -20,9 +20,11 @@ typedef struct KitRenderBackendOps KitRenderBackendOps;
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+SDL_FRect carta_places_control_rect(AppState *a,uint32_t d,uint64_t i){(void)a;(void)d;(void)i;return (SDL_FRect){0};}
+void carta_places_control_activate(AppState *a,uint32_t d,uint64_t i){(void)a;(void)d;(void)i;assert(0);}
 static unsigned lines, persisted, labels, terrain_removals;
 static int first_row_y;
-static bool capture_rows;
+static bool capture_rows, capture_text_field;
 static SDL_Color draw_color,last_line_color;
 // Supplies deterministic font metrics and records native rounded presentation.
 static unsigned rounded_controls;
@@ -55,6 +57,7 @@ void ui_draw_text_clipped(Renderer *r, int x, int y, const char *s, SDL_Color c,
     (void)c;
     (void)scale;
     assert(w > 0);
+    if(capture_text_field && !strcmp(s,"Café trail")) {assert(r->viewport_enabled);assert(x>=r->viewport_x && y>=r->viewport_y);}
     if(capture_rows && !strcmp(s,"Native import"))first_row_y=y;
     labels++;
 }
@@ -156,6 +159,16 @@ int main(void) {
     press.button.x=tab.x+4;press.button.y=tab.y+4;
     assert(!carta_ui_controls_event(a,&press));assert(a->ui_state_bridge.utility_workspace==2);
 
+    // Field order, selection and preedit use actual production modal events.
+    SDL_Event edit={0};edit.type=SDL_KEYDOWN;edit.key.keysym.sym=SDLK_TAB;
+    assert(history_ui_event(a,&edit));type(a,"Café trail");capture_text_field=true;history_ui_panel_draw(a);capture_text_field=false;
+    CartaTextInput *owner=a->ui_state_bridge.native_text_owner;assert(owner && !strcmp(owner->edit.text,"Café trail"));
+    edit.key.keysym.sym=SDLK_a;edit.key.keysym.mod=KMOD_GUI;assert(history_ui_event(a,&edit));
+    assert(!strcmp(owner->edit.text,"Café trail"));type(a,"Native import");assert(!strcmp(owner->edit.text,"Native import"));
+    edit.type=SDL_TEXTEDITING;strcpy(edit.edit.text,"候補");edit.edit.length=2;assert(history_ui_event(a,&edit));
+    edit=(SDL_Event){0};edit.type=SDL_KEYDOWN;edit.key.keysym.sym=SDLK_ESCAPE;edit.key.keysym.mod=0;assert(history_ui_event(a,&edit));
+    assert(history_ui_modal() && !owner->edit.composition[0]);
+    edit.key.keysym.sym=SDLK_TAB;edit.key.keysym.mod=KMOD_SHIFT;assert(history_ui_event(a,&edit));
     type(a, path);
     click(a, 200, 435);
     assert(history_ui_modal());

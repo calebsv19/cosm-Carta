@@ -56,8 +56,9 @@ clean-source package results, exact receipts and preservation checks.
 The four workspace tabs and normal Hiking & History controls adopt shared
 presentation/semantic activation through the host described in
 `docs/shared_control_adoption.md`. Product actions, layout and persistence remain
-local. Next migrate bounded text/modal focus, then pane/window hosts; other
-Map/places HUD controls remain explicit follow-ups. Availability of newer kit
+local. Text/modal focus, places/service/route buttons and history form actions now
+adopt existing kit contracts without changing this pin. Next migrate the remaining
+pin-name/Ingest/Map HUD/list hosts and pane/window composition. Availability of newer kit
 modules is not complete adoption. Requalify map/terrain after each integration.
 
 Application VERSION remains 0.3.0. Canonical source, installed Desktop apps,

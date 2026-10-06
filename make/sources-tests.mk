@@ -67,8 +67,20 @@ REGION_PREPARE_TEST_SRCS := src/app/app_region_transition.c src/core/time.c src/
 HISTORY_UI_TEST_TARGET := $(TEST_BIN_DIR)/test_history_ui
 HISTORY_UI_TEST_SRCS := src/app/history/history_views.c src/app/history/history_browser.c $(KIT_UI_DIR)/src/kit_ui.c $(KIT_RENDER_DIR)/src/kit_render.c $(KIT_RENDER_DIR)/src/kit_render_command_validation.c tests/test_history_ui.c src/app/terrain_ui.c src/app/history/history_ui.c src/app/history_layout.c src/app/history/history_gpx.c src/app/history/history_commands.c src/app/history/history_status.c src/app/history/history_store.c $(filter-out tools/mapforge_places.c src/app/history/history_gpx.c src/app/history/history_commands.c src/app/history/history_status.c src/app/history/history_store.c,$(PLACES_SRCS))
 
-CARTA_CONTROL_TEST_SRCS := src/ui/control_surface.c $(KIT_UI_DIR)/src/kit_ui_surface.c $(KIT_UI_DIR)/src/kit_ui_interaction.c $(KIT_UI_DIR)/src/kit_ui_interaction_sdl.c $(KIT_UI_DIR)/src/kit_ui_window_sdl.c
+CARTA_CONTROL_TEST_SRCS := src/ui/control_surface.c $(KIT_UI_DIR)/src/kit_ui_surface.c $(KIT_UI_DIR)/src/kit_ui_interaction.c $(KIT_UI_DIR)/src/kit_ui_interaction_sdl.c $(KIT_UI_DIR)/src/kit_ui_window_sdl.c $(KIT_UI_DIR)/src/kit_ui_focus_scope.c
 UTILITY_WORKSPACE_TEST_SRCS += $(CARTA_CONTROL_TEST_SRCS) src/ui/control_presentation.c $(KIT_UI_DIR)/src/kit_ui.c $(KIT_UI_DIR)/src/kit_ui_button.c $(KIT_UI_DIR)/src/kit_ui_hud.c $(KIT_RENDER_DIR)/src/kit_render.c $(KIT_RENDER_DIR)/src/kit_render_command_validation.c
 HISTORY_UI_TEST_SRCS += $(CARTA_CONTROL_TEST_SRCS) src/ui/control_presentation.c src/app/app_utility_workspace.c $(KIT_UI_DIR)/src/kit_ui_button.c $(KIT_UI_DIR)/src/kit_ui_hud.c
 
 UTILITY_WORKSPACE_TEST_SRCS += $(KIT_RENDER_DIR)/src/kit_render_backend_null.c $(KIT_RENDER_DIR)/src/kit_render_backend_vk.c
+
+CARTA_TEXT_TEST_SRCS := src/ui/text_input.c src/ui/text_presentation.c $(KIT_UI_DIR)/src/kit_ui_text_edit.c $(KIT_UI_DIR)/src/kit_ui_text_edit_sdl.c $(KIT_UI_DIR)/src/kit_ui_text_presentation.c $(KIT_UI_DIR)/src/kit_ui_native_text_sdl.c
+HISTORY_UI_TEST_SRCS += $(CARTA_TEXT_TEST_SRCS)
+PLACE_TOOLS_TEST_SRCS += $(CARTA_TEXT_TEST_SRCS) $(KIT_UI_DIR)/src/kit_ui_button.c $(KIT_UI_DIR)/src/kit_ui.c $(KIT_RENDER_DIR)/src/kit_render.c $(KIT_RENDER_DIR)/src/kit_render_command_validation.c $(KIT_RENDER_DIR)/src/kit_render_backend_null.c $(KIT_RENDER_DIR)/src/kit_render_backend_vk.c
+
+CARTA_TEXT_TEST_TARGET := $(TEST_BIN_DIR)/test_carta_text_input
+CARTA_TEXT_INPUT_SRCS := tests/test_carta_text_input.c src/ui/text_input.c $(KIT_UI_DIR)/src/kit_ui_text_edit.c $(KIT_UI_DIR)/src/kit_ui_text_edit_sdl.c
+
+# Direct-source fixtures share the production UI runtime dependency inventory.
+PLACE_TOOLS_TEST_SRCS := $(sort $(PLACE_TOOLS_TEST_SRCS) $(KIT_UI_CONTROL_SRCS))
+
+PLACE_TOOLS_TEST_SRCS := $(sort $(PLACE_TOOLS_TEST_SRCS) src/ui/control_surface.c src/ui/control_presentation.c src/ui/control_places.c src/app/app_utility_workspace.c)

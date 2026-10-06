@@ -9,6 +9,8 @@ void app_place_tools_open(AppState *app, unsigned kind);
 void app_place_tools_close(void);
 // Consumes dialog input and location-toolbar actions before map interaction.
 bool app_place_tools_handle_event(AppState *app, const SDL_Event *event);
+// Executes a semantic location-toolbar command through its existing product body.
+void app_place_tools_activate_toolbar(AppState *,unsigned);
 // Draws the native location toolbar and final modal overlay using existing theme/font adapters.
 void app_place_tools_draw_toolbar(AppState *app);
 void app_place_tools_draw(AppState *app);

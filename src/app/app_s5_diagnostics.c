@@ -134,6 +134,7 @@ void app_s5_update(struct AppState *app, double now) {
                 history_ui_event(app, &e);e.type=SDL_MOUSEBUTTONUP;history_ui_event(app,&e);e.type=SDL_MOUSEBUTTONDOWN;
             }
             if(getenv("MAPFORGE_S8_TERRAIN")&&step==4){SDL_FRect fit=history_ui_action_rect(app,1);e.button.x=fit.x+5;e.button.y=fit.y+5;history_ui_event(app,&e);e.type=SDL_MOUSEBUTTONUP;history_ui_event(app,&e);e.type=SDL_MOUSEBUTTONDOWN;}
+            app_s5_text_probe(app,step);
         }
         return;
     }
@@ -202,6 +203,7 @@ void app_s5_capture(struct AppState *app) {
 
 // Counts decoded array storage separately from retained GPU buffer payload and process peak RSS.
 void app_s5_measure(struct AppState *app) {
+    if(app)app_s5_text_report(app);
     if (!app || !s5_enabled() || !s5.csv || s5.frames >= 100000)
         return;
     unsigned long long cpu_bytes = 0;

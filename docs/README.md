@@ -162,3 +162,6 @@ Private plans, execution checklists, and internal runbooks were moved out of thi
 
 - [Shared control adoption](shared_control_adoption.md): workspace tabs and normal
   Hiking & History actions; shared appearance/semantic activation, host limits.
+
+- [Shared text/modal adoption](shared_text_modal_adoption.md): bounded fields,
+  shared presentation, native caret/session and semantic modal focus boundaries.

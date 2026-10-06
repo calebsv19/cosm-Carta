@@ -14,6 +14,7 @@ typedef struct PlaceTools {
     struct json_object *draft, *routes, *restore;
     SDL_FRect fields[68];
     unsigned field_count;
+    CartaTextInput text;
 } PlaceTools;
 // Single native-dialog state shared only by its input and rendering adapters.
 extern PlaceTools tools;

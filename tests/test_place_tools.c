@@ -10,6 +10,11 @@
 #include <string.h>
 #include <unistd.h>
 
+int ui_measure_text_width(const char *s,float scale){return (int)(strlen(s)*10*scale);}
+int ui_font_line_height(float scale){return (int)(20*scale);}
+void renderer_fill_rounded_rect(Renderer *r,const SDL_FRect *p,float radius){(void)r;assert(p->w>0 && radius>0);}
+bool renderer_set_viewport(Renderer *r,int x,int y,int w,int h){r->viewport_enabled=true;r->viewport_x=x;r->viewport_y=y;r->width=w;r->height=h;return true;}
+void renderer_reset_viewport(Renderer *r){r->viewport_enabled=false;}
 // Captures draw-label geometry while leaving tests independent of a desktop window/GPU.
 typedef struct Label {
     char text[1024];
@@ -17,7 +22,15 @@ typedef struct Label {
 } Label;
 static Label labels[300];
 static size_t label_count;
+SDL_FRect history_ui_form_control_rect(AppState *a,unsigned i){(void)a;(void)i;return (SDL_FRect){0};}
+void history_ui_form_control_activate(AppState *a,unsigned i){(void)a;(void)i;assert(0);}
 static unsigned route_opens;
+bool history_ui_modal(void){return false;}
+SDL_FRect history_ui_control_rect(AppState *a,unsigned i){(void)a;(void)i;return (SDL_FRect){0};}
+void history_ui_activate(AppState *a,unsigned i){(void)a;(void)i;assert(0);}
+void app_save_persisted_view_state(const AppState *a){(void)a;}
+void app_places_begin_route_action(AppState *a,bool save){(void)a;(void)save;}
+SDL_FRect app_places_route_button_rect(const AppState *a,uint32_t i){(void)a;(void)i;return (SDL_FRect){0};}
 // Supplies predictable readable colors for native-dialog rendering tests.
 MapForgeThemePalette app_ui_theme_palette(void) {
     MapForgeThemePalette p = {0};
@@ -99,6 +112,7 @@ static void click(AppState *app, float x, float y) {
     e.button.x = (int)x;
     e.button.y = (int)y;
     assert(app_place_tools_handle_event(app, &e));
+    e.type=SDL_MOUSEBUTTONUP;(void)app_place_tools_handle_event(app,&e);
 }
 static void key(AppState *app, SDL_Keycode code, SDL_Keymod mod) {
     SDL_Event e = {0};

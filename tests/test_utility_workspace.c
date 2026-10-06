@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <string.h>
 
+SDL_FRect carta_places_control_rect(AppState *a,uint32_t d,uint64_t i){(void)a;(void)d;(void)i;return (SDL_FRect){0};}
+void carta_places_control_activate(AppState *a,uint32_t d,uint64_t i){(void)a;(void)d;(void)i;assert(0);}
+SDL_FRect history_ui_form_control_rect(AppState *a,unsigned i){(void)a;(void)i;return (SDL_FRect){0};}
+void history_ui_form_control_activate(AppState *a,unsigned i){(void)a;(void)i;assert(0);}
 static bool modal;
 static unsigned persisted,rounded;
 static int caption_x,caption_y,caption_clip;
@@ -55,6 +59,14 @@ static void controls_contract(AppState *a) {
     e.type=SDL_KEYUP;e.key.repeat=0;assert(carta_ui_controls_event(a,&e));
     assert(a->ui_state_bridge.utility_workspace==1 && persisted==before+1);
     assert(!carta_ui_controls_event(a,&e));assert(persisted==before+1);
+    // Modal return restores a semantic key only if the control remains eligible.
+    e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_TAB;assert(carta_ui_controls_event(a,&e));
+    carta_ui_controls_sync(a);KitUiSurfaceKey focused={0};
+    assert(kit_ui_surface_key(&a->ui_state_bridge.controls,a->ui_state_bridge.controls.interaction.focused_id,&focused));
+    modal=true;carta_ui_controls_sync(a);assert(!a->ui_state_bridge.controls.interaction.focused_id);
+    modal=false;carta_ui_controls_sync(a);KitUiSurfaceKey restored={0};
+    assert(kit_ui_surface_key(&a->ui_state_bridge.controls,a->ui_state_bridge.controls.interaction.focused_id,&restored));
+    assert(restored.domain==focused.domain && restored.value==focused.value);
     a->ui_state_bridge.place_search_active=true;e.type=SDL_KEYDOWN;e.key.keysym.sym=SDLK_TAB;
     assert(!carta_ui_controls_event(a,&e));a->ui_state_bridge.place_search_active=false;
     carta_ui_control_draw(a,(SDL_FRect){10,10,100,26},"Map",false,(KitUiSurfaceKey){0},.8f);

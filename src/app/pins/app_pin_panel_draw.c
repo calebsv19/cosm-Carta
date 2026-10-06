@@ -7,6 +7,8 @@
 #include "app/app_ui_internal.h"
 
 #include "ui/font.h"
+#include "ui/text_input.h"
+#include "ui/control_surface.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -163,13 +165,12 @@ static void app_draw_left_pane_pins(AppState *app,
 
     for (uint32_t i = 0; i < 2u; ++i) {
         SDL_FRect rect = app_places_route_button_rect(app, i);
-        renderer_set_draw_color(&app->renderer, palette->button_fill.r, palette->button_fill.g, palette->button_fill.b, 220);
-        renderer_fill_rect(&app->renderer, &rect);
-        renderer_set_draw_color(&app->renderer, palette->button_outline.r, palette->button_outline.g, palette->button_outline.b, 220);
-        renderer_draw_rect(&app->renderer, &rect);
         const char *label = i == 0 ? "SAVE ROUTE" : "SAVED ROUTES";
-        if (i == 0 && app->ui_state_bridge.route_plan_name_active) label = app->ui_state_bridge.route_plan_name;
-        ui_draw_text_clipped(&app->renderer, (int)rect.x + 6, (int)rect.y + 4, label, text, 0.8f, (int)rect.w - 12);
+        if (i==0 && app->ui_state_bridge.route_plan_name_active) {
+            carta_text_bind(&app->ui_state_bridge.route_name_text,app->ui_state_bridge.route_plan_name,sizeof(app->ui_state_bridge.route_plan_name),false);
+            carta_text_draw(app,&app->ui_state_bridge.route_name_text,rect,.8f);continue;
+        }
+        carta_ui_control_draw(app,rect,label,false,(KitUiSurfaceKey){CARTA_CONTROL_ROUTES,i},.8f);
     }
     app_place_tools_draw_toolbar(app);
     renderer_set_draw_color(&app->renderer, palette->route_panel_fill.r, palette->route_panel_fill.g, palette->route_panel_fill.b, 220);

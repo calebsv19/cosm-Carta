@@ -440,9 +440,9 @@ test: test-gpx-preview
 
 test-place-tools: $(PLACE_TOOLS_TEST_TARGET)
 	./$(PLACE_TOOLS_TEST_TARGET)
-$(PLACE_TOOLS_TEST_TARGET): $(PLACE_TOOLS_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
+$(PLACE_TOOLS_TEST_TARGET): $(PLACE_TOOLS_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB)
 	@mkdir -p $(dir $@)
-	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(PLACE_TOOLS_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS) $(SDL_LIBS)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(PLACE_TOOLS_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS) $(SDL_LIBS) $(CORE_THEME_LIB) $(CORE_FONT_LIB)
 test: test-place-tools
 
 test: test-region-band-selection
@@ -553,3 +553,11 @@ $(TEST_BIN_DIR)/test_terrain_vector_presentation: tests/test_terrain_vector_pres
 	@mkdir -p $(TEST_BIN_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_vector_presentation.c src/app/terrain_vectors.c -o $@ $(SDL_LIBS) $(JSON_LIBS) -lm
 test: test-terrain-vector-presentation
+
+.PHONY: test-carta-text
+$(CARTA_TEXT_TEST_TARGET): $(CARTA_TEXT_INPUT_SRCS) $(CORE_BASE_LIB)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(CARTA_TEXT_INPUT_SRCS) -o $@ $(SDL_LIBS) $(CORE_BASE_LIB)
+test-carta-text: $(CARTA_TEXT_TEST_TARGET)
+	./$(CARTA_TEXT_TEST_TARGET)
+test: test-carta-text

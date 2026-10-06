@@ -55,6 +55,7 @@ static void app_runtime_input_record_event(AppState *app,
             out_raw->other_event_count += 1u;
             break;
     }
+    carta_text_window_event(app,event);
     if (carta_ui_controls_event(app,event)) return;
     if (app_region_transition_handle_event(app, event)) return;
     if (app_place_tools_handle_event(app,event)) return;
