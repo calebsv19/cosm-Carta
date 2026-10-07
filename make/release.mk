@@ -50,7 +50,7 @@ release-artifact:
 release-local-artifact: release-bundle-audit-internal
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
-	@shasum -a 256 "$(RELEASE_APP_ZIP)" > "$(RELEASE_APP_ZIP_SHA256)"
+	@cd "$(RELEASE_DIR)" && shasum -a 256 "$(notdir $(RELEASE_APP_ZIP))" > "$(notdir $(RELEASE_APP_ZIP_SHA256))"
 	@artifact_sha256="$$(/usr/bin/awk '{print $$1}' "$(RELEASE_APP_ZIP_SHA256)")"; \
 	{ \
 		echo "product=$(RELEASE_PRODUCT_NAME)"; \
@@ -67,21 +67,21 @@ release-local-artifact: release-bundle-audit-internal
 		echo "channel=$(RELEASE_CHANNEL)"; \
 		echo "signed=ad-hoc"; \
 		echo "notarized=0"; \
-		echo "zip=$(RELEASE_APP_ZIP)"; \
+		echo "zip=$(notdir $(RELEASE_APP_ZIP))"; \
 		echo "sha256=$$artifact_sha256"; \
-		echo "artifact=$(RELEASE_APP_ZIP)"; \
-		echo "sha256_file=$(RELEASE_APP_ZIP_SHA256)"; \
+		echo "artifact=$(notdir $(RELEASE_APP_ZIP))"; \
+		echo "sha256_file=$(notdir $(RELEASE_APP_ZIP_SHA256))"; \
 	} > "$(RELEASE_MANIFEST)"
 	@echo "release-local-artifact complete: $(RELEASE_APP_ZIP)"
 
 release-output-root-contract:
-	@case "$(RELEASE_ROOT)" in build/release-authenticated/*) ;; *) echo "RELEASE_ROOT must be a job-scoped build/release-authenticated path"; exit 1;; esac
-	@case "$(RELEASE_ROOT)" in */../*|../*|*/..|build/release-authenticated/|*/./*|./*) echo "RELEASE_ROOT must not contain traversal or dot segments"; exit 1;; esac
-	@case "$(RELEASE_ROOT)" in *'//'*) echo "RELEASE_ROOT must not contain empty path segments"; exit 1;; esac
+	@python3 tools/packaging/prepare_release_root.py --output "$(RELEASE_ROOT)" --validate-only >/dev/null
 
 release-output-root-conformance: release-output-root-contract
-	@test ! -e "$(RELEASE_ROOT)" || (echo "RELEASE_ROOT must be absent before package"; exit 1)
-	@$(MAKE) RELEASE_ROOT="$(RELEASE_ROOT)" release-local-artifact
+	@set -eu; \
+	root="$$(python3 tools/packaging/prepare_release_root.py --output "$(RELEASE_ROOT)")"; \
+	$(MAKE) RELEASE_ROOT="$$root/scratch" DIST_DIR="$$root/scratch/package" release-local-artifact; \
+	python3 tools/packaging/finalize_release_root.py --root "$$root" --basename "$(RELEASE_ARTIFACT_BASENAME)"
 	@test -f "$(RELEASE_APP_ZIP)" || (echo "Missing release artifact at selected root"; exit 1)
 	@test -f "$(RELEASE_APP_ZIP_SHA256)" || (echo "Missing release checksum at selected root"; exit 1)
 	@test -f "$(RELEASE_MANIFEST)" || (echo "Missing release manifest at selected root"; exit 1)
@@ -101,7 +101,10 @@ release-bundle-audit-internal: package-desktop-self-test
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$(PACKAGE_CONTENTS_DIR)/Info.plist" > "$(RELEASE_DIR)/bundle_id.txt"
 	@test "$$(cat "$(RELEASE_DIR)/bundle_id.txt")" = "$(RELEASE_BUNDLE_ID)" || (echo "bundle id mismatch: expected $(RELEASE_BUNDLE_ID), got $$(cat "$(RELEASE_DIR)/bundle_id.txt")"; exit 1)
-	@env -i HOME="$(HOME)" PATH="$(PATH)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher" --print-config > "$(RELEASE_DIR)/print_config.txt"
+	@set -eu; \
+	test_home="$$(mktemp -d)"; \
+	trap 'rm -rf "$$test_home"' EXIT HUP INT TERM; \
+	env -i HOME="$$test_home" PATH="$(PATH)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher" --print-config > "$(RELEASE_DIR)/print_config.txt"
 	@runtime_dir="$$(/usr/bin/grep '^MAPFORGE_RUNTIME_DIR=' "$(RELEASE_DIR)/print_config.txt" | /usr/bin/cut -d= -f2-)"; \
 	if [ -z "$$runtime_dir" ]; then echo "runtime dir missing from print-config"; exit 1; fi; \
 	case "$$runtime_dir" in *"/Contents/Resources"*) echo "runtime dir incorrectly points into app bundle: $$runtime_dir"; exit 1;; esac; \
@@ -112,7 +115,7 @@ release-bundle-audit-internal: package-desktop-self-test
 	case "$$theme_path" in /tmp/*|/var/*|"$(HOME)"/*) ;; *) echo "theme persist path is not user-writable rooted: $$theme_path"; exit 1;; esac
 	@/usr/bin/grep -q '^MAPFORGE_SELECTED_REGIONS_REASON=' "$(RELEASE_DIR)/print_config.txt" || (echo "missing regions-selection diagnostics"; exit 1)
 	@otool -L "$(PACKAGE_MACOS_DIR)/mapforge-bin" > "$(RELEASE_DIR)/otool_mapforge_bin.txt"
-	@if /usr/bin/grep -Eq '/opt/homebrew|/usr/local/Cellar|/Users/.*/CodeWork' "$(RELEASE_DIR)/otool_mapforge_bin.txt"; then \
+	@if /usr/bin/grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/Users/)' "$(RELEASE_DIR)/otool_mapforge_bin.txt"; then \
 		echo "non-portable dylib dependency detected in $(PACKAGE_MACOS_DIR)/mapforge-bin"; \
 		cat "$(RELEASE_DIR)/otool_mapforge_bin.txt"; \
 		exit 1; \
@@ -120,7 +123,7 @@ release-bundle-audit-internal: package-desktop-self-test
 	@for file in $$(/usr/bin/find "$(PACKAGE_FRAMEWORKS_DIR)" -type f -name '*.dylib' 2>/dev/null); do \
 		base="$$(/usr/bin/basename "$$file")"; \
 		otool -L "$$file" > "$(RELEASE_DIR)/otool_$$base.txt" || exit 1; \
-		if /usr/bin/grep -Eq '/opt/homebrew|/usr/local/Cellar|/Users/.*/CodeWork' "$(RELEASE_DIR)/otool_$$base.txt"; then \
+		if /usr/bin/grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/Users/)' "$(RELEASE_DIR)/otool_$$base.txt"; then \
 			echo "non-portable dylib dependency detected in $$file"; \
 			cat "$(RELEASE_DIR)/otool_$$base.txt"; \
 			exit 1; \
@@ -129,7 +132,7 @@ release-bundle-audit-internal: package-desktop-self-test
 	@for helper_tool in $(PACKAGED_HELPER_TOOLS); do \
 		base="$$(/usr/bin/basename "$$helper_tool")"; \
 		otool -L "$$helper_tool" > "$(RELEASE_DIR)/otool_$$base.txt" || exit 1; \
-		if /usr/bin/grep -Eq '/opt/homebrew|/usr/local|/Users/.*/CodeWork' "$(RELEASE_DIR)/otool_$$base.txt"; then \
+		if /usr/bin/grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/Users/)' "$(RELEASE_DIR)/otool_$$base.txt"; then \
 			echo "non-portable helper-tool dependency detected in $$helper_tool"; \
 			cat "$(RELEASE_DIR)/otool_$$base.txt"; \
 			exit 1; \
@@ -237,7 +240,7 @@ release-verify-notarized-internal: release-staple-internal
 release-artifact-internal: release-verify-notarized-internal
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
-	@shasum -a 256 "$(RELEASE_APP_ZIP)" > "$(RELEASE_APP_ZIP).sha256"
+	@cd "$(RELEASE_DIR)" && shasum -a 256 "$(notdir $(RELEASE_APP_ZIP))" > "$(notdir $(RELEASE_APP_ZIP)).sha256"
 	@{ \
 		echo "product=$(RELEASE_PRODUCT_NAME)"; \
 		echo "program=$(RELEASE_PROGRAM_KEY)"; \

@@ -109,7 +109,11 @@ package-desktop-smoke: package-desktop
 
 package-desktop-self-test: package-desktop-smoke
 	@mkdir -p build/vulkan-rollout-package
-	@MAPFORGE_PACKAGE_VALIDATION_LAYER_DYLIB="$(VULKAN_VALIDATION_DYLD_PATH)/libVkLayer_khronos_validation.dylib" MAPFORGE_PACKAGE_REQUIRE_VULKAN_ROLLOUT="$(VK_RUNTIME_AVAILABLE)" MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE="$(abspath build/vulkan-rollout-package/initial.bmp)" MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE="$(abspath build/vulkan-rollout-package/resized.bmp)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher" --self-test || (echo "package-desktop self-test failed."; exit 1)
+	@set -eu; \
+	test_home="$$(mktemp -d)"; \
+	trap 'rm -rf "$$test_home"' EXIT HUP INT TERM; \
+	mkdir -p "$$test_home/regions"; \
+	HOME="$$test_home" MAPFORGE_RUNTIME_DIR="$$test_home/runtime" MAPFORGE_THEME_PERSIST_PATH="$$test_home/config/theme_preset.txt" MAPFORGE_REGIONS_DIR="$$test_home/regions" MAPFORGE_PACKAGE_VALIDATION_LAYER_DYLIB="$(VULKAN_VALIDATION_DYLD_PATH)/libVkLayer_khronos_validation.dylib" MAPFORGE_PACKAGE_REQUIRE_VULKAN_ROLLOUT="$(VK_RUNTIME_AVAILABLE)" MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE="$(abspath build/vulkan-rollout-package/initial.bmp)" MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE="$(abspath build/vulkan-rollout-package/resized.bmp)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher" --self-test || (echo "package-desktop self-test failed."; exit 1)
 	@if [ "$(VK_RUNTIME_AVAILABLE)" = "1" ]; then \
 		python3 tools/verify-vulkan-rollout.py --shared-root "$(SHARED_ROOT)" --initial-capture build/vulkan-rollout-package/initial.bmp --resized-capture build/vulkan-rollout-package/resized.bmp; \
 	fi
