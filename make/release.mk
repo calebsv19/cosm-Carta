@@ -232,6 +232,8 @@ release-artifact: release-verify-notarized
 		echo "arch=$(RELEASE_ARCH)"; \
 		echo "channel=$(RELEASE_CHANNEL)"; \
 		echo "signed=1"; \
+		echo "zip=$(RELEASE_APP_ZIP)"; \
+		echo "sha256=$$(/usr/bin/awk '{print $$1}' "$(RELEASE_APP_ZIP_SHA256)")"; \
 		echo "notarized=1"; \
 		echo "artifact=$(RELEASE_APP_ZIP)"; \
 		echo "sha256_file=$(RELEASE_APP_ZIP).sha256"; \
