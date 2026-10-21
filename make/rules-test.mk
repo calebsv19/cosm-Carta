@@ -2,7 +2,7 @@ test run-headless-smoke run-headless-smoke-core run-headless-smoke-artifacts run
 test-%: BUILD_TOOLCHAIN := $(TEST_TOOLCHAIN)
 
 run: app
-	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" ./$(TARGET)
+	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" "$(abspath $(TARGET))"
 
 vulkan-rollout-contract:
 	python3 tools/verify-vulkan-rollout.py --shared-root "$(SHARED_ROOT)"
@@ -11,7 +11,7 @@ vulkan-rollout-self-test: vulkan-rollout-contract
 	rm -rf build
 	$(MAKE) app
 	mkdir -p build/vulkan-rollout
-	MAPFORGE_RENDER_BACKEND=vulkan MAPFORGE_REQUIRE_VK_VALIDATION=1 MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE=build/vulkan-rollout/initial.bmp MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE=build/vulkan-rollout/resized.bmp DYLD_LIBRARY_PATH=$(VULKAN_VALIDATION_DYLD_PATH) ./$(TARGET) --vulkan-rollout-self-test
+	MAPFORGE_RENDER_BACKEND=vulkan MAPFORGE_REQUIRE_VK_VALIDATION=1 MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE=build/vulkan-rollout/initial.bmp MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE=build/vulkan-rollout/resized.bmp DYLD_LIBRARY_PATH=$(VULKAN_VALIDATION_DYLD_PATH) "$(abspath $(TARGET))" --vulkan-rollout-self-test
 	python3 tools/verify-vulkan-rollout.py --shared-root "$(SHARED_ROOT)" --initial-capture build/vulkan-rollout/initial.bmp --resized-capture build/vulkan-rollout/resized.bmp
 
 run-headless-smoke: run-headless-smoke-core
@@ -59,16 +59,16 @@ run-ide-theme: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
 	MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" \
 	MAPFORGE_USE_SHARED_THEME_FONT=1 MAPFORGE_USE_SHARED_THEME=1 MAPFORGE_USE_SHARED_FONT=1 \
-	MAPFORGE_THEME_PRESET=ide_gray MAPFORGE_FONT_PRESET=ide ./$(TARGET)
+	MAPFORGE_THEME_PRESET=ide_gray MAPFORGE_FONT_PRESET=ide "$(abspath $(TARGET))"
 
 run-daw-theme: app
 	MAPFORGE_RENDER_BACKEND=$(RENDER_BACKEND) MAPFORGE_VK_DEBUG=$(VK_DEBUG) \
 	MAPFORGE_REGIONS_DIR="$(MAPFORGE_REGIONS_DIR)" \
 	MAPFORGE_USE_SHARED_THEME_FONT=1 MAPFORGE_USE_SHARED_THEME=1 MAPFORGE_USE_SHARED_FONT=1 \
-	MAPFORGE_THEME_PRESET=daw_default MAPFORGE_FONT_PRESET=daw_default ./$(TARGET)
+	MAPFORGE_THEME_PRESET=daw_default MAPFORGE_FONT_PRESET=daw_default "$(abspath $(TARGET))"
 
 test-space: $(MAP_SPACE_TEST_TARGET)
-	./$(MAP_SPACE_TEST_TARGET)
+	"$(abspath $(MAP_SPACE_TEST_TARGET))"
 
 build-safety-check: tools graph
 	./tests/test_build_safety.sh
@@ -119,25 +119,25 @@ metrics-rollup-gate: test-archive-metrics-rollup
 	@echo "metrics-rollup-gate passed"
 
 test-shared-theme-font-adapter: $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
-	./$(SHARED_THEME_FONT_ADAPTER_TEST_TARGET)
+	"$(abspath $(SHARED_THEME_FONT_ADAPTER_TEST_TARGET))"
 
 test-trace-contract: $(MAP_TRACE_CONTRACT_TEST_TARGET)
-	./$(MAP_TRACE_CONTRACT_TEST_TARGET)
+	"$(abspath $(MAP_TRACE_CONTRACT_TEST_TARGET))"
 
 test-worker-contract: $(APP_WORKER_CONTRACT_TEST_TARGET)
-	./$(APP_WORKER_CONTRACT_TEST_TARGET)
+	"$(abspath $(APP_WORKER_CONTRACT_TEST_TARGET))"
 
 test-tile-loader-shutdown: $(TILE_LOADER_SHUTDOWN_TEST_TARGET)
-	./$(TILE_LOADER_SHUTDOWN_TEST_TARGET)
+	"$(abspath $(TILE_LOADER_SHUTDOWN_TEST_TARGET))"
 
 test-tile-source-archive: $(TILE_SOURCE_ARCHIVE_TEST_TARGET)
-	./$(TILE_SOURCE_ARCHIVE_TEST_TARGET)
+	"$(abspath $(TILE_SOURCE_ARCHIVE_TEST_TARGET))"
 
 test-route-service: $(APP_ROUTE_SERVICE_TEST_TARGET)
-	./$(APP_ROUTE_SERVICE_TEST_TARGET)
+	"$(abspath $(APP_ROUTE_SERVICE_TEST_TARGET))"
 
 test-headless-playback: $(APP_HEADLESS_PLAYBACK_TEST_TARGET)
-	./$(APP_HEADLESS_PLAYBACK_TEST_TARGET)
+	"$(abspath $(APP_HEADLESS_PLAYBACK_TEST_TARGET))"
 
 test-headless-route-job: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" /bin/sh ./tests/test_headless_route_job.sh
@@ -179,54 +179,54 @@ test-route-preview-contract: test-route-preview test-phase-b-continuity-stress
 	@echo "map_forge route preview contract lane passed"
 
 test-route-preview: $(APP_ROUTE_PREVIEW_TEST_TARGET)
-	./$(APP_ROUTE_PREVIEW_TEST_TARGET)
+	"$(abspath $(APP_ROUTE_PREVIEW_TEST_TARGET))"
 
 test-tile-presenter-policy: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
-	./$(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
+	"$(abspath $(APP_TILE_PRESENTER_POLICY_TEST_TARGET))"
 
 test-polygon-fill-gate: $(APP_POLYGON_FILL_GATE_TEST_TARGET)
-	./$(APP_POLYGON_FILL_GATE_TEST_TARGET)
+	"$(abspath $(APP_POLYGON_FILL_GATE_TEST_TARGET))"
 
 test-vk-polygon-fill-geometry-guard: $(VK_POLYGON_FILL_GEOMETRY_GUARD_TEST_TARGET)
-	./$(VK_POLYGON_FILL_GEOMETRY_GUARD_TEST_TARGET)
+	"$(abspath $(VK_POLYGON_FILL_GEOMETRY_GUARD_TEST_TARGET))"
 
 test-presentation-stability: $(APP_TILE_PRESENTER_POLICY_TEST_TARGET) $(APP_POLYGON_FILL_GATE_TEST_TARGET) $(VK_POLYGON_FILL_GEOMETRY_GUARD_TEST_TARGET)
-	./$(APP_TILE_PRESENTER_POLICY_TEST_TARGET)
-	./$(APP_POLYGON_FILL_GATE_TEST_TARGET)
-	./$(VK_POLYGON_FILL_GEOMETRY_GUARD_TEST_TARGET)
+	"$(abspath $(APP_TILE_PRESENTER_POLICY_TEST_TARGET))"
+	"$(abspath $(APP_POLYGON_FILL_GATE_TEST_TARGET))"
+	"$(abspath $(VK_POLYGON_FILL_GEOMETRY_GUARD_TEST_TARGET))"
 
 test-polygon-cache-guardrails: $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
-	./$(POLYGON_CACHE_GUARDRAILS_TEST_TARGET)
+	"$(abspath $(POLYGON_CACHE_GUARDRAILS_TEST_TARGET))"
 
 test-mft-loader-security: $(MFT_LOADER_SECURITY_TEST_TARGET)
-	./$(MFT_LOADER_SECURITY_TEST_TARGET)
+	"$(abspath $(MFT_LOADER_SECURITY_TEST_TARGET))"
 
 test-input-policy: $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
-	./$(APP_RUNTIME_INPUT_POLICY_TEST_TARGET)
+	"$(abspath $(APP_RUNTIME_INPUT_POLICY_TEST_TARGET))"
 
 test-workspace-authoring-host: $(MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_TARGET)
-	./$(MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_TARGET)
+	"$(abspath $(MAP_FORGE_WORKSPACE_AUTHORING_HOST_TEST_TARGET))"
 
 test-header-layer-layout: $(APP_HEADER_LAYER_LAYOUT_TEST_TARGET)
-	./$(APP_HEADER_LAYER_LAYOUT_TEST_TARGET)
+	"$(abspath $(APP_HEADER_LAYER_LAYOUT_TEST_TARGET))"
 
 test-window-resize: $(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET)
-	./$(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET)
+	"$(abspath $(APP_RUNTIME_WINDOW_RESIZE_TEST_TARGET))"
 
 test-map-viewport: $(APP_MAP_VIEWPORT_TEST_TARGET)
-	./$(APP_MAP_VIEWPORT_TEST_TARGET)
+	"$(abspath $(APP_MAP_VIEWPORT_TEST_TARGET))"
 
 test-pin-panel-layout: $(APP_PIN_PANEL_LAYOUT_TEST_TARGET)
-	./$(APP_PIN_PANEL_LAYOUT_TEST_TARGET)
+	"$(abspath $(APP_PIN_PANEL_LAYOUT_TEST_TARGET))"
 
 test-pin-panel-rename: $(APP_PIN_PANEL_RENAME_TEST_TARGET)
-	./$(APP_PIN_PANEL_RENAME_TEST_TARGET)
+	"$(abspath $(APP_PIN_PANEL_RENAME_TEST_TARGET))"
 
 test-tile-manager-residency: $(TILE_MANAGER_RESIDENCY_TEST_TARGET)
-	./$(TILE_MANAGER_RESIDENCY_TEST_TARGET)
+	"$(abspath $(TILE_MANAGER_RESIDENCY_TEST_TARGET))"
 
 test-pins: $(APP_PINS_TEST_TARGET)
-	./$(APP_PINS_TEST_TARGET)
+	"$(abspath $(APP_PINS_TEST_TARGET))"
 
 test-phase-a-viewport-scenario: app
 	MAPFORGE_BINARY="$(TEST_APP_BIN)" MAPFORGE_PHASE_A_MAX_L0_LATENCY_MS=1500 \
@@ -404,7 +404,7 @@ $(APP_PINS_TEST_TARGET): $(APP_PINS_TEST_SRCS)
 test: test-route-cost
 
 test-route-cost: $(ROUTE_COST_TEST_TARGET)
-	./$(ROUTE_COST_TEST_TARGET)
+	"$(abspath $(ROUTE_COST_TEST_TARGET))"
 
 $(ROUTE_COST_TEST_TARGET): $(ROUTE_COST_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
@@ -413,7 +413,7 @@ $(ROUTE_COST_TEST_TARGET): $(ROUTE_COST_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LI
 test: test-utility-workspace
 
 test-utility-workspace: $(UTILITY_WORKSPACE_TEST_TARGET)
-	./$(UTILITY_WORKSPACE_TEST_TARGET)
+	"$(abspath $(UTILITY_WORKSPACE_TEST_TARGET))"
 
 $(UTILITY_WORKSPACE_TEST_TARGET): $(UTILITY_WORKSPACE_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB)
 	@mkdir -p $(dir $@)
@@ -428,7 +428,7 @@ test-place-intake: $(PLACES_TARGET)
 	python3 tests/test_place_intake.py $(PLACES_TARGET)
 test: test-place-intake
 test-route-query: $(ROUTE_QUERY_TEST_TARGET)
-	./$(ROUTE_QUERY_TEST_TARGET)
+	"$(abspath $(ROUTE_QUERY_TEST_TARGET))"
 $(ROUTE_QUERY_TEST_TARGET): $(ROUTE_QUERY_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(ROUTE_QUERY_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
@@ -439,7 +439,7 @@ test-gpx-preview:
 test: test-gpx-preview
 
 test-place-tools: $(PLACE_TOOLS_TEST_TARGET)
-	./$(PLACE_TOOLS_TEST_TARGET)
+	"$(abspath $(PLACE_TOOLS_TEST_TARGET))"
 $(PLACE_TOOLS_TEST_TARGET): $(PLACE_TOOLS_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(PLACE_TOOLS_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS) $(SDL_LIBS) $(CORE_THEME_LIB) $(CORE_FONT_LIB)
@@ -448,7 +448,7 @@ test: test-place-tools
 test: test-region-band-selection
 .PHONY: test-region-band-selection
 test-region-band-selection: $(REGION_BAND_SELECTION_TEST_TARGET)
-	./$(REGION_BAND_SELECTION_TEST_TARGET)
+	"$(abspath $(REGION_BAND_SELECTION_TEST_TARGET))"
 
 $(REGION_BAND_SELECTION_TEST_TARGET): $(REGION_BAND_SELECTION_TEST_SRCS) include/app/region.h
 	@mkdir -p $(dir $@)
@@ -457,12 +457,12 @@ $(REGION_BAND_SELECTION_TEST_TARGET): $(REGION_BAND_SELECTION_TEST_SRCS) include
 .PHONY: test-tile-submission-budget test-region-prepare
 test: test-tile-submission-budget test-region-prepare
 test-tile-submission-budget: $(TILE_SUBMISSION_BUDGET_TEST_TARGET)
-	./$(TILE_SUBMISSION_BUDGET_TEST_TARGET)
+	"$(abspath $(TILE_SUBMISSION_BUDGET_TEST_TARGET))"
 $(TILE_SUBMISSION_BUDGET_TEST_TARGET): $(TILE_SUBMISSION_BUDGET_TEST_SRCS) include/app/app_tile_pipeline_helpers.h
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(TILE_SUBMISSION_BUDGET_TEST_SRCS) -o $@ $(TOOL_LDLIBS)
 test-region-prepare: $(REGION_PREPARE_TEST_TARGET)
-	./$(REGION_PREPARE_TEST_TARGET)
+	"$(abspath $(REGION_PREPARE_TEST_TARGET))"
 $(REGION_PREPARE_TEST_TARGET): $(REGION_PREPARE_TEST_SRCS) include/app/region_prepare.h include/app/app_internal.h include/app/app_region_transition.h include/map/polygon_cache.h include/map/polygon_triangulator.h $(CORE_SHARED_LIBS)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(REGION_PREPARE_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS) $(CORE_SHARED_LIBS)
@@ -474,7 +474,7 @@ test: test-history
 
 # Check native history events and command emission without a personal workspace.
 test-history-ui: $(HISTORY_UI_TEST_TARGET)
-	./$(HISTORY_UI_TEST_TARGET)
+	"$(abspath $(HISTORY_UI_TEST_TARGET))"
 $(HISTORY_UI_TEST_TARGET): $(HISTORY_UI_TEST_SRCS) $(CORE_IO_LIB) $(CORE_DATA_LIB) $(CORE_BASE_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(HISTORY_UI_TEST_SRCS) -o $@ $(TOOL_LDLIBS) $(JSON_LIBS) $(SDL_LIBS) $(CORE_THEME_LIB) $(CORE_FONT_LIB)
@@ -493,7 +493,7 @@ test: test-terrain
 
 .PHONY: test-terrain-draw
 test-terrain-draw: $(TEST_BIN_DIR)/test_terrain_draw
-	./$(TEST_BIN_DIR)/test_terrain_draw
+	"$(abspath $(TEST_BIN_DIR))"/test_terrain_draw
 $(TEST_BIN_DIR)/test_terrain_draw: tests/test_terrain_draw.c src/app/terrain.c src/app/terrain_decode.c src/map/terrain_catalog.c include/map/terrain_pack.h $(CORE_IO_LIB) $(CORE_BASE_LIB) $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_draw.c src/app/terrain.c src/app/terrain_decode.c src/map/terrain_catalog.c -o $@ $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_IO_LIB) $(CORE_BASE_LIB) $(SDL_LIBS) $(JSON_LIBS) -lm
@@ -514,7 +514,7 @@ test: test-history-status
 
 # Verify idle dispatch and asynchronous wake policy without presenting a native frame.
 test-idle-runtime: $(TEST_BIN_DIR)/app_runtime_idle_test
-	./$(TEST_BIN_DIR)/app_runtime_idle_test
+	"$(abspath $(TEST_BIN_DIR))"/app_runtime_idle_test
 
 test: test-idle-runtime
 
@@ -532,7 +532,7 @@ test: test-terrain-catalog
 
 .PHONY: test-terrain-decode
 test-terrain-decode: $(TEST_BIN_DIR)/test_terrain_decode
-	./$(TEST_BIN_DIR)/test_terrain_decode
+	"$(abspath $(TEST_BIN_DIR))"/test_terrain_decode
 $(TEST_BIN_DIR)/test_terrain_decode: tests/test_terrain_decode.c src/app/terrain_decode.c include/app/terrain_decode.h $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(TEST_BIN_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_decode.c src/app/terrain_decode.c -o $@ $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_BASE_LIB) $(SDL_LIBS)
@@ -540,7 +540,7 @@ test: test-terrain-decode
 
 .PHONY: test-terrain-presentation
 test-terrain-presentation: $(TEST_BIN_DIR)/test_terrain_presentation
-	./$(TEST_BIN_DIR)/test_terrain_presentation
+	"$(abspath $(TEST_BIN_DIR))"/test_terrain_presentation
 $(TEST_BIN_DIR)/test_terrain_presentation: tests/test_terrain_presentation.c src/app/terrain.c src/app/terrain_decode.c include/app/terrain.h $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_BASE_LIB)
 	@mkdir -p $(TEST_BIN_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_presentation.c src/app/terrain.c src/app/terrain_decode.c -o $@ $(CORE_WORKERS_LIB) $(CORE_QUEUE_LIB) $(CORE_BASE_LIB) $(SDL_LIBS) -lm
@@ -548,7 +548,7 @@ test: test-terrain-presentation
 
 .PHONY: test-terrain-vector-presentation
 test-terrain-vector-presentation: $(TEST_BIN_DIR)/test_terrain_vector_presentation
-	./$(TEST_BIN_DIR)/test_terrain_vector_presentation
+	"$(abspath $(TEST_BIN_DIR))"/test_terrain_vector_presentation
 $(TEST_BIN_DIR)/test_terrain_vector_presentation: tests/test_terrain_vector_presentation.c src/app/terrain_vectors.c include/app/terrain_vectors.h
 	@mkdir -p $(TEST_BIN_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude tests/test_terrain_vector_presentation.c src/app/terrain_vectors.c -o $@ $(SDL_LIBS) $(JSON_LIBS) -lm
@@ -559,7 +559,7 @@ $(CARTA_TEXT_TEST_TARGET): $(CARTA_TEXT_INPUT_SRCS) $(CORE_BASE_LIB)
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(CARTA_TEXT_INPUT_SRCS) -o $@ $(SDL_LIBS) $(CORE_BASE_LIB)
 test-carta-text: $(CARTA_TEXT_TEST_TARGET)
-	./$(CARTA_TEXT_TEST_TARGET)
+	"$(abspath $(CARTA_TEXT_TEST_TARGET))"
 test: test-carta-text
 
 .PHONY: test-carta-rollout
@@ -567,5 +567,5 @@ $(CARTA_ROLLOUT_TEST_TARGET): $(CARTA_ROLLOUT_TEST_SRCS) $(CORE_BASE_LIB) $(CORE
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $(sort $(CARTA_ROLLOUT_TEST_SRCS)) -o $@ $(SDL_LIBS) $(JSON_LIBS) $(CORE_PANE_LIB) $(CORE_THEME_LIB) $(CORE_FONT_LIB) $(CORE_BASE_LIB) -lm
 test-carta-rollout: $(CARTA_ROLLOUT_TEST_TARGET)
-	./$(CARTA_ROLLOUT_TEST_TARGET)
+	"$(abspath $(CARTA_ROLLOUT_TEST_TARGET))"
 test: test-carta-rollout

@@ -196,7 +196,7 @@ HOST_CFLAGS += -I$(KIT_WORKSPACE_AUTHORING_DIR)/include
 
 # GPX uses the maintained system XML reader; originals use host cryptographic hashing.
 ifeq ($(TARGET_OS),macOS)
-GPX_CFLAGS := -I$(shell xcrun --show-sdk-path)/usr/include/libxml2
+GPX_CFLAGS := -I$(if $(SDKROOT),$(SDKROOT),$(shell xcrun --show-sdk-path))/usr/include/libxml2
 GPX_LIBS := -lxml2
 else
 GPX_CFLAGS := $(shell $(PKG_CONFIG) --cflags libxml-2.0 openssl)

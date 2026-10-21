@@ -97,7 +97,7 @@ package-desktop-smoke: package-desktop
 	@test -f "$(PACKAGE_FRAMEWORKS_DIR)/libMoltenVK.dylib" || (echo "Missing bundled MoltenVK dylib"; exit 1)
 	@if [ "$(UNAME_S)" = "Darwin" ]; then \
 		for packaged_bin in "$(PACKAGE_MACOS_DIR)/mapforge-bin" "$(PACKAGE_TOOLS_DIR)/mapforge_region" "$(PACKAGE_TOOLS_DIR)/mapforge_region_validate" "$(PACKAGE_TOOLS_DIR)/mapforge_graph" "$(PACKAGE_TOOLS_DIR)/mapforge_places"; do \
-			actual_archs="$$(/usr/bin/lipo -archs "$$packaged_bin" 2>/dev/null || true)"; \
+			actual_archs="$$(tools/packaging/macos/developer-tool.sh lipo -archs "$$packaged_bin" 2>/dev/null || true)"; \
 			case "$$actual_archs" in \
 				*"$(TARGET_ARCH)"*) ;; \
 				*) echo "arch mismatch for $$packaged_bin: expected $(TARGET_ARCH), got '$$actual_archs'"; exit 1 ;; \
@@ -108,18 +108,19 @@ package-desktop-smoke: package-desktop
 	@echo "package-desktop-smoke passed."
 
 package-desktop-self-test: package-desktop-smoke
-	@mkdir -p build/vulkan-rollout-package
+	@mkdir -p $(BUILD_ROOT)/vulkan-rollout-package
 	@set -eu; \
-	test_home="$$(mktemp -d)"; \
+	test_home="$$(mktemp -d "$${TMPDIR:-/tmp}/mapforge-package.XXXXXX")"; \
 	trap 'rm -rf "$$test_home"' EXIT HUP INT TERM; \
 	mkdir -p "$$test_home/regions"; \
-	HOME="$$test_home" MAPFORGE_RUNTIME_DIR="$$test_home/runtime" MAPFORGE_THEME_PERSIST_PATH="$$test_home/config/theme_preset.txt" MAPFORGE_REGIONS_DIR="$$test_home/regions" MAPFORGE_PACKAGE_VALIDATION_LAYER_DYLIB="$(VULKAN_VALIDATION_DYLD_PATH)/libVkLayer_khronos_validation.dylib" MAPFORGE_PACKAGE_REQUIRE_VULKAN_ROLLOUT="$(VK_RUNTIME_AVAILABLE)" MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE="$(abspath build/vulkan-rollout-package/initial.bmp)" MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE="$(abspath build/vulkan-rollout-package/resized.bmp)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher" --self-test || (echo "package-desktop self-test failed."; exit 1)
+	HOME="$$test_home" MAPFORGE_RUNTIME_DIR="$$test_home/runtime" MAPFORGE_THEME_PERSIST_PATH="$$test_home/config/theme_preset.txt" MAPFORGE_REGIONS_DIR="$$test_home/regions" MAPFORGE_PACKAGE_VALIDATION_LAYER_DYLIB="$(VULKAN_VALIDATION_DYLD_PATH)/libVkLayer_khronos_validation.dylib" MAPFORGE_PACKAGE_REQUIRE_VULKAN_ROLLOUT="$(VK_RUNTIME_AVAILABLE)" MAPFORGE_VULKAN_ROLLOUT_INITIAL_CAPTURE="$(abspath $(BUILD_ROOT)/vulkan-rollout-package/initial.bmp)" MAPFORGE_VULKAN_ROLLOUT_RESIZED_CAPTURE="$(abspath $(BUILD_ROOT)/vulkan-rollout-package/resized.bmp)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher" --self-test || (echo "package-desktop self-test failed."; exit 1)
 	@if [ "$(VK_RUNTIME_AVAILABLE)" = "1" ]; then \
-		python3 tools/verify-vulkan-rollout.py --shared-root "$(SHARED_ROOT)" --initial-capture build/vulkan-rollout-package/initial.bmp --resized-capture build/vulkan-rollout-package/resized.bmp; \
+		python3 tools/verify-vulkan-rollout.py --shared-root "$(SHARED_ROOT)" --initial-capture $(BUILD_ROOT)/vulkan-rollout-package/initial.bmp --resized-capture $(BUILD_ROOT)/vulkan-rollout-package/resized.bmp; \
 	fi
 	@echo "package-desktop-self-test passed."
 
 package-desktop-main-edit:
+	@test -s "$(PACKAGE_APP_ICON_SRC)" || test -d "$(PACKAGE_APP_ICONSET_SRC)" || (echo "Missing Main Edit icon input: $(PACKAGE_APP_ICON_SRC)"; exit 1)
 	@test -f "$(MEW1_TOOL)" || (echo "Missing shared MEW1 helper: $(MEW1_TOOL)"; exit 1)
 	@before="$$(python3 "$(MEW1_TOOL)" fingerprint --repo "$(CURDIR)")"; \
 	$(MAKE) package-desktop-smoke \
@@ -137,6 +138,9 @@ package-desktop-main-edit:
 	@echo "Main Edit desktop package ready: $(MAIN_EDIT_APP_DIR)"
 
 package-desktop-main-edit-self-test: package-desktop-main-edit
+	@test -s "$(MAIN_EDIT_APP_DIR)/Contents/Resources/$(PACKAGE_APP_ICON_FILE)" || (echo "Missing bundled Main Edit icon"; exit 1)
+	@test "$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$(MAIN_EDIT_APP_DIR)/Contents/Info.plist")" = "$(PACKAGE_APP_ICON_NAME)" || (echo "Main Edit icon metadata mismatch"; exit 1)
+	@if [ -f "$(PACKAGE_APP_ICON_SRC)" ]; then cmp "$(PACKAGE_APP_ICON_SRC)" "$(MAIN_EDIT_APP_DIR)/Contents/Resources/$(PACKAGE_APP_ICON_FILE)" || exit 1; fi
 	@test "$$('/usr/libexec/PlistBuddy' -c 'Print :CFBundleIdentifier' "$(MAIN_EDIT_APP_DIR)/Contents/Info.plist")" = "$(MAIN_EDIT_BUNDLE_ID)"
 	@test "$$('/usr/libexec/PlistBuddy' -c 'Print :CFBundleDisplayName' "$(MAIN_EDIT_APP_DIR)/Contents/Info.plist")" = "$(MAIN_EDIT_DISPLAY_NAME)"
 	@test -f "$(MAIN_EDIT_APP_DIR)/Contents/Resources/build_identity.json"

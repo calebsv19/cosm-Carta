@@ -170,33 +170,31 @@ launcher_require_dir() {
 
 write_vk_icd_file() {
     path=$1
-    cat >"$path" <<EOF
-{
+    printf '{
   "file_format_version": "1.0.0",
   "ICD": {
-    "library_path": "$MOLTENVK_DYLIB",
+    "library_path": "%s",
     "api_version": "1.3.0"
   }
 }
-EOF
+' "$MOLTENVK_DYLIB" >"$path"
 }
 
 write_vk_validation_layer_file() {
     path=$1
     dylib=$2
-    cat >"$path" <<EOF
-{
+    printf '{
   "file_format_version": "1.2.0",
   "layer": {
     "name": "VK_LAYER_KHRONOS_validation",
     "type": "GLOBAL",
-    "library_path": "$dylib",
+    "library_path": "%s",
     "api_version": "1.4.0",
     "implementation_version": "1",
     "description": "Khronos Validation Layer for MapForge package self-test"
   }
 }
-EOF
+' "$dylib" >"$path"
 }
 
 mkdir -p "$LOG_DIR" 2>/dev/null || true

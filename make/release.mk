@@ -1,3 +1,9 @@
+# Keep authentication in one Make graph so coordinator -o checkpoints survive resume.
+ifneq ($(strip $(RELEASE_TOOLCHAIN)),)
+release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact: BUILD_TOOLCHAIN = $(RELEASE_TOOLCHAIN)
+release-bundle-audit release-sign release-verify release-verify-signed release-notarize release-staple release-verify-notarized release-artifact: PACKAGE_TOOLCHAIN = $(RELEASE_TOOLCHAIN)
+endif
+
 RELEASE_MAKE := $(MAKE) --no-print-directory TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_VARIANT="$(TARGET_VARIANT)" BUILD_TOOLCHAIN="$(RELEASE_TOOLCHAIN)" PACKAGE_TOOLCHAIN="$(RELEASE_TOOLCHAIN)"
 
 release-contract:
@@ -21,33 +27,9 @@ release-clean:
 release-build:
 	@$(RELEASE_MAKE) release-build-internal
 
-release-bundle-audit:
-	@$(RELEASE_MAKE) release-bundle-audit-internal
-
-release-sign:
-	@$(RELEASE_MAKE) release-sign-internal
-
-release-verify:
-	@$(RELEASE_MAKE) release-verify-internal
-
-release-verify-signed:
-	@$(RELEASE_MAKE) release-verify-signed-internal
-
-release-notarize:
-	@$(RELEASE_MAKE) release-notarize-internal
-
-release-staple:
-	@$(RELEASE_MAKE) release-staple-internal
-
-release-verify-notarized:
-	@$(RELEASE_MAKE) release-verify-notarized-internal
-
-release-artifact:
-	@$(RELEASE_MAKE) release-artifact-internal
-
 # Create-only local artifact lane used before external authentication. It
 # deliberately emits beneath a job-scoped root and never refreshes Desktop.
-release-local-artifact: release-bundle-audit-internal
+release-local-artifact: release-bundle-audit
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
 	@cd "$(RELEASE_DIR)" && shasum -a 256 "$(notdir $(RELEASE_APP_ZIP))" > "$(notdir $(RELEASE_APP_ZIP_SHA256))"
@@ -97,24 +79,24 @@ release-desktop-refresh:
 release-build-internal: clean app
 	@echo "Release build complete: $(TARGET)"
 
-release-bundle-audit-internal: package-desktop-self-test
+release-bundle-audit: package-desktop-self-test
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$(PACKAGE_CONTENTS_DIR)/Info.plist" > "$(RELEASE_DIR)/bundle_id.txt"
 	@test "$$(cat "$(RELEASE_DIR)/bundle_id.txt")" = "$(RELEASE_BUNDLE_ID)" || (echo "bundle id mismatch: expected $(RELEASE_BUNDLE_ID), got $$(cat "$(RELEASE_DIR)/bundle_id.txt")"; exit 1)
 	@set -eu; \
-	test_home="$$(mktemp -d)"; \
+	test_home="$$(mktemp -d "$${TMPDIR:-/tmp}/mapforge-package.XXXXXX")"; \
 	trap 'rm -rf "$$test_home"' EXIT HUP INT TERM; \
 	env -i HOME="$$test_home" PATH="$(PATH)" "$(PACKAGE_MACOS_DIR)/mapforge-launcher" --print-config > "$(RELEASE_DIR)/print_config.txt"
 	@runtime_dir="$$(/usr/bin/grep '^MAPFORGE_RUNTIME_DIR=' "$(RELEASE_DIR)/print_config.txt" | /usr/bin/cut -d= -f2-)"; \
 	if [ -z "$$runtime_dir" ]; then echo "runtime dir missing from print-config"; exit 1; fi; \
 	case "$$runtime_dir" in *"/Contents/Resources"*) echo "runtime dir incorrectly points into app bundle: $$runtime_dir"; exit 1;; esac; \
-	case "$$runtime_dir" in /tmp/*|/var/*|"$(HOME)"/*) ;; *) echo "runtime dir is not user-writable rooted: $$runtime_dir"; exit 1;; esac
+	case "$$runtime_dir" in /tmp/*|/var/*|/private/tmp/*|/private/var/*|"$(HOME)"/*) ;; *) echo "runtime dir is not user-writable rooted: $$runtime_dir"; exit 1;; esac
 	@theme_path="$$(/usr/bin/grep '^MAPFORGE_THEME_PERSIST_PATH=' "$(RELEASE_DIR)/print_config.txt" | /usr/bin/cut -d= -f2-)"; \
 	if [ -z "$$theme_path" ]; then echo "theme persist path missing from print-config"; exit 1; fi; \
 	case "$$theme_path" in *"/Contents/Resources"*) echo "theme persist path incorrectly points into app bundle: $$theme_path"; exit 1;; esac; \
-	case "$$theme_path" in /tmp/*|/var/*|"$(HOME)"/*) ;; *) echo "theme persist path is not user-writable rooted: $$theme_path"; exit 1;; esac
+	case "$$theme_path" in /tmp/*|/var/*|/private/tmp/*|/private/var/*|"$(HOME)"/*) ;; *) echo "theme persist path is not user-writable rooted: $$theme_path"; exit 1;; esac
 	@/usr/bin/grep -q '^MAPFORGE_SELECTED_REGIONS_REASON=' "$(RELEASE_DIR)/print_config.txt" || (echo "missing regions-selection diagnostics"; exit 1)
-	@otool -L "$(PACKAGE_MACOS_DIR)/mapforge-bin" > "$(RELEASE_DIR)/otool_mapforge_bin.txt"
+	@tools/packaging/macos/developer-tool.sh otool -L "$(PACKAGE_MACOS_DIR)/mapforge-bin" > "$(RELEASE_DIR)/otool_mapforge_bin.txt"
 	@if /usr/bin/grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/Users/)' "$(RELEASE_DIR)/otool_mapforge_bin.txt"; then \
 		echo "non-portable dylib dependency detected in $(PACKAGE_MACOS_DIR)/mapforge-bin"; \
 		cat "$(RELEASE_DIR)/otool_mapforge_bin.txt"; \
@@ -122,7 +104,7 @@ release-bundle-audit-internal: package-desktop-self-test
 	fi
 	@for file in $$(/usr/bin/find "$(PACKAGE_FRAMEWORKS_DIR)" -type f -name '*.dylib' 2>/dev/null); do \
 		base="$$(/usr/bin/basename "$$file")"; \
-		otool -L "$$file" > "$(RELEASE_DIR)/otool_$$base.txt" || exit 1; \
+		tools/packaging/macos/developer-tool.sh otool -L "$$file" > "$(RELEASE_DIR)/otool_$$base.txt" || exit 1; \
 		if /usr/bin/grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/Users/)' "$(RELEASE_DIR)/otool_$$base.txt"; then \
 			echo "non-portable dylib dependency detected in $$file"; \
 			cat "$(RELEASE_DIR)/otool_$$base.txt"; \
@@ -131,7 +113,7 @@ release-bundle-audit-internal: package-desktop-self-test
 	done
 	@for helper_tool in $(PACKAGED_HELPER_TOOLS); do \
 		base="$$(/usr/bin/basename "$$helper_tool")"; \
-		otool -L "$$helper_tool" > "$(RELEASE_DIR)/otool_$$base.txt" || exit 1; \
+		tools/packaging/macos/developer-tool.sh otool -L "$$helper_tool" > "$(RELEASE_DIR)/otool_$$base.txt" || exit 1; \
 		if /usr/bin/grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/Users/)' "$(RELEASE_DIR)/otool_$$base.txt"; then \
 			echo "non-portable helper-tool dependency detected in $$helper_tool"; \
 			cat "$(RELEASE_DIR)/otool_$$base.txt"; \
@@ -140,7 +122,7 @@ release-bundle-audit-internal: package-desktop-self-test
 	done
 	@echo "release-bundle-audit passed."
 
-release-sign-internal: release-bundle-audit-internal
+release-sign: release-bundle-audit
 	@echo "Signing with identity: $(RELEASE_CODESIGN_IDENTITY)"
 	@if [ "$(RELEASE_CODESIGN_IDENTITY)" = "-" ]; then \
 		for dylib in $$(/usr/bin/find "$(PACKAGE_FRAMEWORKS_DIR)" -type f -name '*.dylib' 2>/dev/null); do \
@@ -165,7 +147,7 @@ release-sign-internal: release-bundle-audit-internal
 	fi
 	@echo "release-sign complete."
 
-release-verify-internal:
+release-verify:
 	@codesign --verify --deep --strict "$(PACKAGE_APP_DIR)"
 	@if [ "$(RELEASE_CODESIGN_IDENTITY)" = "-" ]; then \
 		echo "release-verify note: ad-hoc identity in use; skipping spctl Gatekeeper assessment"; \
@@ -188,10 +170,10 @@ release-verify-internal:
 	fi
 	@echo "release-verify passed."
 
-release-verify-signed-internal: release-sign-internal release-verify-internal
+release-verify-signed: release-sign release-verify
 	@echo "release-verify-signed passed."
 
-release-notarize-internal: release-verify-signed-internal
+release-notarize: release-verify-signed
 	@if [ -z "$(APPLE_NOTARY_PROFILE)" ]; then \
 		echo "APPLE_NOTARY_PROFILE is required for release-notarize"; \
 		exit 1; \
@@ -216,7 +198,7 @@ release-notarize-internal: release-verify-signed-internal
 	fi
 	@echo "release-notarize passed."
 
-release-staple-internal: release-notarize-internal
+release-staple: release-notarize
 	@attempt=1; \
 	while [ $$attempt -le "$(STAPLE_MAX_ATTEMPTS)" ]; do \
 		if xcrun stapler staple "$(PACKAGE_APP_DIR)"; then \
@@ -233,11 +215,11 @@ release-staple-internal: release-notarize-internal
 	@xcrun stapler validate "$(PACKAGE_APP_DIR)"
 	@echo "release-staple passed."
 
-release-verify-notarized-internal: release-staple-internal
+release-verify-notarized: release-staple
 	@xcrun stapler validate "$(PACKAGE_APP_DIR)"
 	@echo "release-verify-notarized passed."
 
-release-artifact-internal: release-verify-notarized-internal
+release-artifact: release-verify-notarized
 	@mkdir -p "$(RELEASE_DIR)"
 	@/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(PACKAGE_APP_DIR)" "$(RELEASE_APP_ZIP)"
 	@cd "$(RELEASE_DIR)" && shasum -a 256 "$(notdir $(RELEASE_APP_ZIP))" > "$(notdir $(RELEASE_APP_ZIP)).sha256"
@@ -257,7 +239,7 @@ release-artifact-internal: release-verify-notarized-internal
 	} > "$(RELEASE_MANIFEST)"
 	@echo "release-artifact complete: $(RELEASE_APP_ZIP)"
 
-release-distribute-internal: release-notarize-internal release-staple-internal release-verify-notarized-internal release-artifact-internal
+release-distribute-internal: release-notarize release-staple release-verify-notarized release-artifact
 	@echo "release-distribute passed."
 
 release-desktop-refresh-internal: package-desktop

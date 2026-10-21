@@ -12,5 +12,6 @@ tmp/
 visual_artifacts/
 ide_files/
 vk_frame.ppm
-tools/packaging/macos/local_app_icon/
+tools/packaging/macos/local_app_icon/*
+!tools/packaging/macos/local_app_icon/AppIcon.icns
 __pycache__/

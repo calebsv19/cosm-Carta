@@ -4,99 +4,80 @@ $(SHARED_BUILD_DIR):
 	@mkdir -p "$@"
 
 $(CORE_BASE_LIB): | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_BASE_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_BASE_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_BASE_DIR)/build/libcore_base.a" "$@"
+	@$(MAKE) -C "$(CORE_BASE_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_base" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_base"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_base/libcore_base.a" "$@"
 
 $(CORE_IO_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_IO_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_IO_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_IO_DIR)/build/libcore_io.a" "$@"
+	@$(MAKE) -C "$(CORE_IO_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_io" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_io"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_io/libcore_io.a" "$@"
 
 $(CORE_DATA_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_DATA_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_DATA_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_DATA_DIR)/build/libcore_data.a" "$@"
+	@$(MAKE) -C "$(CORE_DATA_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_data" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_data"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_data/libcore_data.a" "$@"
 
 $(CORE_SPACE_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_SPACE_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_SPACE_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_SPACE_DIR)/build/libcore_space.a" "$@"
+	@$(MAKE) -C "$(CORE_SPACE_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_space" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_space"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_space/libcore_space.a" "$@"
 
 $(CORE_PACK_LIB): $(CORE_IO_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_PACK_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_PACK_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_PACK_DIR)/build/libcore_pack.a" "$@"
+	@$(MAKE) -C "$(CORE_PACK_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_pack" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_pack"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_pack/libcore_pack.a" "$@"
 
 $(CORE_TIME_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_TIME_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_TIME_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_TIME_DIR)/build/libcore_time.a" "$@"
+	@$(MAKE) -C "$(CORE_TIME_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_time" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_time"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_time/libcore_time.a" "$@"
 
 $(CORE_QUEUE_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_QUEUE_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_QUEUE_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_QUEUE_DIR)/build/libcore_queue.a" "$@"
+	@$(MAKE) -C "$(CORE_QUEUE_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_queue" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_queue"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_queue/libcore_queue.a" "$@"
 
 $(CORE_SCHED_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_SCHED_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_SCHED_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_SCHED_DIR)/build/libcore_sched.a" "$@"
+	@$(MAKE) -C "$(CORE_SCHED_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_sched" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_sched"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_sched/libcore_sched.a" "$@"
 
 $(CORE_JOBS_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_JOBS_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_JOBS_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_JOBS_DIR)/build/libcore_jobs.a" "$@"
+	@$(MAKE) -C "$(CORE_JOBS_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_jobs" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_jobs"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_jobs/libcore_jobs.a" "$@"
 
 $(CORE_WORKERS_LIB): $(CORE_QUEUE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_WORKERS_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_WORKERS_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_WORKERS_DIR)/build/libcore_workers.a" "$@"
+	@$(MAKE) -C "$(CORE_WORKERS_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_workers" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_workers"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_workers/libcore_workers.a" "$@"
 
 $(CORE_WAKE_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_WAKE_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_WAKE_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_WAKE_DIR)/build/libcore_wake.a" "$@"
+	@$(MAKE) -C "$(CORE_WAKE_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_wake" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_wake"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_wake/libcore_wake.a" "$@"
 
 $(CORE_KERNEL_LIB): $(CORE_SCHED_LIB) $(CORE_JOBS_LIB) $(CORE_WAKE_LIB) $(CORE_QUEUE_LIB) $(CORE_TIME_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_KERNEL_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_KERNEL_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_KERNEL_DIR)/build/libcore_kernel.a" "$@"
+	@$(MAKE) -C "$(CORE_KERNEL_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_kernel" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_kernel"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_kernel/libcore_kernel.a" "$@"
 
 $(CORE_TRACE_LIB): $(CORE_PACK_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_TRACE_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_TRACE_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_TRACE_DIR)/build/libcore_trace.a" "$@"
+	@$(MAKE) -C "$(CORE_TRACE_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_trace" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_trace"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_trace/libcore_trace.a" "$@"
 
 $(CORE_HEADLESS_JOB_LIB): | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_HEADLESS_JOB_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_HEADLESS_JOB_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_HEADLESS_JOB_DIR)/build/libcore_headless_job.a" "$@"
+	@$(MAKE) -C "$(CORE_HEADLESS_JOB_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_headless_job" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_headless_job"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_headless_job/libcore_headless_job.a" "$@"
 
 $(CORE_THEME_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_THEME_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_THEME_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_THEME_DIR)/build/libcore_theme.a" "$@"
+	@$(MAKE) -C "$(CORE_THEME_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_theme" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_theme"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_theme/libcore_theme.a" "$@"
 
 $(CORE_FONT_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_FONT_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_FONT_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_FONT_DIR)/build/libcore_font.a" "$@"
+	@$(MAKE) -C "$(CORE_FONT_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_font" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_font"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_font/libcore_font.a" "$@"
 
 $(CORE_PANE_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_PANE_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_PANE_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_PANE_DIR)/build/libcore_pane.a" "$@"
+	@$(MAKE) -C "$(CORE_PANE_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_pane" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_pane"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_pane/libcore_pane.a" "$@"
 
 $(CORE_VIEWPORT2D_LIB): $(CORE_BASE_LIB) | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(CORE_VIEWPORT2D_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(CORE_VIEWPORT2D_DIR)" CC="$(SHARED_CC)"
-	@cp "$(CORE_VIEWPORT2D_DIR)/build/libcore_viewport2d.a" "$@"
+	@$(MAKE) -C "$(CORE_VIEWPORT2D_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_viewport2d" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/core_viewport2d"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/core_viewport2d/libcore_viewport2d.a" "$@"
 
 $(KIT_RUNTIME_DIAG_LIB): | $(SHARED_BUILD_DIR)
-	@$(MAKE) -C "$(KIT_RUNTIME_DIAG_DIR)" clean CC="$(SHARED_CC)"
-	@$(MAKE) -C "$(KIT_RUNTIME_DIAG_DIR)" CC="$(SHARED_CC)"
-	@cp "$(KIT_RUNTIME_DIAG_DIR)/build/libkit_runtime_diag.a" "$@"
+	@$(MAKE) -C "$(KIT_RUNTIME_DIAG_DIR)" CC="$(SHARED_CC)" OBJ_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/kit_runtime_diag" BUILD_DIR="$(abspath $(SHARED_BUILD_DIR))/objects/kit_runtime_diag"
+	@cp "$(abspath $(SHARED_BUILD_DIR))/objects/kit_runtime_diag/libkit_runtime_diag.a" "$@"
 
 $(APP_COMPILER_STAMP): $(APP_COMPILER_DEP)
 	@mkdir -p $(dir $@)
