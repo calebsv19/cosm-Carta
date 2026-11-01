@@ -8,6 +8,7 @@ package-desktop: tools-build graph-build
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleName $(PACKAGE_DISPLAY_NAME)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@/usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $(PACKAGE_DISPLAY_NAME)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(RELEASE_VERSION)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(RELEASE_VERSION)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@/usr/libexec/PlistBuddy -c "Add :MapForgePackageProfile string $(PACKAGE_PROFILE)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@/usr/libexec/PlistBuddy -c "Add :MapForgeRuntimeNamespace string $(PACKAGE_RUNTIME_NAMESPACE)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
 	@/usr/libexec/PlistBuddy -c "Add :MapForgeLogNamespace string $(PACKAGE_LOG_NAMESPACE)" "$(PACKAGE_CONTENTS_DIR)/Info.plist"
@@ -76,6 +77,7 @@ package-desktop-smoke: package-desktop
 	@test -x "$(PACKAGE_MACOS_DIR)/mapforge-bin" || (echo "Missing mapforge-bin"; exit 1)
 	@test -f "$(PACKAGE_CONTENTS_DIR)/Info.plist" || (echo "Missing Info.plist"; exit 1)
 	@test "$$('/usr/libexec/PlistBuddy' -c 'Print :CFBundleShortVersionString' "$(PACKAGE_CONTENTS_DIR)/Info.plist")" = "$(RELEASE_VERSION)" || (echo "Bundle version mismatch"; exit 1)
+	@test "$$('/usr/libexec/PlistBuddy' -c 'Print :CFBundleVersion' "$(PACKAGE_CONTENTS_DIR)/Info.plist")" = "$(RELEASE_VERSION)" || (echo "Bundle build version mismatch"; exit 1)
 	@test "$$('/usr/libexec/PlistBuddy' -c 'Print :CFBundleIdentifier' "$(PACKAGE_CONTENTS_DIR)/Info.plist")" = "$(PACKAGE_BUNDLE_ID)"
 	@test "$$('/usr/libexec/PlistBuddy' -c 'Print :CFBundleDisplayName' "$(PACKAGE_CONTENTS_DIR)/Info.plist")" = "$(PACKAGE_DISPLAY_NAME)"
 	@test "$$('/usr/libexec/PlistBuddy' -c 'Print :MapForgePackageProfile' "$(PACKAGE_CONTENTS_DIR)/Info.plist")" = "$(PACKAGE_PROFILE)"
