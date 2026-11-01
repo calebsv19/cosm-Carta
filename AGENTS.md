@@ -36,7 +36,15 @@ No test framework is configured yet. If adding tests:
 - Before returning after code changes always run, make to see if our program compiles and if errors exist please fix and solve them before returning, unless the errors are deeply structural and need to be discussed.
 
 ## Commit & Pull Request Guidelines
-Never Do a commit or pull request only ever recommend that I should do one after big changes if you feel it may be pertinent to do as a lot of files have changed or been added.
+Make local commits when the user's task authorizes checkpointing, integration, or
+release preparation. Review the complete diff and run proportionate verification
+first. Stage only the exact task-owned paths; preserve unrelated staged, dirty,
+untracked, and user-data changes. Use meaningful checkpoints rather than incidental
+or speculative commits, and verify the committed postimages. Keep policy changes
+separate from functional checkpoints when practical. If commit intent is unclear,
+leave the reviewed changes uncommitted and recommend a checkpoint. A local commit
+does not authorize a push, tag, pull request, publication, deployment, installation,
+or Registry promotion; those actions require their applicable task authority.
 
 ## Configuration & Data
 - Runtime configs are expected under `config/` (e.g., `config/app.config.json`).
