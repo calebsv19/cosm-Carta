@@ -123,6 +123,12 @@ int app_run_legacy(void) {
             app_trace_emit_queue_markers(&app, rel_time_s);
         }
         app_s5_measure(&app);
+        /* Scenario peak contracts require every frame; periodic perf logs can
+         * miss the short fallback peak at a stepped viewport transition. */
+        if (vk_debug_logs && app.viewport_scenario_active) {
+            log_info("perf_continuity band_fallback=%u",
+                     app.tile_state_bridge.vk_road_band_fallback_draws);
+        }
         double frame_ms = app.frame_timings.frame_ms;
         double events_ms = app.frame_timings.events_ms;
         double render_derive_ms = diag_timings.render_derive_ms;

@@ -49,4 +49,18 @@ bool mapforge_shared_font_set_zoom_step(int step);
 bool mapforge_shared_font_step_by(int delta);
 bool mapforge_shared_font_reset_zoom_step(void);
 
+/* Connect semantic settings to the app-owned native font bank. */
+typedef struct MapForgeFontRuntimeHooks {
+    bool (*apply)(const char *path, int point_size);
+    void (*begin_preview)(void);
+    void (*end_preview)(bool accept);
+} MapForgeFontRuntimeHooks;
+/* Bind callbacks after successful startup, or unbind before shutdown. */
+void mapforge_shared_font_bind_runtime(const MapForgeFontRuntimeHooks *hooks);
+/* Apply preset and zoom through one native preparation transaction. */
+bool mapforge_shared_font_apply(const char *preset, int zoom);
+/* Begin, accept or cancel retained native authoring state. */
+void mapforge_shared_font_preview_begin(void);
+void mapforge_shared_font_preview_commit(void);
+void mapforge_shared_font_preview_cancel(const char *preset, int zoom);
 #endif

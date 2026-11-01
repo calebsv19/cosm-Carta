@@ -1,5 +1,6 @@
 #include "render/renderer.h"
 #include "ui/font.h"
+#include "ui/text_draw.h"
 #include "kit_ui_sdl.h"
 #include "core_io.h"
 
@@ -364,6 +365,7 @@ void renderer_shutdown(Renderer *renderer) {
 }
 
 void renderer_begin_frame(Renderer *renderer) {
+    map_forge_text_bind_renderer(renderer);
     if (!renderer) {
         return;
     }

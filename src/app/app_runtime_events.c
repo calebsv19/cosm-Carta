@@ -15,6 +15,14 @@
 
 #include <string.h>
 
+/* Persist one accepted style in the existing atomic view-state document. */
+static bool app_accept_authoring_style(void *user) {
+    AppState *app = user;
+    if (!app || !app->lifetime.persisted_state_ready) return false;
+    app_bridge_sync_to_legacy(app);
+    return app_save_persisted_view_state(app);
+}
+
 static uint32_t app_runtime_count_bool(bool value) {
     return value ? 1u : 0u;
 }
@@ -73,6 +81,8 @@ static void app_runtime_input_record_event(AppState *app,
         &app->ui_state_bridge.workspace_authoring,
         app->width > 0 ? (uint32_t)app->width : 0u,
         app->height > 0 ? (uint32_t)app->height : 0u);
+    app->ui_state_bridge.workspace_authoring.accept = app_accept_authoring_style;
+    app->ui_state_bridge.workspace_authoring.accept_user = app;
     if (map_forge_workspace_authoring_host_handle_sdl_event(
             &app->ui_state_bridge.workspace_authoring,
             event,
@@ -80,15 +90,6 @@ static void app_runtime_input_record_event(AppState *app,
         if (map_forge_workspace_authoring_host_take_font_dirty(
                 &app->ui_state_bridge.workspace_authoring)) {
             app_apply_shared_ui_font(app);
-        }
-        if (map_forge_workspace_authoring_host_last_event_accepted(
-                &app->ui_state_bridge.workspace_authoring) &&
-            app->lifetime.persisted_state_ready) {
-            app_bridge_sync_to_legacy(app);
-            app_save_persisted_view_state(app);
-            if (app->lifetime.theme_loaded) {
-                (void)mapforge_shared_theme_save_persisted();
-            }
         }
         return;
     }

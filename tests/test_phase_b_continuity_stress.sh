@@ -37,11 +37,24 @@ max_vk_poly_hit_total="${MAPFORGE_PHASE_D1_MAX_VK_POLY_HIT_TOTAL:-16}"
 phase_b_retry_attempt="${MAPFORGE_PHASE_B_RETRY_ATTEMPT:-1}"
 phase_b_max_attempts="${MAPFORGE_PHASE_B_MAX_ATTEMPTS:-3}"
 
-log_file="$(mktemp /tmp/mapforge_phase_b_continuity.XXXXXX)"
-validate_log="$(mktemp /tmp/mapforge_phase_b_validate.XXXXXX)"
+# Each profile starts from the same checked-in configuration. Scenario shutdown
+# persists its final camera; reusing that state changes the next profile's view.
+# Keep pins, settings, theme and worker output away from any caller's live store.
+scenario_root="$(mktemp -d "${TMPDIR:-/tmp}/mapforge_phase_b.XXXXXX")"
+mkdir -p "$scenario_root/runtime" "$scenario_root/home"
+cp "$repo_root/config/app.config.json" "$scenario_root/runtime/app_state.json"
+log_file="$scenario_root/scenario.log"
+validate_log="$scenario_root/validate.log"
 cleanup_log=1
 cleanup_validate_log=1
-trap 'if [[ "$cleanup_log" -eq 1 ]]; then rm -f "$log_file"; fi; if [[ "$cleanup_validate_log" -eq 1 ]]; then rm -f "$validate_log"; fi' EXIT
+cleanup_scenario() {
+    if [[ "$cleanup_log" -eq 1 && "$cleanup_validate_log" -eq 1 ]]; then
+        rm -rf "$scenario_root"
+    else
+        echo "retained isolated scenario: $scenario_root" >&2
+    fi
+}
+trap cleanup_scenario EXIT
 
 if [[ "$require_valid_region" != "0" ]]; then
     if ! (cd "$repo_root" && "$validator" --region "$region_name" >"$validate_log" 2>&1); then
@@ -54,7 +67,10 @@ if [[ "$require_valid_region" != "0" ]]; then
     fi
 fi
 
-if ! (cd "$repo_root" && SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}" \
+if ! (cd "$repo_root" && HOME="$scenario_root/home" \
+    MAPFORGE_RUNTIME_DIR="$scenario_root/runtime" \
+    MAPFORGE_RUNTIME_CONFIG_PATH="$scenario_root/runtime/app_state.json" \
+    SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}" \
     SDL_RENDER_DRIVER="${SDL_RENDER_DRIVER:-software}" \
     MAPFORGE_RENDER_BACKEND="${MAPFORGE_RENDER_BACKEND:-sdl}" \
     MAPFORGE_VK_DEBUG=1 \
@@ -77,6 +93,13 @@ fi
 
 phase_samples="$(rg -c "perf_phase_a" "$log_file" || true)"
 draw_samples="$(rg -c "perf region=" "$log_file" || true)"
+continuity_samples="$(rg -c "perf_continuity band_fallback=[0-9]+" "$log_file" || true)"
+if [[ "${continuity_samples:-0}" -lt 2 ]]; then
+    cleanup_log=0
+    echo "phase_b continuity stress missing per-frame fallback telemetry" >&2
+    echo "log: $log_file" >&2
+    exit 1
+fi
 if [[ "${phase_samples:-0}" -lt 2 || "${draw_samples:-0}" -lt 2 ]]; then
     cleanup_log=0
     echo "phase_b continuity stress produced insufficient telemetry samples (phase=$phase_samples draw=$draw_samples)" >&2
@@ -218,6 +241,13 @@ summary="$(
             }
             samples_total += 1;
         }
+        /perf_continuity band_fallback=/ {
+            if (match($0, /band_fallback=[0-9]+/)) {
+                band_fb = substr($0, RSTART + 14, RLENGTH - 14) + 0;
+                if (band_fb > band_fb_peak) band_fb_peak = band_fb;
+                if (band_fb > max_band_fb) band_fb_violations += 1;
+            }
+        }
         /perf region=/ {
             vk = -1;
             fb = -1;
@@ -356,4 +386,16 @@ if [[ "$summary" != OK* ]]; then
     exit 1
 fi
 
+# Retain the exact run trace for the existing D2/D3 matrix consumer before
+# retiring successful runtime scratch. Missing evidence must refuse the run.
+shopt -s nullglob
+scenario_traces=("$scenario_root/runtime/traces/"mapforge_trace_*.pack)
+if [[ "${#scenario_traces[@]}" -ne 1 || ! -s "${scenario_traces[0]}" ]]; then
+    cleanup_log=0
+    echo "phase_b continuity stress missing exact scenario trace" >&2
+    exit 1
+fi
+mkdir -p "$repo_root/build/traces"
+cp "${scenario_traces[0]}" "$repo_root/build/traces/"
+cp "$log_file" "$repo_root/build/traces/$(basename "${scenario_traces[0]}" .pack).continuity.log"
 echo "phase_b continuity stress gate passed: $summary"

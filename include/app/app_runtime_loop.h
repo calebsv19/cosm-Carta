@@ -137,7 +137,7 @@ void app_runtime_process_input_frame(struct AppState *app,
 void app_runtime_begin_frame(struct AppState *app, double *out_frame_begin, double *out_after_events);
 bool app_runtime_handle_global_controls(struct AppState *app);
 void app_runtime_ingest_shutdown(struct AppState *app);
-void app_apply_shared_ui_font(struct AppState *app);
+bool app_apply_shared_ui_font(struct AppState *app);
 void app_runtime_update_frame(struct AppState *app,
                               double *io_last_time,
                               float *out_dt,

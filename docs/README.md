@@ -167,3 +167,5 @@ Private plans, execution checklists, and internal runbooks were moved out of thi
   shared presentation, native caret/session and semantic modal focus boundaries.
 
 - [Shared UI rollout](shared_ui_rollout.md): adopted hosts, subtle resizing, pane ownership, fullscreen/window behavior and remaining qualification.
+
+- [Text rendering and style transactions](text_unification.md) — Main Edit development checkpoint.

@@ -12,6 +12,25 @@
 #include <string.h>
 #include <sys/stat.h>
 
+static bool is_shared_toggle_enabled(const char *name);
+static MapForgeFontRuntimeHooks font_hooks;
+/* Prepare a tentative semantic choice through the existing native font owner. */
+static bool apply_runtime_font(void) {
+    char path[384]; int point;
+    if (!font_hooks.apply) return true;
+    if (!is_shared_toggle_enabled("MAPFORGE_USE_SHARED_FONT"))
+        return font_hooks.apply("assets/fonts/Montserrat-Regular.ttf", 10);
+    return mapforge_shared_font_resolve_ui_regular(path, sizeof(path), &point) && font_hooks.apply(path, point);
+}
+/* Install or clear the native owner without changing semantic startup. */
+void mapforge_shared_font_bind_runtime(const MapForgeFontRuntimeHooks *hooks) {
+    font_hooks = hooks ? *hooks : (MapForgeFontRuntimeHooks){0};
+}
+/* Pin the entry fonts only when a native owner exists. */
+void mapforge_shared_font_preview_begin(void) { if (font_hooks.begin_preview) font_hooks.begin_preview(); }
+/* Release the retained bank after acceptance. */
+void mapforge_shared_font_preview_commit(void) { if (font_hooks.end_preview) font_hooks.end_preview(true); }
+
 static bool g_theme_runtime_initialized = false;
 static CoreThemePresetId g_theme_runtime_preset = CORE_THEME_PRESET_DARK_DEFAULT;
 static bool g_font_runtime_initialized = false;
@@ -267,6 +286,12 @@ static bool resolve_existing_font_path(const CoreFontRoleSpec *role,
             return true;
         }
 
+        base = strrchr(raw, '/');
+        if (base && base[1]) {
+            snprintf(adjusted, sizeof(adjusted), "third_party/codework_shared/assets/fonts/%s", base + 1);
+            if (copy_existing_path(out_path, out_path_size, adjusted)) return true;
+        }
+
         if (strncmp(raw, "shared/", 7) == 0) {
             snprintf(adjusted, sizeof(adjusted), "../%s", raw);
             if (copy_existing_path(out_path, out_path_size, adjusted)) {
@@ -469,7 +494,9 @@ bool mapforge_shared_font_set_zoom_step(int step) {
     if (clamped == g_font_zoom_step) {
         return false;
     }
+    int previous = g_font_zoom_step;
     g_font_zoom_step = clamped;
+    if (!apply_runtime_font()) { g_font_zoom_step = previous; return false; }
     return true;
 }
 
@@ -489,8 +516,10 @@ bool mapforge_shared_font_set_preset(const char *preset_name) {
     if (font_preset_id_from_name(preset_name, &id).code != CORE_OK) {
         return false;
     }
+    font_runtime_init_if_needed();
+    CoreFontPresetId previous = g_font_runtime_preset;
     g_font_runtime_preset = id;
-    g_font_runtime_initialized = true;
+    if (!apply_runtime_font()) { g_font_runtime_preset = previous; return false; }
     return true;
 }
 
@@ -553,4 +582,29 @@ bool mapforge_shared_font_resolve_ui_regular(char *out_path, size_t out_path_siz
         *out_point_size = scaled;
     }
     return true;
+}
+
+/* Prepare a complete persisted style before publishing either font value. */
+bool mapforge_shared_font_apply(const char *preset, int zoom) {
+    CoreFontPresetId id;
+    if (font_preset_id_from_name(preset, &id).code != CORE_OK) return false;
+    font_runtime_init_if_needed(); font_zoom_runtime_init_if_needed();
+    CoreFontPresetId previous = g_font_runtime_preset;
+    int previous_zoom = g_font_zoom_step;
+    g_font_runtime_preset = id;
+    g_font_zoom_step = clamp_int(zoom, MAPFORGE_FONT_ZOOM_STEP_MIN, MAPFORGE_FONT_ZOOM_STEP_MAX);
+    if (!apply_runtime_font()) {
+        g_font_runtime_preset = previous; g_font_zoom_step = previous_zoom; return false;
+    }
+    return true;
+}
+/* Restore semantic identity and the pinned handles together without reopening fonts. */
+void mapforge_shared_font_preview_cancel(const char *preset, int zoom) {
+    CoreFontPresetId id;
+    if (font_preset_id_from_name(preset, &id).code == CORE_OK) {
+        g_font_runtime_preset = id; g_font_runtime_initialized = true;
+    }
+    g_font_zoom_step = clamp_int(zoom, MAPFORGE_FONT_ZOOM_STEP_MIN, MAPFORGE_FONT_ZOOM_STEP_MAX);
+    g_font_zoom_runtime_initialized = true;
+    if (font_hooks.end_preview) font_hooks.end_preview(false);
 }

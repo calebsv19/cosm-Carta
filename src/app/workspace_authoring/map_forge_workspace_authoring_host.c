@@ -81,6 +81,7 @@ static void map_forge_workspace_authoring_host_capture_baseline(
         strncpy(host->baseline_theme_preset, "midnight_contrast", sizeof(host->baseline_theme_preset) - 1u);
         host->baseline_theme_preset[sizeof(host->baseline_theme_preset) - 1u] = '\0';
     }
+    mapforge_shared_font_preview_begin();
     host->baseline_valid = 1u;
     host->font_theme_pending_changes = 0u;
     host->font_theme_font_dirty = 0u;
@@ -93,10 +94,7 @@ static void map_forge_workspace_authoring_host_restore_baseline(
     if (host->baseline_theme_preset[0]) {
         (void)mapforge_shared_theme_set_preset(host->baseline_theme_preset);
     }
-    if (host->baseline_font_preset[0]) {
-        (void)mapforge_shared_font_set_preset(host->baseline_font_preset);
-    }
-    (void)mapforge_shared_font_set_zoom_step(host->baseline_font_zoom_step);
+    mapforge_shared_font_preview_cancel(host->baseline_font_preset, host->baseline_font_zoom_step);
     host->font_theme_font_dirty = 1u;
     host->font_theme_pending_changes = 0u;
     map_forge_workspace_authoring_host_set_status(host, "Draft restored.");
@@ -143,6 +141,11 @@ CoreResult map_forge_workspace_authoring_host_apply(
     MapForgeWorkspaceAuthoringHostState *host) {
     if (!host) return map_forge_workspace_authoring_invalid("null authoring host");
     if (map_forge_workspace_authoring_host_active(host)) {
+        if (host->accept && !host->accept(host->accept_user)) {
+            map_forge_workspace_authoring_host_set_status(host, "Apply failed; draft retained.");
+            return (CoreResult){CORE_ERR_IO, "failed to persist authoring settings"};
+        }
+        mapforge_shared_font_preview_commit();
         host->active = 0u;
         host->apply_count += 1u;
         host->last_event_accepted = 1u;
@@ -240,23 +243,35 @@ int map_forge_workspace_authoring_host_apply_font_theme_button(
 
     switch (action.type) {
         case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_DEC:
-            (void)mapforge_shared_font_step_by(-1);
+            if (!mapforge_shared_font_step_by(-1)) {
+                map_forge_workspace_authoring_host_set_status(host, "Font unchanged or unavailable; working fonts retained.");
+                return 1;
+            }
             host->font_theme_font_dirty = 1u;
             map_forge_workspace_authoring_host_set_status(host, "Text size decreased.");
             break;
         case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_INC:
-            (void)mapforge_shared_font_step_by(1);
+            if (!mapforge_shared_font_step_by(1)) {
+                map_forge_workspace_authoring_host_set_status(host, "Font unchanged or unavailable; working fonts retained.");
+                return 1;
+            }
             host->font_theme_font_dirty = 1u;
             map_forge_workspace_authoring_host_set_status(host, "Text size increased.");
             break;
         case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_TEXT_SIZE_RESET:
-            (void)mapforge_shared_font_reset_zoom_step();
+            if (!mapforge_shared_font_reset_zoom_step()) {
+                map_forge_workspace_authoring_host_set_status(host, "Font unchanged or unavailable; working fonts retained.");
+                return 1;
+            }
             host->font_theme_font_dirty = 1u;
             map_forge_workspace_authoring_host_set_status(host, "Text size reset.");
             break;
         case KIT_WORKSPACE_AUTHORING_FONT_THEME_ACTION_SET_FONT_PRESET:
             preset_name = core_font_preset_name(action.font_preset_id);
-            if (!mapforge_shared_font_set_preset(preset_name)) return 0;
+            if (!mapforge_shared_font_set_preset(preset_name)) {
+                map_forge_workspace_authoring_host_set_status(host, "Font unavailable; working fonts retained.");
+                return 1;
+            }
             host->font_theme_font_dirty = 1u;
             map_forge_workspace_authoring_host_set_status(host, "Font preset previewed.");
             break;

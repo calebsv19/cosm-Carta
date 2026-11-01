@@ -81,3 +81,5 @@ KIT_UI_CONTROL_OBJS := $(patsubst $(KIT_UI_DIR)/src/%.c,$(HOST_BUILD_ROOT)/kit_u
 KIT_PANE_DIR := $(SHARED_ROOT)/kit/kit_pane
 KIT_PANE_SRCS := $(addprefix $(KIT_PANE_DIR)/src/,kit_pane.c kit_pane_composition.c)
 KIT_PANE_OBJS := $(patsubst $(KIT_PANE_DIR)/src/%.c,$(HOST_BUILD_ROOT)/kit_pane/%.o,$(KIT_PANE_SRCS))
+
+KIT_RENDER_NATIVE_FONT_OBJ := $(HOST_BUILD_ROOT)/kit_render/kit_render_native_font.o

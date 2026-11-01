@@ -25,7 +25,7 @@ bool app_place_tools_active(void) { return modal; }
 bool history_ui_modal(void) { return false; }
 SDL_FRect history_ui_control_rect(AppState *a,unsigned n) { (void)a;(void)n;return (SDL_FRect){0}; }
 void history_ui_activate(AppState *a,unsigned n) { (void)a;(void)n;assert(0); }
-void app_save_persisted_view_state(const AppState *a) { (void)a;persisted++; }
+bool app_save_persisted_view_state(const AppState *a) { (void)a;persisted++; return true;}
 MapForgeThemePalette app_ui_theme_palette(void) {
     MapForgeThemePalette p={0};p.button_fill=(SDL_Color){210,215,220,255};
     p.button_active_primary=(SDL_Color){30,90,180,255};return p;

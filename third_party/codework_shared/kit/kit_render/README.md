@@ -224,3 +224,32 @@ Recent update notes:
 - `0.14.3`: added `kit_render_external_text_reset_font_system(...)` so bridge hosts can clear shared external-text font caches before SDL_ttf shutdown/restart and avoid stale derived font handles in later text measurement.
 - `0.14.2`: truth-locked the live backend/text boundary, documented borrowed frame-data lifetime rules, added lifecycle/zoom/borrow-contract tests, and rejected backend attachment during an open frame.
 - `0.14.1`: external text font-source unregister now clears derived point-size font cache entries for that source path, preventing stale SDL_ttf font handles from surviving app/menu shutdown and later crashing text measurement.
+
+## 0.15.0 optional native font fallback
+
+`kit_render_native_font.h` adds an opt-in SDL surface adapter. On macOS it
+uses CoreText shaped system fallback runs for missing CJK/emoji glyphs, with
+the same line metrics for logical measurement and scaled rasterization.
+The host retains its font choice, clipping, texture cache and input policy.
+Link CoreText, CoreGraphics and CoreFoundation when using these functions on macOS. Other
+platforms return unsupported so existing host text paths remain available.
+No mandatory native dependency is added to the portable/null backend.
+
+### 0.16.0 — opt-in drawable-pixel external text
+
+`kit_render_external_text_register_font_source_native_pixels` opts a registered
+font into native raster measurement and pixel-snapped float placement. A glyph
+surface keeps its exact drawable texel dimensions, including odd dimensions at
+Retina and fractional scales; enclosing logical measurement remains shared by
+label layout and caret/hit presentation. Explicit destination resizing is retained.
+Wrapped lines use actual drawable scale. Ordinary font registration preserves the
+existing logical-metric policy. No renderer, font-family, hinting or product-layout
+policy is changed. The caller still owns font and renderer teardown.
+
+`external-text-pixel-harness` builds the optional Vulkan oracle; run it with
+`<font.ttf> <existing-isolated-output-directory>`. It compares native GPU glyphs
+to the CPU raster (RGB rounding tolerance1) at1,1.25,1.5and2x, cold/cached/wrapped
+and explicit-resize-then-natural reuse, and checks ordinary metric compatibility.
+The native device requires Khronos validation and finishes with zero diagnostics.
+Select contained module/dependency build roots and the accepted renderer SDK;
+do not rebuild a different owner's existing outputs to run the harness.

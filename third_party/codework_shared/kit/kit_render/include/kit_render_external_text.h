@@ -14,6 +14,13 @@ void kit_render_external_text_register_font_source(TTF_Font *font,
                                                    int loaded_point_size,
                                                    int kerning_enabled);
 
+/* Opt-in drawable-pixel text. Measurement encloses the native raster; default
+ * draws preserve its exact texel extent and snap the origin to drawable pixels.
+ * Explicit destination sizes differing from those measured bounds still scale.
+ * Ordinary registration retains the existing stable-logical-metrics policy. */
+void kit_render_external_text_register_font_source_native_pixels(TTF_Font *font,
+    const char *path, int logical_point_size, int loaded_point_size, int kerning_enabled);
+
 void kit_render_external_text_unregister_font_source(TTF_Font *font);
 int kit_render_external_text_has_font_source(TTF_Font *font);
 

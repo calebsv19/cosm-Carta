@@ -31,7 +31,7 @@ static unsigned route_opens;
 bool history_ui_modal(void){return false;}
 SDL_FRect history_ui_control_rect(AppState *a,unsigned i){(void)a;(void)i;return (SDL_FRect){0};}
 void history_ui_activate(AppState *a,unsigned i){(void)a;(void)i;assert(0);}
-void app_save_persisted_view_state(const AppState *a){(void)a;}
+bool app_save_persisted_view_state(const AppState *a){(void)a;return true;}
 void app_places_begin_route_action(AppState *a,bool save){(void)a;(void)save;}
 SDL_FRect app_places_route_button_rect(const AppState *a,uint32_t i){(void)a;(void)i;return (SDL_FRect){0};}
 // Supplies predictable readable colors for native-dialog rendering tests.

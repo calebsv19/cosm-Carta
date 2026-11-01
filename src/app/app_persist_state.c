@@ -274,11 +274,15 @@ void app_load_persisted_view_state(AppState *app) {
     if (app_json_get_bool(view, "zoom_logic_enabled", &zoom_logic_enabled)) {
         app->view_state_bridge.zoom_logic_enabled = zoom_logic_enabled;
     }
-    int text_zoom_step = 0;
-    if (app_json_get_int(view, "text_zoom_step", &text_zoom_step)) {
-        if (mapforge_shared_font_set_zoom_step(text_zoom_step)) {
-            app_apply_shared_ui_font(app);
-        }
+    int text_zoom_step = mapforge_shared_font_zoom_step();
+    char font_name[64], theme_name[64];
+    mapforge_shared_font_current_preset(font_name, sizeof(font_name));
+    (void)app_json_get_int(view, "text_zoom_step", &text_zoom_step);
+    (void)app_json_get_string(view, "font_preset", font_name, sizeof(font_name));
+    if (mapforge_shared_font_apply(font_name, text_zoom_step)) {
+        if (app_json_get_string(view, "theme_preset", theme_name, sizeof(theme_name)))
+            (void)mapforge_shared_theme_set_preset(theme_name);
+        (void)app_apply_shared_ui_font(app);
     }
 
     bool layer_enabled[TILE_LAYER_COUNT] = {0};
@@ -340,9 +344,9 @@ void app_load_persisted_view_state(AppState *app) {
     json_object_put(root);
 }
 
-void app_save_persisted_view_state(const AppState *app) {
+bool app_save_persisted_view_state(const AppState *app) {
     if (!app) {
-        return;
+        return false;
     }
 
     struct json_object *root = app_load_config_root();
@@ -353,7 +357,7 @@ void app_save_persisted_view_state(const AppState *app) {
         root = json_object_new_object();
     }
     if (!root) {
-        return;
+        return false;
     }
 
     json_object_object_add(root, "terrain_style", json_object_new_int(terrain_style()));
@@ -368,12 +372,17 @@ void app_save_persisted_view_state(const AppState *app) {
     struct json_object *view = json_object_new_object();
     if (!view) {
         json_object_put(root);
-        return;
+        return false;
     }
 
     json_object_object_add(view, "zoom", json_object_new_double((double)app->view_state_bridge.camera.zoom_target));
     json_object_object_add(view, "zoom_logic_enabled", json_object_new_boolean(app->view_state_bridge.zoom_logic_enabled ? 1 : 0));
     json_object_object_add(view, "text_zoom_step", json_object_new_int(mapforge_shared_font_zoom_step()));
+    char font_name[64], theme_name[64];
+    if (mapforge_shared_font_current_preset(font_name, sizeof(font_name)))
+        json_object_object_add(view, "font_preset", json_object_new_string(font_name));
+    if (mapforge_shared_theme_current_preset(theme_name, sizeof(theme_name)))
+        json_object_object_add(view, "theme_preset", json_object_new_string(theme_name));
 
     struct json_object *enabled_arr = json_object_new_array();
     struct json_object *opacity_arr = json_object_new_array();
@@ -411,11 +420,13 @@ void app_save_persisted_view_state(const AppState *app) {
     if (!app_ensure_runtime_config_dir()) {
         log_error("Failed to create runtime config directory for %s", runtime_path);
         json_object_put(root);
-        return;
+        return false;
     }
     const char *text = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PRETTY);
-    if (core_io_write_all_atomic(runtime_path, text, strlen(text)).code != CORE_OK) {
+    bool saved = core_io_write_all_atomic(runtime_path, text, strlen(text)).code == CORE_OK;
+    if (!saved) {
         log_error("Failed to persist map view state to %s", runtime_path);
     }
     json_object_put(root);
+    return saved;
 }

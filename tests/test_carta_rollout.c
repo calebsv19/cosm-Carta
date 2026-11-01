@@ -14,7 +14,7 @@ void history_ui_cancel_transient(void){}
 bool app_pin_editor_save_draft(AppState *a){(void)a;saves++;return true;}
 void app_pin_panel_name_edit_deactivate(AppState *a){a->ui_state_bridge.pin_name_edit_active=false;carta_text_end(&a->ui_state_bridge.rollout.pin_name);}
 void app_pin_panel_cancel_list_drag(AppState *a){a->ui_state_bridge.pin_list_drag_active=false;}
-void app_save_persisted_view_state(const AppState *a){(void)a;persists++;}
+bool app_save_persisted_view_state(const AppState *a){(void)a;persists++;return true;}
 void app_tile_viewport_invalidate(AppState *a){(void)a;invalidations++;}
 bool app_runtime_apply_window_size(AppState *a,int w,int h){a->width=w;a->height=h;return true;}
 MapForgeThemePalette app_ui_theme_palette(void){MapForgeThemePalette p={0};return p;}

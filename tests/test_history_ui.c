@@ -97,10 +97,10 @@ bool app_map_world_to_viewport_local(const AppState *a, float x, float y, float 
 SDL_FRect app_map_viewport_rect(const AppState *a) {
     return (SDL_FRect){360, 68, a->width - 360, a->height - 68};
 }
-void app_save_persisted_view_state(const AppState *a) {
+bool app_save_persisted_view_state(const AppState *a) {
     (void)a;
     persisted++;
-}
+return true;}
 // Sends a native pointer event to production hit testing.
 static void click(AppState *a, int x, int y) {
     SDL_Event e = {0};

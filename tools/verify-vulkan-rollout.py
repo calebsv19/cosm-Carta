@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
+import io
+import json
+import subprocess
+import tarfile
 import re
 import struct
 from pathlib import Path
@@ -23,14 +28,41 @@ def bmp_size(path: Path) -> tuple[int, int]:
     return width, abs(height)
 
 
+# Verify the committed module without importing the shared workspace's dirty tree.
+def verify_text_source(root: Path, canonical: Path) -> None:
+    pin=json.loads((Path(__file__).parent / "text-render-source-pin.json").read_text())
+    commit=pin["commit"]
+    if not re.fullmatch(r"[0-9a-f]{40}",commit): raise SystemExit("invalid text source pin")
+    raw=subprocess.check_output(["git","-C",str(canonical),"archive",commit,"kit/kit_render"])
+    with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
+        names=set()
+        for item in archive.getmembers():
+            if not item.isfile(): continue
+            names.add(item.name)
+            path=root/item.name
+            if not path.is_file() or path.is_symlink() or path.read_bytes()!=archive.extractfile(item).read():
+                raise SystemExit("text source mismatch: "+item.name)
+            if hashlib.sha256(path.read_bytes()).hexdigest()!=pin["files"].get(item.name):
+                raise SystemExit("text pin manifest mismatch: "+item.name)
+    if names!=set(pin["files"]): raise SystemExit("text pin manifest file mismatch")
+    print("Carta text source contract: "+commit+" files="+str(len(names)))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--canonical-shared-root", type=Path)
     parser.add_argument("--shared-root", type=Path, required=True)
     parser.add_argument("--initial-capture", type=Path)
     parser.add_argument("--resized-capture", type=Path)
     args = parser.parse_args()
 
     root = args.shared_root.resolve()
+    canonical=args.canonical_shared_root
+    if canonical is None:
+        workspace=next((p for p in Path(__file__).resolve().parents if (p/"bin/shared_archive_sync.py").is_file()), None)
+        if workspace is None: raise SystemExit("canonical shared source is required")
+        canonical=workspace/"shared"
+    verify_text_source(root, canonical)
     runtime = root / "vk_runtime"
     renderer = root / "vk_renderer"
     required = [

@@ -40,3 +40,9 @@ DEPS += $(KIT_UI_CONTROL_OBJS:.o=.d)
 
 LINK_OBJS += $(KIT_PANE_OBJS)
 DEPS += $(KIT_PANE_OBJS:.o=.d)
+
+DEPS += $(KIT_RENDER_NATIVE_FONT_OBJ:.o=.d)
+LINK_OBJS += $(KIT_RENDER_NATIVE_FONT_OBJ)
+ifeq ($(UNAME_S),Darwin)
+LDLIBS += -framework CoreText -framework CoreGraphics -framework CoreFoundation
+endif

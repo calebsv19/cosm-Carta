@@ -4,6 +4,6 @@
 #include "app/app_internal.h"
 
 void app_load_persisted_view_state(AppState *app);
-void app_save_persisted_view_state(const AppState *app);
+bool app_save_persisted_view_state(const AppState *app);
 
 #endif

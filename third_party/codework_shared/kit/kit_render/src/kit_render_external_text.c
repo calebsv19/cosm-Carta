@@ -20,6 +20,7 @@ typedef struct KitRenderExternalTextFontSourceEntry {
     int logical_point_size;
     int loaded_point_size;
     int kerning_enabled;
+    int native_pixels;
 } KitRenderExternalTextFontSourceEntry;
 
 typedef struct KitRenderExternalTextFontCacheEntry {
@@ -57,6 +58,8 @@ static KitRenderExternalTextTextureCacheEntry
     g_texture_cache[KIT_RENDER_EXTERNAL_TEXT_TEXTURE_CACHE_CAPACITY];
 static uint64_t g_font_cache_tick = 1u;
 static uint64_t g_texture_cache_tick = 1u;
+
+static int kit_render_external_text_native_pixels(TTF_Font *font);
 
 static float kit_render_external_text_raster_scale(SDL_Renderer *renderer) {
     const VkRenderer *vk = NULL;
@@ -105,7 +108,8 @@ static int kit_render_external_text_logical_size_from_raster(int raster_pixels, 
     return logical_pixels;
 }
 
-static VkFilter kit_render_external_text_upload_filter_for_scale(float raster_scale) {
+static VkFilter kit_render_external_text_upload_filter_for_scale(float raster_scale, TTF_Font *font) {
+    if (kit_render_external_text_native_pixels(font)) return VK_FILTER_NEAREST;
     if (isfinite(raster_scale) && raster_scale > 1.0f) {
         return VK_FILTER_NEAREST;
     }
@@ -124,6 +128,37 @@ kit_render_external_text_find_font_source(TTF_Font *font) {
         }
     }
     return NULL;
+}
+
+static int kit_render_external_text_native_pixels(TTF_Font *font) {
+    const KitRenderExternalTextFontSourceEntry *source=kit_render_external_text_find_font_source(font);
+    return source && source->native_pixels;
+}
+
+static void kit_render_external_text_pixel_scale(SDL_Renderer *renderer, float *x, float *y) {
+    const VkRenderer *vk=(const VkRenderer *)renderer;
+    *x=*y=1.0f;
+    if(!vk) return;
+    if(vk->draw_state.logical_size[0]>0) *x=vk->context.swapchain.extent.width/vk->draw_state.logical_size[0];
+    if(vk->draw_state.logical_size[1]>0) *y=vk->context.swapchain.extent.height/vk->draw_state.logical_size[1];
+    if(!isfinite(*x) || *x<=0) *x=1;
+    if(!isfinite(*y) || *y<=0) *y=1;
+}
+
+/* Float geometry avoids rounding an odd raster dimension into a logical whole
+ * pixel and then stretching it back across two (or fractional) device pixels. */
+static void kit_render_external_text_draw_texture(SDL_Renderer *renderer, TTF_Font *font,
+    const VkRendererTexture *texture, int width, int height, const SDL_Rect *dst) {
+    if(!kit_render_external_text_native_pixels(font)) {
+        SDL_Rect src={0,0,width,height};
+        vk_renderer_draw_texture((VkRenderer *)renderer,texture,&src,dst);return;
+    }
+    float sx,sy;kit_render_external_text_pixel_scale(renderer,&sx,&sy);
+    SDL_FRect target={roundf(dst->x*sx)/sx,roundf(dst->y*sy)/sy,(float)dst->w,(float)dst->h};
+    if(dst->w==(int)ceilf(width/sx)) target.w=width/sx;
+    if(dst->h==(int)ceilf(height/sy)) target.h=height/sy;
+    const float uv0[2]={0,0},uv1[2]={1,1},tint[4]={1,1,1,1};
+    (void)vk_renderer_draw_textured_quad((VkRenderer *)renderer,texture,&target,uv0,uv1,tint);
 }
 
 static void kit_render_external_text_configure_font(TTF_Font *font, int kerning_enabled) {
@@ -466,7 +501,7 @@ kit_render_external_text_texture_cache_store(SDL_Renderer *renderer,
                                                    surface,
                                                    &slot->texture,
                                                    kit_render_external_text_upload_filter_for_scale(
-                                                       raster_scale)) != VK_SUCCESS) {
+                                                       raster_scale, font)) != VK_SUCCESS) {
         free(slot->text);
         memset(slot, 0, sizeof(*slot));
         return NULL;
@@ -484,6 +519,11 @@ kit_render_external_text_texture_cache_store(SDL_Renderer *renderer,
     slot->texture_height = surface->h;
     slot->draw_width = draw_width;
     slot->draw_height = draw_height;
+    if(kit_render_external_text_native_pixels(font)) {
+        float sx,sy;kit_render_external_text_pixel_scale(renderer,&sx,&sy);
+        slot->draw_width=(int)ceilf(surface->w/sx);
+        slot->draw_height=(int)ceilf(surface->h/sy);
+    }
     slot->raster_scale = raster_scale;
     slot->last_used = g_texture_cache_tick++;
     return slot;
@@ -493,7 +533,6 @@ static void kit_render_external_text_draw_cached_entry(SDL_Renderer *renderer,
                                                        const KitRenderExternalTextTextureCacheEntry *entry,
                                                        SDL_Rect *io_dst) {
     SDL_Rect dst = {0};
-    SDL_Rect src = {0};
 
     if (!renderer || !entry || !entry->valid || !io_dst) {
         return;
@@ -506,8 +545,7 @@ static void kit_render_external_text_draw_cached_entry(SDL_Renderer *renderer,
     if (dst.h <= 0) {
         dst.h = entry->draw_height;
     }
-    src = (SDL_Rect){0, 0, entry->texture_width, entry->texture_height};
-    vk_renderer_draw_texture((VkRenderer *)renderer, &entry->texture, &src, &dst);
+    kit_render_external_text_draw_texture(renderer,entry->base_font,&entry->texture,entry->texture_width,entry->texture_height,&dst);
     *io_dst = dst;
 }
 
@@ -523,6 +561,11 @@ void kit_render_external_text_register_font_source(TTF_Font *font,
 
     for (i = 0; i < KIT_RENDER_EXTERNAL_TEXT_FONT_SOURCE_CAPACITY; ++i) {
         if (g_font_sources[i].font == font || !g_font_sources[i].font) {
+            if(g_font_sources[i].native_pixels)
+                for(int j=0;j<KIT_RENDER_EXTERNAL_TEXT_TEXTURE_CACHE_CAPACITY;j++)
+                    if(g_texture_cache[j].valid && g_texture_cache[j].base_font==font)
+                        kit_render_external_text_texture_cache_destroy_entry(&g_texture_cache[j]);
+            g_font_sources[i].native_pixels=0;
             g_font_sources[i].font = font;
             strncpy(g_font_sources[i].path, path, sizeof(g_font_sources[i].path) - 1);
             g_font_sources[i].path[sizeof(g_font_sources[i].path) - 1] = '\0';
@@ -532,6 +575,19 @@ void kit_render_external_text_register_font_source(TTF_Font *font,
             return;
         }
     }
+}
+
+void kit_render_external_text_register_font_source_native_pixels(TTF_Font *font,
+    const char *path,int logical_point_size,int loaded_point_size,int kerning_enabled) {
+    if(!font || !path || !path[0] || logical_point_size<=0 || loaded_point_size<=0) return;
+    kit_render_external_text_register_font_source(font,path,logical_point_size,loaded_point_size,kerning_enabled);
+    for(int i=0;i<KIT_RENDER_EXTERNAL_TEXT_FONT_SOURCE_CAPACITY;i++)
+        if(g_font_sources[i].font==font) {
+            for(int j=0;j<KIT_RENDER_EXTERNAL_TEXT_TEXTURE_CACHE_CAPACITY;j++)
+                if(g_texture_cache[j].valid && g_texture_cache[j].base_font==font)
+                    kit_render_external_text_texture_cache_destroy_entry(&g_texture_cache[j]);
+            g_font_sources[i].native_pixels=1;return;
+        }
 }
 
 void kit_render_external_text_unregister_font_source(TTF_Font *font) {
@@ -600,6 +656,15 @@ int kit_render_external_text_measure_utf8(SDL_Renderer *renderer,
         return 0;
     }
 
+    if(kit_render_external_text_native_pixels(font)) {
+        raster_font=kit_render_external_text_get_rasterized_font(font,renderer,&raster_scale,NULL);
+        if(!raster_font || !kit_render_external_text_measure_with_font(raster_font,text,&raster_w,&raster_h)) return 0;
+        float sx,sy;kit_render_external_text_pixel_scale(renderer,&sx,&sy);
+        if(out_w) *out_w=(int)ceilf(raster_w/sx);
+        if(out_h) *out_h=(int)ceilf(raster_h/sy);
+        return 1;
+    }
+
     measure_font = kit_render_external_text_get_measure_font(font);
     if (measure_font && kit_render_external_text_measure_with_font(measure_font, text, out_w, out_h)) {
         return 1;
@@ -635,7 +700,6 @@ int kit_render_external_text_draw_utf8(SDL_Renderer *renderer,
     SDL_Surface *surface = NULL;
     VkRendererTexture texture = {0};
     SDL_Rect dst = {0};
-    SDL_Rect src = {0};
     float raster_scale = 1.0f;
     int requested_point_size = 0;
     int logical_width = 0;
@@ -707,16 +771,15 @@ int kit_render_external_text_draw_utf8(SDL_Renderer *renderer,
         return 1;
     }
 
-    src = (SDL_Rect){0, 0, surface->w, surface->h};
     if (vk_renderer_upload_sdl_surface_with_filter((VkRenderer *)renderer,
                                                    surface,
                                                    &texture,
                                                    kit_render_external_text_upload_filter_for_scale(
-                                                       raster_scale)) != VK_SUCCESS) {
+                                                       raster_scale, font)) != VK_SUCCESS) {
         SDL_FreeSurface(surface);
         return 0;
     }
-    vk_renderer_draw_texture((VkRenderer *)renderer, &texture, &src, &dst);
+    kit_render_external_text_draw_texture(renderer,font,&texture,surface->w,surface->h,&dst);
     vk_renderer_queue_texture_destroy((VkRenderer *)renderer, &texture);
     SDL_FreeSurface(surface);
     *io_dst = dst;
@@ -744,7 +807,6 @@ int kit_render_external_text_draw_utf8_wrapped(SDL_Renderer *renderer,
     SDL_Surface *surface = NULL;
     VkRendererTexture texture = {0};
     SDL_Rect dst = {0};
-    SDL_Rect src = {0};
     float raster_scale = 1.0f;
     int requested_point_size = 0;
     int raster_wrap_width = 0;
@@ -779,7 +841,11 @@ int kit_render_external_text_draw_utf8_wrapped(SDL_Renderer *renderer,
         return 1;
     }
 
-    raster_wrap_width = (int)lroundf((float)wrap_width * raster_scale);
+    float wrap_scale=raster_scale;
+    if(kit_render_external_text_native_pixels(font)) {
+        float sy;kit_render_external_text_pixel_scale(renderer,&wrap_scale,&sy);
+    }
+    raster_wrap_width = (int)lroundf((float)wrap_width * wrap_scale);
     if (raster_wrap_width < 1) {
         raster_wrap_width = 1;
     }
@@ -791,6 +857,10 @@ int kit_render_external_text_draw_utf8_wrapped(SDL_Renderer *renderer,
 
     logical_width = kit_render_external_text_logical_size_from_raster(surface->w, raster_scale);
     logical_height = kit_render_external_text_logical_size_from_raster(surface->h, raster_scale);
+    if(kit_render_external_text_native_pixels(font)) {
+        float sx,sy;kit_render_external_text_pixel_scale(renderer,&sx,&sy);
+        logical_width=(int)ceilf(surface->w/sx);logical_height=(int)ceilf(surface->h/sy);
+    }
 
     dst = *io_dst;
     if (dst.w <= 0) {
@@ -823,16 +893,15 @@ int kit_render_external_text_draw_utf8_wrapped(SDL_Renderer *renderer,
         return 1;
     }
 
-    src = (SDL_Rect){0, 0, surface->w, surface->h};
     if (vk_renderer_upload_sdl_surface_with_filter((VkRenderer *)renderer,
                                                    surface,
                                                    &texture,
                                                    kit_render_external_text_upload_filter_for_scale(
-                                                       raster_scale)) != VK_SUCCESS) {
+                                                       raster_scale, font)) != VK_SUCCESS) {
         SDL_FreeSurface(surface);
         return 0;
     }
-    vk_renderer_draw_texture((VkRenderer *)renderer, &texture, &src, &dst);
+    kit_render_external_text_draw_texture(renderer,font,&texture,surface->w,surface->h,&dst);
     vk_renderer_queue_texture_destroy((VkRenderer *)renderer, &texture);
     SDL_FreeSurface(surface);
     *io_dst = dst;

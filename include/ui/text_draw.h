@@ -6,6 +6,8 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 
+/* Bind the current backend before measuring UI layout. */
+void map_forge_text_bind_renderer(Renderer *renderer);
 void map_forge_text_register_font_source(TTF_Font *font,
                                          const char *path,
                                          int logical_point_size,

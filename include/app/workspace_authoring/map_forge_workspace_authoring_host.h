@@ -18,6 +18,8 @@ typedef enum MapForgeWorkspaceAuthoringOverlayMode {
 } MapForgeWorkspaceAuthoringOverlayMode;
 
 typedef struct MapForgeWorkspaceAuthoringHostState {
+    bool (*accept)(void *user);
+    void *accept_user;
     uint8_t active;
     uint8_t key_c_down;
     uint8_t key_v_down;

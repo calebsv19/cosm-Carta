@@ -315,7 +315,10 @@ bool app_init(AppState *app) {
         return false;
     }
     app->lifetime.ttf_initialized = true;
-    app_apply_shared_ui_font(app);
+    if (!app_apply_shared_ui_font(app)) {
+        log_error("Failed to prepare UI fonts");
+        return false;
+    }
     // Text sessions follow a visible focused field rather than global startup.
     app_default_input_root(app->input_root, sizeof(app->input_root));
     snprintf(app->input_root_edit, sizeof(app->input_root_edit), "%s", app->input_root);

@@ -13,6 +13,10 @@ typedef struct MapForgeResolvedFont {
     int kerning_enabled;
 } MapForgeResolvedFont;
 
+/* Start retaining the exact authoring entry bank. */
+void map_forge_font_bridge_preview_begin(void);
+/* Accept the new bank or restore entry handles without font I/O. */
+void map_forge_font_bridge_preview_end(bool accept);
 bool map_forge_font_bridge_set_active(const char *path, int base_point_size);
 void map_forge_font_bridge_shutdown(Renderer *renderer);
 void map_forge_font_bridge_reset_renderer(Renderer *renderer);

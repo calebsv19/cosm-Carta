@@ -569,3 +569,30 @@ $(CARTA_ROLLOUT_TEST_TARGET): $(CARTA_ROLLOUT_TEST_SRCS) $(CORE_BASE_LIB) $(CORE
 test-carta-rollout: $(CARTA_ROLLOUT_TEST_TARGET)
 	"$(abspath $(CARTA_ROLLOUT_TEST_TARGET))"
 test: test-carta-rollout
+
+# Reuse app objects so the settings proof exercises the actual atomic JSON owner.
+CARTA_TEXT_PROOF := $(TEST_BIN_DIR)/test_text_unification
+CARTA_PIXEL_PROOF := $(TEST_BIN_DIR)/test_text_pixels_native
+$(CARTA_TEXT_PROOF): tests/test_text_unification.c $(filter-out $(APP_OBJ_DIR)/main.o,$(LINK_OBJS))
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $^ -o $@ $(LDLIBS)
+$(CARTA_PIXEL_PROOF): tests/test_text_pixels_native.c $(filter-out $(APP_OBJ_DIR)/main.o,$(LINK_OBJS))
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $^ -o $@ $(LDLIBS)
+build-text-proof: $(CARTA_TEXT_PROOF) $(CARTA_PIXEL_PROOF)
+test-text-settings: build-text-proof
+	@proof_root="$$(mktemp -d "$(TEST_BIN_DIR)/text-settings.XXXXXX")"; \
+	"$(abspath $(CARTA_TEXT_PROOF))" --settings "$$proof_root/app_state.json" && \
+	"$(abspath $(CARTA_TEXT_PROOF))" --reopen "$$proof_root/app_state.json"
+test: test-text-settings
+
+CARTA_SDL_PIXEL_PROOF := $(TEST_BIN_DIR)/test_text_pixels_sdl
+$(CARTA_SDL_PIXEL_PROOF): tests/test_text_pixels_sdl.c $(filter-out $(APP_OBJ_DIR)/main.o,$(LINK_OBJS))
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -Iinclude $^ -o $@ $(LDLIBS)
+build-text-proof: $(CARTA_SDL_PIXEL_PROOF)
+
+.PHONY: test-continuity-isolation
+test: test-continuity-isolation
+test-continuity-isolation:
+	python3 tests/test_continuity_isolation.py

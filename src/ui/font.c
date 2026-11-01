@@ -1,14 +1,22 @@
 #include "ui/font.h"
 #include "ui/font_bridge.h"
 #include "ui/text_draw.h"
+#include "ui/shared_theme_font_adapter.h"
 
 #include <SDL2/SDL_ttf.h>
 
 bool ui_font_set(const char *path, int base_point_size) {
-    return map_forge_font_bridge_set_active(path, base_point_size);
+    bool ok = map_forge_font_bridge_set_active(path, base_point_size);
+    if (ok) {
+        MapForgeFontRuntimeHooks hooks = {ui_font_set, map_forge_font_bridge_preview_begin,
+                                         map_forge_font_bridge_preview_end};
+        mapforge_shared_font_bind_runtime(&hooks);
+    }
+    return ok;
 }
 
 void ui_font_shutdown(Renderer *renderer) {
+    mapforge_shared_font_bind_runtime(NULL);
     map_forge_font_bridge_shutdown(renderer);
 }
 
@@ -71,5 +79,6 @@ int ui_font_line_height(float scale) {
     if (!map_forge_font_bridge_acquire(scale, &resolved)) {
         return 0;
     }
-    return TTF_FontHeight(resolved.font);
+    int height = 0;
+    return map_forge_text_measure_utf8(NULL, resolved.font, "", NULL, &height) ? height : 0;
 }

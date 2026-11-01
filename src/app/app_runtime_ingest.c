@@ -828,21 +828,16 @@ static bool app_runtime_handle_ingest_controls(AppState *app) {
     return consumed;
 }
 
-void app_apply_shared_ui_font(AppState *app) {
-    char shared_font_path[384] = {0};
-    int shared_font_size = 0;
-    if (!app) {
-        return;
-    }
-    if (mapforge_shared_font_resolve_ui_regular(shared_font_path,
-                                                sizeof(shared_font_path),
-                                                &shared_font_size)) {
-        ui_font_set(shared_font_path, shared_font_size);
-    } else {
-        ui_font_set("assets/fonts/Montserrat-Regular.ttf", 10);
-    }
+/* Prepare shared or legacy startup fonts and dirty layout only after success. */
+bool app_apply_shared_ui_font(AppState *app) {
+    char path[384]; int size = 10;
+    if (!app) return false;
+    if (!mapforge_shared_font_resolve_ui_regular(path, sizeof(path), &size))
+        snprintf(path, sizeof(path), "%s", "assets/fonts/Montserrat-Regular.ttf");
+    if (!ui_font_set(path, size)) return false;
     app->ui_state_bridge.hud_layer_debug_layout_dirty = true;
     app->ui_state_bridge.hud_route_panel_layout_dirty = true;
+    return true;
 }
 
 

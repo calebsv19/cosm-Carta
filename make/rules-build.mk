@@ -146,3 +146,7 @@ $(HOST_BUILD_ROOT)/kit_ui/%.o: $(KIT_UI_DIR)/src/%.c
 $(HOST_BUILD_ROOT)/kit_pane/%.o: $(KIT_PANE_DIR)/src/%.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -c $< -o $@
+
+$(KIT_RENDER_NATIVE_FONT_OBJ): $(KIT_RENDER_DIR)/src/kit_render_native_font.c
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -MMD -MP -Iinclude -c $< -o $@

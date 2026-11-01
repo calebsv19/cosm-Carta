@@ -1,6 +1,9 @@
 #include "ui/text_draw.h"
 
 #include "kit_render_external_text.h"
+#include "text_draw_sdl.h"
+#include "text_draw_fallback.h"
+static Renderer *measurement_renderer;
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -10,34 +13,6 @@
 #include <vulkan/vulkan.h>
 #include "vk_renderer.h"
 #endif
-
-static int map_forge_text_measure_with_ttf(TTF_Font *font,
-                                           const char *text,
-                                           int *out_w,
-                                           int *out_h) {
-    int width = 0;
-    int height = 0;
-
-    if (out_w) *out_w = 0;
-    if (out_h) *out_h = 0;
-    if (!font || !text) {
-        return 0;
-    }
-    if (text[0] == '\0') {
-        height = TTF_FontHeight(font);
-        if (height <= 0) {
-            return 0;
-        }
-        if (out_h) *out_h = height;
-        return 1;
-    }
-    if (TTF_SizeUTF8(font, text, &width, &height) != 0) {
-        return 0;
-    }
-    if (out_w) *out_w = width;
-    if (out_h) *out_h = height;
-    return 1;
-}
 
 #if defined(MAPFORGE_HAVE_VK)
 // Reuses the shared bounded text cache while preserving and intersecting the caller's crop.
@@ -52,7 +27,7 @@ static int map_forge_text_draw_utf8_clipped_vulkan(Renderer *renderer,
     SDL_Rect dst = *io_dst, clip, previous = {0};
     int natural_w = 0, natural_h = 0;
     if ((dst.w <= 0 || dst.h <= 0) &&
-        !kit_render_external_text_measure_utf8((SDL_Renderer *)vk, font, text, &natural_w, &natural_h)) return 0;
+        !map_forge_text_measure_utf8(renderer, font, text, &natural_w, &natural_h)) return 0;
     if (dst.w <= 0) dst.w = natural_w;
     if (dst.h <= 0) dst.h = natural_h;
     clip = dst;
@@ -67,7 +42,8 @@ static int map_forge_text_draw_utf8_clipped_vulkan(Renderer *renderer,
         }
     }
     vk_renderer_set_clip_rect(vk, &clip);
-    int ok = kit_render_external_text_draw_utf8((SDL_Renderer *)vk, font, text, color, &dst);
+    int fallback=map_forge_fallback_draw(renderer,font,text,color,&dst);
+    int ok=fallback ? fallback>0 : kit_render_external_text_draw_utf8((SDL_Renderer *)vk,font,text,color,&dst);
     vk_renderer_set_clip_rect(vk, clipped ? &previous : NULL);
     if (ok) *io_dst = visible;
     return ok;
@@ -75,67 +51,13 @@ static int map_forge_text_draw_utf8_clipped_vulkan(Renderer *renderer,
 
 #endif
 
-static int map_forge_text_draw_utf8_sdl(Renderer *renderer,
-                                        TTF_Font *font,
-                                        const char *text,
-                                        SDL_Color color,
-                                        SDL_Rect *io_dst,
-                                        int max_width) {
-    SDL_Surface *surface = NULL;
-    SDL_Texture *texture = NULL;
-    SDL_Rect src = {0};
-    SDL_Rect dst = {0};
-
-    if (!renderer || !renderer->sdl || !font || !text || !text[0] || !io_dst) {
-        return 0;
-    }
-
-    surface = TTF_RenderUTF8_Blended(font, text, color);
-    if (!surface) {
-        return 0;
-    }
-    texture = SDL_CreateTextureFromSurface(renderer->sdl, surface);
-    SDL_FreeSurface(surface);
-    if (!texture) {
-        return 0;
-    }
-    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
-
-    dst = *io_dst;
-    if (dst.w <= 0 || dst.h <= 0) {
-        if (!map_forge_text_measure_with_ttf(font, text, &dst.w, &dst.h)) {
-            SDL_DestroyTexture(texture);
-            return 0;
-        }
-    }
-    if (max_width > 0 && dst.w > max_width) {
-        dst.w = max_width;
-    }
-
-    src.x = 0;
-    src.y = 0;
-    src.w = dst.w;
-    src.h = dst.h;
-    if (max_width <= 0) {
-        src.w = 0;
-        src.h = 0;
-        SDL_RenderCopy(renderer->sdl, texture, NULL, &dst);
-    } else {
-        if (src.w < 1) src.w = 1;
-        if (src.h < 1) src.h = 1;
-        SDL_RenderCopy(renderer->sdl, texture, &src, &dst);
-    }
-    SDL_DestroyTexture(texture);
-    *io_dst = dst;
-    return 1;
-}
-
 void map_forge_text_register_font_source(TTF_Font *font,
                                          const char *path,
                                          int logical_point_size,
                                          int loaded_point_size,
                                          int kerning_enabled) {
-    kit_render_external_text_register_font_source(font,
+    map_forge_sdl_font_register(font, path, logical_point_size, kerning_enabled);
+    kit_render_external_text_register_font_source_native_pixels(font,
                                                   path,
                                                   logical_point_size,
                                                   loaded_point_size,
@@ -143,14 +65,21 @@ void map_forge_text_register_font_source(TTF_Font *font,
 }
 
 void map_forge_text_unregister_font_source(TTF_Font *font) {
+    map_forge_fallback_reset(NULL,font);
+    map_forge_sdl_font_unregister(font);
     kit_render_external_text_unregister_font_source(font);
 }
 
+/* Bind density-aware measurement before any measure-only UI layout. */
+void map_forge_text_bind_renderer(Renderer *renderer) { measurement_renderer=renderer; }
+
 void map_forge_text_reset_renderer(Renderer *renderer) {
+    if (measurement_renderer==renderer) measurement_renderer=NULL;
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer && renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
         /* Retire cached descriptors only after submitted text draws complete. */
         vk_renderer_wait_idle((VkRenderer *)renderer->vk);
+        map_forge_fallback_reset(renderer,NULL);
         kit_render_external_text_reset_renderer((SDL_Renderer *)renderer->vk);
     }
 #else
@@ -163,8 +92,11 @@ int map_forge_text_measure_utf8(Renderer *renderer,
                                 const char *text,
                                 int *out_w,
                                 int *out_h) {
+    if (!renderer) renderer=measurement_renderer;
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer && renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+        int fallback=map_forge_fallback_measure(renderer,font,text,out_w,out_h);
+        if (fallback) return fallback>0;
         return kit_render_external_text_measure_utf8((SDL_Renderer *)renderer->vk,
                                                      font,
                                                      text,
@@ -174,7 +106,7 @@ int map_forge_text_measure_utf8(Renderer *renderer,
 #else
     (void)renderer;
 #endif
-    return map_forge_text_measure_with_ttf(font, text, out_w, out_h);
+    return map_forge_sdl_text_measure(renderer, font, text, out_w, out_h);
 }
 
 int map_forge_text_draw_utf8(Renderer *renderer,
@@ -184,6 +116,8 @@ int map_forge_text_draw_utf8(Renderer *renderer,
                              SDL_Rect *io_dst) {
 #if defined(MAPFORGE_HAVE_VK)
     if (renderer && renderer->backend == RENDERER_BACKEND_VULKAN && renderer->vk) {
+        int fallback=map_forge_fallback_draw(renderer,font,text,color,io_dst);
+        if (fallback) return fallback>0;
         return kit_render_external_text_draw_utf8((SDL_Renderer *)renderer->vk,
                                                   font,
                                                   text,
@@ -191,7 +125,7 @@ int map_forge_text_draw_utf8(Renderer *renderer,
                                                   io_dst);
     }
 #endif
-    return map_forge_text_draw_utf8_sdl(renderer, font, text, color, io_dst, 0);
+    return map_forge_sdl_text_draw(renderer, font, text, color, io_dst, 0);
 }
 
 int map_forge_text_draw_utf8_clipped(Renderer *renderer,
@@ -214,5 +148,5 @@ int map_forge_text_draw_utf8_clipped(Renderer *renderer,
                                                        max_width);
     }
 #endif
-    return map_forge_text_draw_utf8_sdl(renderer, font, text, color, io_dst, max_width);
+    return map_forge_sdl_text_draw(renderer, font, text, color, io_dst, max_width);
 }
