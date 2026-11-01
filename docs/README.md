@@ -1,11 +1,19 @@
 # Carta Docs
 
 Start here for the public, operator-facing documentation that ships with the repository.
-Last audited: 2026-10-06 (Main Edit source checkpoint).
+Last audited: 2026-10-20 (Carta 0.4.1 release closeout).
 
 Repository and source-level identifiers still use `map_forge`.
 
-## Main Edit feature references
+## Current release
+
+Carta **0.4.1** is released for macOS arm64, with public download, metadata,
+Registry and signed-snapshot completion independently verified. See
+[Current truth](current_truth.md#released-carta-041--2026-10-20) for source,
+artifact identity and qualification limits, and
+[Desktop packaging](desktop_packaging.md) for the bundle-version contract.
+
+## Adopted feature references
 
 - [Shared dependency checkpoint](shared_dependency_checkpoint.md): exact committed
   renderer source and preserved vendor differences before UI migration.

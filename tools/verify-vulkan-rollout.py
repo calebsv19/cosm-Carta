@@ -28,24 +28,35 @@ def bmp_size(path: Path) -> tuple[int, int]:
     return width, abs(height)
 
 
-# Verify the committed module without importing the shared workspace's dirty tree.
-def verify_text_source(root: Path, canonical: Path) -> None:
+# Verify the complete pinned capsule, optionally checking its committed archive custody.
+def verify_text_source(root: Path, canonical: Path | None) -> None:
     pin=json.loads((Path(__file__).parent / "text-render-source-pin.json").read_text())
     commit=pin["commit"]
     if not re.fullmatch(r"[0-9a-f]{40}",commit): raise SystemExit("invalid text source pin")
-    raw=subprocess.check_output(["git","-C",str(canonical),"archive",commit,"kit/kit_render"])
-    with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
-        names=set()
-        for item in archive.getmembers():
-            if not item.isfile(): continue
-            names.add(item.name)
-            path=root/item.name
-            if not path.is_file() or path.is_symlink() or path.read_bytes()!=archive.extractfile(item).read():
-                raise SystemExit("text source mismatch: "+item.name)
-            if hashlib.sha256(path.read_bytes()).hexdigest()!=pin["files"].get(item.name):
-                raise SystemExit("text pin manifest mismatch: "+item.name)
-    if names!=set(pin["files"]): raise SystemExit("text pin manifest file mismatch")
-    print("Carta text source contract: "+commit+" files="+str(len(names)))
+    files=pin["files"]
+    if not isinstance(files,dict) or not files: raise SystemExit("empty text source capsule")
+    for name,digest in files.items():
+        relative=Path(name)
+        if relative.is_absolute() or ".." in relative.parts or relative.parts[:2]!=("kit","kit_render"):
+            raise SystemExit("invalid text capsule path: "+name)
+        path=root/relative
+        if (not re.fullmatch(r"[0-9a-f]{64}",digest) or not path.is_file() or
+            any(parent.is_symlink() for parent in [path,*path.parents] if parent!=root and root in parent.parents) or
+            hashlib.sha256(path.read_bytes()).hexdigest()!=digest):
+            raise SystemExit("text pin manifest mismatch: "+name)
+    module=root/"kit/kit_render"
+    names={path.relative_to(root).as_posix() for path in module.rglob("*")
+           if (path.is_file() or path.is_symlink()) and path.relative_to(module).parts[0] not in {"build","dist"}}
+    if names!=set(files): raise SystemExit("text pin manifest file mismatch")
+    custody="pinned-capsule"
+    if canonical is not None:
+        raw=subprocess.check_output(["git","-C",str(canonical),"archive",commit,"kit/kit_render"])
+        with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
+            committed={item.name:hashlib.sha256(archive.extractfile(item).read()).hexdigest()
+                       for item in archive.getmembers() if item.isfile()}
+        if committed!=files: raise SystemExit("text pin committed archive mismatch")
+        custody="committed-archive"
+    print("Carta text source contract: "+commit+" files="+str(len(names))+" custody="+custody)
 
 
 def main() -> int:
@@ -60,8 +71,7 @@ def main() -> int:
     canonical=args.canonical_shared_root
     if canonical is None:
         workspace=next((p for p in Path(__file__).resolve().parents if (p/"bin/shared_archive_sync.py").is_file()), None)
-        if workspace is None: raise SystemExit("canonical shared source is required")
-        canonical=workspace/"shared"
+        if workspace is not None: canonical=workspace/"shared"
     verify_text_source(root, canonical)
     runtime = root / "vk_runtime"
     renderer = root / "vk_renderer"

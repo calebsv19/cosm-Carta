@@ -2,7 +2,16 @@
 
 MapForge now supports standardized macOS app-bundle packaging via Makefile targets.
 
-Last updated: 2026-08-27
+Last updated: 2026-10-20
+
+## Released package
+
+The completed public Carta 0.4.1 package is macOS arm64, Developer ID signed,
+notarized and stapled. See [current release evidence](current_truth.md#released-carta-041--2026-10-20).
+Both `CFBundleShortVersionString` and `CFBundleVersion` are stamped from
+`RELEASE_VERSION`; the package smoke/self-test requires both values to match.
+The architecture examples below describe build capabilities, not additional
+published 0.4.1 platforms.
 
 ## Build Package
 

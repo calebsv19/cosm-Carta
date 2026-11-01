@@ -1,6 +1,30 @@
 # Carta Current Truth
 
-Last updated: 2026-10-06 (Main Edit checkpoint; canonical release unchanged)
+Last updated: 2026-10-20 (Carta 0.4.1 release closeout)
+
+## Released Carta 0.4.1 — 2026-10-20
+
+Carta 0.4.1 is the completed public macOS arm64 release. Canonical `master`
+and tag `v0.4.1` identify release commit
+`26ce496987c6e4994a49130956239afa504104a2`.
+The retained Developer ID signed, notarized and stapled package is published in
+[GitHub Releases](https://github.com/calebsv19/cosm-Carta/releases/tag/v0.4.1)
+and at the [immutable download](https://ecosystem.calebsv.tech/downloads/map_forge/0.4.1/Carta-0.4.1-macOS-arm64-stable.zip).
+Public current downloads and ecosystem metadata, Registry current 0.4.1
+(rollback 0.4.0), and the signed production snapshot completed independent
+readback. The exact release is terminal and verified; no release continuation
+is pending. Release receipts use October 21 UTC, corresponding to October 20
+in America/Los_Angeles.
+
+The ZIP is 6,256,059 bytes with SHA-256
+`f2f95f95acbf433f006f2ea7281f47eef8a2f0f30a69b025c52d64512e89c4d5`.
+Packaging stamps and verifies both `CFBundleShortVersionString` and
+`CFBundleVersion` as `0.4.1`. Existing contained build, headless smoke,
+package self-test, output-root conformance and authentication evidence were
+reused for publication of the unchanged candidate. This release qualifies the
+macOS arm64 package; it does not add Intel GUI, other-platform, OS IME/font,
+or device-loss qualification. Main Edit and installed Desktop bundles remain
+separate development/installation surfaces.
 
 ## Program Identity
 - Public product name: `Carta`
@@ -9,7 +33,7 @@ Last updated: 2026-10-06 (Main Edit checkpoint; canonical release unchanged)
   - `src/main.c` -> `map_forge_app_main()`
   - wrapper still delegates run-loop through legacy runtime path for behavior parity
 
-## Current Main Edit feature checkpoint
+## Adopted feature checkpoint (developed in Main Edit)
 
 The retained `codex/map-forge-main-edit` lane contains the completed local
 feature work for places and saved routes, corrected ground-distance route costs,
@@ -38,9 +62,10 @@ field behavior. The remaining main pin-name/Ingest, HUD/list/modal controls,
 pane composition and fullscreen/window hosts now adopt the same contracts;
 see `docs/shared_ui_rollout.md` for the complete host inventory and qualification
 boundaries.
-Program VERSION remains 0.3.0.
+The feature checkpoint predates the completed canonical releases; current
+program VERSION and public release are 0.4.1.
 
-## Accepted canonical state (2026-08-27 baseline)
+## Historical canonical baseline (2026-08-27)
 - Managed Vulkan presentation adoption is complete for the current source
   boundary:
   - the default `third_party/codework_shared` snapshot contains
